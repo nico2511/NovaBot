@@ -2,12 +2,12 @@ import streamlit as st
 from app.core.config import config
 from app.core.risk_manager import RiskManager
 
-def render_sidebar(risk_manager: RiskManager):
+def render_sidebar(risk_manager: RiskManager, current_running_state: bool = False):
     st.sidebar.title("🎛️ Control Panel")
 
     # 1. Engine Control
     st.sidebar.subheader("System Status")
-    is_running = st.sidebar.checkbox("🔌 START ENGINE (Data Feed)", value=False, key="master_switch")
+    is_running = st.sidebar.checkbox("🔌 START ENGINE (Data Feed)", value=current_running_state, key="master_switch")
     st.sidebar.caption("Must be ON to fetch data & update charts.")
 
     # 2. Asset Selector

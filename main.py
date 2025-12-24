@@ -158,7 +158,7 @@ if __name__ == "__main__":
     # --- UI Rendering ---
 
     # Sidebar
-    sidebar_state = render_sidebar(ctx.risk_manager)
+    sidebar_state = render_sidebar(ctx.risk_manager, ctx.is_running)
     ctx.trading_enabled = sidebar_state.get("trading_enabled", False)
 
     # Sync Symbol Selection
