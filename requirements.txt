@@ -1,7 +1,7 @@
 streamlit==1.41.0
 plotly==5.24.0
 pandas>=2.1.0
-pandas_ta
+pandas_ta @ git+https://github.com/twopirllc/pandas-ta.git@development
 hyperliquid-python-sdk
 discord-webhook==1.3.0
 python-dotenv==1.0.0
