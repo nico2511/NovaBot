@@ -36,6 +36,7 @@ class BotContext:
         self.active_symbol = "BTC"
         self.last_candle_time = None
         self.active_trade = None
+        self.sidebar_settings = {}  # Initialize sidebar settings
 
         # Restore State
         StateManager.load_state(self)
@@ -180,8 +181,20 @@ if __name__ == "__main__":
     # --- UI Rendering ---
 
     # Sidebar
-    sidebar_state = render_sidebar(ctx.risk_manager, ctx.is_running)
+    sidebar_state = render_sidebar(ctx.risk_manager, ctx.is_running, ctx.sidebar_settings)
     ctx.trading_enabled = sidebar_state.get("trading_enabled", False)
+    
+    # Save sidebar settings to context for persistence (capture actual values from session state)
+    ctx.sidebar_settings = {
+        "size_type": sidebar_state.get("size_type"),
+        "size_value": sidebar_state.get("size_value"),
+        "leverage": sidebar_state.get("leverage"),
+        "max_positions": sidebar_state.get("max_positions"),
+        "daily_stop_loss": sidebar_state.get("daily_stop_loss")
+    }
+    
+    # Persist settings immediately when they change
+    StateManager.save_state(ctx)
 
     # Sync Symbol Selection
     if sidebar_state.get("asset") and sidebar_state["asset"] != ctx.active_symbol:

@@ -70,4 +70,54 @@ class HyperliquidService:
         print(f"EXECUTING {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price or 'MARKET'}")
         return {"status": "mock_success", "tx": "0x123..."}
 
+    def get_account_balance(self):
+        """Fetch account balance and margin information from Hyperliquid"""
+        if not config.HL_ACCOUNT_ADDRESS:
+            return {
+                "status": "error",
+                "message": "No account address configured",
+                "equity": 0.0,
+                "available": 0.0,
+                "margin_used": 0.0
+            }
+        
+        try:
+            # Get user state from Hyperliquid API
+            user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
+            
+            if not user_state:
+                return {
+                    "status": "error",
+                    "message": "Failed to fetch user state",
+                    "equity": 0.0,
+                    "available": 0.0,
+                    "margin_used": 0.0
+                }
+            
+            # Extract balance information
+            # user_state structure: {"assetPositions": [...], "crossMarginSummary": {...}, ...}
+            margin_summary = user_state.get("crossMarginSummary", {})
+            
+            account_value = float(margin_summary.get("accountValue", 0.0))
+            total_margin_used = float(margin_summary.get("totalMarginUsed", 0.0))
+            withdrawable = float(user_state.get("withdrawable", account_value))
+            
+            return {
+                "status": "success",
+                "equity": account_value,
+                "available": withdrawable,
+                "margin_used": total_margin_used,
+                "account_value": account_value
+            }
+            
+        except Exception as e:
+            print(f"Error fetching account balance: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "equity": 0.0,
+                "available": 0.0,
+                "margin_used": 0.0
+            }
+
 hyperliquid_service = HyperliquidService()

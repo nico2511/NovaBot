@@ -23,6 +23,10 @@ class StateManager:
             "is_stop_mode": risk_status["is_stop_mode"],
             "stop_reason": risk_status["stop_reason"]
         }
+        
+        # Save Sidebar Settings
+        if hasattr(context, 'sidebar_settings'):
+            state["sidebar_settings"] = context.sidebar_settings
 
         try:
             with open(STATE_FILE, "w") as f:
@@ -52,6 +56,12 @@ class StateManager:
                 context.risk_manager.state.open_positions = rs.get("open_positions", 0)
                 context.risk_manager.state.is_stop_mode = rs.get("is_stop_mode", False)
                 context.risk_manager.state.stop_reason = rs.get("stop_reason", "")
+            
+            # Restore Sidebar Settings
+            if "sidebar_settings" in state:
+                context.sidebar_settings = state["sidebar_settings"]
+            else:
+                context.sidebar_settings = {}
                 
             print("✅ State restored from persistence file.")
         except Exception as e:
