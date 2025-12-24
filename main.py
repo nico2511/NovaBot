@@ -260,7 +260,7 @@ if __name__ == "__main__":
             st.info("📡 No Live Signals yet.")
 
         # Simple log buffer display
-        log_text = "\n".join(ctx.logs[-20:]) if hasattr(ctx, 'logs') and ctx.logs else "⏳ Waiting for logs..."
+        log_text = "\n".join(list(ctx.logs)[-20:]) if hasattr(ctx, 'logs') and ctx.logs else "⏳ Waiting for logs..."
         st.text_area("📝 System Logs", value=log_text, height=200, disabled=True)
 
     with c_right:
