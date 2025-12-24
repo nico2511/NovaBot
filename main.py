@@ -1,38 +1,30 @@
-import streamlit as st
-import time
-import threading
-import pandas as pd
-from app.core.config import config
-from app.core.risk_manager import RiskManager
-from app.services.hyperliquid_service import hyperliquid_service
-from app.services.gemini_service import gemini_service
-from app.services.discord_service import discord_service
-from strategies.engine import StrategyEngine
-from app.ui.sidebar import render_sidebar
-from app.ui.charts import render_charts
+from collections import deque
+from app.core.state_manager import StateManager
 
-# Page Config
-st.set_page_config(page_title="HyperLiquid AI Trader", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+# ... imports ...
 
-# --- Global State (Singleton) ---
 class BotContext:
     def __init__(self):
+        # ... existing initialization ...
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
         )
         self.strategy_engine = StrategyEngine(self.risk_manager)
         self.is_running = False
-        self.trading_enabled = False  # New flag
+        self.trading_enabled = False
         self.thread = None
         self.latest_data = pd.DataFrame()
         self.latest_analysis = {}
-        self.signals_log = [] # List of dicts
-        self.logs = [] # Console logs
+        self.signals_log = deque(maxlen=200) # Performance Fix: Limited history
+        self.logs = deque(maxlen=1000)      # Memory Leak Fix: Rolling logs
         self.latest_strategy_result = {}
         self.active_symbol = "BTC"
         self.last_candle_time = None
-        self.active_trade = None # Current open position
+        self.active_trade = None
+
+        # Restore State
+        StateManager.load_state(self)
 
     def background_loop(self):
         """Main Trading Loop"""
@@ -49,7 +41,6 @@ class BotContext:
                 if not df.empty:
                     self.latest_data = df
                     current_candle_time = df.index[-1]
-                    
                     current_price = df['close'].iloc[-1]
 
                     # --- A. TRADE MANAGER (Exit Logic) ---
@@ -66,10 +57,16 @@ class BotContext:
                             outcome = "✅ TAKE PROFIT" if tp_hit else "❌ STOP LOSS"
                             msg = f"{outcome} Hit: {t['symbol']} Closed @ {current_price} (Entry: {t['entry']})"
                             
+                            pnl = (current_price - t['entry']) / t['entry'] if t['side'] == 'BUY' else (t['entry'] - current_price) / t['entry']
+                            self.risk_manager.record_trade_close(pnl * 1000) # Mock size
+                            
                             # Log Exit
                             self.logs.append(f"{pd.Timestamp.now().strftime('%H:%M:%S')} {msg}")
                             discord_service.send_log(msg)
-                            self.active_trade = None # Reset
+                            self.active_trade = None 
+                            
+                            # SAVE STATE
+                            StateManager.save_state(self)
                     
                     # --- B. SIGNAL FINDER (Entry Logic) ---
                     else:
@@ -90,36 +87,47 @@ class BotContext:
                                 sl = sig_data.get("sl", entry_price * 0.95)
                                 tp = sig_data.get("tp", entry_price * 1.05)
                                 
-                                # Open Phantom Trade
-                                self.active_trade = {
-                                    "symbol": symbol,
-                                    "side": action,
-                                    "entry": entry_price,
-                                    "sl": sl,
-                                    "tp": tp,
-                                    "strategy": strat_name
-                                }
-                                
-                                # Log Entry
-                                msg = f"🚨 ENTRY: {action} {symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
-                                
-                                log_entry = {
-                                    "time": pd.Timestamp.now(),
-                                    "symbol": symbol,
-                                    "strategy": strat_name,
-                                    "type": action,
-                                    "price": entry_price,
-                                    "action": "OPENED"
-                                }
-                                self.signals_log.append(log_entry)
-                                self.logs.append(f"{pd.Timestamp.now().strftime('%H:%M:%S')} {msg}")
-                                discord_service.send_log(msg)
-                                
-                                if self.trading_enabled:
-                                    # hyperliquid_service.execute_order(...)
-                                    pass
+                                can_trade, reason = self.risk_manager.check_can_trade()
+                                if can_trade:
+                                    # Open Phantom Trade
+                                    self.active_trade = {
+                                        "symbol": symbol,
+                                        "side": action,
+                                        "entry": entry_price,
+                                        "sl": sl,
+                                        "tp": tp,
+                                        "strategy": strat_name
+                                    }
+                                    self.risk_manager.record_trade_open()
+                                    
+                                    # Log Entry
+                                    msg = f"🚨 ENTRY: {action} {symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
+                                    
+                                    log_entry = {
+                                        "time": pd.Timestamp.now(),
+                                        "symbol": symbol,
+                                        "strategy": strat_name,
+                                        "type": action,
+                                        "price": entry_price,
+                                        "action": "OPENED"
+                                    }
+                                    self.signals_log.append(log_entry)
+                                    self.logs.append(f"{pd.Timestamp.now().strftime('%H:%M:%S')} {msg}")
+                                    discord_service.send_log(msg)
+                                    
+                                    # SAVE STATE
+                                    StateManager.save_state(self)
+
+                                    if self.trading_enabled:
+                                        # hyperliquid_service.execute_order(...)
+                                        pass
+                                else:
+                                    self.logs.append(f"Skipped Signal: {reason}")
                 else:
                     self.logs.append(f"{pd.Timestamp.now().strftime('%H:%M:%S')} Waiting for data...")
+                
+                # SAVE STATE PERIODICALLY (e.g. every loop or just on events)
+                # To be safe against crashes, we save on events. 
                 
                 time.sleep(10) # 10s loop
             except Exception as e:
