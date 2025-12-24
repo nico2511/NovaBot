@@ -28,27 +28,27 @@ sudo systemctl daemon-reload
 # sudo rm -rf /chemin/vers/ancien/dossier
 ```
 
-## 2. Installation de NovaBot
-
-Nous allons installer le bot dans `/opt/novabot`.
+# Installer le bot dans /var/www/novabot
+# (Ou /var/www directement si vous préférez, mais un sous-dossier est recommandé)
 
 ```bash
-# Installer Git et Python venv (si nécessaire)
+# Installer Git et Python venv
 sudo apt update && sudo apt install -y git python3-venv python3-pip
 
-# Cloner le dépôt (ou git pull si déjà présent)
-sudo git clone https://github.com/nico2511/NovaBot.git /opt/novabot
-# Si le dossier existe déjà : cd /opt/novabot && sudo git pull
+# Cloner le dépôt
+cd /var/www
+sudo git clone https://github.com/nico2511/NovaBot.git novabot
+# Dossier final : /var/www/novabot
 
-# Configurer les permissions (remplacer 'root' par votre user si besoin)
-sudo chown -R root:root /opt/novabot
-cd /opt/novabot
+# Permissions (www-data est standard pour /var/www, ou root)
+sudo chown -R www-data:www-data /var/www/novabot
+cd /var/www/novabot
 
 # Créer l'environnement virtuel
-python3 -m venv venv
+sudo -u www-data python3 -m venv venv
 
 # Installer les dépendances
-./venv/bin/pip install -r requirements.txt
+sudo -u www-data ./venv/bin/pip install -r requirements.txt
 ```
 
 ## 3. Configuration des Secrets (.env)
@@ -62,8 +62,11 @@ cat .env
 ```
 Puis sur le serveur Proxmox :
 ```bash
-nano /opt/novabot/.env
+sudo nano /var/www/novabot/.env
 # Collez le contenu, puis Ctrl+X, Y, Entrée.
+# Sécuriser le fichier (lecture seule pour le user)
+sudo chown www-data:www-data /var/www/novabot/.env
+sudo chmod 600 /var/www/novabot/.env
 ```
 
 ## 4. Création du Service Systemd (`novabot`)
@@ -84,14 +87,13 @@ Description=NovaBot Trading Engine (Streamlit)
 After=network.target
 
 [Service]
-# Utilisateur qui lance le bot (root ou votre user)
-User=root
-WorkingDirectory=/opt/novabot
-Environment="PATH=/opt/novabot/venv/bin"
+# Utilisateur (www-data pour /var/www est recommandé)
+User=www-data
+WorkingDirectory=/var/www/novabot
+Environment="PATH=/var/www/novabot/venv/bin"
 
 # Commande de lancement (Streamlit)
-# Port 8501 par défaut
-ExecStart=/opt/novabot/venv/bin/streamlit run main.py --server.port 8501 --server.headless true --server.address 0.0.0.0
+ExecStart=/var/www/novabot/venv/bin/streamlit run main.py --server.port 8501 --server.headless true --server.address 0.0.0.0
 
 # Redémarrage automatique en cas de crash
 Restart=always
