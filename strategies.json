@@ -1,0 +1,64 @@
+{
+    "active_symbol": "BTC",
+    "market_regime": {
+        "adx_threshold": 25,
+        "timeframe": "15m"
+    },
+    "strategies": {
+        "scalp_ema_rsi": {
+            "enabled": true,
+            "type": "trend",
+            "params": {
+                "ema_fast": 9,
+                "ema_slow": 21,
+                "rsi_period": 14,
+                "rsi_overbought": 70,
+                "rsi_oversold": 30
+            }
+        },
+        "institutional_scalp": {
+            "enabled": true,
+            "type": "trend",
+            "params": {
+                "liq_grab_lookback": 20
+            }
+        },
+        "swing_trend_pullback": {
+            "enabled": true,
+            "type": "trend",
+            "params": {
+                "ema_trend": 200,
+                "ema_pullback_fast": 20,
+                "ema_pullback_slow": 50,
+                "rsi_min_long": 40,
+                "rsi_max_short": 60
+            }
+        },
+        "day_trading_orb": {
+            "enabled": true,
+            "type": "trend",
+            "params": {
+                "session_start_hour": 9,
+                "session_start_minute": 30,
+                "range_duration_min": 30,
+                "volume_threshold_multiplier": 1.5
+            }
+        },
+        "mean_reversion": {
+            "enabled": true,
+            "type": "range",
+            "params": {
+                "bb_length": 20,
+                "bb_std": 2.0,
+                "rsi_period": 14
+            }
+        },
+        "smc_fvg": {
+            "enabled": true,
+            "type": "sniper",
+            "params": {
+                "fvg_threshold": 0.005
+            }
+        }
+    }
+}

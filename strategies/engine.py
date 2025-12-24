@@ -1,0 +1,90 @@
+import pandas_ta as ta
+import pandas as pd
+from app.core.config import config
+from app.core.risk_manager import RiskManager
+from strategies.definitions import *
+import json
+
+class StrategyEngine:
+    def __init__(self, risk_manager: RiskManager):
+        self.risk_manager = risk_manager
+        self.load_config()
+        
+        # Initialize strategies with their specific config
+        strats_config = self.config.get("strategies", {})
+        
+        self.strategies = {
+            "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
+            "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
+            "swing_trend_pullback": SwingTrendPullback(strats_config.get("swing_trend_pullback")),
+            "day_trading_orb": DayTradingORB(strats_config.get("day_trading_orb")),
+            "mean_reversion": MeanReversion(strats_config.get("mean_reversion")),
+            "smc_fvg": SMCFVG(strats_config.get("smc_fvg"))
+        }
+
+    def load_config(self):
+        try:
+            with open("strategies.json", "r") as f:
+                self.config = json.load(f)
+        except Exception as e:
+            print(f"Error loading strategies.json: {e}")
+            self.config = {}
+
+    def analyze(self, df: pd.DataFrame):
+        # 1. Check Risk
+        can_trade, reason = self.risk_manager.check_can_trade()
+        if not can_trade:
+            return {"action": "SKIP", "reason": reason}
+
+        # 2. Determine Regime (ADX)
+        if len(df) < 50:
+            return {"action": "WAIT", "reason": "Not enough data"}
+
+        df.ta.adx(length=14, append=True)
+        current_adx = df['ADX_14'].iloc[-1]
+        threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
+        
+        regime = "TREND" if current_adx > threshold else "RANGE"
+        
+        # 3. Select Strategies
+        active_strategies = []
+        for name, params in self.config.get("strategies", {}).items():
+            if not params.get("enabled"):
+                continue
+            
+            strat_type = params.get("type")
+            if regime == "TREND" and strat_type == "trend":
+                active_strategies.append(self.strategies[name])
+            elif regime == "RANGE" and strat_type == "range":
+                active_strategies.append(self.strategies[name])
+            elif strat_type == "sniper": # FVG always active?
+                active_strategies.append(self.strategies[name])
+
+        # 4. Generate Signals
+        signals = []
+        for strat in active_strategies:
+            sig = strat.generate_signal(df)
+            if sig:
+                if isinstance(sig, dict):
+                    # Strategy returned rich object
+                    signal_data = sig
+                    signal_data["strategy"] = strat.name
+                    signal_data["price"] = df['close'].iloc[-1]
+                    signal_data["timestamp"] = df.index[-1]
+                    signals.append(signal_data)
+                else:
+                    # Legacy string return
+                    signal_data = {
+                        "strategy": strat.name,
+                        "signal": sig, 
+                        "price": df['close'].iloc[-1],
+                        "timestamp": df.index[-1]
+                    }
+                    signals.append(signal_data)
+
+        return {
+            "regime": regime,
+            "adx": current_adx,
+            "strategies": [s.name for s in active_strategies],
+            "signals": signals
+        }
