@@ -1,8 +1,22 @@
+import streamlit as st
+import time
+import threading
+import pandas as pd
 from collections import deque
+from app.core.config import config
+from app.core.risk_manager import RiskManager
 from app.core.state_manager import StateManager
+from app.services.hyperliquid_service import hyperliquid_service
+from app.services.gemini_service import gemini_service
+from app.services.discord_service import discord_service
+from strategies.engine import StrategyEngine
+from app.ui.sidebar import render_sidebar
+from app.ui.charts import render_charts
 
-# ... imports ...
+# Page Config
+st.set_page_config(page_title="HyperLiquid AI Trader", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
 
+# --- Global State (Singleton) ---
 class BotContext:
     def __init__(self):
         # ... existing initialization ...
