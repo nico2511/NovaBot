@@ -186,12 +186,15 @@ if __name__ == "__main__":
     
     # Save sidebar settings to context for persistence (capture actual values from session state)
     ctx.sidebar_settings = {
+        "execution_mode": sidebar_state.get("execution_mode"),
+        "trading_enabled": sidebar_state.get("trading_enabled"),
         "size_type": sidebar_state.get("size_type"),
         "size_value": sidebar_state.get("size_value"),
         "leverage": sidebar_state.get("leverage"),
         "max_positions": sidebar_state.get("max_positions"),
         "daily_stop_loss": sidebar_state.get("daily_stop_loss")
     }
+
     
     # Persist settings immediately when they change
     StateManager.save_state(ctx)

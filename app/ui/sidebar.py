@@ -67,11 +67,18 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
 
     # 4. Hybrid Mode
     st.sidebar.subheader("Execution Mode")
-    mode = st.sidebar.radio("Mode", ["Manual (Phantom)", "Auto (Hyperliquid)"])
+    
+    # Restore mode from persisted settings
+    default_mode = st.session_state.get('execution_mode', persisted_settings.get('execution_mode', 'Manual (Phantom)'))
+    mode_options = ["Manual (Phantom)", "Auto (Hyperliquid)"]
+    mode_index = mode_options.index(default_mode) if default_mode in mode_options else 0
+    mode = st.sidebar.radio("Mode", mode_options, index=mode_index, key='execution_mode')
     
     can_trade = False
     if mode == "Auto (Hyperliquid)":
-        can_trade = st.sidebar.checkbox("✅ ALLOW LIVE TRADING", value=False, help="If unchecked, signals are generated but NOT executed.")
+        # Restore trading_enabled from persisted settings
+        default_trading_enabled = st.session_state.get('trading_enabled', persisted_settings.get('trading_enabled', False))
+        can_trade = st.sidebar.checkbox("✅ ALLOW LIVE TRADING", value=default_trading_enabled, key='trading_enabled', help="If unchecked, signals are generated but NOT executed.")
         if can_trade:
             st.sidebar.warning("⚠️ Live Trading ENABLED")
 
@@ -129,6 +136,7 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
         "is_running": is_running,
         "asset": selected_asset,
         "mode": mode,
+        "execution_mode": mode,  # Add for persistence
         "trading_enabled": can_trade,
         "size_type": size_type,
         "size_value": size_value,
@@ -136,3 +144,4 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
         "max_positions": max_pos,
         "daily_stop_loss": daily_sl
     }
+
