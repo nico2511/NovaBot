@@ -64,8 +64,10 @@ class BotContext:
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
+        self.add_log(f"⚙️ Loop initialized. is_running={self.is_running}")
         
         while self.is_running:
+            self.add_log("🔄 Entering loop iteration...")
             try:
                 self.add_log("📡 Fetching candles...")
                 # Fetch candles
