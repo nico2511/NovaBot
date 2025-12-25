@@ -10,13 +10,12 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
     if persisted_settings is None:
         persisted_settings = {}
     
-    # Initialize session state from persisted settings on first load
-    if 'settings_initialized' not in st.session_state:
-        st.session_state.settings_initialized = True
-        # Restore persisted values to session state
-        for key, value in persisted_settings.items():
-            if key not in st.session_state:
-                st.session_state[key] = value
+    # Always restore persisted values to session state if they don't exist
+    # This happens on every app restart since session_state is cleared
+    for key, value in persisted_settings.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
 
     # 1. Engine Control
     st.sidebar.subheader("System Status")
@@ -68,17 +67,21 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
     # 4. Hybrid Mode
     st.sidebar.subheader("Execution Mode")
     
-    # Restore mode from persisted settings
-    default_mode = st.session_state.get('execution_mode', persisted_settings.get('execution_mode', 'Manual (Phantom)'))
+    # Initialize execution_mode in session state if not present (from persisted settings)
+    if 'execution_mode' not in st.session_state:
+        st.session_state.execution_mode = persisted_settings.get('execution_mode', 'Manual (Phantom)')
+    
     mode_options = ["Manual (Phantom)", "Auto (Hyperliquid)"]
-    mode_index = mode_options.index(default_mode) if default_mode in mode_options else 0
-    mode = st.sidebar.radio("Mode", mode_options, index=mode_index, key='execution_mode')
+    mode = st.sidebar.radio("Mode", mode_options, key='execution_mode')
     
     can_trade = False
     if mode == "Auto (Hyperliquid)":
-        # Restore trading_enabled from persisted settings
-        default_trading_enabled = st.session_state.get('trading_enabled', persisted_settings.get('trading_enabled', False))
-        can_trade = st.sidebar.checkbox("✅ ALLOW LIVE TRADING", value=default_trading_enabled, key='trading_enabled', help="If unchecked, signals are generated but NOT executed.")
+        # Initialize trading_enabled in session state if not present (from persisted settings)
+        # This MUST happen BEFORE the checkbox is created
+        if 'trading_enabled' not in st.session_state:
+            st.session_state.trading_enabled = persisted_settings.get('trading_enabled', False)
+        
+        can_trade = st.sidebar.checkbox("✅ ALLOW LIVE TRADING", key='trading_enabled', help="If unchecked, signals are generated but NOT executed.")
         if can_trade:
             st.sidebar.warning("⚠️ Live Trading ENABLED")
 
