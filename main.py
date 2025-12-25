@@ -13,6 +13,7 @@ from strategies.engine import StrategyEngine
 from app.ui.sidebar import render_sidebar
 from app.ui.charts import render_charts
 from app.ui.strategy_monitor import render_strategy_monitor
+from app.ui.cards import render_stat_card, render_info_card, render_header_card
 from app.ui.theme import CUSTOM_CSS
 
 # Page Config
@@ -232,41 +233,83 @@ if __name__ == "__main__":
          # Implicitly updates cache every 15s via the loop or UI interaction
          pass
 
-    # Main Layout
-    st.title("⚡ HyperLiquid AI Trader v2.0")
 
-    # Top Metrics
-    # Top Metrics - Responsive Layout (Mobile Friendly)
-    # Row 1: Status, Asset, Mode
-    row1_col1, row1_col2, row1_col3 = st.columns(3)
-    with row1_col1:
-        if ctx.is_running:
-            with st.status("Engine Active", expanded=False, state="running") as status:
-                st.write("Fetching market data...")
-                if ctx.active_trade:
-                    t = ctx.active_trade
-                    status.update(label=f"🟢 IN TRADE: {t['side']} {t['symbol']}", state="complete", expanded=False)
-                    st.write(f"Entry: {t['entry']}")
-                    st.write(f"SL: {t['sl']} | TP: {t['tp']}")
-                else:
-                    st.write("Scanning for opportunities...")
-        else:
-            st.metric("Status", "STOPPED", delta_color="off")
-    with row1_col2:
-        st.metric("Asset", sidebar_state["asset"])
-    with row1_col3:
-        st.metric("Mode", sidebar_state["mode"])
+    # Header Card
+    status_badge = "🟢 LIVE" if ctx.is_running else "⚪ OFFLINE"
+    render_header_card(
+        title="⚡ HyperLiquid AI Trader",
+        subtitle="Advanced algorithmic trading with AI-powered strategies",
+        badge=status_badge
+    )
 
-    # Row 2: Price, Active Strategy
-    row2_col1, row2_col2 = st.columns(2)
-    with row2_col1:
+    # Stats Cards Grid
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
         last_price = ctx.latest_data['close'].iloc[-1] if not ctx.latest_data.empty else 0.0
-        st.metric("Price", f"${last_price:,.2f}")
-    with row2_col2:
-        # Active Strategy Display
+        render_stat_card(
+            icon="💰",
+            label="Current Price",
+            value=f"${last_price:,.2f}",
+            delta=sidebar_state["asset"],
+            color="blue"
+        )
+    
+    with col2:
         active_strats = ctx.latest_strategy_result.get("strategies", []) if hasattr(ctx, 'latest_strategy_result') else []
-        strat_text = ", ".join(active_strats) if active_strats else "WAITING..."
-        st.metric("Active Strategy", strat_text)
+        strat_count = len(active_strats) if active_strats else 0
+        render_stat_card(
+            icon="🎯",
+            label="Active Strategies",
+            value=str(strat_count),
+            delta="Monitoring market",
+            color="purple"
+        )
+    
+    with col3:
+        regime = ctx.latest_strategy_result.get("regime", "UNKNOWN") if hasattr(ctx, 'latest_strategy_result') and ctx.latest_strategy_result else "UNKNOWN"
+        regime_icon = "📈" if regime == "TREND" else "📊"
+        regime_color = "green" if regime == "TREND" else "orange"
+        render_stat_card(
+            icon=regime_icon,
+            label="Market Regime",
+            value=regime,
+            delta=f"ADX: {ctx.latest_strategy_result.get('adx', 0):.1f}" if hasattr(ctx, 'latest_strategy_result') and ctx.latest_strategy_result else "Calculating...",
+            color=regime_color
+        )
+    
+    with col4:
+        mode_short = "Auto" if sidebar_state["mode"] == "Auto (Hyperliquid)" else "Manual"
+        mode_icon = "🤖" if mode_short == "Auto" else "👤"
+        mode_color = "green" if ctx.trading_enabled else "orange"
+        render_stat_card(
+            icon=mode_icon,
+            label="Execution Mode",
+            value=mode_short,
+            delta="Live Trading" if ctx.trading_enabled else "Paper Trading",
+            color=mode_color
+        )
+    
+    with col5:
+        if ctx.active_trade:
+            t = ctx.active_trade
+            trade_icon = "🟢" if t['side'] == "BUY" else "🔴"
+            render_stat_card(
+                icon=trade_icon,
+                label="Active Trade",
+                value=f"{t['side']}",
+                delta=f"{t['symbol']} @ ${t['entry']:.0f}",
+                color="green" if t['side'] == "BUY" else "red"
+            )
+        else:
+            render_stat_card(
+                icon="🔍",
+                label="Active Trade",
+                value="None",
+                delta="Scanning...",
+                color="cyan"
+            )
+
 
     # --- SECTION 1: CHARTS (Always Visible) ---
     st.markdown("### 📊 Market Data")
