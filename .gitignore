@@ -2,6 +2,11 @@
 .env
 .streamlit/secrets.toml
 
+# Bot State (should not be in Git)
+bot_state.json
+bot_state.json.backup
+*.backup
+
 # Python
 __pycache__/
 *.pyc
