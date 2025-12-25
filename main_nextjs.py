@@ -67,6 +67,7 @@ class BotContext:
         
         while self.is_running:
             try:
+                self.add_log("📡 Fetching candles...")
                 # Fetch candles
                 df = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
                 
@@ -75,6 +76,7 @@ class BotContext:
                     time.sleep(10)
                     continue
                 
+                self.add_log(f"✅ Received {len(df)} candles")
                 self.latest_data = df
                 
                 # Get current candle time
@@ -84,9 +86,12 @@ class BotContext:
                 if self.last_candle_time != current_candle_time:
                     self.last_candle_time = current_candle_time
                     
+                    self.add_log(f"🔍 Analyzing new candle at {current_candle_time}")
                     # Analyze strategies
                     result = self.strategy_engine.analyze(df)
                     self.latest_strategy_result = result
+                    
+                    self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
                     
                     if result.get("signals"):
                         sig_data = result["signals"][0]
