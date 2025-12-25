@@ -309,3 +309,34 @@ class SMCFVG(BaseStrategy):
                         "comment": f"Bearish FVG Fill"
                     }
         return None
+
+
+class TestTriggerStrategy(BaseStrategy):
+    """
+    Strategy for TESTING purposes only.
+    Triggers a signal almost constantly to verify engine/execution.
+    """
+    def add_indicators(self, df):
+        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
+    def generate_signal(self, df):
+        if df.empty or len(df) < 5: return None
+        
+        self.add_indicators(df)
+        
+        atr_col = "ATRr_14"
+        close = df['close'].iloc[-1]
+        
+        atr = df[atr_col].iloc[-1] if atr_col in df.columns else (close * 0.01)
+        
+        # Trigger BUY if close > 0 (always true)
+        # But to avoid spamming 1000s, maybe only if not in position or simple condition
+        # User asked for "strategy de test hyper light en trigger"
+        # Let's signal regularly.
+        return {
+            "signal": "BUY",
+            "sl": close * 0.99,
+            "tp": close * 1.02,
+            "comment": "TEST TRIGGER"
+        }

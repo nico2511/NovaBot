@@ -59,6 +59,11 @@
             "params": {
                 "fvg_threshold": 0.005
             }
+        },
+        "test_trigger": {
+            "enabled": true,
+            "type": "sniper",
+            "params": {}
         }
     }
 }

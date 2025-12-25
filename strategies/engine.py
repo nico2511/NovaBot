@@ -19,7 +19,8 @@ class StrategyEngine:
             "swing_trend_pullback": SwingTrendPullback(strats_config.get("swing_trend_pullback")),
             "day_trading_orb": DayTradingORB(strats_config.get("day_trading_orb")),
             "mean_reversion": MeanReversion(strats_config.get("mean_reversion")),
-            "smc_fvg": SMCFVG(strats_config.get("smc_fvg"))
+            "smc_fvg": SMCFVG(strats_config.get("smc_fvg")),
+            "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger"))
         }
 
     def load_config(self):
