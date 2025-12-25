@@ -244,12 +244,17 @@ class BotContext:
     
     def start(self):
         """Start the bot"""
+        self.add_log(f"🔧 start() called. Current is_running={self.is_running}")
         if not self.is_running:
             self.is_running = True
+            self.add_log("🧵 Creating trading thread...")
             self.thread = threading.Thread(target=self.trading_loop, daemon=True)
+            self.add_log("🚀 Starting trading thread...")
             self.thread.start()
-            self.add_log("✅ Bot started")
+            self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
             StateManager.save_state(self)
+        else:
+            self.add_log("⚠️ Bot already running, skipping start")
     
     def stop(self):
         """Stop the bot"""
