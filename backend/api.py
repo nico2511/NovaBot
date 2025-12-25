@@ -10,6 +10,8 @@ import asyncio
 import json
 from datetime import datetime
 import os
+import numpy as np
+import pandas as pd
 
 # When running from backend/, we need to go up one level
 BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
@@ -154,20 +156,11 @@ async def enable_trading():
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.trading_enabled = True
-        # Force a save on the bot side if possible, or we manually update file? 
-        # The bot context usually has a save_state method. 
-        # But here we are in API. We should probably update the file too to be sure settings page sees it.
-        # However, bot's save_state might overwrite. 
-        # Let's assume bot handles its own persistence. 
-        # But wait, StateManager.save_state in main_nextjs.py DOES save to bot_state.json
-        # So if bot is connected, main_nextjs.py should handle it.
-        # Let's verify main_nextjs.py's persistence first.
-        
-        # If bot is connected, we trust it saves.
-        # If not, we use bot_state.save_state()
+        bot.execution_mode = "Auto (Hyperliquid)"
         return {"status": "enabled", "message": "Live trading enabled on real bot"}
     else:
         bot_state.trading_enabled = True
+        bot_state.execution_mode = "Auto (Hyperliquid)"
         bot_state.save_state()
         return {"status": "enabled", "message": "Standalone mode - bot_state updated"}
 
@@ -412,14 +405,24 @@ async def get_logs():
                 logs.append({"time": "", "message": log})
         return {"logs": logs}
     
-    # Fallback to mock
-    return {
-        "logs": [
-            {"time": "09:45:23", "message": "🚀 Bot started"},
-            {"time": "09:45:25", "message": "📊 Analyzing BTC market"},
-            {"time": "09:45:30", "message": "✅ Strategies loaded: ScalpEmaRsi, SMCFVG"}
-        ]
-    }
+    # Return standalone logs
+    logs = []
+    for log in list(bot_state.logs)[-50:]:
+        parts = log.split(" ", 1)
+        if len(parts) == 2:
+            logs.append({"time": parts[0], "message": parts[1]})
+        else:
+            logs.append({"time": "", "message": log})
+    
+    # If empty, show welcome message
+    if not logs:
+        return {
+            "logs": [
+                {"time": datetime.now().strftime("%H:%M:%S"), "message": "🤖 Standalone mode ready"}
+            ]
+        }
+    
+    return {"logs": logs}
 
 @app.get("/api/active_trade")
 async def get_active_trade():
