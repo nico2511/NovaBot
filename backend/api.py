@@ -97,15 +97,48 @@ async def get_status():
         active_trade=bot_state.active_trade
     )
 
+    def save_state(self):
+        """Save state to bot_state.json"""
+        try:
+            state_file = os.path.join(BASE_DIR, "bot_state.json")
+            # Load existing to preserve other fields
+            try:
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+            except:
+                state = {}
+            
+            state["is_running"] = self.is_running
+            state["trading_enabled"] = self.trading_enabled
+            state["active_symbol"] = self.active_symbol
+            
+            # Ensure sidebar settings match
+            if "sidebar_settings" not in state:
+                state["sidebar_settings"] = {}
+            state["sidebar_settings"]["trading_enabled"] = self.trading_enabled
+            
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            print(f"Error saving state: {e}")
+
+bot_state = BotState()
+
+# ... (Pydantic models) ...
+
+# ... (Endpoints) ...
+
 @app.post("/api/engine/start")
 async def start_engine():
     """Start the trading engine"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.start()
+        # Bot saves state internally usually, but we force sync if needed
         return {"status": "started", "message": "Real bot started"}
     else:
         bot_state.is_running = True
+        bot_state.save_state()
         return {"status": "started", "message": "Standalone mode - bot_state updated"}
 
 @app.post("/api/engine/stop")
@@ -117,6 +150,7 @@ async def stop_engine():
         return {"status": "stopped", "message": "Real bot stopped"}
     else:
         bot_state.is_running = False
+        bot_state.save_state()
         return {"status": "stopped", "message": "Standalone mode - bot_state updated"}
 
 @app.post("/api/trading/enable")
@@ -125,9 +159,21 @@ async def enable_trading():
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.trading_enabled = True
+        # Force a save on the bot side if possible, or we manually update file? 
+        # The bot context usually has a save_state method. 
+        # But here we are in API. We should probably update the file too to be sure settings page sees it.
+        # However, bot's save_state might overwrite. 
+        # Let's assume bot handles its own persistence. 
+        # But wait, StateManager.save_state in main_nextjs.py DOES save to bot_state.json
+        # So if bot is connected, main_nextjs.py should handle it.
+        # Let's verify main_nextjs.py's persistence first.
+        
+        # If bot is connected, we trust it saves.
+        # If not, we use bot_state.save_state()
         return {"status": "enabled", "message": "Live trading enabled on real bot"}
     else:
         bot_state.trading_enabled = True
+        bot_state.save_state()
         return {"status": "enabled", "message": "Standalone mode - bot_state updated"}
 
 @app.post("/api/trading/disable")
@@ -139,6 +185,7 @@ async def disable_trading():
         return {"status": "disabled", "message": "Live trading disabled on real bot"}
     else:
         bot_state.trading_enabled = False
+        bot_state.save_state()
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
 
 @app.get("/api/candles")

@@ -42,8 +42,10 @@ export default function Settings() {
                 console.error('Failed to load settings:', error)
             }
         }
-        loadSettings()
-    }, [])
+        if (isOpen) {
+            loadSettings()
+        }
+    }, [isOpen])
 
     const saveSettings = async () => {
         try {
