@@ -21,15 +21,18 @@ class BotBridge:
     def set_bot_context(self, context):
         """Set the bot context from main.py"""
         self.bot_context = context
-        print("✅ Bot context connected to API bridge")
+        print(f"✅ Bot context connected to API bridge (id={id(self)}, context={type(context).__name__})")
     
     def get_bot_context(self):
         """Get the bot context"""
+        print(f"🔍 get_bot_context called (id={id(self)}, has_context={self.bot_context is not None})")
         return self.bot_context
     
     def is_connected(self) -> bool:
         """Check if bot is connected"""
-        return self.bot_context is not None
+        result = self.bot_context is not None
+        print(f"🔍 is_connected called (id={id(self)}, result={result})")
+        return result
 
 # Global bridge instance
 bot_bridge = BotBridge()
