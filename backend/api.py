@@ -18,7 +18,7 @@ BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "bac
 
 # Import bot bridge for integration with main bot
 try:
-    from bot_bridge import bot_bridge
+    from backend.bot_bridge import bot_bridge
     print("✅ Bot bridge imported successfully")
 except ImportError:
     print("⚠️ Bot bridge not available - running in standalone mode")
