@@ -5,7 +5,7 @@ const nextConfig = {
         return [
             {
                 source: '/api/:path*',
-                destination: 'http://localhost:8001/api/:path*' // Proxy to backend on port 8001
+                destination: 'http://127.0.0.1:8001/api/:path*' // Proxy to backend on port 8001 (IPv4)
             }
         ]
     }
