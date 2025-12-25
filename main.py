@@ -12,9 +12,19 @@ from app.services.discord_service import discord_service
 from strategies.engine import StrategyEngine
 from app.ui.sidebar import render_sidebar
 from app.ui.charts import render_charts
+from app.ui.theme import CUSTOM_CSS
 
 # Page Config
-st.set_page_config(page_title="HyperLiquid AI Trader", page_icon="📈", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="HyperLiquid AI Trader", 
+    page_icon="📈", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
+
+# Apply BoxProof Dark Theme
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
 
 # --- Global State (Singleton) ---
 class BotContext:

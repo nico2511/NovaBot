@@ -1,0 +1,13 @@
+[theme]
+# BoxProof Theme - Dark Mode
+primaryColor = "#3b82f6"        # Blue 500
+backgroundColor = "#0f172a"     # Slate 900
+secondaryBackgroundColor = "#1e293b"  # Slate 800
+textColor = "#f8fafc"           # Slate 50
+font = "sans serif"
+
+[server]
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = true
