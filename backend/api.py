@@ -44,8 +44,17 @@ class BotState:
         self.execution_mode = "Manual (Phantom)"
         self.active_trade = None
         self.signals_log = []
+        self.logs = []
         self.load_state()
     
+    def add_log(self, message):
+        """Add a log message with timestamp"""
+        time_str = datetime.now().strftime("%H:%M:%S")
+        self.logs.append(f"{time_str} {message}")
+        # Keep last 100
+        if len(self.logs) > 100:
+            self.logs.pop(0)
+
     def load_state(self):
         """Load state from bot_state.json"""
         try:
@@ -74,11 +83,13 @@ class BotState:
             state["is_running"] = self.is_running
             state["trading_enabled"] = self.trading_enabled
             state["active_symbol"] = self.active_symbol
+            state["execution_mode"] = self.execution_mode
             
             # Ensure sidebar settings match
             if "sidebar_settings" not in state:
                 state["sidebar_settings"] = {}
             state["sidebar_settings"]["trading_enabled"] = self.trading_enabled
+            state["sidebar_settings"]["execution_mode"] = self.execution_mode
             
             with open(state_file, "w") as f:
                 json.dump(state, f, indent=2)
@@ -135,6 +146,7 @@ async def start_engine():
         return {"status": "started", "message": "Real bot started"}
     else:
         bot_state.is_running = True
+        bot_state.add_log(f"🚀 Bot started on {bot_state.active_symbol}")
         bot_state.save_state()
         return {"status": "started", "message": "Standalone mode - bot_state updated"}
 
@@ -147,6 +159,7 @@ async def stop_engine():
         return {"status": "stopped", "message": "Real bot stopped"}
     else:
         bot_state.is_running = False
+        bot_state.add_log("🛑 Bot stopped")
         bot_state.save_state()
         return {"status": "stopped", "message": "Standalone mode - bot_state updated"}
 
@@ -161,6 +174,7 @@ async def enable_trading():
     else:
         bot_state.trading_enabled = True
         bot_state.execution_mode = "Auto (Hyperliquid)"
+        bot_state.add_log("🟢 Live trading ENABLED")
         bot_state.save_state()
         return {"status": "enabled", "message": "Standalone mode - bot_state updated"}
 
@@ -173,6 +187,7 @@ async def disable_trading():
         return {"status": "disabled", "message": "Live trading disabled on real bot"}
     else:
         bot_state.trading_enabled = False
+        bot_state.add_log("🔴 Live trading DISABLED")
         bot_state.save_state()
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
 
@@ -189,8 +204,26 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None):
         df = await get_hyperliquid_candles(bot_state.active_symbol, "15m", limit)
         if df is None:
             return {"candles": []}
+        
+        # 2. Add default indicators (BB, EMA) for chart visualization
+        try:
+            # Bollinger Bands (20, 2)
+            df['mean'] = df['close'].rolling(window=20).mean()
+            df['std'] = df['close'].rolling(window=20).std()
+            df['BBU_20_2.0'] = df['mean'] + (df['std'] * 2)
+            df['BBM_20_2.0'] = df['mean']
+            df['BBL_20_2.0'] = df['mean'] - (df['std'] * 2)
             
-        # 2. Add indicators if strategy provided
+            # EMAs
+            df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
+            df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
+            
+            # Drop temp columns
+            df.drop(columns=['mean', 'std'], inplace=True, errors='ignore')
+        except Exception as e:
+            print(f"Error adding default indicators: {e}")
+
+        # 3. Add strategy indicators if provided (might overwrite/augment)
         if strategy:
             try:
                 # Dynamic import to avoid circular dependency

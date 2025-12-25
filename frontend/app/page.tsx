@@ -122,8 +122,8 @@ export default function Home() {
 
                 {/* Chart */}
                 <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
-                    <h3 className="text-lg font-semibold mb-4">📊 Market Data</h3>
-                    <h3 className="text-lg font-semibold mb-4">📊 Market Data</h3>
+
+
                     <Chart
                         symbol={status?.active_symbol || 'BTC'}
                         strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}

@@ -150,8 +150,8 @@ export default function Chart({ symbol, strategy }: ChartProps) {
                 'EMA_21': '#f59e0b',
                 'EMA_50': '#8b5cf6',
                 'EMA_200': '#ffffff',
-                'BBU_20_2.0': '#10b981',
-                'BBL_20_2.0': '#10b981',
+                'BBU_20_2.0': 'rgba(52, 211, 153, 0.3)',
+                'BBL_20_2.0': 'rgba(52, 211, 153, 0.3)',
                 'BBM_20_2.0': '#10b981',
             }
 
