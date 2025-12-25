@@ -16,7 +16,7 @@ export default function TradeHistory() {
     useEffect(() => {
         const fetchSignals = async () => {
             try {
-                const response = await fetch('http://localhost:8000/api/signals')
+                const response = await fetch('/api/signals')
                 const data = await response.json()
                 setSignals(data.signals || [])
             } catch (error) {
@@ -57,8 +57,8 @@ export default function TradeHistory() {
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center ${signal.side === 'BUY'
-                                            ? 'bg-success/20 text-success'
-                                            : 'bg-error/20 text-error'
+                                        ? 'bg-success/20 text-success'
+                                        : 'bg-error/20 text-error'
                                         }`}>
                                         {signal.side === 'BUY' ? '📈' : '📉'}
                                     </div>

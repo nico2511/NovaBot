@@ -262,8 +262,8 @@ def start_api_server(bot_context):
     # Connect bot to API via bridge
     bot_bridge.set_bot_context(bot_context)
     
-    print("🚀 Starting FastAPI server on http://localhost:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    print("🚀 Starting FastAPI server on http://localhost:8001")
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
 
 
 if __name__ == "__main__":
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     
     print("\n✅ Bot initialized")
     print("📊 Next.js UI: http://localhost:3000")
-    print("🔧 API Docs: http://localhost:8000/docs")
+    print("🔧 API Docs: http://localhost:8001/docs")
     print("\n💡 The bot is ready. Use the Next.js UI to control it.")
     print("   Or use Streamlit as backup: streamlit run main.py")
     print("\nPress Ctrl+C to stop\n")

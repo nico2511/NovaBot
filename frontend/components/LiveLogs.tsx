@@ -18,7 +18,7 @@ export default function LiveLogs() {
     useEffect(() => {
         const fetchLogs = async () => {
             try {
-                const response = await fetch('http://localhost:8000/api/logs')
+                const response = await fetch('/api/logs')
                 const data = await response.json()
                 setLogs(data.logs || [])
             } catch (error) {

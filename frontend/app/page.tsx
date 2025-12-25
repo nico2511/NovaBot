@@ -11,7 +11,7 @@ import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = ''
 
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
