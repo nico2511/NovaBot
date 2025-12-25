@@ -61,7 +61,7 @@
             }
         },
         "test_trigger": {
-            "enabled": true,
+            "enabled": false,
             "type": "sniper",
             "params": {}
         }
