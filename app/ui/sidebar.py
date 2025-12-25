@@ -117,7 +117,7 @@ def render_sidebar(risk_manager: RiskManager, current_running_state: bool = Fals
     default_daily_sl = st.session_state.get('daily_stop_loss', persisted_settings.get('daily_stop_loss', risk_manager.daily_stop_loss))
     daily_sl = st.sidebar.number_input(
         "Daily Stop Loss (USDC)", 
-        min_value=10.0, 
+        min_value=1.0,  # Reduced from 10.0 to allow smaller values
         value=float(default_daily_sl),
         help="Circuit breaker: Stops bot if daily loss exceeds this.",
         key='daily_stop_loss'
