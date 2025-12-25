@@ -58,6 +58,31 @@ class BotState:
         except Exception as e:
             print(f"Error loading state: {e}")
 
+    def save_state(self):
+        """Save state to bot_state.json"""
+        try:
+            state_file = os.path.join(BASE_DIR, "bot_state.json")
+            # Load existing to preserve other fields
+            try:
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+            except:
+                state = {}
+            
+            state["is_running"] = self.is_running
+            state["trading_enabled"] = self.trading_enabled
+            state["active_symbol"] = self.active_symbol
+            
+            # Ensure sidebar settings match
+            if "sidebar_settings" not in state:
+                state["sidebar_settings"] = {}
+            state["sidebar_settings"]["trading_enabled"] = self.trading_enabled
+            
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            print(f"Error saving state: {e}")
+
 bot_state = BotState()
 
 # Pydantic models
@@ -97,36 +122,6 @@ async def get_status():
         active_trade=bot_state.active_trade
     )
 
-    def save_state(self):
-        """Save state to bot_state.json"""
-        try:
-            state_file = os.path.join(BASE_DIR, "bot_state.json")
-            # Load existing to preserve other fields
-            try:
-                with open(state_file, "r") as f:
-                    state = json.load(f)
-            except:
-                state = {}
-            
-            state["is_running"] = self.is_running
-            state["trading_enabled"] = self.trading_enabled
-            state["active_symbol"] = self.active_symbol
-            
-            # Ensure sidebar settings match
-            if "sidebar_settings" not in state:
-                state["sidebar_settings"] = {}
-            state["sidebar_settings"]["trading_enabled"] = self.trading_enabled
-            
-            with open(state_file, "w") as f:
-                json.dump(state, f, indent=2)
-        except Exception as e:
-            print(f"Error saving state: {e}")
-
-bot_state = BotState()
-
-# ... (Pydantic models) ...
-
-# ... (Endpoints) ...
 
 @app.post("/api/engine/start")
 async def start_engine():
