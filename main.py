@@ -12,6 +12,7 @@ from app.services.discord_service import discord_service
 from strategies.engine import StrategyEngine
 from app.ui.sidebar import render_sidebar
 from app.ui.charts import render_charts
+from app.ui.strategy_monitor import render_strategy_monitor
 from app.ui.theme import CUSTOM_CSS
 
 # Page Config
@@ -275,6 +276,20 @@ if __name__ == "__main__":
         st.info("Waiting for data... Ensure Engine is ON.")
 
     st.divider()
+    
+    # --- SECTION 1.5: STRATEGY MONITOR (Live Thresholds) ---
+    if not ctx.latest_data.empty and ctx.latest_strategy_result:
+        # Load strategies config
+        import json
+        try:
+            with open("strategies.json", "r") as f:
+                strategies_config = json.load(f)
+        except:
+            strategies_config = {}
+        
+        render_strategy_monitor(ctx.latest_data, ctx.latest_strategy_result, strategies_config)
+        st.divider()
+
 
     # --- SECTION 2: INSIGHTS & LOGS (Split View) ---
     c_left, c_right = st.columns([1, 1])
