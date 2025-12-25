@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting HyperLiquid Trading Bot - FULL INTEGRATION"
+echo "🚀 Deploying HyperLiquid Trading Bot (PM2 Mode)"
 echo ""
 
 # Activate venv if exists
@@ -12,61 +12,44 @@ elif [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-echo "This will start:"
-echo "  1. Trading Bot (Python)"
-echo "  2. FastAPI Backend"
-echo "  3. Next.js Frontend"
-echo ""
-
 # Check Python dependencies
+echo "📦 Checking Python dependencies..."
 if ! python3 -c "import pandas; import dotenv; import eth_account; import hyperliquid; import discord_webhook" 2>/dev/null; then
     echo "📦 Installing Python dependencies..."
-    pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn --break-system-packages
+    # If in venv, no need for break-system-packages (usually), but keeping it safe if user is root without venv
+    if [ -n "$VIRTUAL_ENV" ]; then
+        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn
+    else
+        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn --break-system-packages
+    fi
 fi
 
-# Check backend dependencies
-if ! python3 -c "import fastapi" 2>/dev/null; then
-    echo "📦 Installing backend dependencies..."
-    pip install -q -r backend/requirements.txt --break-system-packages
-fi
-
-# Check frontend dependencies
-if [ ! -d "frontend/node_modules" ]; then
-    echo "📦 Installing frontend dependencies..."
-    cd frontend
-    npm install
-    cd ..
-fi
-
-echo ""
-echo "✅ All dependencies installed!"
-echo ""
-
-# Start the integrated bot + API
-echo "🤖 Starting integrated bot with API..."
-python3 main_nextjs.py &
-BOT_PID=$!
-
-# Wait for API to start
-sleep 5
-
-# Start frontend
-echo "🎨 Starting Next.js frontend..."
+# Build Frontend
+echo "🏗️  Building Next.js Frontend..."
 cd frontend
-npm run dev &
-FRONTEND_PID=$!
+# Install only if missing (speed up)
+if [ ! -d "node_modules" ]; then
+    echo "📦 Installing Frontend dependencies..."
+    npm install
+fi
+npm run build
 cd ..
 
-echo ""
-echo "✅ All services running!"
-echo ""
-echo "📊 Next.js UI: http://localhost:3000"
-echo "🔧 API Docs: http://localhost:8000/docs"
-echo "💡 Streamlit (backup): streamlit run main.py"
-echo ""
-echo "Press Ctrl+C to stop all services"
-echo ""
+echo "🔄 Redémarrage de PM2..."
+# Delete existing processes to ensure clean config reload
+pm2 delete ecosystem.config.js 2>/dev/null || pm2 delete hl-bot-engine hl-frontend 2>/dev/null || true
 
-# Wait for Ctrl+C
-trap "kill $BOT_PID $FRONTEND_PID 2>/dev/null; exit" INT
-wait
+# Start fresh
+pm2 start ecosystem.config.js
+pm2 save
+
+echo ""
+echo "✅ Déploiement terminé!"
+echo ""
+echo "📊 Vérification:"
+pm2 list
+echo ""
+echo "📝 Pour voir les logs:"
+echo "   Global:   pm2 logs"
+echo "   Bot:      pm2 logs hl-bot-engine"
+echo "   UI:       pm2 logs hl-frontend"
