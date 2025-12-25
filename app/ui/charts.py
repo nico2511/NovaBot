@@ -1,7 +1,8 @@
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
-import pandas_ta as ta
+# import pandas_ta as ta
+from app.services.indicators import ta
 
 def render_charts(df: pd.DataFrame, signals: list):
     if df.empty:
@@ -10,9 +11,15 @@ def render_charts(df: pd.DataFrame, signals: list):
 
     # Prepare Data with Indicators for visualization
     # (In a real app, this might be pre-calculated in background)
-    df.ta.ema(length=9, append=True)
-    df.ta.ema(length=21, append=True)
-    df.ta.bbands(length=20, append=True)
+    
+    # EMA
+    df['EMA_9'] = ta.ema(df['close'], length=9)
+    df['EMA_21'] = ta.ema(df['close'], length=21)
+    
+    # Bollinger Bands
+    bb = ta.bbands(df['close'], length=20)
+    df['BBU_20_2.0'] = bb['BBU']
+    df['BBL_20_2.0'] = bb['BBL']
 
     fig = go.Figure()
 

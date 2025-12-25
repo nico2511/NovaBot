@@ -1,4 +1,4 @@
-import pandas_ta as ta
+from app.services.indicators import ta
 import pandas as pd
 from app.core.config import config
 from app.core.risk_manager import RiskManager
@@ -40,8 +40,15 @@ class StrategyEngine:
         if len(df) < 50:
             return {"action": "WAIT", "reason": "Not enough data"}
 
-        df.ta.adx(length=14, append=True)
-        current_adx = df['ADX_14'].iloc[-1]
+        # Use new custom indicators service
+        adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
+        current_adx = adx_res['ADX'].iloc[-1]
+        
+        # Add to df for strategies to use if needed
+        # Strategies typically use df.ta... we need to check definitions.py too to ensure they don't break
+        # But for now let's ensure engine works
+        df['ADX_14'] = adx_res['ADX']
+
         threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
         
         regime = "TREND" if current_adx > threshold else "RANGE"

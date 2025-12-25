@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
-import pandas_ta as ta
+# import pandas_ta as ta
+from app.services.indicators import ta
 
 class BaseStrategy(ABC):
     def __init__(self, config=None):

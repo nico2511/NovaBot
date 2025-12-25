@@ -2,6 +2,16 @@
 
 echo "🚀 Starting HyperLiquid Trading Bot - FULL INTEGRATION"
 echo ""
+
+# Activate venv if exists
+if [ -d ".venv" ]; then
+    echo "🐍 Activating virtual environment (.venv)..."
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    echo "🐍 Activating virtual environment (venv)..."
+    source venv/bin/activate
+fi
+
 echo "This will start:"
 echo "  1. Trading Bot (Python)"
 echo "  2. FastAPI Backend"
@@ -9,9 +19,9 @@ echo "  3. Next.js Frontend"
 echo ""
 
 # Check Python dependencies
-if ! python3 -c "import pandas; import dotenv; import eth_account; import hyperliquid; import pandas_ta; import discord_webhook" 2>/dev/null; then
+if ! python3 -c "import pandas; import dotenv; import eth_account; import hyperliquid; import discord_webhook" 2>/dev/null; then
     echo "📦 Installing Python dependencies..."
-    pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk pandas_ta discord-webhook aiohttp pydantic fastapi uvicorn --break-system-packages
+    pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn --break-system-packages
 fi
 
 # Check backend dependencies
