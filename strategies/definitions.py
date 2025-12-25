@@ -11,21 +11,34 @@ class BaseStrategy(ABC):
     def generate_signal(self, df):
         pass
 
+    def add_indicators(self, df):
+        """Add indicators to the dataframe. Should be overridden by subclasses."""
+        pass
+
 class ScalpEmaRsi(BaseStrategy):
-    def generate_signal(self, df):
-        if df.empty or len(df) < 200: return None
-            
+    def add_indicators(self, df):
         params = self.config.get("params", {})
         ema_fast_len = params.get("ema_fast", 9)
         ema_slow_len = params.get("ema_slow", 21)
         rsi_len = params.get("rsi_period", 14)
         
-        # Indicators (Pure Pandas implementation)
+        # Indicators
         df[f'EMA_{ema_fast_len}'] = ta.ema(df['close'], length=ema_fast_len)
         df[f'EMA_{ema_slow_len}'] = ta.ema(df['close'], length=ema_slow_len)
         df['EMA_200'] = ta.ema(df['close'], length=200)
         df[f'RSI_{rsi_len}'] = ta.rsi(df['close'], length=rsi_len)
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
+    def generate_signal(self, df):
+        if df.empty or len(df) < 200: return None
+        
+        self.add_indicators(df)
+            
+        params = self.config.get("params", {})
+        ema_fast_len = params.get("ema_fast", 9)
+        ema_slow_len = params.get("ema_slow", 21)
+        rsi_len = params.get("rsi_period", 14)
         
         fast_col = f"EMA_{ema_fast_len}"
         slow_col = f"EMA_{ema_slow_len}"
@@ -71,14 +84,17 @@ class ScalpEmaRsi(BaseStrategy):
 
 
 class InstitutionalScalp(BaseStrategy):
+    def add_indicators(self, df):
+        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
     def generate_signal(self, df):
         if df.empty or len(df) < 30: return None
         
+        self.add_indicators(df)
+        
         params = self.config.get("params", {})
         lookback = params.get("liq_grab_lookback", 20)
-        
-        # Indicators
-        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         atr_col = "ATRr_14"
         
         if atr_col not in df.columns: return None
@@ -117,9 +133,7 @@ class InstitutionalScalp(BaseStrategy):
         return None
 
 class SwingTrendPullback(BaseStrategy):
-    def generate_signal(self, df):
-        if df.empty or len(df) < 200: return None
-        
+    def add_indicators(self, df):
         params = self.config.get("params", {})
         ema_trend_len = params.get("ema_trend", 200)
         ema_fast_len = params.get("ema_pullback_fast", 20)
@@ -131,6 +145,17 @@ class SwingTrendPullback(BaseStrategy):
         df[f'EMA_{ema_slow_len}'] = ta.ema(df['close'], length=ema_slow_len)
         df['RSI_14'] = ta.rsi(df['close'], length=14)
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
+    def generate_signal(self, df):
+        if df.empty or len(df) < 200: return None
+        
+        self.add_indicators(df)
+        
+        params = self.config.get("params", {})
+        ema_trend_len = params.get("ema_trend", 200)
+        ema_fast_len = params.get("ema_pullback_fast", 20)
+        ema_slow_len = params.get("ema_pullback_slow", 50)
         
         trend_col = f"EMA_{ema_trend_len}"
         fast_col = f"EMA_{ema_fast_len}"
@@ -173,9 +198,7 @@ class DayTradingORB(BaseStrategy):
         return None
 
 class MeanReversion(BaseStrategy):
-    def generate_signal(self, df):
-        if df.empty or len(df) < 50: return None
-        
+    def add_indicators(self, df):
         params = self.config.get("params", {})
         bb_length = params.get("bb_length", 20)
         bb_std = params.get("bb_std", 2.0)
@@ -188,6 +211,17 @@ class MeanReversion(BaseStrategy):
         df[f'BBL_{bb_length}_{bb_std}'] = bb['BBL']
         df[f'RSI_{rsi_period}'] = ta.rsi(df['close'], length=rsi_period)
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
+    def generate_signal(self, df):
+        if df.empty or len(df) < 50: return None
+        
+        self.add_indicators(df)
+        
+        params = self.config.get("params", {})
+        bb_length = params.get("bb_length", 20)
+        bb_std = params.get("bb_std", 2.0)
+        rsi_period = params.get("rsi_period", 14)
         
         bb_upper = f"BBU_{bb_length}_{bb_std}"
         bb_middle = f"BBM_{bb_length}_{bb_std}"
@@ -222,13 +256,17 @@ class MeanReversion(BaseStrategy):
         return None
 
 class SMCFVG(BaseStrategy):
+    def add_indicators(self, df):
+        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+
     def generate_signal(self, df):
         if df.empty or len(df) < 10: return None
         
+        self.add_indicators(df)
+        
         params = self.config.get("params", {})
         fvg_threshold = params.get("fvg_threshold", 0.005)
-        
-        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         atr_col = "ATRr_14"
         if atr_col not in df.columns: return None
         

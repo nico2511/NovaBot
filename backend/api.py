@@ -142,18 +142,94 @@ async def disable_trading():
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
 
 @app.get("/api/candles")
-async def get_candles(limit: int = 200):
-    """Get formatted candles for chart"""
+async def get_candles(limit: int = 200, strategy: Optional[str] = None):
+    """Get formatted candles for chart, optionally with strategy indicators"""
     try:
         try:
-            from backend.market_data import get_formatted_candles
+            from backend.market_data import get_hyperliquid_candles
         except ImportError:
-            from market_data import get_formatted_candles
+            from market_data import get_hyperliquid_candles
             
-        candles = await get_formatted_candles(bot_state.active_symbol, "15m", limit)
+        # 1. Fetch raw candles
+        df = await get_hyperliquid_candles(bot_state.active_symbol, "15m", limit)
+        if df is None:
+            return {"candles": []}
+            
+        # 2. Add indicators if strategy provided
+        if strategy:
+            try:
+                # Dynamic import to avoid circular dependency
+                # Assuming strategies are in strategies/definitions.py
+                import sys
+                
+                # Check where we are running from
+                if os.path.basename(os.getcwd()) == "backend":
+                    # If running from backend dir, we need to add parent to sys.path
+                     sys.path.append(os.path.dirname(os.getcwd()))
+
+                from strategies.definitions import (
+                    ScalpEmaRsi, InstitutionalScalp, SwingTrendPullback, 
+                    MeanReversion, SMCFVG
+                )
+                
+                # Config loading...
+                config_file = os.path.join(BASE_DIR, "strategies.json")
+                strat_config = {}
+                try:
+                    with open(config_file, "r") as f:
+                        full_config = json.load(f)
+                        strat_config = full_config.get("strategies", {}).get(strategy, {})
+                except:
+                    pass
+
+                # Instantiate strategy
+                strat_instance = None
+                if strategy == "ScalpEmaRsi":
+                    strat_instance = ScalpEmaRsi(strat_config)
+                elif strategy == "InstitutionalScalp":
+                    strat_instance = InstitutionalScalp(strat_config)
+                elif strategy == "SwingTrendPullback":
+                    strat_instance = SwingTrendPullback(strat_config)
+                elif strategy == "MeanReversion":
+                    strat_instance = MeanReversion(strat_config)
+                elif strategy == "SMCFVG":
+                    strat_instance = SMCFVG(strat_config)
+                
+                if strat_instance:
+                    strat_instance.add_indicators(df)
+            except Exception as e:
+                print(f"Error adding indicators for {strategy}: {e}")
+
+        # 3. Format for frontend
+        candles = []
+        for index, row in df.iterrows():
+            ts = int(index.timestamp())
+            
+            # Base candle
+            c = {
+                "time": ts,
+                "open": float(row['open']),
+                "high": float(row['high']),
+                "low": float(row['low']),
+                "close": float(row['close']),
+            }
+            
+            # Add all other columns as indicators (skip ohlc volume)
+            for col in df.columns:
+                if col not in ['open', 'high', 'low', 'close', 'volume', 'time']:
+                     # Check if it's numeric/float before adding
+                     val = row[col]
+                     if isinstance(val, (int, float, np.number)):
+                         if not np.isnan(val):
+                             c[col] = float(val)
+            
+            candles.append(c)
+            
         return {"candles": candles}
     except Exception as e:
         print(f"Error serving candles: {e}")
+        import traceback
+        traceback.print_exc()
         return {"candles": []}
 
 @app.get("/api/market/data")
