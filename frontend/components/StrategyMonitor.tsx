@@ -132,21 +132,24 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                             return (
                                 <div
                                     key={index}
-                                    className="bg-gradient-to-br from-background/80 to-background/40 rounded-lg p-4 border border-border/20 hover:border-primary/30 transition-all"
+                                    className="relative bg-gradient-to-br from-primary/10 to-background/40 rounded-lg p-4 border-2 border-primary/50 hover:border-primary/80 transition-all shadow-lg shadow-primary/20 animate-pulse-slow"
                                 >
+                                    {/* Glow effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-transparent to-primary/20 rounded-lg blur-xl -z-10"></div>
+
                                     <div className="flex items-start gap-3 mb-3">
                                         <div className="text-2xl">{details.icon}</div>
                                         <div className="flex-1">
-                                            <div className="font-semibold mb-1">{strategy}</div>
+                                            <div className="font-semibold mb-1 text-primary-light">{strategy}</div>
                                             <div className="text-xs text-gray-400">{details.description}</div>
                                         </div>
-                                        <div className="w-2 h-2 bg-success rounded-full"></div>
+                                        <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
                                     </div>
                                     <div className="space-y-2">
                                         {details.conditions.map((condition, i) => (
                                             <div key={i} className="flex items-center gap-2 text-sm">
                                                 <div className="w-1 h-1 bg-primary rounded-full"></div>
-                                                <span className="text-gray-400">{condition}</span>
+                                                <span className="text-gray-300">{condition}</span>
                                             </div>
                                         ))}
                                     </div>
