@@ -238,13 +238,13 @@ if __name__ == "__main__":
     st.markdown("""
     <div style='background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(30, 41, 59, 0.8)); 
                 backdrop-filter: blur(10px); border: 1px solid rgba(59, 130, 246, 0.3); 
-                border-radius: 1rem; padding: 1.5rem 2rem; margin-bottom: 1.5rem;'>
-        <h1 style='color: #f8fafc; font-size: 2rem; font-weight: 700; margin: 0;
+                border-radius: 0.75rem; padding: 1rem 1.5rem; margin-bottom: 1rem;'>
+        <h1 style='color: #f8fafc; font-size: 1.5rem; font-weight: 700; margin: 0;
                    background: linear-gradient(135deg, #3b82f6, #60a5fa);
                    -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>
             ⚡ HyperLiquid AI Trader
         </h1>
-        <p style='color: #94a3b8; font-size: 0.875rem; margin: 0.5rem 0 0 0;'>
+        <p style='color: #94a3b8; font-size: 0.75rem; margin: 0.25rem 0 0 0;'>
             Advanced algorithmic trading with AI-powered strategies
         </p>
     </div>

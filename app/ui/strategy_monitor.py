@@ -19,8 +19,14 @@ def render_strategy_monitor(df: pd.DataFrame, strategy_result: dict, strategies_
         st.info("⏳ Waiting for market data...")
         return
     
-    st.markdown("### 🔬 Strategy Monitor - Live Thresholds")
-    st.caption("Real-time view of what each strategy is watching")
+    st.markdown("### 🔬 Strategy Monitor")
+    
+    # Active strategies
+    active_strategies = strategy_result.get('strategies', [])
+    
+    if not active_strategies:
+        st.warning("⚠️ No active strategies for current market regime")
+        return
     
     # Get current values
     close = df['close'].iloc[-1]
@@ -37,42 +43,130 @@ def render_strategy_monitor(df: pd.DataFrame, strategy_result: dict, strategies_
     rsi = df['RSI_14'].iloc[-1] if 'RSI_14' in df.columns else 0
     atr = df['ATRr_14'].iloc[-1] if 'ATRr_14' in df.columns else 0
     
-    # Market Regime
+    # Market Regime in a compact row
     regime = strategy_result.get('regime', 'UNKNOWN')
-    regime_color = "🟢" if regime == "TREND" else "🟡"
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Market Regime", f"{regime_color} {regime}", f"ADX: {adx:.1f}")
-    
+        st.metric("Regime", regime, f"ADX {adx:.1f}")
     with col2:
-        rsi_status = "🔴 Oversold" if rsi < 30 else "🟢 Overbought" if rsi > 70 else "⚪ Neutral"
-        st.metric("RSI", f"{rsi:.1f}", rsi_status)
-    
+        rsi_label = "Oversold" if rsi < 30 else "Overbought" if rsi > 70 else "Neutral"
+        st.metric("RSI", f"{rsi:.1f}", rsi_label)
     with col3:
-        st.metric("Price", f"${close:,.2f}")
+        st.metric("ATR", f"${atr:,.2f}")
     
-    with col4:
-        st.metric("Volatility (ATR)", f"${atr:,.2f}")
+    st.markdown("---")
     
-    st.divider()
+    # Display all strategies in columns (max 2 per row for readability)
+    num_strategies = len(active_strategies)
+    cols_per_row = min(2, num_strategies)
     
-    # Active strategies
-    active_strategies = strategy_result.get('strategies', [])
+    for i in range(0, num_strategies, cols_per_row):
+        cols = st.columns(cols_per_row)
+        for j, col in enumerate(cols):
+            if i + j < num_strategies:
+                with col:
+                    strategy_name = active_strategies[i + j]
+                    render_strategy_compact(strategy_name, df, strategies_config, close)
+
+def render_strategy_compact(strategy_name: str, df: pd.DataFrame, strategies_config: dict, close: float):
+    """Render a compact strategy card"""
+    strat_config = strategies_config.get('strategies', {}).get(strategy_name.lower().replace(' ', '_'), {})
+    params = strat_config.get('params', {})
     
-    if not active_strategies:
-        st.warning("⚠️ No active strategies for current market regime")
+    st.markdown(f"**{strategy_name}**")
+    
+    if strategy_name == "ScalpEmaRsi":
+        render_scalp_compact(df, params, close)
+    elif strategy_name == "InstitutionalScalp":
+        render_institutional_compact(df, params, close)
+    elif strategy_name == "SwingTrendPullback":
+        render_swing_compact(df, params, close)
+    elif strategy_name == "MeanReversion":
+        render_mean_reversion_compact(df, params, close)
+    elif strategy_name == "SMCFVG":
+        render_smcfvg_compact(df, params, close)
+
+def render_scalp_compact(df, params, close):
+    """Compact ScalpEmaRsi monitor"""
+    ema_fast = params.get('ema_fast', 9)
+    ema_slow = params.get('ema_slow', 21)
+    
+    df.ta.ema(length=ema_fast, append=True)
+    df.ta.ema(length=ema_slow, append=True)
+    df.ta.ema(length=200, append=True)
+    df.ta.rsi(length=14, append=True)
+    
+    ema9 = df[f'EMA_{ema_fast}'].iloc[-1] if f'EMA_{ema_fast}' in df.columns else 0
+    ema21 = df[f'EMA_{ema_slow}'].iloc[-1] if f'EMA_{ema_slow}' in df.columns else 0
+    ema200 = df['EMA_200'].iloc[-1] if 'EMA_200' in df.columns else 0
+    rsi = df['RSI_14'].iloc[-1] if 'RSI_14' in df.columns else 0
+    
+    st.caption(f"{'✅' if ema9 > ema21 else '❌'} EMA {ema_fast}/{ema_slow}: {ema9:.0f}/{ema21:.0f}")
+    st.caption(f"{'✅' if close > ema200 else '❌'} Trend: ${close:.0f} vs ${ema200:.0f}")
+    st.caption(f"{'✅' if 30 < rsi < 70 else '❌'} RSI: {rsi:.1f}")
+
+def render_institutional_compact(df, params, close):
+    """Compact InstitutionalScalp monitor"""
+    lookback = params.get('liq_grab_lookback', 20)
+    recent = df.tail(lookback + 1)
+    recent_high = recent['high'].iloc[:-1].max()
+    recent_low = recent['low'].iloc[:-1].min()
+    current_high = df['high'].iloc[-1]
+    current_low = df['low'].iloc[-1]
+    
+    st.caption(f"{'✅' if current_low < recent_low and close > recent_low else '❌'} Bull Grab: ${recent_low:.0f}")
+    st.caption(f"{'✅' if current_high > recent_high and close < recent_high else '❌'} Bear Grab: ${recent_high:.0f}")
+    st.caption(f"Lookback: {lookback} candles")
+
+def render_swing_compact(df, params, close):
+    """Compact SwingTrendPullback monitor"""
+    ema_trend = params.get('ema_trend', 200)
+    ema_fast = params.get('ema_pullback_fast', 20)
+    
+    df.ta.ema(length=ema_trend, append=True)
+    df.ta.ema(length=ema_fast, append=True)
+    df.ta.rsi(length=14, append=True)
+    
+    trend = df[f'EMA_{ema_trend}'].iloc[-1] if f'EMA_{ema_trend}' in df.columns else 0
+    ema_fast_val = df[f'EMA_{ema_fast}'].iloc[-1] if f'EMA_{ema_fast}' in df.columns else 0
+    rsi = df['RSI_14'].iloc[-1] if 'RSI_14' in df.columns else 0
+    low = df['low'].iloc[-1]
+    
+    st.caption(f"{'✅' if close > trend else '❌'} Trend: ${trend:.0f}")
+    st.caption(f"{'✅' if low <= ema_fast_val else '❌'} Pullback: ${ema_fast_val:.0f}")
+    st.caption(f"RSI: {rsi:.1f}")
+
+def render_mean_reversion_compact(df, params, close):
+    """Compact MeanReversion monitor"""
+    bb_length = params.get('bb_length', 20)
+    bb_std = params.get('bb_std', 2.0)
+    
+    df.ta.bbands(length=bb_length, std=bb_std, append=True)
+    df.ta.rsi(length=14, append=True)
+    
+    bb_upper = df[f'BBU_{bb_length}_{bb_std}'].iloc[-1] if f'BBU_{bb_length}_{bb_std}' in df.columns else 0
+    bb_lower = df[f'BBL_{bb_length}_{bb_std}'].iloc[-1] if f'BBL_{bb_length}_{bb_std}' in df.columns else 0
+    rsi = df['RSI_14'].iloc[-1] if 'RSI_14' in df.columns else 0
+    
+    st.caption(f"BB: ${bb_lower:.0f} - ${bb_upper:.0f}")
+    st.caption(f"{'✅' if close <= bb_lower and rsi < 30 else '❌'} Oversold")
+    st.caption(f"{'✅' if close >= bb_upper and rsi > 70 else '❌'} Overbought")
+
+def render_smcfvg_compact(df, params, close):
+    """Compact SMCFVG monitor"""
+    if len(df) < 3:
+        st.caption("Not enough data")
         return
     
-    st.markdown(f"**Active Strategies:** {len(active_strategies)}")
+    candle_1 = df.iloc[-3]
+    candle_3 = df.iloc[-1]
     
-    # Create tabs for each active strategy
-    tabs = st.tabs(active_strategies)
+    bullish_gap = candle_3['low'] - candle_1['high']
+    bearish_gap = candle_1['low'] - candle_3['high']
     
-    for i, strategy_name in enumerate(active_strategies):
-        with tabs[i]:
-            render_strategy_details(strategy_name, df, strategies_config)
+    st.caption(f"{'✅' if bullish_gap > 0 else '❌'} Bull FVG: ${bullish_gap:.2f}")
+    st.caption(f"{'✅' if bearish_gap > 0 else '❌'} Bear FVG: ${bearish_gap:.2f}")
+    st.caption(f"Price: ${close:.0f}")
 
 def render_strategy_details(strategy_name: str, df: pd.DataFrame, strategies_config: dict):
     """

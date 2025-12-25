@@ -66,8 +66,20 @@ CUSTOM_CSS = """
     border-right: 1px solid var(--color-border);
 }
 
+/* Sidebar collapse button */
+[data-testid="collapsedControl"] {
+    background-color: var(--color-surface) !important;
+    border: 1px solid var(--color-border) !important;
+    color: var(--color-text-primary) !important;
+}
+
+[data-testid="collapsedControl"]:hover {
+    background-color: var(--color-surface-light) !important;
+    border-color: var(--color-primary) !important;
+}
+
 [data-testid="stSidebar"] .element-container {
-    padding: 0.5rem 1rem;
+    padding: 0.25rem 0.75rem;
 }
 
 /* Headers */
@@ -77,18 +89,23 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-    font-size: 2.25rem !important;
-    margin-bottom: 1.5rem !important;
+    font-size: 1.5rem !important;
+    margin-bottom: 0.75rem !important;
 }
 
 h2 {
-    font-size: 1.875rem !important;
-    margin-bottom: 1rem !important;
+    font-size: 1.25rem !important;
+    margin-bottom: 0.5rem !important;
 }
 
 h3 {
-    font-size: 1.5rem !important;
-    margin-bottom: 0.75rem !important;
+    font-size: 1.125rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+h4 {
+    font-size: 1rem !important;
+    margin-bottom: 0.25rem !important;
 }
 
 /* Cards - Streamlit containers */
@@ -105,8 +122,8 @@ h3 {
 [data-testid="stMetric"] {
     background-color: var(--color-surface);
     border: 1px solid var(--color-surface-light);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-lg);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
     transition: all 0.2s ease;
 }
 
@@ -118,7 +135,7 @@ h3 {
 
 [data-testid="stMetricLabel"] {
     color: var(--color-text-secondary) !important;
-    font-size: 0.875rem !important;
+    font-size: 0.7rem !important;
     font-weight: 500 !important;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -126,8 +143,12 @@ h3 {
 
 [data-testid="stMetricValue"] {
     color: var(--color-text-primary) !important;
-    font-size: 2rem !important;
+    font-size: 1.25rem !important;
     font-weight: 700 !important;
+}
+
+[data-testid="stMetricDelta"] {
+    font-size: 0.7rem !important;
 }
 
 /* Buttons */
@@ -136,9 +157,9 @@ h3 {
     color: white;
     border: none;
     border-radius: var(--radius-md);
-    padding: 0.75rem 1.5rem;
+    padding: 0.5rem 1rem;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     transition: all 0.2s ease;
     box-shadow: var(--shadow-md);
 }
@@ -160,8 +181,8 @@ h3 {
     border: 1px solid var(--color-surface-light);
     color: var(--color-text-primary);
     border-radius: var(--radius-md);
-    padding: 0.75rem 1rem;
-    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
     transition: all 0.2s ease;
 }
 
