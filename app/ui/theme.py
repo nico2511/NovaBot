@@ -78,6 +78,18 @@ CUSTOM_CSS = """
     border-color: var(--color-primary) !important;
 }
 
+/* Hide the text label in collapse button, show only icon */
+[data-testid="collapsedControl"] svg {
+    display: block !important;
+}
+
+[data-testid="collapsedControl"] span {
+    font-size: 0 !important;
+}
+
+/* Ensure Material Icons are loaded */
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
 [data-testid="stSidebar"] .element-container {
     padding: 0.25rem 0.75rem;
 }
