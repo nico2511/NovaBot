@@ -567,6 +567,27 @@ async def save_settings(settings: dict):
     try:
         state_file = os.path.join(BASE_DIR, "bot_state.json")
         
+        # 1. Update live bot context first (Source of Truth)
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            bot.sidebar_settings = settings
+            bot.active_symbol = settings.get("asset", "BTC")
+            # We don't necessarily want to force trading_enabled from sidebar if it logic differs, 
+            # but usually settings controls it.
+            # bot.trading_enabled = settings.get("trading_enabled", False) 
+            # Actually, execution_mode is what matters more
+            bot.execution_mode = settings.get("execution_mode", "Manual (Phantom)")
+            
+            # Use StateManager to save everything consistently
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+                print(f"✅ Settings synced to bot and saved.")
+                return {"status": "success", "message": "Settings saved and synced"}
+            except Exception as e:
+                print(f"Error saving via StateManager: {e}")
+
+        # 2. Fallback / Standalone persistence
         # Read existing state
         try:
             with open(state_file, "r") as f:
@@ -587,7 +608,7 @@ async def save_settings(settings: dict):
         with open(state_file, "w") as f:
             json.dump(state, f, indent=2)
         
-        print(f"✅ Settings saved: {settings}")
+        print(f"✅ Settings saved (Standalone): {settings}")
         return {"status": "success", "message": "Settings saved"}
     except Exception as e:
         print(f"Error saving settings: {e}")

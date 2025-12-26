@@ -42,10 +42,9 @@ export default function Settings() {
                 console.error('Failed to load settings:', error)
             }
         }
-        if (isOpen) {
-            loadSettings()
-        }
-    }, [isOpen])
+
+        loadSettings()
+    }, []) // Load once on mount
 
     const saveSettings = async () => {
         try {
