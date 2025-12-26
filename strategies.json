@@ -78,6 +78,14 @@
             "enabled": false,
             "type": "trend",
             "params": {}
+        },
+        "volume_breakout": {
+            "enabled": false,
+            "type": "momentum",
+            "params": {
+                "volume_threshold": 1.5,
+                "min_rsi": 50
+            }
         }
     }
 }

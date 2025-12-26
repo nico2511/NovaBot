@@ -22,7 +22,8 @@ class StrategyEngine:
             "smc_fvg": SMCFVG(strats_config.get("smc_fvg")),
             "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
-            "macd_crossover": MACDCrossover(strats_config.get("macd_crossover"))
+            "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
+            "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout"))
         }
 
     def load_config(self):
