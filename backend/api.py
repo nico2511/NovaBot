@@ -1,4 +1,3 @@
-```python
 """
 FastAPI Backend for HyperLiquid Trading Bot
 Exposes REST API and integrates with main bot
