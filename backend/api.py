@@ -360,17 +360,28 @@ async def get_market_data():
         ema_50 = price
         bb = {"upper": price, "middle": price, "lower": price}
     
-    # Read strategies from config
+    # Get active strategies from bot if connected
     active_strategies = []
     try:
-        config_file = os.path.join(BASE_DIR, "strategies.json")
-        with open(config_file, "r") as f:
-            config = json.load(f)
-            for name, strat in config.get("strategies", {}).items():
-                if strat.get("enabled", False):
-                    active_strategies.append(name.replace("_", " ").title())
-    except:
-        active_strategies = ["ScalpEmaRsi", "SMCFVG"]
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            # Get strategies from latest analysis result
+            if hasattr(bot, 'latest_strategy_result') and bot.latest_strategy_result:
+                result = bot.latest_strategy_result
+                # Get the list of active strategy names
+                active_strategies = result.get('strategies', [])
+        
+        # Fallback: read from config if bot not connected
+        if not active_strategies:
+            config_file = os.path.join(BASE_DIR, "strategies.json")
+            with open(config_file, "r") as f:
+                config = json.load(f)
+                for name, strat in config.get("strategies", {}).items():
+                    if strat.get("enabled", False):
+                        active_strategies.append(name.replace("_", " ").title())
+    except Exception as e:
+        print(f"Error getting active strategies: {e}")
+        active_strategies = ["Scalp Ema Rsi", "Smc Fvg"]
     
     regime = "TREND" if adx > 25 else "RANGE"
     

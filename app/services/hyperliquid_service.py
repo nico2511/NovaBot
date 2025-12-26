@@ -27,8 +27,8 @@ class HyperliquidService:
 
     def get_candles(self, symbol: str, interval: str = "15m", limit: int = 100) -> pd.DataFrame:
         try:
-            # Current time in ms
-            end_time = int(pd.Timestamp.now().timestamp() * 1000)
+            # CRITICAL: Use UTC time for Hyperliquid API (not local time)
+            end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
             # Approx start time (limit * interval * buffer)
             # 15m = 900s. 100 candles = 90000s.
             start_time = end_time - (limit * 15 * 60 * 1000)
