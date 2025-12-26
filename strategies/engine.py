@@ -23,7 +23,10 @@ class StrategyEngine:
             "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
-            "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout"))
+            "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout")),
+            "ema_bounce": EMABounce(strats_config.get("ema_bounce")),
+            "triple_ema": TripleEMA(strats_config.get("triple_ema")),
+            "rsi_bb": RSIBollingerBands(strats_config.get("rsi_bb"))
         }
 
     def load_config(self):

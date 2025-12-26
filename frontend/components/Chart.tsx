@@ -57,7 +57,7 @@ export default function Chart({ symbol, strategy }: ChartProps) {
 
         console.log("Initializing chart instance...")
 
-        const chart = createChart(chartContainerRef.current, {
+        const chartOptions: DeepPartial<ChartOptions> = {
             layout: {
                 background: { type: ColorType.Solid, color: 'transparent' },
                 textColor: '#9CA3AF',
@@ -79,7 +79,17 @@ export default function Chart({ symbol, strategy }: ChartProps) {
             crosshair: {
                 mode: 1, // CrosshairMode.Normal
             },
-        })
+            watermark: {
+                visible: true,
+                fontSize: 48,
+                horzAlign: 'center',
+                vertAlign: 'center',
+                color: 'rgba(255, 255, 255, 0.05)',
+                text: `${symbol} 15m`, // Initial watermark, will be updated with actual data
+            },
+        }
+
+        const chart = createChart(chartContainerRef.current, chartOptions)
 
         // Add candlestick series
         try {

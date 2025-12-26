@@ -90,10 +90,20 @@ export default function Settings() {
                                     onChange={(e) => setSettings({ ...settings, asset: e.target.value })}
                                     className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
                                 >
-                                    <option value="BTC">BTC</option>
-                                    <option value="ETH">ETH</option>
-                                    <option value="SOL">SOL</option>
-                                    <option value="BNB">BNB</option>
+                                    <option value="BTC">BTC - Bitcoin</option>
+                                    <option value="ETH">ETH - Ethereum</option>
+                                    <option value="SOL">SOL - Solana</option>
+                                    <option value="BNB">BNB - Binance Coin</option>
+                                    <option value="ARB">ARB - Arbitrum</option>
+                                    <option value="AVAX">AVAX - Avalanche</option>
+                                    <option value="MATIC">MATIC - Polygon</option>
+                                    <option value="LINK">LINK - Chainlink</option>
+                                    <option value="UNI">UNI - Uniswap</option>
+                                    <option value="ATOM">ATOM - Cosmos</option>
+                                    <option value="DOT">DOT - Polkadot</option>
+                                    <option value="DOGE">DOGE - Dogecoin</option>
+                                    <option value="XRP">XRP - Ripple</option>
+                                    <option value="ADA">ADA - Cardano</option>
                                 </select>
                             </div>
 

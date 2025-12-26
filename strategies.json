@@ -86,6 +86,30 @@
                 "volume_threshold": 1.5,
                 "min_rsi": 50
             }
+        },
+        "ema_bounce": {
+            "enabled": false,
+            "type": "scalp",
+            "params": {
+                "rsi_min": 40,
+                "rsi_max": 60
+            }
+        },
+        "triple_ema": {
+            "enabled": false,
+            "type": "trend",
+            "params": {
+                "require_volume": true
+            }
+        },
+        "rsi_bb": {
+            "enabled": false,
+            "type": "range",
+            "params": {
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+                "require_volume": true
+            }
         }
     }
 }
