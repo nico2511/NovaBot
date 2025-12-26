@@ -90,26 +90,32 @@ export default function Settings() {
                             {/* Asset Selection */}
                             <div>
                                 <label className="block text-sm font-semibold mb-2">Market</label>
-                                <select
+                                <input
+                                    type="text"
                                     value={settings.asset}
-                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value })}
-                                    className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
-                                >
-                                    <option value="BTC">BTC - Bitcoin</option>
-                                    <option value="ETH">ETH - Ethereum</option>
-                                    <option value="SOL">SOL - Solana</option>
-                                    <option value="BNB">BNB - Binance Coin</option>
-                                    <option value="ARB">ARB - Arbitrum</option>
-                                    <option value="AVAX">AVAX - Avalanche</option>
-                                    <option value="MATIC">MATIC - Polygon</option>
-                                    <option value="LINK">LINK - Chainlink</option>
-                                    <option value="UNI">UNI - Uniswap</option>
-                                    <option value="ATOM">ATOM - Cosmos</option>
-                                    <option value="DOT">DOT - Polkadot</option>
-                                    <option value="DOGE">DOGE - Dogecoin</option>
-                                    <option value="XRP">XRP - Ripple</option>
-                                    <option value="ADA">ADA - Cardano</option>
-                                </select>
+                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
+                                    list="assets"
+                                    className="w-full bg-background border border-border/30 rounded-lg px-4 py-2 uppercase"
+                                    placeholder="Enter symbol (e.g. BTC, ETH, SOL)"
+                                />
+                                <datalist id="assets">
+                                    <option value="BTC">Bitcoin</option>
+                                    <option value="ETH">Ethereum</option>
+                                    <option value="SOL">Solana</option>
+                                    <option value="BNB">Binance Coin</option>
+                                    <option value="ARB">Arbitrum</option>
+                                    <option value="AVAX">Avalanche</option>
+                                    <option value="MATIC">Polygon</option>
+                                    <option value="LINK">Chainlink</option>
+                                    <option value="UNI">Uniswap</option>
+                                    <option value="ATOM">Cosmos</option>
+                                    <option value="DOT">Polkadot</option>
+                                    <option value="DOGE">Dogecoin</option>
+                                    <option value="XRP">Ripple</option>
+                                    <option value="ADA">Cardano</option>
+                                    <option value="INIT">Initia</option>
+                                    <option value="STABLE">Stable Protocol</option>
+                                </datalist>
                             </div>
 
                             {/* Execution Mode */}
@@ -219,8 +225,9 @@ export default function Settings() {
                             </button>
                         </div>
                     </div>
-                </div>
-            )}
+                </div >
+            )
+            }
         </>
     )
 }

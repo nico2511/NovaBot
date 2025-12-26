@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import axios from 'axios'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
@@ -41,6 +42,19 @@ export default function TokenScanner() {
         if (score >= 80) return '⭐⭐⭐'
         if (score >= 60) return '⭐⭐'
         return '⭐'
+    }
+
+    const handleTrade = async (symbol: string) => {
+        try {
+            // Call switch endpoint
+            await axios.post('/api/symbol/switch', { symbol })
+
+            alert(`✅ Switched to ${symbol}! Go to Overview to trade.`)
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+        } catch (error) {
+            console.error('Failed to switch symbol:', error)
+            alert('❌ Failed to switch symbol')
+        }
     }
 
     const getTrendColor = (trend: string) => {
@@ -168,18 +182,29 @@ export default function TokenScanner() {
                                 </div>
                             </div>
 
-                            {/* Reasons */}
-                            {opp.reasons && opp.reasons.length > 0 && (
-                                <div className="space-y-1">
-                                    <div className="text-xs text-gray-400 mb-2">✅ Why this is a good opportunity:</div>
-                                    {opp.reasons.map((reason, i) => (
-                                        <div key={i} className="text-sm text-gray-300 flex items-start gap-2">
-                                            <span className="text-primary">•</span>
-                                            <span>{reason}</span>
-                                        </div>
-                                    ))}
+                            {/* Reasons and Action */}
+                            <div className="flex items-end justify-between mt-4">
+                                <div className="space-y-1 flex-1">
+                                    {opp.reasons && opp.reasons.length > 0 && (
+                                        <>
+                                            <div className="text-xs text-gray-400 mb-2">✅ Why this is a good opportunity:</div>
+                                            {opp.reasons.map((reason, i) => (
+                                                <div key={i} className="text-sm text-gray-300 flex items-start gap-2">
+                                                    <span className="text-primary">•</span>
+                                                    <span>{reason}</span>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
                                 </div>
-                            )}
+
+                                <button
+                                    onClick={() => handleTrade(opp.symbol)}
+                                    className="bg-primary hover:bg-primary/80 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-primary/20 transition-all transform hover:scale-105 ml-6"
+                                >
+                                    🚀 Trade {opp.symbol}
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
