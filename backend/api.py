@@ -13,9 +13,14 @@ import os
 import numpy as np
 import pandas as pd
 
-# Import routes
-from backend.routes.settings import router as settings_router
-from backend.routes.scanner import router as scanner_router
+# Import routes (optional - will be added later)
+try:
+    from backend.routes.settings import router as settings_router
+    from backend.routes.scanner import router as scanner_router
+    ROUTES_AVAILABLE = True
+except ImportError:
+    print("⚠️ Routes not available - running in basic mode")
+    ROUTES_AVAILABLE = False
 
 # When running from backend/, we need to go up one level
 BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
