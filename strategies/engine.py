@@ -21,7 +21,8 @@ class StrategyEngine:
             "mean_reversion": MeanReversion(strats_config.get("mean_reversion")),
             "smc_fvg": SMCFVG(strats_config.get("smc_fvg")),
             "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
-            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend"))
+            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
+            "macd_crossover": MACDCrossover(strats_config.get("macd_crossover"))
         }
 
     def load_config(self):

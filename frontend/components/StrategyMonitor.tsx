@@ -133,7 +133,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                             return (
                                 <div
                                     key={index}
-                                    className="relative bg-gradient-to-br from-primary/10 to-background/40 rounded-lg p-4 border-2 border-primary/50 hover:border-primary/80 transition-all shadow-lg shadow-primary/20 animate-pulse-slow"
+                                    className="relative bg-gradient-to-br from-primary/10 to-background/40 rounded-lg p-4 border-2 border-primary/50 hover:border-primary/80 transition-all"
                                 >
                                     <div className="flex items-start gap-3 mb-3">
                                         <div className="text-2xl">{details.icon}</div>

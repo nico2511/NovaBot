@@ -122,29 +122,6 @@ export default function Settings() {
                                 </div>
                             </div>
 
-                            {/* Live Trading Toggle */}
-                            {settings.execution_mode === 'Auto (Hyperliquid)' && (
-                                <div className="bg-warning/10 border border-warning/30 rounded-lg p-4">
-                                    <label className="flex items-center gap-3 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={settings.trading_enabled}
-                                            onChange={(e) => setSettings({ ...settings, trading_enabled: e.target.checked })}
-                                            className="w-5 h-5"
-                                        />
-                                        <div>
-                                            <div className="font-semibold">✅ ALLOW LIVE TRADING</div>
-                                            <div className="text-sm text-gray-400">If unchecked, signals are generated but NOT executed</div>
-                                        </div>
-                                    </label>
-                                    {settings.trading_enabled && (
-                                        <div className="mt-3 text-warning font-semibold">
-                                            ⚠️ Live Trading ENABLED
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
                             {/* Risk Management */}
                             <div className="border-t border-border/30 pt-6">
                                 <h3 className="text-lg font-semibold mb-4">🛡️ Risk Management</h3>
