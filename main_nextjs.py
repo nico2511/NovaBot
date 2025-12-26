@@ -164,7 +164,7 @@ class BotContext:
                 
                 # Check active trade
                 if self.active_trade:
-                    current_price = df['close'].iloc[-1]
+                    current_price = df_15m['close'].iloc[-1]
                     entry_price = self.active_trade["entry"]
                     tp_price = self.active_trade["tp"]
                     sl_price = self.active_trade["sl"]

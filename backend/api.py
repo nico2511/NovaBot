@@ -44,6 +44,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register routers if available
+if ROUTES_AVAILABLE:
+    app.include_router(scanner_router, prefix="/api", tags=["scanner"])
+    app.include_router(settings_router, prefix="/api", tags=["settings"])
+    print("✅ Scanner and Settings routes registered")
+
+
 # Simple bot state
 class BotState:
     def __init__(self):
@@ -584,6 +591,35 @@ async def save_settings(settings: dict):
         return {"status": "success", "message": "Settings saved"}
     except Exception as e:
         print(f"Error saving settings: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/symbol/switch")
+async def switch_symbol(data: dict):
+    """Switch active trading symbol"""
+    try:
+        new_symbol = data.get("symbol", "BTC")
+        
+        # Update bot if connected
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            bot.active_symbol = new_symbol
+            bot.add_log(f"🔄 Switched to {new_symbol}")
+            
+            # Save state
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+            except Exception as e:
+                print(f"Error saving state: {e}")
+        
+        # Update bot_state
+        bot_state.active_symbol = new_symbol
+        bot_state.save_state()
+        
+        print(f"✅ Symbol switched to: {new_symbol}")
+        return {"status": "success", "symbol": new_symbol}
+    except Exception as e:
+        print(f"Error switching symbol: {e}")
         return {"status": "error", "message": str(e)}
 
 

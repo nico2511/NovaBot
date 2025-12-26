@@ -49,7 +49,12 @@ export default function Settings() {
 
     const saveSettings = async () => {
         try {
+            // Save all settings
             await axios.post(`${API_URL}/api/settings`, settings)
+
+            // Also explicitly switch symbol to ensure sync
+            await axios.post(`${API_URL}/api/symbol/switch`, { symbol: settings.asset })
+
             alert('✅ Settings saved!')
         } catch (error) {
             console.error('Failed to save settings:', error)
