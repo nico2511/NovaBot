@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Fresh deployment script - Clean install from scratch
-# Use this to start fresh and recover disk space
+# Fresh deployment script - SIMPLIFIED VERSION
+# No authentication required - uses existing directory
 
-echo "🧹 FRESH DEPLOYMENT - Starting from scratch..."
-echo "⚠️  This will delete everything in /var/www/novabot"
+echo "🧹 FRESH DEPLOYMENT - Clean rebuild in place..."
+echo "⚠️  This will clean and rebuild /var/www/novabot"
 read -p "Continue? (y/n) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]
@@ -12,47 +12,45 @@ then
     exit 1
 fi
 
-# Stop and delete all PM2 processes
+# Navigate to project
+cd /var/www/novabot || {
+    echo "❌ Directory /var/www/novabot not found!"
+    echo "Please clone the repo first:"
+    echo "  cd /var/www"
+    echo "  git clone https://github.com/nico2511/NovaBot.git novabot"
+    exit 1
+}
+
+# Stop PM2
 echo "⏸️ Stopping PM2..."
 pm2 delete all 2>/dev/null || true
-pm2 kill
 
-# Clean up old installation
-echo "🗑️ Removing old installation..."
-cd /var/www
-rm -rf novabot
+# Pull latest code
+echo "📥 Pulling latest code..."
+git fetch origin
+git reset --hard origin/master
+git clean -fdx
 
-# Clone fresh from GitHub
-echo "📥 Cloning from GitHub..."
-# Option 1: If you have SSH keys configured
-git clone git@github.com:nico2511/NovaBot.git novabot
-
-# Option 2: If SSH fails, use HTTPS with token (uncomment and add your token)
-# git clone https://YOUR_GITHUB_TOKEN@github.com/nico2511/NovaBot.git novabot
-
-# Option 3: If you want to be prompted for credentials (current behavior)
-# git clone https://github.com/nico2511/NovaBot.git novabot
-
-cd novabot
-
-# Python setup
-echo "🐍 Setting up Python environment..."
+# Clean Python environment
+echo "🐍 Rebuilding Python environment..."
+rm -rf .venv
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Frontend setup
-echo "⚛️ Setting up Frontend..."
+# Clean and rebuild Frontend
+echo "⚛️ Rebuilding Frontend..."
 cd frontend
+rm -rf node_modules .next
 npm install
 npm run build
 cd ..
 
-# Create necessary directories
-echo "📁 Creating directories..."
+# Clean logs
+echo "🧹 Cleaning logs..."
+rm -rf logs/*
 mkdir -p logs
-mkdir -p data
 
 # Create PM2 ecosystem config
 echo "⚙️ Creating PM2 config..."
@@ -92,7 +90,6 @@ EOF
 echo "🚀 Starting services..."
 pm2 start ecosystem.config.js
 pm2 save
-pm2 startup
 
 # Show status
 echo ""
@@ -105,10 +102,6 @@ echo ""
 echo "📝 Logs:"
 echo "   Bot:      pm2 logs hl-bot-engine"
 echo "   Frontend: pm2 logs hl-frontend"
-echo ""
-echo "🌐 Access:"
-echo "   Frontend: http://$(hostname -I | awk '{print $1}'):3000"
-echo "   API:      http://$(hostname -I | awk '{print $1}'):8000"
 echo ""
 echo "💾 Disk usage:"
 du -sh /var/www/novabot
