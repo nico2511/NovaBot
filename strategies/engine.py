@@ -45,12 +45,7 @@ class StrategyEngine:
             df: Primary dataframe (typically main timeframe)
             extra_data: Optional dict with additional dataframes for MTF strategies
         """
-        # 1. Check Risk
-        can_trade, reason = self.risk_manager.check_can_trade()
-        if not can_trade:
-            return {"action": "SKIP", "reason": reason}
-
-        # 2. Determine Regime (ADX)
+        # 1. Determine Regime (ADX)
         if len(df) < 50:
             return {"action": "WAIT", "reason": "Not enough data"}
 
