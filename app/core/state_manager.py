@@ -11,6 +11,7 @@ class StateManager:
         state = {
             "active_trade": context.active_trade,
             "trading_enabled": context.trading_enabled,
+            "is_running": context.is_running,
             "active_symbol": context.active_symbol,
             "last_updated": str(datetime.now())
         }
@@ -47,6 +48,7 @@ class StateManager:
             # Restore Context
             context.active_trade = state.get("active_trade")
             context.trading_enabled = state.get("trading_enabled", False)
+            context.is_running = state.get("is_running", False)
             context.active_symbol = state.get("active_symbol", "BTC")
             
             # Restore Risk Manager
@@ -66,3 +68,4 @@ class StateManager:
             print("✅ State restored from persistence file.")
         except Exception as e:
             print(f"❌ Failed to load state: {e}")
+

@@ -307,6 +307,12 @@ if __name__ == "__main__":
     print("🔧 API Docs: http://localhost:8001/docs")
     print("\n💡 The bot is ready. Use the Next.js UI to control it.")
     print("   Or use Streamlit as backup: streamlit run main.py")
+    
+    # Auto-start if bot was running before restart
+    if bot.is_running:
+        print("\n🔄 Auto-starting bot (was running before restart)...")
+        bot.start()
+    
     print("\nPress Ctrl+C to stop\n")
     
     try:
@@ -317,3 +323,4 @@ if __name__ == "__main__":
         print("\n\n⏹️ Shutting down...")
         bot.stop()
         print("✅ Bot stopped. Goodbye!")
+
