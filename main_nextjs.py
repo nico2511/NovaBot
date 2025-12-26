@@ -94,6 +94,13 @@ class BotContext:
                     self.latest_strategy_result = result
                     
                     self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
+                else:
+                    # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
+                    if not hasattr(self, '_skip_counter'):
+                        self._skip_counter = 0
+                    self._skip_counter += 1
+                    if self._skip_counter % 12 == 0:
+                        self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 15m candle...")
                     
                     if result.get("signals"):
                         sig_data = result["signals"][0]
