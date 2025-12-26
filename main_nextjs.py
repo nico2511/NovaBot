@@ -103,6 +103,11 @@ class BotContext:
                         sl = sig_data.get("sl", entry_price * 0.95)
                         tp = sig_data.get("tp", entry_price * 1.05)
                         
+                        # CRITICAL: Check if trading is enabled
+                        if not self.trading_enabled:
+                            self.add_log(f"⚠️ Signal detected but trading is DISABLED: {action} {strat_name}")
+                            continue
+                        
                         can_trade, reason = self.risk_manager.check_can_trade()
                         if can_trade:
                             # Open trade

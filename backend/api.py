@@ -170,6 +170,13 @@ async def enable_trading():
         bot = bot_bridge.get_bot_context()
         bot.trading_enabled = True
         bot.execution_mode = "Auto (Hyperliquid)"
+        bot.add_log("🟢 Live trading ENABLED via API")
+        # CRITICAL: Save state to persist the change
+        try:
+            from app.core.state_manager import StateManager
+            StateManager.save_state(bot)
+        except Exception as e:
+            print(f"Error saving state: {e}")
         return {"status": "enabled", "message": "Live trading enabled on real bot"}
     else:
         bot_state.trading_enabled = True
@@ -184,6 +191,13 @@ async def disable_trading():
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.trading_enabled = False
+        bot.add_log("🔴 Live trading DISABLED via API")
+        # CRITICAL: Save state to persist the change
+        try:
+            from app.core.state_manager import StateManager
+            StateManager.save_state(bot)
+        except Exception as e:
+            print(f"Error saving state: {e}")
         return {"status": "disabled", "message": "Live trading disabled on real bot"}
     else:
         bot_state.trading_enabled = False
