@@ -33,16 +33,23 @@ else
     echo "✅ Frontend up to date (no changes detected)"
 fi
 
+# Check PM2 availability
+if ! command -v pm2 &> /dev/null; then
+    PM2_CMD="npx pm2"
+else
+    PM2_CMD="pm2"
+fi
+
 # Use reload instead of restart (zero-downtime)
 echo "🔄 Reloading services (zero-downtime)..."
-pm2 reload all
+$PM2_CMD reload all
 
 # Show status
 echo ""
 echo "✅ Deployment complete!"
-pm2 status
+$PM2_CMD status
 
 echo ""
 echo "📝 Check logs:"
-echo "   pm2 logs hl-bot-engine --lines 20"
-echo "   pm2 logs hl-frontend --lines 20"
+echo "   $PM2_CMD logs hl-bot-engine --lines 20"
+echo "   $PM2_CMD logs hl-frontend --lines 20"
