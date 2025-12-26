@@ -10,12 +10,14 @@ import TradeHistory from '@/components/TradeHistory'
 import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
+import TokenScanner from '@/components/TokenScanner'
 
 const API_URL = ''
 
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 export default function Home() {
+    const [activeTab, setActiveTab] = useState('overview')
     const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, { refreshInterval: 2000 })
     const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, { refreshInterval: 2000 })
     const { data: balance } = useSWR(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000 })
@@ -100,43 +102,51 @@ export default function Home() {
                     <h3 className="text-lg font-semibold mb-4">Controls</h3>
                     <div className="flex gap-4">
                         <button
-                            onClick={toggleEngine}
-                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.is_running
-                                ? 'bg-error/20 hover:bg-error/30 text-error border border-error/30'
-                                : 'bg-success/20 hover:bg-success/30 text-success border border-success/30'
-                                }`}
+                            <LiveLogs />
+                        onClick={toggleEngine}
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-200 ${statusData?.is_running
+                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                                : 'bg-green-600 hover:bg-green-700 text-white'
+                            }`}
                         >
-                            {status?.is_running ? '⏸ Stop Engine' : '▶️ Start Engine'}
-                        </button>
-                        <button
-                            onClick={toggleTrading}
-                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.trading_enabled
-                                ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
-                                : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
-                                }`}
-                        >
-                            {status?.trading_enabled ? '🔴 Disable Trading' : '🟢 Enable Trading'}
-                        </button>
-                    </div>
+                        {statusData?.is_running ? 'Stop Engine' : 'Start Engine'}
+                    </button>
+                    <button
+                        onClick={toggleTrading}
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-200 ${statusData?.trading_enabled
+                                ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                    >
+                        {statusData?.trading_enabled ? 'Disable Trading' : 'Enable Trading'}
+                    </button>
                 </div>
+        </div>
 
-                {/* Chart */}
-                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
+                {/* Tabs */ }
+    <div className="flex space-x-2 mb-6 bg-surface/50 backdrop-blur border border-border/30 rounded-xl p-2">
+        <button onClick={() => setActiveTab('overview')} className={tabClasses('overview')}>
+            Overview
+        </button>
+        <button onClick={() => setActiveTab('scanner')} className={tabClasses('scanner')}>
+            Scanner
+        </button>
+        <button onClick={() => setActiveTab('history')} className={tabClasses('history')}>
+            Trade History
+        </button>
+        <button onClick={() => setActiveTab('logs')} className={tabClasses('logs')}>
+            Live Logs
+        </button>
+        <button onClick={() => setActiveTab('settings')} className={tabClasses('settings')}>
+            Settings
+        </button>
+    </div>
 
-
-                    <Chart
-                        symbol={status?.active_symbol || 'BTC'}
-                        strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
-                    />
-                </div>
-
-                {/* Active Trade & Logs Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                    <ActiveTrade />
-                    <LiveLogs />
-                </div>
-
-                {/* Strategy Monitor */}
+    {/* Tab Content */ }
+    <div className="mt-8">
+        {activeTab === 'overview' && (
+            <div className="space-y-6">
+                <Chart symbol={statusData?.asset || 'BTC'} />
                 <StrategyMonitor
                     strategies={marketData?.active_strategies || []}
                     regime={marketData?.regime || 'UNKNOWN'}
@@ -148,15 +158,27 @@ export default function Home() {
                     bb={marketData?.bb}
                     strategy_progress={marketData?.strategy_progress || {}}
                 />
+                <ActiveTrade />
+            </div>
+        )}
 
-                {/* Trade History */}
-                <div className="mt-8">
-                    <TradeHistory />
-                </div>
-            </main>
+        {activeTab === 'scanner' && (
+            <TokenScanner />
+        )}
 
-            {/* Settings Panel */}
+        {activeTab === 'history' && (
+            <TradeHistory />
+        )}
+
+        {activeTab === 'logs' && (
+            <LiveLogs />
+        )}
+
+        {activeTab === 'settings' && (
             <Settings />
-        </div>
+        )}
+    </div>
+            </main >
+        </div >
     )
 }

@@ -1,8 +1,9 @@
+```python
 """
 FastAPI Backend for HyperLiquid Trading Bot
 Exposes REST API and integrates with main bot
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -12,6 +13,10 @@ from datetime import datetime
 import os
 import numpy as np
 import pandas as pd
+
+# Import routes
+from backend.routes.settings import router as settings_router
+from backend.routes.scanner import router as scanner_router
 
 # When running from backend/, we need to go up one level
 BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
