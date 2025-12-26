@@ -102,51 +102,70 @@ export default function Home() {
                     <h3 className="text-lg font-semibold mb-4">Controls</h3>
                     <div className="flex gap-4">
                         <button
-                            <LiveLogs />
-                        onClick={toggleEngine}
-                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-200 ${statusData?.is_running
-                                ? 'bg-red-600 hover:bg-red-700 text-white'
-                                : 'bg-green-600 hover:bg-green-700 text-white'
-                            }`}
+                            onClick={toggleEngine}
+                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.is_running
+                                ? 'bg-error/20 hover:bg-error/30 text-error border border-error/30'
+                                : 'bg-success/20 hover:bg-success/30 text-success border border-success/30'
+                                }`}
                         >
-                        {statusData?.is_running ? 'Stop Engine' : 'Start Engine'}
-                    </button>
-                    <button
-                        onClick={toggleTrading}
-                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-200 ${statusData?.trading_enabled
-                                ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
-                                : 'bg-blue-600 hover:bg-blue-700 text-white'
-                            }`}
-                    >
-                        {statusData?.trading_enabled ? 'Disable Trading' : 'Enable Trading'}
-                    </button>
+                            {status?.is_running ? '⏸ Stop Engine' : '▶️ Start Engine'}
+                        </button>
+                        <button
+                            onClick={toggleTrading}
+                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.trading_enabled
+                                ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
+                                : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
+                                }`}
+                        >
+                            {status?.trading_enabled ? '🔴 Disable Trading' : '🟢 Enable Trading'}
+                        </button>
+                    </div>
                 </div>
-        </div>
 
-                {/* Tabs */ }
-    <div className="flex space-x-2 mb-6 bg-surface/50 backdrop-blur border border-border/30 rounded-xl p-2">
-        <button onClick={() => setActiveTab('overview')} className={tabClasses('overview')}>
-            Overview
-        </button>
-        <button onClick={() => setActiveTab('scanner')} className={tabClasses('scanner')}>
-            Scanner
-        </button>
-        <button onClick={() => setActiveTab('history')} className={tabClasses('history')}>
-            Trade History
-        </button>
-        <button onClick={() => setActiveTab('logs')} className={tabClasses('logs')}>
-            Live Logs
-        </button>
-        <button onClick={() => setActiveTab('settings')} className={tabClasses('settings')}>
-            Settings
-        </button>
-    </div>
+                {/* Chart */}
+                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
+                    {/* Tab Navigation */}
+                    <div className="flex gap-2 mb-6 border-b border-border/30 pb-4">
+                        <button
+                            onClick={() => setActiveTab('overview')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'overview'
+                                    ? 'bg-primary text-white'
+                                    : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            📊 Overview
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('scanner')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'scanner'
+                                    ? 'bg-primary text-white'
+                                    : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            🔍 Scanner
+                        </button>
+                    </div>
 
-    {/* Tab Content */ }
-    <div className="mt-8">
-        {activeTab === 'overview' && (
-            <div className="space-y-6">
-                <Chart symbol={statusData?.asset || 'BTC'} />
+                    {/* Tab Content */}
+                    {activeTab === 'overview' && (
+                        <Chart
+                            symbol={status?.active_symbol || 'BTC'}
+                            strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                        />
+                    )}
+
+                    {activeTab === 'scanner' && (
+                        <TokenScanner />
+                    )}
+                </div>
+
+                {/* Active Trade & Logs Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                    <ActiveTrade />
+                    <LiveLogs />
+                </div>
+
+                {/* Strategy Monitor */}
                 <StrategyMonitor
                     strategies={marketData?.active_strategies || []}
                     regime={marketData?.regime || 'UNKNOWN'}
@@ -158,27 +177,15 @@ export default function Home() {
                     bb={marketData?.bb}
                     strategy_progress={marketData?.strategy_progress || {}}
                 />
-                <ActiveTrade />
-            </div>
-        )}
 
-        {activeTab === 'scanner' && (
-            <TokenScanner />
-        )}
+                {/* Trade History */}
+                <div className="mt-8">
+                    <TradeHistory />
+                </div>
+            </main>
 
-        {activeTab === 'history' && (
-            <TradeHistory />
-        )}
-
-        {activeTab === 'logs' && (
-            <LiveLogs />
-        )}
-
-        {activeTab === 'settings' && (
+            {/* Settings Panel */}
             <Settings />
-        )}
-    </div>
-            </main >
-        </div >
+        </div>
     )
 }
