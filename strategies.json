@@ -24,14 +24,18 @@
             }
         },
         "swing_trend_pullback": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
                 "ema_trend": 200,
-                "ema_pullback_fast": 20,
+                "ema_pullback_fast": 21,
                 "ema_pullback_slow": 50,
-                "rsi_min_long": 40,
-                "rsi_max_short": 60
+                "rsi_min_long": 50,
+                "rsi_max_long": 70,
+                "rsi_min_short": 30,
+                "rsi_max_short": 50,
+                "min_adx": 25,
+                "max_pullback_depth": 0.01
             }
         },
         "day_trading_orb": {
@@ -59,6 +63,11 @@
             "params": {
                 "fvg_threshold": 0.005
             }
+        },
+        "smart_trend": {
+            "enabled": true,
+            "type": "trend",
+            "params": {}
         },
         "test_trigger": {
             "enabled": false,

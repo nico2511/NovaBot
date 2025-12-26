@@ -360,28 +360,32 @@ async def get_market_data():
         ema_50 = price
         bb = {"upper": price, "middle": price, "lower": price}
     
-    # Get active strategies from bot if connected
+    # Get active strategies and their progress from bot if connected
     active_strategies = []
+    strategy_progress = {}
     try:
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
             # Get strategies from latest analysis result
             if hasattr(bot, 'latest_strategy_result') and bot.latest_strategy_result:
                 result = bot.latest_strategy_result
-                # Get the list of active strategy names
-                active_strategies = result.get('strategies', [])
+                # Get the list of active strategy names (these are already filtered by regime)
+                strategy_names = result.get('strategies', [])
+                progress_data = result.get('progress', {})
+                
+                # Format for frontend
+                for name in strategy_names:
+                    active_strategies.append(name)
+                    strategy_progress[name] = progress_data.get(name, 0)
         
-        # Fallback: read from config if bot not connected
+        # If bot not connected or no analysis yet, return empty list
         if not active_strategies:
-            config_file = os.path.join(BASE_DIR, "strategies.json")
-            with open(config_file, "r") as f:
-                config = json.load(f)
-                for name, strat in config.get("strategies", {}).items():
-                    if strat.get("enabled", False):
-                        active_strategies.append(name.replace("_", " ").title())
+            active_strategies = []
+            strategy_progress = {}
     except Exception as e:
         print(f"Error getting active strategies: {e}")
-        active_strategies = ["Scalp Ema Rsi", "Smc Fvg"]
+        active_strategies = []
+        strategy_progress = {}
     
     regime = "TREND" if adx > 25 else "RANGE"
     
@@ -397,6 +401,7 @@ async def get_market_data():
         "ema_50": float(ema_50),
         "bb": bb,
         "active_strategies": active_strategies,
+        "strategy_progress": strategy_progress,
         "signals": []
     }
 

@@ -8,12 +8,32 @@ class BaseStrategy(ABC):
         self.config = config or {}
 
     @abstractmethod
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
+        """
+        Generate signal from dataframe.
+        
+        Args:
+            df: Primary dataframe (typically the strategy's main timeframe)
+            extra_data: Optional dict with additional dataframes (e.g., {"1m": df_1m, "1h": df_1h})
+        """
         pass
 
     def add_indicators(self, df):
         """Add indicators to the dataframe. Should be overridden by subclasses."""
         pass
+    
+    def calculate_progress(self, df, extra_data=None):
+        """
+        Calculate how close the strategy is to triggering a signal (0-100%).
+        
+        Args:
+            df: Primary dataframe
+            extra_data: Optional dict with additional dataframes
+            
+        Returns:
+            int: Progress percentage (0-100)
+        """
+        return 0  # Default: no progress
 
 class ScalpEmaRsi(BaseStrategy):
     def add_indicators(self, df):
@@ -30,8 +50,35 @@ class ScalpEmaRsi(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 200: return None
+
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate progress based on EMA convergence"""
+        if df.empty or len(df) < 200:
+            return 0
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            ema_fast = df[f"EMA_{params.get('ema_fast', 9)}"].iloc[-1]
+            ema_slow = df[f"EMA_{params.get('ema_slow', 21)}"].iloc[-1]
+            close = df['close'].iloc[-1]
+            trend = df['EMA_200'].iloc[-1]
+            rsi = df[f"RSI_{params.get('rsi_period', 14)}"].iloc[-1]
+            
+            # EMA distance (50 points)
+            ema_diff_pct = abs(ema_fast - ema_slow) / ema_slow * 100
+            ema_progress = max(0, min(50, 50 * (1 - ema_diff_pct / 0.5)))
+            
+            # Trend alignment (25 points)
+            trend_progress = 25 if (close > trend and ema_fast > ema_slow) or (close < trend and ema_fast < ema_slow) else 0
+            
+            # RSI zone (25 points)
+            rsi_progress = 25 if (50 < rsi < 70) or (30 < rsi < 50) else 0
+            
+            return min(100, int(ema_progress + trend_progress + rsi_progress))
+        except:
+            return 0
         
         self.add_indicators(df)
             
@@ -88,7 +135,7 @@ class InstitutionalScalp(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 30: return None
         
         self.add_indicators(df)
@@ -147,7 +194,7 @@ class SwingTrendPullback(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 200: return None
         
         self.add_indicators(df)
@@ -159,42 +206,102 @@ class SwingTrendPullback(BaseStrategy):
         
         trend_col = f"EMA_{ema_trend_len}"
         fast_col = f"EMA_{ema_fast_len}"
+        slow_col = f"EMA_{ema_slow_len}"
         rsi_col = "RSI_14"
         atr_col = "ATRr_14"
         
         if trend_col not in df.columns: return None
         
         close = df['close'].iloc[-1]
+        prev_close = df['close'].iloc[-2]
         low = df['low'].iloc[-1]
+        prev_low = df['low'].iloc[-2]
         high = df['high'].iloc[-1]
+        prev_high = df['high'].iloc[-2]
+        
         trend = df[trend_col].iloc[-1]
         ema_fast = df[fast_col].iloc[-1]
+        ema_slow = df[slow_col].iloc[-1]
         rsi = df[rsi_col].iloc[-1]
         atr = df[atr_col].iloc[-1] if atr_col in df.columns else (close * 0.01)
         
+        # Get ADX if available (for trend strength filter)
+        adx = None
+        if 'ADX_14' in df.columns:
+            adx = df['ADX_14'].iloc[-1]
+        
+        # Require strong trend (ADX > 25)
+        min_adx = params.get("min_adx", 25)
+        if adx is not None and adx < min_adx:
+            return None  # Weak trend, skip
+        
+        # LONG Setup
         if close > trend:
-            if low <= ema_fast and rsi > params.get("rsi_min_long", 40):
-                 if atr > (close * 0.002):
-                     return {
+            # Require EMA alignment (fast > slow)
+            if ema_fast <= ema_slow:
+                return None
+            
+            # Pullback confirmation: previous candle touched EMA, current bouncing
+            pullback_touched = prev_low <= ema_fast
+            bouncing = close > ema_fast
+            
+            if pullback_touched and bouncing:
+                # Check pullback depth (not too far)
+                pullback_depth = abs(prev_low - ema_fast) / ema_fast
+                max_depth = params.get("max_pullback_depth", 0.01)  # 1%
+                if pullback_depth > max_depth:
+                    return None  # Pullback too deep
+                
+                # Tighter RSI filter (bullish momentum)
+                rsi_min = params.get("rsi_min_long", 50)
+                rsi_max = params.get("rsi_max_long", 70)
+                if not (rsi_min < rsi < rsi_max):
+                    return None
+                
+                # Minimum volatility
+                if atr > (close * 0.002):
+                    return {
                         "signal": "BUY",
                         "sl": close - (1.5 * atr),
                         "tp": close + (3.0 * atr),
-                        "comment": "Trend Pullback"
+                        "comment": "Trend Pullback (Confirmed)"
                     }
 
+        # SHORT Setup
         if close < trend:
-            if high >= ema_fast and rsi < params.get("rsi_max_short", 60):
+            # Require EMA alignment (fast < slow)
+            if ema_fast >= ema_slow:
+                return None
+            
+            # Pullback confirmation: previous candle touched EMA, current bouncing
+            pullback_touched = prev_high >= ema_fast
+            bouncing = close < ema_fast
+            
+            if pullback_touched and bouncing:
+                # Check pullback depth
+                pullback_depth = abs(prev_high - ema_fast) / ema_fast
+                max_depth = params.get("max_pullback_depth", 0.01)
+                if pullback_depth > max_depth:
+                    return None
+                
+                # Tighter RSI filter (bearish momentum)
+                rsi_min = params.get("rsi_min_short", 30)
+                rsi_max = params.get("rsi_max_short", 50)
+                if not (rsi_min < rsi < rsi_max):
+                    return None
+                
+                # Minimum volatility
                 if atr > (close * 0.002):
                     return {
                         "signal": "SELL",
                         "sl": close + (1.5 * atr),
                         "tp": close - (3.0 * atr),
-                        "comment": "Trend Pullback"
+                        "comment": "Trend Pullback (Confirmed)"
                     }
         return None
 
 class DayTradingORB(BaseStrategy):
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         return None
 
 class MeanReversion(BaseStrategy):
@@ -213,7 +320,7 @@ class MeanReversion(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 50: return None
         
         self.add_indicators(df)
@@ -260,7 +367,7 @@ class SMCFVG(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 10: return None
         
         self.add_indicators(df)
@@ -320,7 +427,7 @@ class TestTriggerStrategy(BaseStrategy):
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         return df
 
-    def generate_signal(self, df):
+    def generate_signal(self, df, extra_data=None):
         if df.empty or len(df) < 5: return None
         
         self.add_indicators(df)
@@ -340,3 +447,206 @@ class TestTriggerStrategy(BaseStrategy):
             "tp": close * 1.02,
             "comment": "TEST TRIGGER"
         }
+
+
+class StrategySmartTrend(BaseStrategy):
+    """
+    Multi-Timeframe Strategy: Uses 15m for context (trend/zone) and 1m for trigger (micro-BOS).
+    
+    Setup (15m):
+    - Trend Filter: Price above/below EMA 50
+    - Zone: Price touches EMA 21 (pullback)
+    
+    Trigger (1m):
+    - Long: Close > High of last 3 candles (Micro-BOS)
+    - Short: Close < Low of last 3 candles
+    
+    Risk:
+    - SL: Swing Low/High on 1m (tight)
+    - TP: 1:2.5 RR
+    """
+    
+    def __init__(self, config=None):
+        super().__init__(config)
+        self.looking_for_entry = False
+        self.entry_direction = None  # "LONG" or "SHORT"
+    
+    def add_indicators(self, df):
+        """Add indicators to 15m dataframe"""
+        df['EMA_21'] = ta.ema(df['close'], length=21)
+        df['EMA_50'] = ta.ema(df['close'], length=50)
+        df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        """
+        Args:
+            df: 15m dataframe (context)
+            extra_data: dict with {"1m": df_1m} (trigger)
+        """
+        if df.empty or len(df) < 50:
+            return None
+        
+        # Get 1m data
+        if not extra_data or "1m" not in extra_data:
+            return None
+        
+        df_1m = extra_data["1m"]
+        if df_1m.empty or len(df_1m) < 5:
+            return None
+        
+        # Add indicators to 15m
+        self.add_indicators(df)
+        
+        # === STEP 1: Setup Check (15m) ===
+        params = self.config.get("params", {})
+        
+        # Get latest 15m values
+        close_15m = df['close'].iloc[-1]
+        low_15m = df['low'].iloc[-1]
+        high_15m = df['high'].iloc[-1]
+        ema_21 = df['EMA_21'].iloc[-1]
+        ema_50 = df['EMA_50'].iloc[-1]
+        atr_15m = df['ATRr_14'].iloc[-1]
+        
+        # Check for setup
+        # LONG Setup: Price above EMA 50 and touches EMA 21
+        if close_15m > ema_50:
+            if low_15m <= ema_21 * 1.002:  # Small tolerance for "touch"
+                self.looking_for_entry = True
+                self.entry_direction = "LONG"
+        
+        # SHORT Setup: Price below EMA 50 and touches EMA 21
+        elif close_15m < ema_50:
+            if high_15m >= ema_21 * 0.998:
+                self.looking_for_entry = True
+                self.entry_direction = "SHORT"
+        
+        # Cancel if trend broken
+        if self.entry_direction == "LONG" and close_15m < ema_50:
+            self.looking_for_entry = False
+            self.entry_direction = None
+        elif self.entry_direction == "SHORT" and close_15m > ema_50:
+            self.looking_for_entry = False
+            self.entry_direction = None
+        
+        # === STEP 2: Trigger Check (1m) ===
+        if not self.looking_for_entry:
+            return None
+        
+        # Get latest 1m values
+        if len(df_1m) < 4:
+            return None
+        
+        current_1m = df_1m.iloc[-1]
+        last_3_1m = df_1m.iloc[-4:-1]  # Last 3 candles before current
+        
+        close_1m = current_1m['close']
+        high_1m = current_1m['high']
+        low_1m = current_1m['low']
+        
+        # LONG Trigger: Close > High of last 3 (Micro-BOS)
+        if self.entry_direction == "LONG":
+            high_of_last_3 = last_3_1m['high'].max()
+            if close_1m > high_of_last_3:
+                # Find swing low for SL
+                swing_low = df_1m.tail(10)['low'].min()
+                sl = swing_low - (0.2 * atr_15m)  # Small buffer
+                tp = close_1m + (2.5 * (close_1m - sl))  # 1:2.5 RR
+                
+                # Reset state
+                self.looking_for_entry = False
+                self.entry_direction = None
+                
+                return {
+                    "signal": "BUY",
+                    "sl": sl,
+                    "tp": tp,
+                    "price": close_1m,
+                    "comment": "Smart Trend: 15m Pullback + 1m Micro-BOS"
+                }
+        
+        # SHORT Trigger: Close < Low of last 3
+        elif self.entry_direction == "SHORT":
+            low_of_last_3 = last_3_1m['low'].min()
+            if close_1m < low_of_last_3:
+                # Find swing high for SL
+                swing_high = df_1m.tail(10)['high'].max()
+                sl = swing_high + (0.2 * atr_15m)
+                tp = close_1m - (2.5 * (sl - close_1m))  # 1:2.5 RR
+                
+                # Reset state
+                self.looking_for_entry = False
+                self.entry_direction = None
+                
+                return {
+                    "signal": "SELL",
+                    "sl": sl,
+                    "tp": tp,
+                    "price": close_1m,
+                    "comment": "Smart Trend: 15m Pullback + 1m Micro-BOS"
+                }
+        
+        return None
+
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate progress: 15m setup (60%) + 1m trigger (40%)"""
+        if df.empty or len(df) < 50:
+            return 0
+        if not extra_data or "1m" not in extra_data:
+            return 0
+        
+        try:
+            self.add_indicators(df)
+            df_1m = extra_data["1m"]
+            
+            close_15m = df['close'].iloc[-1]
+            low_15m = df['low'].iloc[-1]
+            high_15m = df['high'].iloc[-1]
+            ema_21 = df['EMA_21'].iloc[-1]
+            ema_50 = df['EMA_50'].iloc[-1]
+            
+            setup_progress = 0
+            
+            # Trend (30 points)
+            if close_15m > ema_50 or close_15m < ema_50:
+                setup_progress += 30
+                
+                # Pullback proximity (30 points)
+                if close_15m > ema_50:
+                    dist = abs(low_15m - ema_21) / ema_21 * 100
+                else:
+                    dist = abs(high_15m - ema_21) / ema_21 * 100
+                
+                if dist < 0.5:
+                    setup_progress += 30
+                elif dist < 1.0:
+                    setup_progress += 20
+                elif dist < 2.0:
+                    setup_progress += 10
+            
+            # 1m trigger (40 points)
+            trigger_progress = 0
+            if len(df_1m) >= 4:
+                close_1m = df_1m.iloc[-1]['close']
+                high_3 = df_1m.iloc[-4:-1]['high'].max()
+                low_3 = df_1m.iloc[-4:-1]['low'].min()
+                
+                if close_15m > ema_50:
+                    dist_bos = (high_3 - close_1m) / close_1m * 100
+                else:
+                    dist_bos = (close_1m - low_3) / close_1m * 100
+                
+                if dist_bos < 0:
+                    trigger_progress = 40
+                elif dist_bos < 0.1:
+                    trigger_progress = 30
+                elif dist_bos < 0.3:
+                    trigger_progress = 20
+            
+            return min(100, int(setup_progress + trigger_progress))
+        except:
+            return 0
+
+# Add calculate_progress to ScalpEmaRsi (after line 103)
+# This will be inserted manually after the generate_signal method

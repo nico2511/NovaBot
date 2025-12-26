@@ -70,38 +70,38 @@ class BotContext:
             self.add_log("🔄 Entering loop iteration...")
             try:
                 self.add_log("📡 Fetching candles...")
-                # Fetch candles
-                df = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+                # Fetch both 15m and 1m candles for MTF strategies
+                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+                df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
                 
-                if df.empty:
-                    self.add_log("⚠️ No data received")
+                if df_15m.empty:
+                    self.add_log("⚠️ No 15m data received")
                     time.sleep(10)
                     continue
                 
-                self.add_log(f"✅ Received {len(df)} candles")
-                self.latest_data = df
+                if df_1m.empty:
+                    self.add_log("⚠️ No 1m data received")
+                    time.sleep(10)
+                    continue
                 
-                # Get current candle time
-                current_candle_time = df.index[-1]
+                self.add_log(f"✅ Received {len(df_15m)} 15m candles and {len(df_1m)} 1m candles")
+                self.latest_data = df_15m  # For UI display
                 
-                # Only analyze on new candle
+                # Get current 1m candle time (trigger on 1m for MTF)
+                current_candle_time = df_1m.index[-1]
+                
+                # Only analyze on new 1m candle
                 if self.last_candle_time != current_candle_time:
                     self.last_candle_time = current_candle_time
                     
-                    self.add_log(f"🔍 Analyzing new candle at {current_candle_time}")
-                    # Analyze strategies
-                    result = self.strategy_engine.analyze(df)
+                    self.add_log(f"🔍 Analyzing new 1m candle at {current_candle_time}")
+                    # Analyze strategies with MTF data
+                    result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
                     self.latest_strategy_result = result
                     
                     self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
-                else:
-                    # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
-                    if not hasattr(self, '_skip_counter'):
-                        self._skip_counter = 0
-                    self._skip_counter += 1
-                    if self._skip_counter % 12 == 0:
-                        self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 15m candle...")
                     
+                    # Process signals
                     if result.get("signals"):
                         sig_data = result["signals"][0]
                         strat_name = sig_data.get("strategy", "Unknown")
@@ -113,50 +113,54 @@ class BotContext:
                         # CRITICAL: Check if trading is enabled
                         if not self.trading_enabled:
                             self.add_log(f"⚠️ Signal detected but trading is DISABLED: {action} {strat_name}")
-                            continue
-                        
-                        can_trade, reason = self.risk_manager.check_can_trade()
-                        if can_trade:
-                            # Open trade
-                            self.active_trade = {
-                                "symbol": self.active_symbol,
-                                "side": action,
-                                "entry": entry_price,
-                                "sl": sl,
-                                "tp": tp,
-                                "strategy": strat_name,
-                                "timestamp": pd.Timestamp.now().isoformat()
-                            }
-                            self.risk_manager.record_trade_open()
-                            
-                            msg = f"🚨 ENTRY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
-                            self.add_log(msg)
-                            
-                            log_entry = {
-                                "time": pd.Timestamp.now(),
-                                "symbol": self.active_symbol,
-                                "strategy": strat_name,
-                                "type": action,
-                                "price": entry_price,
-                                "action": "OPENED"
-                            }
-                            self.signals_log.append(log_entry)
-                            
-
-
-                            # Send Discord notification
-                            try:
-                                discord_service.send_trade_signal(
-                                    self.active_symbol, 
-                                    action, 
-                                    entry_price, 
-                                    f"Strategy: {strat_name}\nSL: {sl}\nTP: {tp}"
-                                )
-                            except Exception as e:
-                                print(f"Failed to send Discord signal: {e}")
-                            
-                            # Save state
-                            StateManager.save_state(self)
+                        else:
+                            can_trade, reason = self.risk_manager.check_can_trade()
+                            if can_trade:
+                                # Open trade
+                                self.active_trade = {
+                                    "symbol": self.active_symbol,
+                                    "side": action,
+                                    "entry": entry_price,
+                                    "sl": sl,
+                                    "tp": tp,
+                                    "strategy": strat_name,
+                                    "timestamp": pd.Timestamp.now().isoformat()
+                                }
+                                self.risk_manager.record_trade_open()
+                                
+                                msg = f"🚨 ENTRY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
+                                self.add_log(msg)
+                                
+                                log_entry = {
+                                    "time": pd.Timestamp.now(),
+                                    "symbol": self.active_symbol,
+                                    "strategy": strat_name,
+                                    "type": action,
+                                    "price": entry_price,
+                                    "action": "OPENED"
+                                }
+                                self.signals_log.append(log_entry)
+                                
+                                # Send Discord notification
+                                try:
+                                    discord_service.send_trade_signal(
+                                        self.active_symbol, 
+                                        action, 
+                                        entry_price, 
+                                        f"Strategy: {strat_name}\nSL: {sl}\nTP: {tp}"
+                                    )
+                                except Exception as e:
+                                    print(f"Failed to send Discord signal: {e}")
+                                
+                                # Save state
+                                StateManager.save_state(self)
+                else:
+                    # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
+                    if not hasattr(self, '_skip_counter'):
+                        self._skip_counter = 0
+                    self._skip_counter += 1
+                    if self._skip_counter % 12 == 0:
+                        self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 1m candle...")
                 
                 # Check active trade
                 if self.active_trade:
@@ -257,7 +261,16 @@ class BotContext:
     def start(self):
         """Start the bot"""
         self.add_log(f"🔧 start() called. Current is_running={self.is_running}")
-        if not self.is_running:
+        
+        # Check if thread is actually alive
+        thread_alive = self.thread and self.thread.is_alive()
+        
+        if not self.is_running or not thread_alive:
+            if thread_alive:
+                self.add_log("⚠️ Thread exists but is_running=False, fixing state...")
+            elif self.is_running:
+                self.add_log("⚠️ is_running=True but thread dead, restarting...")
+            
             self.is_running = True
             self.add_log("🧵 Creating trading thread...")
             self.thread = threading.Thread(target=self.trading_loop, daemon=True)
@@ -266,7 +279,7 @@ class BotContext:
             self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
             StateManager.save_state(self)
         else:
-            self.add_log("⚠️ Bot already running, skipping start")
+            self.add_log("⚠️ Bot already running with active thread, skipping start")
     
     def stop(self):
         """Stop the bot"""

@@ -35,21 +35,33 @@ fi
 npm run build
 cd ..
 
+# Check PM2 availability
+if ! command -v pm2 &> /dev/null; then
+    echo "⚠️ PM2 not found globally. Checking local..."
+    if [ ! -f "node_modules/.bin/pm2" ]; then
+        echo "📦 Installing PM2 locally..."
+        npm install pm2
+    fi
+    PM2_CMD="npx pm2"
+else
+    PM2_CMD="pm2"
+fi
+
 echo "🔄 Redémarrage de PM2..."
 # Delete existing processes to ensure clean config reload
-pm2 delete ecosystem.config.js 2>/dev/null || pm2 delete hl-bot-engine hl-frontend 2>/dev/null || true
+$PM2_CMD delete ecosystem.config.js 2>/dev/null || $PM2_CMD delete hl-bot-engine hl-frontend 2>/dev/null || true
 
 # Start fresh
-pm2 start ecosystem.config.js
-pm2 save
+$PM2_CMD start ecosystem.config.js
+$PM2_CMD save
 
 echo ""
 echo "✅ Déploiement terminé!"
 echo ""
 echo "📊 Vérification:"
-pm2 list
+$PM2_CMD list
 echo ""
 echo "📝 Pour voir les logs:"
-echo "   Global:   pm2 logs"
-echo "   Bot:      pm2 logs hl-bot-engine"
-echo "   UI:       pm2 logs hl-frontend"
+echo "   Global:   $PM2_CMD logs"
+echo "   Bot:      $PM2_CMD logs hl-bot-engine"
+echo "   UI:       $PM2_CMD logs hl-frontend"

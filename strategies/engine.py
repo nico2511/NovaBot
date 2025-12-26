@@ -20,7 +20,8 @@ class StrategyEngine:
             "day_trading_orb": DayTradingORB(strats_config.get("day_trading_orb")),
             "mean_reversion": MeanReversion(strats_config.get("mean_reversion")),
             "smc_fvg": SMCFVG(strats_config.get("smc_fvg")),
-            "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger"))
+            "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
+            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend"))
         }
 
     def load_config(self):
@@ -31,7 +32,14 @@ class StrategyEngine:
             print(f"Error loading strategies.json: {e}")
             self.config = {}
 
-    def analyze(self, df: pd.DataFrame):
+    def analyze(self, df: pd.DataFrame, extra_data=None):
+        """
+        Analyze market data and generate signals.
+        
+        Args:
+            df: Primary dataframe (typically main timeframe)
+            extra_data: Optional dict with additional dataframes for MTF strategies
+        """
         # 1. Check Risk
         can_trade, reason = self.risk_manager.check_can_trade()
         if not can_trade:
@@ -71,13 +79,13 @@ class StrategyEngine:
         # 4. Generate Signals
         signals = []
         for strat in active_strategies:
-            sig = strat.generate_signal(df)
+            sig = strat.generate_signal(df, extra_data=extra_data)
             if sig:
                 if isinstance(sig, dict):
                     # Strategy returned rich object
                     signal_data = sig
                     signal_data["strategy"] = strat.name
-                    signal_data["price"] = df['close'].iloc[-1]
+                    signal_data["price"] = sig.get("price", df['close'].iloc[-1])
                     signal_data["timestamp"] = df.index[-1]
                     signals.append(signal_data)
                 else:
@@ -89,10 +97,20 @@ class StrategyEngine:
                         "timestamp": df.index[-1]
                     }
                     signals.append(signal_data)
+        
+        # 5. Calculate Progress for each active strategy
+        progress = {}
+        for strat in active_strategies:
+            try:
+                progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
+            except Exception as e:
+                print(f"Error calculating progress for {strat.name}: {e}")
+                progress[strat.name] = 0
 
         return {
             "regime": regime,
             "adx": current_adx,
             "strategies": [s.name for s in active_strategies],
+            "progress": progress,
             "signals": signals
         }

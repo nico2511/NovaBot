@@ -3,7 +3,7 @@ module.exports = {
         {
             name: "hl-bot-engine",
             script: "main_nextjs.py",
-            interpreter: "python3",
+            interpreter: "./.venv/bin/python3",
             autorestart: true,
             watch: false,
             env: {

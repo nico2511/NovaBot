@@ -24,14 +24,28 @@ class HyperliquidService:
             except Exception as e:
                 print(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
                 self.exchange = None
+    
+    def _parse_interval_to_seconds(self, interval: str) -> int:
+        """Parse interval string (e.g., '1m', '15m', '1h') to seconds"""
+        interval = interval.lower().strip()
+        if interval.endswith('m'):
+            return int(interval[:-1]) * 60
+        elif interval.endswith('h'):
+            return int(interval[:-1]) * 3600
+        elif interval.endswith('d'):
+            return int(interval[:-1]) * 86400
+        else:
+            # Default to 15m if unknown
+            return 900
 
     def get_candles(self, symbol: str, interval: str = "15m", limit: int = 100) -> pd.DataFrame:
         try:
             # CRITICAL: Use UTC time for Hyperliquid API (not local time)
             end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
-            # Approx start time (limit * interval * buffer)
-            # 15m = 900s. 100 candles = 90000s.
-            start_time = end_time - (limit * 15 * 60 * 1000)
+            
+            # Parse interval to calculate start_time correctly
+            interval_seconds = self._parse_interval_to_seconds(interval)
+            start_time = end_time - (limit * interval_seconds * 1000)
             
             raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
             

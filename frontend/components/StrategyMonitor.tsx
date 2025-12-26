@@ -7,9 +7,10 @@ interface StrategyMonitorProps {
     ema_20?: number
     ema_50?: number
     bb?: { upper: number; middle: number; lower: number }
+    strategy_progress?: { [key: string]: number }
 }
 
-export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb }: StrategyMonitorProps) {
+export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {} }: StrategyMonitorProps) {
     const getStrategyDetails = (strategy: string) => {
         const details: { [key: string]: { icon: string; description: string; conditions: string[] } } = {
             'Scalp Ema Rsi': {
@@ -134,9 +135,6 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                     key={index}
                                     className="relative bg-gradient-to-br from-primary/10 to-background/40 rounded-lg p-4 border-2 border-primary/50 hover:border-primary/80 transition-all shadow-lg shadow-primary/20 animate-pulse-slow"
                                 >
-                                    {/* Glow effect */}
-                                    <div className="absolute inset-0 bg-gradient-to-r from-primary/20 via-transparent to-primary/20 rounded-lg blur-xl -z-10"></div>
-
                                     <div className="flex items-start gap-3 mb-3">
                                         <div className="text-2xl">{details.icon}</div>
                                         <div className="flex-1">
@@ -153,6 +151,27 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                             </div>
                                         ))}
                                     </div>
+
+                                    {/* Progress Bar */}
+                                    {strategy_progress[strategy] !== undefined && (
+                                        <div className="mt-4 pt-3 border-t border-border/20">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs text-gray-400">Signal Proximity</span>
+                                                <span className="text-xs font-semibold text-primary">{strategy_progress[strategy]}%</span>
+                                            </div>
+                                            <div className="relative h-2 bg-background/50 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${strategy_progress[strategy] >= 70
+                                                        ? 'bg-gradient-to-r from-green-500 to-green-400'
+                                                        : strategy_progress[strategy] >= 30
+                                                            ? 'bg-gradient-to-r from-yellow-500 to-yellow-400'
+                                                            : 'bg-gradient-to-r from-gray-500 to-gray-400'
+                                                        }`}
+                                                    style={{ width: `${strategy_progress[strategy]}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )
                         })}

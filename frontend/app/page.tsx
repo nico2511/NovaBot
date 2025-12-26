@@ -146,6 +146,7 @@ export default function Home() {
                     ema_20={marketData?.ema_20}
                     ema_50={marketData?.ema_50}
                     bb={marketData?.bb}
+                    strategy_progress={marketData?.strategy_progress || {}}
                 />
 
                 {/* Trade History */}
