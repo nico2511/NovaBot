@@ -11,6 +11,7 @@ import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
 import TokenScanner from '@/components/TokenScanner'
+import AICommentary from '@/components/AICommentary'
 
 import CryptoWeather from '@/components/CryptoWeather'
 
@@ -152,6 +153,15 @@ export default function DashboardClient() {
                         >
                             🔍 Scanner
                         </button>
+                        <button
+                            onClick={() => setActiveTab('ai')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'ai'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            🤖 AI Commentary
+                        </button>
                     </div>
 
                     {/* Tab Content */}
@@ -164,6 +174,10 @@ export default function DashboardClient() {
 
                     {activeTab === 'scanner' && (
                         <TokenScanner />
+                    )}
+
+                    {activeTab === 'ai' && (
+                        <AICommentary symbol={status?.active_symbol || 'BTC'} />
                     )}
                 </div>
 

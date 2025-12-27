@@ -46,6 +46,16 @@ class BotContext:
         self.active_trade = None
         self.execution_mode = "Manual (Phantom)"
         
+        # AI Commentary Cache
+        self.ai_cache = {
+            "last_market_analysis": None,
+            "last_market_analysis_time": None,
+            "last_position_analysis": None,
+            "last_position_analysis_time": None,
+            "signal_analyses": deque(maxlen=50),
+            "market_snapshots": deque(maxlen=10)  # Pour comparer l'évolution
+        }
+        
         # Load persisted state
         try:
             StateManager.load_state(self)
@@ -109,6 +119,46 @@ class BotContext:
                     
                     self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
                     
+                    # AI: Analyse périodique du marché (toutes les 15 minutes)
+                    try:
+                        from app.services.gemini_service import gemini_service
+                        from datetime import datetime, timedelta
+                        
+                        now = datetime.now()
+                        last_analysis_time = self.ai_cache.get("last_market_analysis_time")
+                        
+                        # Analyser toutes les 15 minutes
+                        if not last_analysis_time or (now - last_analysis_time) > timedelta(minutes=15):
+                            # Préparer le snapshot actuel
+                            current_snapshot = {
+                                "symbol": self.active_symbol,
+                                "price": float(df_15m['close'].iloc[-1]),
+                                "regime": result.get('regime', 'UNKNOWN'),
+                                "timestamp": now.isoformat()
+                            }
+                            
+                            # Récupérer le snapshot précédent
+                            previous_snapshot = self.ai_cache["market_snapshots"][-1] if self.ai_cache["market_snapshots"] else None
+                            
+                            # Analyser l'évolution
+                            evolution_analysis = gemini_service.analyze_market_evolution(current_snapshot, previous_snapshot)
+                            
+                            self.ai_cache["last_market_analysis"] = evolution_analysis
+                            self.ai_cache["last_market_analysis_time"] = now
+                            self.ai_cache["market_snapshots"].append(current_snapshot)
+                            
+                            # Logger les changements importants
+                            if evolution_analysis.get("raw_output"):
+                                try:
+                                    import json
+                                    analysis_data = json.loads(evolution_analysis["raw_output"])
+                                    if analysis_data.get("alert_level") in ["HIGH", "CRITICAL"]:
+                                        self.add_log(f"🤖 IA: {analysis_data.get('summary', 'Changement détecté')}")
+                                except:
+                                    pass
+                    except Exception as e:
+                        print(f"Error in AI market analysis: {e}")
+                    
                     # Process signals
                     if result.get("signals"):
                         sig_data = result["signals"][0]
@@ -117,6 +167,45 @@ class BotContext:
                         entry_price = sig_data.get("price")
                         sl = sig_data.get("sl", entry_price * 0.95)
                         tp = sig_data.get("tp", entry_price * 1.05)
+                        
+                        # AI: Analyser le signal
+                        try:
+                            from app.services.gemini_service import gemini_service
+                            
+                            signal_for_ai = {
+                                "signal": action,
+                                "price": entry_price,
+                                "sl": sl,
+                                "tp": tp,
+                                "strategy": strat_name,
+                                "comment": sig_data.get("comment", "")
+                            }
+                            
+                            market_context = {
+                                "symbol": self.active_symbol,
+                                "regime": result.get('regime', 'UNKNOWN'),
+                                "price": entry_price
+                            }
+                            
+                            ai_analysis = gemini_service.analyze_trade_signal(signal_for_ai, market_context)
+                            
+                            # Stocker l'analyse
+                            self.ai_cache["signal_analyses"].append({
+                                "signal": signal_for_ai,
+                                "analysis": ai_analysis,
+                                "timestamp": pd.Timestamp.now().isoformat()
+                            })
+                            
+                            # Logger l'explication IA
+                            if ai_analysis.get("raw_output"):
+                                try:
+                                    import json
+                                    ai_data = json.loads(ai_analysis["raw_output"])
+                                    self.add_log(f"🤖 IA: {ai_data.get('explanation', 'Signal analysé')}")
+                                except:
+                                    pass
+                        except Exception as e:
+                            print(f"Error in AI signal analysis: {e}")
                         
                         # CRITICAL: Check if trading is enabled
                         if not self.trading_enabled:
@@ -149,13 +238,25 @@ class BotContext:
                                 }
                                 self.signals_log.append(log_entry)
                                 
-                                # Send Discord notification
+                                # Send Discord notification with AI analysis
                                 try:
+                                    discord_msg = f"Strategy: {strat_name}\nSL: {sl}\nTP: {tp}"
+                                    
+                                    # Ajouter l'analyse IA si disponible
+                                    if ai_analysis.get("raw_output"):
+                                        try:
+                                            import json
+                                            ai_data = json.loads(ai_analysis["raw_output"])
+                                            discord_msg += f"\n\n🤖 IA: {ai_data.get('explanation', '')}"
+                                            discord_msg += f"\nConfiance: {ai_data.get('confidence', 'N/A')}"
+                                        except:
+                                            pass
+                                    
                                     discord_service.send_trade_signal(
                                         self.active_symbol, 
                                         action, 
                                         entry_price, 
-                                        f"Strategy: {strat_name}\nSL: {sl}\nTP: {tp}"
+                                        discord_msg
                                     )
                                 except Exception as e:
                                     print(f"Failed to send Discord signal: {e}")
@@ -243,6 +344,38 @@ class BotContext:
                     tp_price = self.active_trade["tp"]
                     sl_price = self.active_trade["sl"]
                     side = self.active_trade["side"]
+                    
+                    # AI: Analyser la position active (toutes les 5 minutes)
+                    try:
+                        from app.services.gemini_service import gemini_service
+                        from datetime import datetime, timedelta
+                        
+                        now = datetime.now()
+                        last_pos_analysis_time = self.ai_cache.get("last_position_analysis_time")
+                        
+                        # Analyser toutes les 5 minutes
+                        if not last_pos_analysis_time or (now - last_pos_analysis_time) > timedelta(minutes=5):
+                            market_context = {
+                                "price": float(current_price),
+                                "symbol": self.active_symbol
+                            }
+                            
+                            position_analysis = gemini_service.analyze_active_position(self.active_trade, market_context)
+                            
+                            self.ai_cache["last_position_analysis"] = position_analysis
+                            self.ai_cache["last_position_analysis_time"] = now
+                            
+                            # Logger les recommandations importantes
+                            if position_analysis.get("raw_output"):
+                                try:
+                                    import json
+                                    pos_data = json.loads(position_analysis["raw_output"])
+                                    if pos_data.get("risk_level") in ["HIGH", "CRITICAL"]:
+                                        self.add_log(f"🤖 IA Position: {pos_data.get('reasoning', 'Risque détecté')}")
+                                except:
+                                    pass
+                    except Exception as e:
+                        print(f"Error in AI position analysis: {e}")
                     
                     # BREAK EVEN LOGIC
                     # If price moved 50% towards TP, move SL to Entry

@@ -1,15 +1,28 @@
 [
-    {
-        "id": "trade_mock_1",
-        "symbol": "BTC",
-        "side": "BUY",
-        "entry_price": 95000.0,
-        "exit_price": 96500.0,
-        "pnl": 1500.0,
-        "pnl_percent": 1.58,
-        "entry_time": "2025-12-27T09:00:00",
-        "exit_time": "2025-12-27T10:30:00",
-        "strategy": "ScalpEmaRsi",
-        "exit_reason": "TP"
-    }
+  {
+    "id": "trade_mock_1",
+    "symbol": "BTC",
+    "side": "BUY",
+    "entry_price": 95000.0,
+    "exit_price": 96500.0,
+    "pnl": 1500.0,
+    "pnl_percent": 1.58,
+    "entry_time": "2025-12-27T09:00:00",
+    "exit_time": "2025-12-27T10:30:00",
+    "strategy": "ScalpEmaRsi",
+    "exit_reason": "TP"
+  },
+  {
+    "symbol": "HYPE",
+    "strategy": "Manual/Adopted",
+    "side": "BUY",
+    "entry_price": 26.131,
+    "exit_price": 25.773,
+    "pnl": -0.35800000000000054,
+    "pnl_percent": -1.3700202824231777,
+    "entry_time": "2025-12-27T11:37:29.817719",
+    "exit_time": "2025-12-27T17:21:56.559634",
+    "exit_reason": "SL",
+    "id": "trade_1766852516_1"
+  }
 ]

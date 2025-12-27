@@ -775,6 +775,142 @@ async def switch_symbol(data: dict):
         print(f"Error switching symbol: {e}")
         return {"status": "error", "message": str(e)}
 
+# ============================================
+# AI COMMENTARY ENDPOINTS
+# ============================================
+
+@app.post("/api/ai/signal_analysis")
+async def ai_signal_analysis(data: dict):
+    """Analyse un signal de trading avec l'IA"""
+    try:
+        from app.services.gemini_service import gemini_service
+        
+        signal_data = data.get("signal", {})
+        market_context = data.get("market_context", {})
+        
+        analysis = gemini_service.analyze_trade_signal(signal_data, market_context)
+        return analysis
+    except Exception as e:
+        print(f"Error in AI signal analysis: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/ai/market_commentary")
+async def ai_market_commentary():
+    """Obtient le dernier commentaire de marché de l'IA"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Retourner l'analyse en cache
+            last_analysis = bot.ai_cache.get("last_market_analysis")
+            last_time = bot.ai_cache.get("last_market_analysis_time")
+            
+            if last_analysis:
+                return {
+                    "analysis": last_analysis,
+                    "timestamp": last_time.isoformat() if last_time else None,
+                    "cached": True
+                }
+        
+        # Si pas de cache, générer une nouvelle analyse
+        from app.services.gemini_service import gemini_service
+        from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_adx
+        
+        symbol = bot_state.active_symbol if not (bot_bridge and bot_bridge.is_connected()) else bot.active_symbol
+        df = await get_hyperliquid_candles(symbol, "15m", 100)
+        
+        if df is not None and len(df) > 0:
+            current_data = {
+                "symbol": symbol,
+                "price": float(df['close'].iloc[-1]),
+                "timestamp": pd.Timestamp.now().isoformat()
+            }
+            
+            analysis = gemini_service.analyze_market_evolution(current_data)
+            return {
+                "analysis": analysis,
+                "timestamp": pd.Timestamp.now().isoformat(),
+                "cached": False
+            }
+        
+        return {"error": "No market data available"}
+    except Exception as e:
+        print(f"Error in AI market commentary: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/ai/position_analysis")
+async def ai_position_analysis():
+    """Analyse la position active avec l'IA"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            if not bot.active_trade:
+                return {"error": "No active position"}
+            
+            # Retourner l'analyse en cache si récente
+            last_analysis = bot.ai_cache.get("last_position_analysis")
+            last_time = bot.ai_cache.get("last_position_analysis_time")
+            
+            if last_analysis and last_time:
+                from datetime import datetime, timedelta
+                if (datetime.now() - last_time) < timedelta(minutes=5):
+                    return {
+                        "analysis": last_analysis,
+                        "timestamp": last_time.isoformat(),
+                        "cached": True
+                    }
+            
+            # Générer une nouvelle analyse
+            from app.services.gemini_service import gemini_service
+            from backend.market_data import get_hyperliquid_candles
+            
+            df = await get_hyperliquid_candles(bot.active_symbol, "15m", 50)
+            
+            if df is not None and len(df) > 0:
+                market_context = {
+                    "price": float(df['close'].iloc[-1]),
+                    "symbol": bot.active_symbol
+                }
+                
+                analysis = gemini_service.analyze_active_position(bot.active_trade, market_context)
+                return {
+                    "analysis": analysis,
+                    "timestamp": pd.Timestamp.now().isoformat(),
+                    "cached": False
+                }
+        
+        return {"error": "No active position or bot not connected"}
+    except Exception as e:
+        print(f"Error in AI position analysis: {e}")
+        return {"error": str(e)}
+
+@app.get("/api/ai/history")
+async def ai_history():
+    """Historique des analyses IA"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Récupérer les analyses de signaux
+            signal_analyses = list(bot.ai_cache.get("signal_analyses", []))
+            
+            # Récupérer les snapshots de marché
+            market_snapshots = list(bot.ai_cache.get("market_snapshots", []))
+            
+            return {
+                "signal_analyses": signal_analyses[-10:],  # Dernières 10
+                "market_snapshots": market_snapshots[-5:],  # Derniers 5
+                "last_market_analysis": bot.ai_cache.get("last_market_analysis"),
+                "last_position_analysis": bot.ai_cache.get("last_position_analysis")
+            }
+        
+        return {"error": "Bot not connected"}
+    except Exception as e:
+        print(f"Error getting AI history: {e}")
+        return {"error": str(e)}
+
+
 
 
 if __name__ == "__main__":
