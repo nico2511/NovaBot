@@ -42,15 +42,6 @@ export default function DashboardClient() {
     return (
         <>
             {/* Header */}
-
-            {/* Status Pill */}
-            <div className={`px-4 py-2 rounded-full text-sm font-semibold ${status?.is_running
-                ? 'bg-success/20 text-success border border-success/30'
-                : 'bg-gray-700/50 text-gray-400 border border-gray-600/30'
-                }`}>
-                {status?.is_running ? '🟢 LIVE' : '⚪ OFFLINE'}
-            </div>
-        </div >
             <header className="bg-gradient-to-r from-surface/95 to-surface/80 backdrop-blur-lg border-b border-border/30 sticky top-0 z-50">
                 <div className="container mx-auto px-6 py-4">
                     <div className="flex items-center justify-between">
@@ -109,99 +100,99 @@ export default function DashboardClient() {
                 </div>
             </header>
 
-    {/* Main Content */ }
-    < main className="container mx-auto px-6 py-8" >
-        {/* Stats Grid Removed as requested */}
+            {/* Main Content */}
+            < main className="container mx-auto px-6 py-8" >
+                {/* Stats Grid Removed as requested */}
 
-        {/* Controls */}
-        <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
-            <h3 className="text-lg font-semibold mb-4">Controls</h3>
-            <div className="flex gap-4">
-                <button
-                    onClick={toggleEngine}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.is_running
-                        ? 'bg-error/20 hover:bg-error/30 text-error border border-error/30'
-                        : 'bg-success/20 hover:bg-success/30 text-success border border-success/30'
-                        }`}
-                >
-                    {status?.is_running ? '⏸ Stop Engine' : '▶️ Start Engine'}
-                </button>
-                <button
-                    onClick={toggleTrading}
-                    className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.trading_enabled
-                        ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
-                        : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
-                        }`}
-                >
-                    {status?.trading_enabled ? '🔴 Disable Trading' : '🟢 Enable Trading'}
-                </button>
-            </div>
-        </div>
+                {/* Controls */}
+                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
+                    <h3 className="text-lg font-semibold mb-4">Controls</h3>
+                    <div className="flex gap-4">
+                        <button
+                            onClick={toggleEngine}
+                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.is_running
+                                ? 'bg-error/20 hover:bg-error/30 text-error border border-error/30'
+                                : 'bg-success/20 hover:bg-success/30 text-success border border-success/30'
+                                }`}
+                        >
+                            {status?.is_running ? '⏸ Stop Engine' : '▶️ Start Engine'}
+                        </button>
+                        <button
+                            onClick={toggleTrading}
+                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.trading_enabled
+                                ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
+                                : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
+                                }`}
+                        >
+                            {status?.trading_enabled ? '🔴 Disable Trading' : '🟢 Enable Trading'}
+                        </button>
+                    </div>
+                </div>
 
-        {/* Chart */}
-        <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
-            {/* Tab Navigation */}
-            <div className="flex gap-2 mb-6 border-b border-border/30 pb-4">
-                <button
-                    onClick={() => setActiveTab('overview')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'overview'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-surface/50'
-                        }`}
-                >
-                    📊 Overview
-                </button>
-                <button
-                    onClick={() => setActiveTab('scanner')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'scanner'
-                        ? 'bg-primary text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-surface/50'
-                        }`}
-                >
-                    🔍 Scanner
-                </button>
-            </div>
+                {/* Chart */}
+                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
+                    {/* Tab Navigation */}
+                    <div className="flex gap-2 mb-6 border-b border-border/30 pb-4">
+                        <button
+                            onClick={() => setActiveTab('overview')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'overview'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            📊 Overview
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('scanner')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'scanner'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            🔍 Scanner
+                        </button>
+                    </div>
 
-            {/* Tab Content */}
-            {activeTab === 'overview' && (
-                <Chart
-                    symbol={status?.active_symbol || 'BTC'}
-                    strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                    {/* Tab Content */}
+                    {activeTab === 'overview' && (
+                        <Chart
+                            symbol={status?.active_symbol || 'BTC'}
+                            strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                        />
+                    )}
+
+                    {activeTab === 'scanner' && (
+                        <TokenScanner />
+                    )}
+                </div>
+
+                {/* Active Trade & Logs Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                    <ActiveTrade />
+                    <LiveLogs />
+                </div>
+
+                {/* Strategy Monitor */}
+                <StrategyMonitor
+                    strategies={marketData?.active_strategies || []}
+                    regime={marketData?.regime || 'UNKNOWN'}
+                    rsi={marketData?.rsi || 0}
+                    atr={marketData?.atr || 0}
+                    adx={marketData?.adx || 0}
+                    ema_20={marketData?.ema_20}
+                    ema_50={marketData?.ema_50}
+                    bb={marketData?.bb}
+                    strategy_progress={marketData?.strategy_progress || {}}
                 />
-            )}
 
-            {activeTab === 'scanner' && (
-                <TokenScanner />
-            )}
-        </div>
+                {/* Trade History */}
+                <div className="mt-8">
+                    <TradeHistory />
+                </div>
+            </main >
 
-        {/* Active Trade & Logs Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <ActiveTrade />
-            <LiveLogs />
-        </div>
-
-        {/* Strategy Monitor */}
-        <StrategyMonitor
-            strategies={marketData?.active_strategies || []}
-            regime={marketData?.regime || 'UNKNOWN'}
-            rsi={marketData?.rsi || 0}
-            atr={marketData?.atr || 0}
-            adx={marketData?.adx || 0}
-            ema_20={marketData?.ema_20}
-            ema_50={marketData?.ema_50}
-            bb={marketData?.bb}
-            strategy_progress={marketData?.strategy_progress || {}}
-        />
-
-        {/* Trade History */}
-        <div className="mt-8">
-            <TradeHistory />
-        </div>
-    </main >
-
-    {/* Settings Panel */ }
-    < Settings />
+            {/* Settings Panel */}
+            < Settings />
         </>
     )
 }

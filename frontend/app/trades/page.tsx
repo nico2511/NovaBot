@@ -23,8 +23,8 @@ interface Trade {
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 export default function TradesPage() {
-    const { data: tradeData, error } = useSWR('http://localhost:8001/api/trades', fetcher, { refreshInterval: 5000 })
-    const { data: statsData } = useSWR('http://localhost:8001/api/stats', fetcher, { refreshInterval: 5000 })
+    const { data: tradeData, error } = useSWR('/api/trades', fetcher, { refreshInterval: 5000 })
+    const { data: statsData } = useSWR('/api/stats', fetcher, { refreshInterval: 5000 })
 
     const [trades, setTrades] = useState<Trade[]>([])
     const [chartData, setChartData] = useState<any[]>([])
@@ -172,8 +172,8 @@ export default function TradesPage() {
                                         </td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded text-xs ${trade.exit_reason === 'TP' ? 'bg-green-500/20 text-green-400' :
-                                                    trade.exit_reason === 'SL' ? 'bg-red-500/20 text-red-400' :
-                                                        'bg-blue-500/20 text-blue-400'
+                                                trade.exit_reason === 'SL' ? 'bg-red-500/20 text-red-400' :
+                                                    'bg-blue-500/20 text-blue-400'
                                                 }`}>
                                                 {trade.exit_reason}
                                             </span>

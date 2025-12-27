@@ -61,6 +61,7 @@ class ScannerJob:
                 
                 if not valid_opps:
                     self.bot.add_log("No opportunities found above threshold.")
+                    discord_service.send_log(f"🕵️ **Scanner**: Checked market, no opportunities found > {min_score}")
                     continue
 
                 # Notify & Action

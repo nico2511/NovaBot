@@ -1,0 +1,15 @@
+[
+    {
+        "id": "trade_mock_1",
+        "symbol": "BTC",
+        "side": "BUY",
+        "entry_price": 95000.0,
+        "exit_price": 96500.0,
+        "pnl": 1500.0,
+        "pnl_percent": 1.58,
+        "entry_time": "2025-12-27T09:00:00",
+        "exit_time": "2025-12-27T10:30:00",
+        "strategy": "ScalpEmaRsi",
+        "exit_reason": "TP"
+    }
+]
