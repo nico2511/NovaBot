@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import useSWR from 'swr'
 import axios from 'axios'
 
 const API_URL = ''
@@ -42,29 +43,28 @@ export default function Settings() {
 
     const [isOpen, setIsOpen] = useState(false)
 
-    useEffect(() => {
-        // Load settings from API
-        const loadSettings = async () => {
-            try {
-                const response = await axios.get(`${API_URL}/api/settings`)
-                if (response.data) {
-                    setSettings(prev => ({
-                        ...prev,
-                        ...response.data,
-                        // Ensure numeric values are parsed correctly if string comes back
-                        size_value: parseFloat(response.data.size_value || prev.size_value),
-                        leverage: parseInt(response.data.leverage || prev.leverage),
-                        max_positions: parseInt(response.data.max_positions || prev.max_positions),
-                        daily_stop_loss: parseFloat(response.data.daily_stop_loss || prev.daily_stop_loss)
-                    }))
-                }
-            } catch (error) {
-                console.error('Failed to load settings:', error)
-            }
-        }
+    // Use SWR for auto-syncing settings (especially asset/symbol changes)
+    const { data: serverSettings } = useSWR(`${API_URL}/api/settings`, async (url) => {
+        const res = await axios.get(url)
+        return res.data
+    }, { refreshInterval: 2000 })
 
-        loadSettings()
-    }, []) // Load once on mount
+    // Sync local state when server data changes (unless user is editing - tricky, but for now strict sync on asset is safer)
+    useEffect(() => {
+        if (serverSettings) {
+            setSettings(prev => ({
+                ...prev,
+                ...serverSettings,
+                // Ensure numeric values are parsed correctly
+                size_value: parseFloat(serverSettings.size_value || prev.size_value),
+                leverage: parseInt(serverSettings.leverage || prev.leverage),
+                max_positions: parseInt(serverSettings.max_positions || prev.max_positions),
+                daily_stop_loss: parseFloat(serverSettings.daily_stop_loss || prev.daily_stop_loss),
+                // Important: Update asset if backend switched it
+                asset: serverSettings.asset || prev.asset
+            }))
+        }
+    }, [serverSettings])
 
     const saveSettings = async () => {
         try {

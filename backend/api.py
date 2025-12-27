@@ -223,7 +223,7 @@ async def disable_trading():
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
 
 @app.get("/api/candles")
-async def get_candles(limit: int = 200, strategy: Optional[str] = None):
+async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: Optional[str] = None):
     """Get formatted candles for chart, optionally with strategy indicators"""
     try:
         try:
@@ -231,8 +231,11 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None):
         except ImportError:
             from market_data import get_hyperliquid_candles
             
+        # Use provided symbol or fallback to active
+        target_symbol = symbol if symbol else bot_state.active_symbol
+
         # 1. Fetch raw candles
-        df = await get_hyperliquid_candles(bot_state.active_symbol, "15m", limit)
+        df = await get_hyperliquid_candles(target_symbol, "15m", limit)
         if df is None:
             return {"candles": []}
         

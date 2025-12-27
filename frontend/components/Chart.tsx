@@ -18,7 +18,7 @@ export default function Chart({ symbol, strategy }: ChartProps) {
 
     // Fetch candles
     const { data: candleData, error } = useSWR(
-        symbol ? `/api/candles?limit=200&strategy=${strategy || 'ScalpEmaRsi'}` : null,
+        symbol ? `/api/candles?limit=200&strategy=${strategy || 'ScalpEmaRsi'}&symbol=${symbol}` : null,
         fetcher,
         {
             refreshInterval: 15000,
