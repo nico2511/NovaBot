@@ -62,6 +62,7 @@ export default function DashboardClient() {
                                     ema_20={marketData?.ema_20}
                                     ema_50={marketData?.ema_50}
                                     atr={marketData?.atr}
+                                    symbol={status?.active_symbol || 'BTC'}
                                 />
                             </div>
                         </div>

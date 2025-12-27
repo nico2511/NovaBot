@@ -585,44 +585,44 @@ async def get_ai_analysis(data: dict = {}):
         
         # 1. Gather Market Data
         # We need to construct a summary of indicators to send to the AI
-        try:
-             # Reuse get_market_data logic ideally, or just call it if refactored. 
-             # For now, we'll fetch fresh to be safe.
-             
-            try:
-                from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
-            except ImportError:
-                from market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
+
+        # Reuse get_market_data logic ideally, or just call it if refactored. 
+        # For now, we'll fetch fresh to be safe.
         
-            df = await get_hyperliquid_candles(symbol, "15m", 100)
+        try:
+            from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
+        except ImportError:
+            from market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
+    
+        df = await get_hyperliquid_candles(symbol, "15m", 100)
+        
+        if df is None or df.empty:
+            return {"error": "No market data available"}
             
-            if df is None or df.empty:
-                return {"error": "No market data available"}
-                
-            current_price = float(df['close'].iloc[-1])
-            rsi = await calculate_rsi(df['close'])
-            adx = await calculate_adx(df)
-            atr = await calculate_atr(df)
-            ema_20 = await calculate_ema(df['close'], 20)
-            ema_50 = await calculate_ema(df['close'], 50)
-            
-            # Trend
-            trend = "BULLISH" if ema_20 > ema_50 else "BEARISH"
-            
-            # Prepare data packet for AI
-            market_summary = {
-                "symbol": symbol,
-                "price": current_price,
-                "rsi": rsi,
-                "adx": adx,
-                "atr": atr,
-                "trend_technical": trend,
-                "volatility": "HIGH" if adx > 25 else "LOW"
-            }
-            
-            # 2. Call Gemini
-            analysis = gemini_service.analyze_market(market_summary)
-            return analysis
+        current_price = float(df['close'].iloc[-1])
+        rsi = await calculate_rsi(df['close'])
+        adx = await calculate_adx(df)
+        atr = await calculate_atr(df)
+        ema_20 = await calculate_ema(df['close'], 20)
+        ema_50 = await calculate_ema(df['close'], 50)
+        
+        # Trend
+        trend = "BULLISH" if ema_20 > ema_50 else "BEARISH"
+        
+        # Prepare data packet for AI
+        market_summary = {
+            "symbol": symbol,
+            "price": current_price,
+            "rsi": rsi,
+            "adx": adx,
+            "atr": atr,
+            "trend_technical": trend,
+            "volatility": "HIGH" if adx > 25 else "LOW"
+        }
+        
+        # 2. Call Gemini
+        analysis = gemini_service.analyze_market(market_summary)
+        return analysis
 
     except ImportError:
          return {"error": "Gemini Service not found"}

@@ -79,26 +79,33 @@ class ScalpEmaRsi(BaseStrategy):
         close = df['close'].iloc[-1]
         atr = df[atr_col].iloc[-1]
         
-        # BUY: Cross UP + Trend Bullish
-        if prev_fast <= prev_slow and current_fast > current_slow:
-            if close > current_trend:
-                if 50 < current_rsi < 70:
+        # BUY: Bullish setup (EMA alignment + Trend + RSI)
+        # Trigger on: 1) Active crossover OR 2) Already aligned with all conditions met
+        is_bullish_cross = prev_fast <= prev_slow and current_fast > current_slow
+        is_bullish_aligned = current_fast > current_slow  # EMAs already aligned
+        
+        if is_bullish_cross or is_bullish_aligned:
+            if close > current_trend:  # Above 200 EMA
+                if 50 < current_rsi < 70:  # RSI in momentum zone
                     return {
                         "signal": "BUY",
                         "sl": close - (1.5 * atr),
                         "tp": close + (2.5 * atr),
-                        "comment": "EMA Cross + Trend + RSI Momentum"
+                        "comment": "EMA Bullish + Trend + RSI" if is_bullish_aligned else "EMA Cross + Trend + RSI"
                     }
                 
-        # SELL: Cross DOWN + Trend Bearish
-        if prev_fast >= prev_slow and current_fast < current_slow:
-            if close < current_trend:
-                if 30 < current_rsi < 50:
+        # SELL: Bearish setup (EMA alignment + Trend + RSI)
+        is_bearish_cross = prev_fast >= prev_slow and current_fast < current_slow
+        is_bearish_aligned = current_fast < current_slow
+        
+        if is_bearish_cross or is_bearish_aligned:
+            if close < current_trend:  # Below 200 EMA
+                if 30 < current_rsi < 50:  # RSI in momentum zone
                     return {
                         "signal": "SELL",
                         "sl": close + (1.5 * atr),
                         "tp": close - (2.5 * atr),
-                        "comment": "EMA Cross + Trend + RSI Momentum"
+                        "comment": "EMA Bearish + Trend + RSI" if is_bearish_aligned else "EMA Cross + Trend + RSI"
                     }
         return None
 
@@ -127,17 +134,8 @@ class ScalpEmaRsi(BaseStrategy):
             
             total_progress = min(100, int(ema_progress + trend_progress + rsi_progress))
             
-            # Cap at 95% if no actual signal (cross) is happening
-            # We re-check the basics of the signal logic here or just rely on the cap
-            # To be accurate, we'd check previous candles, but for progress UI, 
-            # 100% usually implies "Action Imminent/Happening".
-            # If we are just "set up" but not "triggered", cap at 95%.
-            
-            # Check simple crossover condition
-            # Since we don't have prev values easily here without recalculating:
-            # We will cap at 95% by default. The signal generation will override if it triggers?
-            # No, UI displays progress independently.
-            return min(95, total_progress) 
+            # No cap needed - if all conditions met, show 100% and signal will trigger
+            return total_progress 
         except:
             return 0
 

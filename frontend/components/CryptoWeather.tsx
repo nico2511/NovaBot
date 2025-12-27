@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import axios from 'axios'
 
 interface CryptoWeatherProps {
@@ -11,9 +12,10 @@ interface CryptoWeatherProps {
     ema_20?: number
     ema_50?: number
     atr?: number
+    symbol?: string
 }
 
-export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50, atr }: CryptoWeatherProps) {
+export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50, atr, symbol = 'BTC' }: CryptoWeatherProps) {
     let weatherIcon = '☁️' // Cloudy (Range)
     let weatherText = 'Overcast (Range)'
     let color = 'text-gray-400'
@@ -36,17 +38,22 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
         }
     }
 
-    return (
+
     const [isAnalyzing, setIsAnalyzing] = useState(false)
     const [aiReport, setAiReport] = useState<any>(null)
     const [showModal, setShowModal] = useState(false)
+    const [mounted, setMounted] = useState(false)
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
 
     const handleAskAi = async () => {
         setIsAnalyzing(true)
         setAiReport(null)
         setShowModal(true)
         try {
-            const res = await axios.post('/api/ai_analysis', { symbol: 'BTC' }) // Uses active symbol backend-side if not sent, or TODO pass symbol prop
+            const res = await axios.post('/api/ai_analysis', { symbol })
             if (res.data) {
                 // Parse if string
                 let data = res.data
@@ -134,9 +141,9 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
             </div>
 
             {/* AI Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-surface border border-purple-500/30 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {showModal && mounted && createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-gray-900 border border-purple-500/30 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 relative">
                         {/* Header */}
                         <div className="bg-gradient-to-r from-purple-900/50 to-indigo-900/50 p-4 flex items-center justify-between border-b border-white/10">
                             <div className="flex items-center gap-2">
@@ -193,8 +200,10 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                         </div>
                     </div>
                 </div>
-            )}
+
+                , document.body)
+            }
         </>
     )
-    )
+
 }
