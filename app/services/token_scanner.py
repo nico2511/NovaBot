@@ -121,6 +121,14 @@ class HyperliquidScanner:
                 trend = 'UP' if ema_20.iloc[-1] > ema_50.iloc[-1] else 'DOWN'
             else:
                 trend = 'NEUTRAL'
+
+            # Calculate ADX (trend strength)
+            try:
+                adx_df = ta.adx(high, low, close, length=14)
+                # pandas_ta returns ADX_14, DMP_14, DMN_14
+                current_adx = adx_df['ADX_14'].iloc[-1] if not adx_df.empty else 0
+            except:
+                current_adx = 0
             
             # Calculate volume trend
             volume_sma = df['volume'].rolling(20).mean()
@@ -130,6 +138,7 @@ class HyperliquidScanner:
                 'atr_pct': atr_pct,
                 'momentum_pct': momentum_pct,
                 'rsi': current_rsi,
+                'adx': current_adx,
                 'trend': trend,
                 'volume_trend': volume_trend,
                 'current_price': close.iloc[-1]

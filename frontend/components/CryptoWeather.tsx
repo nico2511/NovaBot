@@ -70,16 +70,22 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                 <div className="text-center border-l border-white/10 pl-6">
                     <div className="text-gray-500 mb-0.5">EMA 20/50</div>
                     <div className="font-mono font-bold">
-                        <span className="text-blue-400">{ema_20?.toFixed(0) || '-'}</span>
+                        <span className="text-blue-400">
+                            {ema_20 ? (ema_20 < 10 ? ema_20.toFixed(4) : ema_20.toFixed(0)) : '-'}
+                        </span>
                         <span className="text-gray-600 mx-1">/</span>
-                        <span className="text-purple-400">{ema_50?.toFixed(0) || '-'}</span>
+                        <span className="text-purple-400">
+                            {ema_50 ? (ema_50 < 10 ? ema_50.toFixed(4) : ema_50.toFixed(0)) : '-'}
+                        </span>
                     </div>
                 </div>
 
                 {/* Volatility */}
                 <div className="text-center">
                     <div className="text-gray-500 mb-0.5">ATR</div>
-                    <div className="font-mono font-bold text-gray-300">{atr?.toFixed(1) || '--'}</div>
+                    <div className="font-mono font-bold text-gray-300">
+                        {atr ? (atr < 1 ? atr.toFixed(4) : atr.toFixed(2)) : '--'}
+                    </div>
                 </div>
             </div>
         </div>
