@@ -14,6 +14,12 @@ interface Settings {
     leverage: number
     max_positions: number
     daily_stop_loss: number
+    scanner?: {
+        enabled: boolean
+        interval: number
+        min_score: number
+        auto_switch: boolean
+    }
 }
 
 export default function Settings() {
@@ -25,7 +31,13 @@ export default function Settings() {
         size_value: 100,
         leverage: 5,
         max_positions: 3,
-        daily_stop_loss: 100
+        daily_stop_loss: 100,
+        scanner: {
+            enabled: false,
+            interval: 15,
+            min_score: 75,
+            auto_switch: false
+        }
     })
 
     const [isOpen, setIsOpen] = useState(false)
@@ -36,7 +48,15 @@ export default function Settings() {
             try {
                 const response = await axios.get(`${API_URL}/api/settings`)
                 if (response.data) {
-                    setSettings(response.data)
+                    setSettings(prev => ({
+                        ...prev,
+                        ...response.data,
+                        // Ensure numeric values are parsed correctly if string comes back
+                        size_value: parseFloat(response.data.size_value || prev.size_value),
+                        leverage: parseInt(response.data.leverage || prev.leverage),
+                        max_positions: parseInt(response.data.max_positions || prev.max_positions),
+                        daily_stop_loss: parseFloat(response.data.daily_stop_loss || prev.daily_stop_loss)
+                    }))
                 }
             } catch (error) {
                 console.error('Failed to load settings:', error)
@@ -117,30 +137,8 @@ export default function Settings() {
                                 </datalist>
                             </div>
 
-                            {/* Execution Mode */}
-                            <div>
-                                <label className="block text-sm font-semibold mb-2">Execution Mode</label>
-                                <div className="space-y-2">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="radio"
-                                            checked={settings.execution_mode === 'Manual (Phantom)'}
-                                            onChange={() => setSettings({ ...settings, execution_mode: 'Manual (Phantom)', trading_enabled: false })}
-                                            className="w-4 h-4"
-                                        />
-                                        <span>Manual (Phantom) - Paper trading only</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="radio"
-                                            checked={settings.execution_mode === 'Auto (Hyperliquid)'}
-                                            onChange={() => setSettings({ ...settings, execution_mode: 'Auto (Hyperliquid)' })}
-                                            className="w-4 h-4"
-                                        />
-                                        <span>Auto (Hyperliquid) - Live trading</span>
-                                    </label>
-                                </div>
-                            </div>
+                            {/* Market Selection */}
+
 
                             {/* Risk Management */}
                             <div className="border-t border-border/30 pt-6">
@@ -211,6 +209,73 @@ export default function Settings() {
                                             className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
                                         />
                                         <div className="text-xs text-gray-400 mt-1">Circuit breaker: Stops bot if daily loss exceeds this</div>
+                                    </div>
+                                </div>
+                            </div>
+
+
+                            {/* Scanner Automation */}
+                            <div className="border-t border-border/30 pt-6">
+                                <h3 className="text-lg font-semibold mb-4">🤖 Scanner Automation</h3>
+
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-semibold">Enable Auto-Scan</label>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.scanner?.enabled || false}
+                                            onChange={(e) => setSettings({
+                                                ...settings,
+                                                scanner: { ...settings.scanner!, enabled: e.target.checked }
+                                            })}
+                                            className="w-5 h-5 accent-primary"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-semibold mb-2">Interval (min)</label>
+                                            <input
+                                                type="number"
+                                                value={settings.scanner?.interval || 15}
+                                                onChange={(e) => setSettings({
+                                                    ...settings,
+                                                    scanner: { ...settings.scanner!, interval: parseInt(e.target.value) }
+                                                })}
+                                                min="5"
+                                                className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold mb-2">Min Score (0-100)</label>
+                                            <input
+                                                type="number"
+                                                value={settings.scanner?.min_score || 75}
+                                                onChange={(e) => setSettings({
+                                                    ...settings,
+                                                    scanner: { ...settings.scanner!, min_score: parseInt(e.target.value) }
+                                                })}
+                                                min="0"
+                                                max="100"
+                                                className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between bg-surface/50 p-3 rounded-lg border border-border/30">
+                                        <div>
+                                            <div className="text-sm font-semibold">Auto-Switch Symbol</div>
+                                            <div className="text-xs text-gray-400">Automatically switch chart to best opportunity</div>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.scanner?.auto_switch || false}
+                                            onChange={(e) => setSettings({
+                                                ...settings,
+                                                scanner: { ...settings.scanner!, auto_switch: e.target.checked }
+                                            })}
+                                            className="w-5 h-5 accent-primary"
+                                        />
                                     </div>
                                 </div>
                             </div>

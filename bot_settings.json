@@ -1,0 +1,6 @@
+{
+  "asset": "HYPE",
+  "interval": "15m",
+  "leverage": 5,
+  "position_size": 100.0
+}

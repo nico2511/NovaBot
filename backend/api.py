@@ -14,8 +14,9 @@ import numpy as np
 import pandas as pd
 
 # Import routes (optional - will be added later)
+# Import routes (optional)
 try:
-    from backend.routes.settings import router as settings_router
+    # from backend.routes.settings import router as settings_router # CONFLICT: Removing legacy settings router
     from backend.routes.scanner import router as scanner_router
     ROUTES_AVAILABLE = True
 except ImportError:
@@ -47,7 +48,7 @@ app.add_middleware(
 # Register routers if available
 if ROUTES_AVAILABLE:
     app.include_router(scanner_router, prefix="/api", tags=["scanner"])
-    app.include_router(settings_router, prefix="/api", tags=["settings"])
+    # app.include_router(settings_router, prefix="/api", tags=["settings"]) # CONFLICT: Using main API logic instead
     print("✅ Scanner and Settings routes registered")
 
 
@@ -445,12 +446,32 @@ async def get_strategies():
 
 @app.get("/api/balance")
 async def get_balance():
-    """Get account balance (mock for now)"""
-    return {
-        "total_equity": 27.48,
-        "available": 27.48,
-        "margin": 0.0
-    }
+    """Get account balance from Hyperliquid"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        
+        balance_data = hyperliquid_service.get_account_balance()
+        
+        if balance_data.get("status") == "success":
+            return {
+                "total_equity": balance_data.get("equity", 0.0),
+                "available": balance_data.get("available", 0.0),
+                "margin": balance_data.get("margin_used", 0.0)
+            }
+            
+        # Fallback if status error
+        return {
+            "total_equity": 0.0,
+            "available": 0.0,
+            "margin": 0.0
+        }
+    except Exception as e:
+        print(f"Error getting balance: {e}")
+        return {
+            "total_equity": 0.0,
+            "available": 0.0,
+            "margin": 0.0
+        }
 
 @app.get("/api/signals")
 async def get_signals():
@@ -529,10 +550,57 @@ async def close_trade():
         return {"status": "closed", "message": "Standalone mode - trade closed"}
     return {"status": "no_active_trade"}
 
+@app.get("/api/trades")
+async def get_trades():
+    """Get trade history"""
+    try:
+        from app.core.trade_recorder import TradeRecorder
+        recorder = TradeRecorder()
+        return {"trades": recorder.load_trades()}
+    except Exception as e:
+        print(f"Error loading trades: {e}")
+        return {"trades": []}
+
+@app.get("/api/stats")
+async def get_stats():
+    """Get trade statistics"""
+    try:
+        from app.core.trade_recorder import TradeRecorder
+        recorder = TradeRecorder()
+        return {"stats": recorder.get_stats()}
+    except Exception as e:
+        print(f"Error loading stats: {e}")
+        return {"stats": {}}
+
 @app.get("/api/settings")
 async def get_settings():
     """Get money management settings"""
     try:
+        # 1. Try to get from live bot context first (Source of Truth)
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'sidebar_settings'):
+                # Ensure defaults if keys missing
+                s = bot.sidebar_settings
+                sc = getattr(bot, 'scanner_settings', {})
+                return {
+                    "asset": s.get("asset", "BTC"),
+                    "execution_mode": s.get("execution_mode", "Manual (Phantom)"),
+                    "trading_enabled": s.get("trading_enabled", False),
+                    "size_type": s.get("size_type", "Fixed (USDC)"),
+                    "size_value": s.get("size_value", 100.0),
+                    "leverage": s.get("leverage", 5),
+                    "max_positions": s.get("max_positions", 3),
+                    "daily_stop_loss": s.get("daily_stop_loss", 100.0),
+                    "scanner": {
+                        "enabled": sc.get("enabled", False),
+                        "interval": sc.get("interval", 15),
+                        "min_score": sc.get("min_score", 75),
+                        "auto_switch": sc.get("auto_switch", False)
+                    }
+                }
+            # If bot exists but no sidebar_settings yet, allow fallthrough to file
+            
         state_file = os.path.join(BASE_DIR, "bot_state.json")
         with open(state_file, "r") as f:
             state = json.load(f)
@@ -568,8 +636,14 @@ async def save_settings(settings: dict):
         state_file = os.path.join(BASE_DIR, "bot_state.json")
         
         # 1. Update live bot context first (Source of Truth)
+        # 1. Update live bot context first (Source of Truth)
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
+            
+            # Extract scanner settings
+            scanner_settings = settings.pop("scanner", {})
+            bot.scanner_settings = scanner_settings
+            
             bot.sidebar_settings = settings
             bot.active_symbol = settings.get("asset", "BTC")
             # We don't necessarily want to force trading_enabled from sidebar if it logic differs, 

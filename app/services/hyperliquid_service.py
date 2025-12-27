@@ -77,12 +77,30 @@ class HyperliquidService:
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
-        # This is a placeholder for the actual execution logic
-        # Implementation depends on whether we want Market or Limit orders
-        # For this prototype, we'll assume Market if price is None
-        
-        print(f"EXECUTING {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price or 'MARKET'}")
-        return {"status": "mock_success", "tx": "0x123..."}
+        try:
+            # Determine rounding for size/price based on coin (simplified)
+            # In a real app we need meta = self.info.meta() to get precise rounding
+            # forcing some sane defaults for now
+            quantity = float(f"{quantity:.4f}")
+            
+            if price:
+                # LIMIT ORDER
+                price = float(f"{price:.4f}")
+                print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price}")
+                # Use order method directly if available, fast wrapper:
+                # API usually requires explicit parameters: coin, is_buy, sz, limit_px, order_type, reduce_only
+                result = self.exchange.order(symbol, is_buy, quantity, price, {"limit": {"tif": "Gtc"}})
+            else:
+                # MARKET ORDER
+                print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
+                result = self.exchange.market_open(symbol, is_buy, quantity)
+                
+            print(f"✅ Order execution result: {result}")
+            return {"status": "success", "result": result}
+            
+        except Exception as e:
+            print(f"❌ Order execution failed: {e}")
+            return {"status": "error", "message": str(e)}
 
     def get_account_balance(self):
         """Fetch account balance and margin information from Hyperliquid"""
@@ -129,9 +147,43 @@ class HyperliquidService:
             return {
                 "status": "error",
                 "message": str(e),
-                "equity": 0.0,
-                "available": 0.0,
                 "margin_used": 0.0
             }
+
+    def get_positions(self):
+        """Fetch open positions from Hyperliquid"""
+        if not config.HL_ACCOUNT_ADDRESS:
+            return []
+        
+        try:
+            user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
+            if not user_state:
+                return []
+            
+            # assetPositions contains list of { position: {...}, type: 'oneWay' }
+            raw_positions = user_state.get("assetPositions", [])
+            positions = []
+            
+            for item in raw_positions:
+                pos = item.get("position", {})
+                if not pos: continue
+                
+                # Check for open interest (szi > 0 or < 0)
+                size = float(pos.get("szi", 0.0))
+                if size == 0: continue
+                
+                positions.append({
+                    "symbol": pos.get("coin", "UNKNOWN"),
+                    "side": "BUY" if size > 0 else "SELL",
+                    "size": abs(size),
+                    "entry_price": float(pos.get("entryPx", 0.0)),
+                    "pnl": float(pos.get("unrealizedPnl", 0.0)),
+                    "leverage": float(pos.get("leverage", {}).get("value", 1.0))
+                })
+                
+            return positions
+        except Exception as e:
+            print(f"Error fetching positions: {e}")
+            return []
 
 hyperliquid_service = HyperliquidService()

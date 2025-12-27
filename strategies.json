@@ -39,7 +39,7 @@
             }
         },
         "day_trading_orb": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
                 "session_start_hour": 9,
@@ -49,7 +49,7 @@
             }
         },
         "mean_reversion": {
-            "enabled": true,
+            "enabled": false,
             "type": "range",
             "params": {
                 "bb_length": 20,
@@ -58,7 +58,7 @@
             }
         },
         "smc_fvg": {
-            "enabled": true,
+            "enabled": false,
             "type": "sniper",
             "params": {
                 "fvg_threshold": 0.005

@@ -1,55 +1,95 @@
 #!/bin/bash
 
-# Quick deployment script for production
-# Run this after 'git pull' to update everything
+# Universal Deployment Script for PyBot
+# Handles fresh install, updates, and zero-downtime reloads
 
-echo "🚀 Deploying updates..."
+set -e # Exit on error
 
-# Activate venv
-source .venv/bin/activate
+echo "🚀 Starting PyBot Deployment..."
 
-# Check if requirements changed (only install if needed)
-if git diff HEAD@{1} HEAD --name-only | grep -q "requirements.txt"; then
-    echo "📦 Requirements changed - updating Python dependencies..."
-    pip install -r requirements.txt
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# 1. Environment Setup
+if [ ! -d ".venv" ]; then
+    echo "🐍 Creating Python virtual environment..."
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install --upgrade pip
 else
-    echo "✅ Python dependencies up to date (requirements.txt unchanged)"
+    source .venv/bin/activate
 fi
 
-# Update frontend only if package.json or source files changed
-if git diff HEAD@{1} HEAD --name-only | grep -qE "frontend/(package.json|components|app|public)"; then
-    echo "⚛️ Frontend changed - rebuilding..."
-    cd frontend
-    
-    # Only npm install if package.json changed
-    if git diff HEAD@{1} HEAD --name-only | grep -q "frontend/package.json"; then
-        echo "📦 Installing frontend dependencies..."
-        npm install
+# 2. Dependencies
+echo "📦 Checking dependencies..."
+pip install -r requirements.txt
+
+# 3. Frontend Build
+echo "⚛️ Building Frontend..."
+cd frontend
+if [ ! -d "node_modules" ]; then
+    npm install
+fi
+npm run build
+cd ..
+
+# 4. Process Management (PM2)
+echo "⚙️ Configuring PM2..."
+
+# Ensure we have a valid ecosystem config
+cat > ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [
+    {
+      name: 'hl-bot-engine',
+      script: 'main_nextjs.py',
+      interpreter: 'python3',
+      cwd: process.cwd(),
+      env: {
+        PYTHONPATH: process.cwd(),
+        VIRTUAL_ENV: process.cwd() + '/.venv'
+      },
+      error_file: './logs/bot-error.log',
+      out_file: './logs/bot-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s'
+    },
+    {
+      name: 'hl-frontend',
+      script: 'node_modules/next/dist/bin/next',
+      args: 'start -p 3000',
+      cwd: './frontend',
+      error_file: './logs/frontend-error.log',
+      out_file: './logs/frontend-out.log',
+      autorestart: true
+    }
+  ]
+}
+EOF
+
+# Create logs directory if not exists
+mkdir -p logs
+
+# Start or Reload
+if command_exists pm2; then
+    if pm2 list | grep -q "hl-bot-engine"; then
+        echo "🔄 Reloading existing processes..."
+        pm2 reload ecosystem.config.js
+    else
+        echo "🚀 Starting processes..."
+        pm2 start ecosystem.config.js
     fi
-    
-    npm run build
-    cd ..
+    pm2 save
 else
-    echo "✅ Frontend up to date (no changes detected)"
+    echo "⚠️ PM2 not found. Please install it with: npm install -g pm2"
+    echo "   Running in foreground for now..."
+    python3 main_nextjs.py
 fi
 
-# Check PM2 availability
-if ! command -v pm2 &> /dev/null; then
-    PM2_CMD="npx pm2"
-else
-    PM2_CMD="pm2"
-fi
-
-# Use reload instead of restart (zero-downtime)
-echo "🔄 Reloading services (zero-downtime)..."
-$PM2_CMD reload all
-
-# Show status
-echo ""
-echo "✅ Deployment complete!"
-$PM2_CMD status
-
-echo ""
-echo "📝 Check logs:"
-echo "   $PM2_CMD logs hl-bot-engine --lines 20"
-echo "   $PM2_CMD logs hl-frontend --lines 20"
+echo "✅ Deployment Success!"
+echo "   GUI: http://localhost:3000"
+echo "   API: http://localhost:8000"

@@ -78,43 +78,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                 </div>
             </div>
 
-            {/* Market Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-background/50 rounded-lg p-4 border border-border/20">
-                    <div className="text-sm text-gray-400 mb-1">Market Regime</div>
-                    <div className={`text-lg font-semibold ${regime === 'TREND' ? 'text-success' : 'text-warning'}`}>
-                        {regime}
-                    </div>
-                    <div className="text-xs text-gray-500">ADX {adx.toFixed(1)}</div>
-                </div>
-
-                <div className="bg-background/50 rounded-lg p-4 border border-border/20">
-                    <div className="text-sm text-gray-400 mb-1">Momentum (RSI)</div>
-                    <div className={`text-lg font-semibold ${rsi < 30 ? 'text-success' : rsi > 70 ? 'text-error' : 'text-gray-300'}`}>
-                        {rsi.toFixed(1)}
-                    </div>
-                </div>
-
-                <div className="bg-background/50 rounded-lg p-4 border border-border/20">
-                    <div className="text-sm text-gray-400 mb-1">Trends (EMA)</div>
-                    <div className="text-sm font-semibold">
-                        <span className="text-blue-400">20: {ema_20?.toFixed(0) || '-'}</span>
-                    </div>
-                    <div className="text-sm font-semibold">
-                        <span className="text-purple-400">50: {ema_50?.toFixed(0) || '-'}</span>
-                    </div>
-                </div>
-
-                <div className="bg-background/50 rounded-lg p-4 border border-border/20">
-                    <div className="text-sm text-gray-400 mb-1">Volatility (BB)</div>
-                    <div className="text-xs text-gray-300">
-                        Upper: {bb?.upper.toFixed(0) || '-'}
-                    </div>
-                    <div className="text-xs text-gray-300">
-                        Lower: {bb?.lower.toFixed(0) || '-'}
-                    </div>
-                </div>
-            </div>
+            {/* Market Overview Moved to Header */}
 
             {/* Active Strategies */}
             {strategies.length === 0 ? (

@@ -12,6 +12,7 @@ interface Trade {
     sl: number
     tp: number
     strategy: string
+    leverage?: number
 }
 
 export default function ActiveTrade() {
@@ -140,7 +141,7 @@ export default function ActiveTrade() {
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/20">
+                <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border/20">
                     <div>
                         <div className="text-xs text-gray-400">Distance to SL</div>
                         <div className="text-sm font-semibold">${distanceToSL.toFixed(2)}</div>
@@ -148,6 +149,10 @@ export default function ActiveTrade() {
                     <div>
                         <div className="text-xs text-gray-400">Distance to TP</div>
                         <div className="text-sm font-semibold">${distanceToTP.toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs text-gray-400">Leverage</div>
+                        <div className="text-sm font-semibold text-primary">{trade.leverage ? `${trade.leverage}x` : '1x'}</div>
                     </div>
                 </div>
             </div>

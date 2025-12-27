@@ -16,17 +16,7 @@ class StrategyEngine:
         self.strategies = {
             "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
-            "swing_trend_pullback": SwingTrendPullback(strats_config.get("swing_trend_pullback")),
-            "day_trading_orb": DayTradingORB(strats_config.get("day_trading_orb")),
-            "mean_reversion": MeanReversion(strats_config.get("mean_reversion")),
-            "smc_fvg": SMCFVG(strats_config.get("smc_fvg")),
-            "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
-            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
-            "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
-            "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout")),
-            "ema_bounce": EMABounce(strats_config.get("ema_bounce")),
-            "triple_ema": TripleEMA(strats_config.get("triple_ema")),
-            "rsi_bb": RSIBollingerBands(strats_config.get("rsi_bb"))
+            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend"))
         }
 
     def load_config(self):

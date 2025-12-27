@@ -16,6 +16,8 @@ from app.core.risk_manager import RiskManager
 from app.core.state_manager import StateManager
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
+from app.core.scanner_job import ScannerJob
+from app.core.trade_recorder import TradeRecorder
 from strategies.engine import StrategyEngine
 import pandas as pd
 from collections import deque
@@ -54,6 +56,12 @@ class BotContext:
         except Exception as e:
             print(f"Error loading state: {e}")
             self.execution_mode = "Manual (Phantom)"
+            
+        # Initialize Scanner Job (after state load)
+        self.scanner_job = ScannerJob(self)
+        
+        # Initialize Trade Recorder
+        self.trade_recorder = TradeRecorder()
     
     def add_log(self, message: str):
         """Add log message"""
@@ -162,7 +170,73 @@ class BotContext:
                     if self._skip_counter % 12 == 0:
                         self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 1m candle...")
                 
-                # Check active trade
+                # --- POSITION ADOPTION & SYNC ---
+                # Check real positions from Hyperliquid
+                try:
+                    real_positions = hyperliquid_service.get_positions()
+                    active_symbol_pos = next((p for p in real_positions if p["symbol"] == self.active_symbol), None)
+                    
+                    if active_symbol_pos:
+                        # Case 1: We have a real position but bot doesn't know about it (Manual Trade)
+                        if not self.active_trade:
+                            self.add_log(f"🕵️ DETECTED MANUAL POSITION on {self.active_symbol}. Adopting...")
+                            
+                            # Adopt it with default SL/TP parameters based on current ATR or percentage
+                            # We'll use 5% default if ATR not available, or last known ATR
+                            current_price = df_15m['close'].iloc[-1]
+                            entry_price = active_symbol_pos["entry_price"]
+                            side = active_symbol_pos["side"]
+                            
+                            # Default Risk Parameters for adopted trades
+                            # If we have SL/TP setting, use it, otherwise reasonable defaults
+                            atr = 0
+                            if 'ATRr_14' in df_15m.columns:
+                                atr = df_15m['ATRr_14'].iloc[-1]
+                            else:
+                                atr = current_price * 0.01
+
+                            if side == "BUY":
+                                sl = entry_price - (2.0 * atr) 
+                                tp = entry_price + (3.0 * atr)
+                            else:
+                                sl = entry_price + (2.0 * atr)
+                                tp = entry_price - (3.0 * atr)
+                            
+                            self.active_trade = {
+                                "symbol": self.active_symbol,
+                                "side": side,
+                                "entry": entry_price,
+                                "sl": sl,
+                                "tp": tp,
+                                "strategy": "Manual/Adopted",
+                                "timestamp": pd.Timestamp.now().isoformat(),
+                                "size": active_symbol_pos["size"],
+                                "leverage": active_symbol_pos.get("leverage", 1.0)
+                            }
+                            self.risk_manager.record_trade_open()
+                            self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
+                            discord_service.send_alert(
+                                "🛡️ MANUAL TRADE ADOPTED",
+                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
+                                color="0000ff"
+                            )
+                            
+                        # Case 2: We have a position and bot matches -> Sync PnL or check if size changed
+                        else:
+                            # Update PnL in active_trade for display if we want?
+                            pass
+                            
+                    else:
+                        # Case 3: Bot thinks we have a trade, but no position in HL (Manual Close or Liquidation)
+                        if self.active_trade and self.execution_mode == "Auto (Hyperliquid)":
+                             self.add_log(f"⚠️ Position vanished on exchange! Closing bot trade.")
+                             self.active_trade = None
+                             self.risk_manager.record_trade_close(0) # PnL unknown here effectively
+                
+                except Exception as e:
+                    self.add_log(f"⚠️ Error checking positions: {e}")
+
+                # Check active trade management
                 if self.active_trade:
                     current_price = df_15m['close'].iloc[-1]
                     entry_price = self.active_trade["entry"]
@@ -208,46 +282,160 @@ class BotContext:
                     if side == "BUY":
                         if current_price <= self.active_trade["sl"]:
                             self.add_log(f"🛑 SL HIT @ {current_price}")
+                            
+                            # Execute Close
+                            if self.execution_mode == "Auto (Hyperliquid)":
+                                try:
+                                    self.add_log(f"📉 CLOSING LONG {self.active_trade['symbol']} (SL)")
+                                    hyperliquid_service.execute_order(
+                                        self.active_trade['symbol'], 
+                                        False, # SELL
+                                        self.active_trade['size']
+                                    )
+                                except Exception as e:
+                                    self.add_log(f"❌ Failed to execution SL close: {e}")
+
                             try:
-                                pnl = current_price - entry_price
+                                pnl = current_price - entry_price # Long PnL
                                 discord_service.send_alert(
                                     "🛑 STOP LOSS HIT",
                                     f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
                                     color="ff0000" if pnl < 0 else "ffff00" # Red if loss, Yellow if BE/Profit
                                 )
-                            except: pass
+                                # Record Trade
+                                self.trade_recorder.add_trade({
+                                    "symbol": self.active_symbol,
+                                    "strategy": self.active_trade.get("strategy", "Unknown"),
+                                    "side": "BUY",
+                                    "entry_price": entry_price,
+                                    "exit_price": current_price,
+                                    "pnl": pnl,
+                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "entry_time": self.active_trade.get("timestamp"),
+                                    "exit_time": pd.Timestamp.now().isoformat(),
+                                    "exit_reason": "SL"
+                                })
+                            except Exception as e:
+                                print(f"Error recording trade: {e}")
+                            
                             self.active_trade = None
                         elif current_price >= self.active_trade["tp"]:
                             self.add_log(f"✅ TP HIT @ {current_price}")
+                            
+                            # Execute Close
+                            if self.execution_mode == "Auto (Hyperliquid)":
+                                try:
+                                    self.add_log(f"📈 CLOSING LONG {self.active_trade['symbol']} (TP)")
+                                    hyperliquid_service.execute_order(
+                                        self.active_trade['symbol'], 
+                                        False, # SELL
+                                        self.active_trade['size']
+                                    )
+                                except Exception as e:
+                                    self.add_log(f"❌ Failed to execute TP close: {e}")
+
                             try:
+                                pnl = current_price - entry_price # Long PnL
                                 discord_service.send_alert(
                                     "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {current_price - entry_price:.2f}",
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
                                     color="00ff00"
                                 )
-                            except: pass
+                                # Record Trade
+                                self.trade_recorder.add_trade({
+                                    "symbol": self.active_symbol,
+                                    "strategy": self.active_trade.get("strategy", "Unknown"),
+                                    "side": "BUY",
+                                    "entry_price": entry_price,
+                                    "exit_price": current_price,
+                                    "pnl": pnl,
+                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "entry_time": self.active_trade.get("timestamp"),
+                                    "exit_time": pd.Timestamp.now().isoformat(),
+                                    "exit_reason": "TP"
+                                })
+                            except Exception as e:
+                                print(f"Error recording trade: {e}")
+                            
                             self.active_trade = None
                     else:  # SELL
                         if current_price >= self.active_trade["sl"]:
                             self.add_log(f"🛑 SL HIT @ {current_price}")
+                            
+                            # Execute Close
+                            if self.execution_mode == "Auto (Hyperliquid)":
+                                try:
+                                    self.add_log(f"📈 CLOSING SHORT {self.active_trade['symbol']} (SL)")
+                                    hyperliquid_service.execute_order(
+                                        self.active_trade['symbol'], 
+                                        True, # BUY
+                                        self.active_trade['size']
+                                    )
+                                except Exception as e:
+                                    self.add_log(f"❌ Failed to execute SL close: {e}")
+
                             try:
-                                pnl = entry_price - current_price
+                                pnl = entry_price - current_price # Short PnL
                                 discord_service.send_alert(
                                     "🛑 STOP LOSS HIT",
                                     f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
                                     color="ff0000" if pnl < 0 else "ffff00"
                                 )
-                            except: pass
+                                # Record Trade
+                                self.trade_recorder.add_trade({
+                                    "symbol": self.active_symbol,
+                                    "strategy": self.active_trade.get("strategy", "Unknown"),
+                                    "side": "SELL",
+                                    "entry_price": entry_price,
+                                    "exit_price": current_price,
+                                    "pnl": pnl,
+                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "entry_time": self.active_trade.get("timestamp"),
+                                    "exit_time": pd.Timestamp.now().isoformat(),
+                                    "exit_reason": "SL"
+                                })
+                            except Exception as e:
+                                print(f"Error recording trade: {e}")
+                                
                             self.active_trade = None
                         elif current_price <= self.active_trade["tp"]:
                             self.add_log(f"✅ TP HIT @ {current_price}")
+                            
+                            # Execute Close
+                            if self.execution_mode == "Auto (Hyperliquid)":
+                                try:
+                                    self.add_log(f"📉 CLOSING SHORT {self.active_trade['symbol']} (TP)")
+                                    hyperliquid_service.execute_order(
+                                        self.active_trade['symbol'], 
+                                        True, # BUY
+                                        self.active_trade['size']
+                                    )
+                                except Exception as e:
+                                    self.add_log(f"❌ Failed to execute TP close: {e}")
+
                             try:
+                                pnl = entry_price - current_price # Short PnL
                                 discord_service.send_alert(
                                     "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {entry_price - current_price:.2f}",
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
                                     color="00ff00"
                                 )
-                            except: pass
+                                # Record Trade
+                                self.trade_recorder.add_trade({
+                                    "symbol": self.active_symbol,
+                                    "strategy": self.active_trade.get("strategy", "Unknown"),
+                                    "side": "SELL",
+                                    "entry_price": entry_price,
+                                    "exit_price": current_price,
+                                    "pnl": pnl,
+                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "entry_time": self.active_trade.get("timestamp"),
+                                    "exit_time": pd.Timestamp.now().isoformat(),
+                                    "exit_reason": "TP"
+                                })
+                            except Exception as e:
+                                print(f"Error recording trade: {e}")
+                                
                             self.active_trade = None
                 
                 time.sleep(5)  # Wait 5 seconds
@@ -275,8 +463,14 @@ class BotContext:
             self.add_log("🧵 Creating trading thread...")
             self.thread = threading.Thread(target=self.trading_loop, daemon=True)
             self.add_log("🚀 Starting trading thread...")
+            self.add_log("🚀 Starting trading thread...")
             self.thread.start()
             self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
+            
+            # Start Scanner Job
+            if self.scanner_job:
+                self.scanner_job.start()
+                
             StateManager.save_state(self)
         else:
             self.add_log("⚠️ Bot already running with active thread, skipping start")
@@ -288,6 +482,11 @@ class BotContext:
             if self.thread:
                 self.thread.join(timeout=5)
             self.add_log("⏹️ Bot stopped")
+            
+            # Stop Scanner Job
+            if self.scanner_job:
+                self.scanner_job.stop()
+                
             StateManager.save_state(self)
 
 

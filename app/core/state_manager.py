@@ -29,16 +29,32 @@ class StateManager:
         if hasattr(context, 'sidebar_settings'):
             state["sidebar_settings"] = context.sidebar_settings
 
+        # Save Scanner Settings
+        if hasattr(context, 'scanner_settings'):
+            state["scanner_settings"] = context.scanner_settings
+
+        # Atomic write to prevent corruption
+        temp_file = f"{STATE_FILE}.tmp"
         try:
-            with open(STATE_FILE, "w") as f:
+            with open(temp_file, "w") as f:
                 json.dump(state, f, indent=4, default=str)
+                f.flush()
+                # os.fsync(f.fileno()) 
+            os.replace(temp_file, STATE_FILE)
+            print(f"✅ State saved atomically to {STATE_FILE}")
         except Exception as e:
             print(f"❌ Failed to save state: {e}")
+            if os.path.exists(temp_file):
+                try: os.remove(temp_file)
+                except: pass
 
     @staticmethod
     def load_state(context):
         """Restores bot state from JSON."""
         if not os.path.exists(STATE_FILE):
+            print(f"⚠️ State file {STATE_FILE} not found. Starting fresh.")
+            # Initialize crucial settings to avoid overwrite race
+            context.sidebar_settings = {}
             return
 
         try:
@@ -62,10 +78,26 @@ class StateManager:
             # Restore Sidebar Settings
             if "sidebar_settings" in state:
                 context.sidebar_settings = state["sidebar_settings"]
+                print(f"✅ Loaded sidebar settings: {context.sidebar_settings}")
             else:
+                print("⚠️ No sidebar_settings found in state file. Initializing empty.")
                 context.sidebar_settings = {}
+            
+            # Restore Scanner Settings
+            if "scanner_settings" in state:
+                context.scanner_settings = state["scanner_settings"]
+                print(f"✅ Loaded scanner settings: {context.scanner_settings}")
+            else:
+                context.scanner_settings = {
+                    "enabled": False,
+                    "interval": 15, 
+                    "min_score": 75,
+                    "auto_switch": False
+                }
                 
             print("✅ State restored from persistence file.")
         except Exception as e:
             print(f"❌ Failed to load state: {e}")
-
+            # Ensure sidebar settings exists even if load fails
+            if not hasattr(context, 'sidebar_settings'):
+                context.sidebar_settings = {}
