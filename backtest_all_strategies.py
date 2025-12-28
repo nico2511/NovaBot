@@ -1,181 +1,358 @@
 #!/usr/bin/env python3
 """
-Backtest for Last 7 Days
-Tests all active strategies on the past week of market data
-"""
-import pandas as pd
-from app.services.hyperliquid_service import hyperliquid_service
-from strategies.engine import StrategyEngine
-from app.core.risk_manager import RiskManager
-from datetime import datetime, timedelta
+Automated Backtesting for All Strategies
+Compares performance across all available strategies
 
-def run_7day_backtest(symbol="BTC"):
-    print(f"🔄 Fetching last 7 days of data for {symbol}...")
-    print(f"📅 Period: {(datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')} to {datetime.now().strftime('%Y-%m-%d')}")
+Requirements:
+pip install backtesting pandas pandas-ta ccxt tabulate
+"""
+
+import ccxt
+import pandas as pd
+from datetime import datetime, timedelta
+from backtesting import Backtest, Strategy
+from backtesting.lib import crossover
+import pandas_ta as ta
+from tabulate import tabulate
+import sys
+import os
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+# ============================================
+# DATA FETCHING
+# ============================================
+
+def fetch_data(symbol='BTC/USDT', timeframe='15m', months=6, exchange_name='binance'):
+    """Fetch historical OHLCV data"""
+    print(f"📊 Fetching {months} months of {symbol} data ({timeframe})...")
     
-    # Fetch data: 7 days = 7 * 96 = 672 x 15m candles
-    df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=800)
-    df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=10000)
+    exchange_class = getattr(ccxt, exchange_name)
+    exchange = exchange_class({'enableRateLimit': True})
     
-    if df_15m.empty or df_1m.empty:
-        print("❌ No data found.")
-        return
+    now = datetime.now()
+    start_date = now - timedelta(days=months * 30)
+    start_timestamp = int(start_date.timestamp() * 1000)
     
-    # Filter to last 7 days
-    cutoff = datetime.now() - timedelta(days=7)
-    df_15m = df_15m[df_15m.index >= cutoff]
-    df_1m = df_1m[df_1m.index >= cutoff]
+    all_candles = []
+    current_timestamp = start_timestamp
     
-    print(f"✅ Loaded {len(df_15m)} x 15m candles and {len(df_1m)} x 1m candles")
-    print(f"   Time range: {df_15m.index[0]} to {df_15m.index[-1]}")
+    while current_timestamp < int(now.timestamp() * 1000):
+        try:
+            candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=current_timestamp, limit=1000)
+            if not candles:
+                break
+            all_candles.extend(candles)
+            current_timestamp = candles[-1][0] + 1
+            print(f"  Fetched {len(candles)} candles (Total: {len(all_candles)})", end='\r')
+        except Exception as e:
+            print(f"\n  Error: {e}")
+            break
     
-    # Setup
-    rm = RiskManager()
-    engine = StrategyEngine(rm)
+    df = pd.DataFrame(all_candles, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df.set_index('timestamp', inplace=True)
+    df = df[~df.index.duplicated(keep='first')]
     
-    # Simulation
-    balance = 1000
-    position = None
-    trades = []
-    daily_balances = {}  # Track balance by day
+    print(f"\n✅ Fetched {len(df)} candles from {df.index[0]} to {df.index[-1]}")
+    return df
+
+
+# ============================================
+# STRATEGY IMPLEMENTATIONS
+# ============================================
+
+class GoldenCrossStrategy(Strategy):
+    """Golden Cross: SMA 50/200 crossover"""
     
-    print("🚀 Starting 7-Day Backtest...")
-    print("-" * 60)
+    def init(self):
+        close = pd.Series(self.data.Close, index=self.data.index)
+        self.sma_50 = self.I(ta.sma, close, length=50)
+        self.sma_200 = self.I(ta.sma, close, length=200)
     
-    min_window = 50
-    
-    for i in range(min_window, len(df_15m)):
-        window_15m = df_15m.iloc[:i+1]
-        current_candle = window_15m.iloc[-1]
-        current_time = window_15m.index[-1]
-        current_price = current_candle['close']
-        current_date = current_time.date()
+    def next(self):
+        if len(self.data) < 201:
+            return
         
-        # Track daily balance
-        if current_date not in daily_balances:
-            daily_balances[current_date] = balance
+        if self.position:
+            # Exit LONG if price closes below SMA 50
+            if self.position.is_long and self.data.Close[-1] < self.sma_50[-1]:
+                self.position.close()
+            # Exit SHORT if price closes above SMA 50
+            elif self.position.is_short and self.data.Close[-1] > self.sma_50[-1]:
+                self.position.close()
+            return
         
-        # Get 1m data
-        window_1m = df_1m[df_1m.index <= current_time].tail(100)
+        # Golden Cross: SMA 50 crosses above SMA 200
+        if crossover(self.sma_50, self.sma_200):
+            sl = self.sma_50[-1] * 0.97
+            tp = self.data.Close[-1] * 1.10
+            self.buy(sl=sl, tp=tp)
         
-        # Exit logic
-        if position:
-            p = position
-            sl_hit = (p['side'] == 'BUY' and current_candle['low'] <= p['sl']) or \
-                     (p['side'] == 'SELL' and current_candle['high'] >= p['sl'])
-            tp_hit = (p['side'] == 'BUY' and current_candle['high'] >= p['tp']) or \
-                     (p['side'] == 'SELL' and current_candle['low'] <= p['tp'])
-            
-            if sl_hit or tp_hit:
-                exit_price = p['sl'] if sl_hit else p['tp']
-                pnl_percent = (exit_price - p['entry']) / p['entry'] if p['side'] == 'BUY' else (p['entry'] - exit_price) / p['entry']
-                pnl_usd = pnl_percent * balance
-                
-                balance += pnl_usd
-                daily_balances[current_date] = balance
-                
-                trades.append({
-                    'entry_time': p['time'],
-                    'exit_time': current_time,
-                    'symbol': symbol,
-                    'side': p['side'],
-                    'entry': p['entry'],
-                    'exit': exit_price,
-                    'pnl_pct': pnl_percent * 100,
-                    'pnl_usd': pnl_usd,
-                    'outcome': 'WIN' if pnl_percent > 0 else 'LOSS',
-                    'strategy': p['strategy']
-                })
-                position = None
-                outcome = '✅' if pnl_percent > 0 else '❌'
-                print(f"{outcome} {current_time.strftime('%m/%d %H:%M')} | {p['strategy'][:15]:15} | {p['side']:4} | PnL: {pnl_percent*100:6.2f}% | Balance: ${balance:.2f}")
-                continue
+        # Death Cross: SMA 50 crosses below SMA 200
+        elif crossover(self.sma_200, self.sma_50):
+            sl = self.sma_50[-1] * 1.03
+            tp = self.data.Close[-1] * 0.90
+            self.sell(sl=sl, tp=tp)
+
+
+class RSIReversalStrategy(Strategy):
+    """RSI Reversal: Exit from extreme zones"""
+    
+    rsi_period = 14
+    rsi_oversold = 30
+    rsi_overbought = 70
+    
+    def init(self):
+        close = pd.Series(self.data.Close, index=self.data.index)
+        self.rsi = self.I(ta.rsi, close, length=self.rsi_period)
+    
+    def next(self):
+        if len(self.data) < self.rsi_period + 1:
+            return
         
-        # Entry logic
-        if not position:
-            result = engine.analyze(window_15m, extra_data={"1m": window_1m})
-            
-            if result.get("signals"):
-                sig = result["signals"][0]
-                entry = sig['price']
-                sl = sig.get('sl', entry * 0.98)
-                tp = sig.get('tp', entry * 1.02)
-                
-                position = {
-                    'time': current_time,
-                    'side': sig['signal'],
-                    'entry': entry,
-                    'sl': sl,
-                    'tp': tp,
-                    'strategy': sig.get('strategy', 'Unknown')
-                }
-                print(f"🎯 {current_time.strftime('%m/%d %H:%M')} | {position['strategy'][:15]:15} | {sig['signal']:4} @ ${entry:.0f}")
-    
-    # Report
-    print("\n" + "="*70)
-    print(f"📊 7-DAY BACKTEST REPORT - {symbol}")
-    print("="*70)
-    
-    wins = [t for t in trades if t['pnl_usd'] > 0]
-    losses = [t for t in trades if t['pnl_usd'] <= 0]
-    
-    total_trades = len(trades)
-    win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0
-    final_pnl = balance - 1000
-    
-    avg_win = sum(t['pnl_usd'] for t in wins) / len(wins) if wins else 0
-    avg_loss = sum(t['pnl_usd'] for t in losses) / len(losses) if losses else 0
-    
-    print(f"Period: {df_15m.index[0].strftime('%Y-%m-%d')} to {df_15m.index[-1].strftime('%Y-%m-%d')}")
-    print(f"Total Trades: {total_trades}")
-    print(f"Wins: {len(wins)} ({win_rate:.1f}%) | Losses: {len(losses)}")
-    print(f"Average Win: ${avg_win:.2f} | Average Loss: ${avg_loss:.2f}")
-    if avg_loss != 0:
-        print(f"Win/Loss Ratio: {abs(avg_win/avg_loss):.2f}")
-    print(f"\nInitial Balance: $1,000.00")
-    print(f"Final Balance:   ${balance:.2f}")
-    print(f"Net PnL:         ${final_pnl:.2f} ({(final_pnl/1000)*100:.2f}%)")
-    print(f"Status: {'✅ PROFITABLE' if final_pnl > 0 else '❌ UNPROFITABLE'}")
-    print("-" * 70)
-    
-    # Strategy breakdown
-    if trades:
-        print("\n📈 Strategy Performance:")
-        strategy_stats = {}
-        for t in trades:
-            strat = t['strategy']
-            if strat not in strategy_stats:
-                strategy_stats[strat] = {'wins': 0, 'losses': 0, 'pnl': 0, 'trades': []}
-            if t['outcome'] == 'WIN':
-                strategy_stats[strat]['wins'] += 1
-            else:
-                strategy_stats[strat]['losses'] += 1
-            strategy_stats[strat]['pnl'] += t['pnl_usd']
-            strategy_stats[strat]['trades'].append(t)
+        if self.position:
+            return  # Let SL/TP handle exits
         
-        for strat, stats in sorted(strategy_stats.items(), key=lambda x: x[1]['pnl'], reverse=True):
-            total = stats['wins'] + stats['losses']
-            wr = (stats['wins'] / total * 100) if total > 0 else 0
-            status = '✅' if stats['pnl'] > 0 else '❌'
-            print(f"{status} {strat[:25]:25} | Trades: {total:2} | WR: {wr:5.1f}% | PnL: ${stats['pnl']:8.2f}")
-    
-    # Daily breakdown
-    if daily_balances:
-        print("\n📅 Daily Balance Evolution:")
-        sorted_days = sorted(daily_balances.items())
-        for date, bal in sorted_days:
-            daily_pnl = bal - 1000
-            print(f"   {date.strftime('%Y-%m-%d')} | Balance: ${bal:8.2f} | PnL: ${daily_pnl:7.2f}")
-    
-    # Best/Worst trades
-    if trades:
-        print("\n🏆 Best Trade:")
-        best = max(trades, key=lambda x: x['pnl_usd'])
-        print(f"   {best['entry_time'].strftime('%m/%d %H:%M')} | {best['strategy']} | {best['side']} | PnL: {best['pnl_pct']:.2f}% (${best['pnl_usd']:.2f})")
+        current_rsi = self.rsi[-1]
+        previous_rsi = self.rsi[-2]
+        price = self.data.Close[-1]
         
-        print("\n💔 Worst Trade:")
-        worst = min(trades, key=lambda x: x['pnl_usd'])
-        print(f"   {worst['entry_time'].strftime('%m/%d %H:%M')} | {worst['strategy']} | {worst['side']} | PnL: {worst['pnl_pct']:.2f}% (${worst['pnl_usd']:.2f})")
+        # LONG: RSI crosses above 30
+        if previous_rsi < self.rsi_oversold and current_rsi > self.rsi_oversold:
+            sl = price * 0.985
+            tp = price * 1.030
+            self.buy(sl=sl, tp=tp)
+        
+        # SHORT: RSI crosses below 70
+        elif previous_rsi > self.rsi_overbought and current_rsi < self.rsi_overbought:
+            sl = price * 1.015
+            tp = price * 0.970
+            self.sell(sl=sl, tp=tp)
+
+
+class BollingerBreakoutStrategy(Strategy):
+    """Bollinger Breakout: Momentum with impulsive candles"""
+    
+    bb_length = 20
+    bb_std = 2.0
+    
+    def init(self):
+        close = pd.Series(self.data.Close, index=self.data.index)
+        
+        # Bollinger Bands
+        bbands = ta.bbands(close, length=self.bb_length, std=self.bb_std)
+        self.bb_upper = self.I(lambda: bbands[f'BBU_{self.bb_length}_{self.bb_std}'].values)
+        self.bb_middle = self.I(lambda: bbands[f'BBM_{self.bb_length}_{self.bb_std}'].values)
+        self.bb_lower = self.I(lambda: bbands[f'BBL_{self.bb_length}_{self.bb_std}'].values)
+        
+        # Candle body
+        body = abs(self.data.Close - self.data.Open)
+        self.avg_body = self.I(lambda: pd.Series(body).rolling(10).mean().values)
+    
+    def next(self):
+        if len(self.data) < 30:
+            return
+        
+        if self.position:
+            # Exit at middle band
+            if self.position.is_long and self.data.Close[-1] <= self.bb_middle[-1]:
+                self.position.close()
+            elif self.position.is_short and self.data.Close[-1] >= self.bb_middle[-1]:
+                self.position.close()
+            return
+        
+        close = self.data.Close[-1]
+        open_price = self.data.Open[-1]
+        body = abs(close - open_price)
+        
+        # Check if impulsive
+        if body <= self.avg_body[-1]:
+            return
+        
+        # LONG: Green candle closes above upper band
+        if close > open_price and close > self.bb_upper[-1]:
+            sl = self.bb_middle[-1]
+            tp = close + (close - self.bb_middle[-1]) * 1.5
+            self.buy(sl=sl, tp=tp)
+        
+        # SHORT: Red candle closes below lower band
+        elif close < open_price and close < self.bb_lower[-1]:
+            sl = self.bb_middle[-1]
+            tp = close - (self.bb_middle[-1] - close) * 1.5
+            self.sell(sl=sl, tp=tp)
+
+
+class ScalpEMAStrategy(Strategy):
+    """Scalp EMA: Fast EMA crossover with trend filter"""
+    
+    def init(self):
+        close = pd.Series(self.data.Close, index=self.data.index)
+        self.ema_9 = self.I(ta.ema, close, length=9)
+        self.ema_21 = self.I(ta.ema, close, length=21)
+        self.ema_200 = self.I(ta.ema, close, length=200)
+        self.rsi = self.I(ta.rsi, close, length=14)
+    
+    def next(self):
+        if len(self.data) < 201:
+            return
+        
+        if self.position:
+            return  # Let SL/TP handle
+        
+        price = self.data.Close[-1]
+        
+        # LONG: EMA 9 crosses above EMA 21, price above EMA 200, RSI > 50
+        if (crossover(self.ema_9, self.ema_21) and 
+            price > self.ema_200[-1] and 
+            self.rsi[-1] > 50):
+            sl = price * 0.98
+            tp = price * 1.04
+            self.buy(sl=sl, tp=tp)
+        
+        # SHORT: EMA 9 crosses below EMA 21, price below EMA 200, RSI < 50
+        elif (crossover(self.ema_21, self.ema_9) and 
+              price < self.ema_200[-1] and 
+              self.rsi[-1] < 50):
+            sl = price * 1.02
+            tp = price * 0.96
+            self.sell(sl=sl, tp=tp)
+
+
+# ============================================
+# BACKTESTING ENGINE
+# ============================================
+
+def run_backtest(df, strategy_class, strategy_name, initial_cash=10000, commission=0.0006):
+    """Run backtest for a single strategy"""
+    print(f"\n{'='*60}")
+    print(f"🧪 Testing: {strategy_name}")
+    print(f"{'='*60}")
+    
+    try:
+        bt = Backtest(
+            df,
+            strategy_class,
+            cash=initial_cash,
+            commission=commission,
+            exclusive_orders=True
+        )
+        
+        stats = bt.run()
+        
+        return {
+            'Strategy': strategy_name,
+            'Return %': f"{stats['Return [%]']:.2f}%",
+            'Win Rate %': f"{stats['Win Rate [%]']:.2f}%",
+            'Trades': stats['# Trades'],
+            'Max DD %': f"{stats['Max. Drawdown [%]']:.2f}%",
+            'Sharpe': f"{stats['Sharpe Ratio']:.2f}",
+            'Final $': f"${stats['Equity Final [$]']:,.2f}",
+            'Avg Trade %': f"{stats['Avg. Trade [%]']:.2f}%",
+            'Best Trade %': f"{stats['Best Trade [%]']:.2f}%",
+            'Worst Trade %': f"{stats['Worst Trade [%]']:.2f}%",
+            '_stats': stats,
+            '_bt': bt
+        }
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return {
+            'Strategy': strategy_name,
+            'Return %': 'ERROR',
+            'Win Rate %': '-',
+            'Trades': 0,
+            'Max DD %': '-',
+            'Sharpe': '-',
+            'Final $': '-',
+            'Avg Trade %': '-',
+            'Best Trade %': '-',
+            'Worst Trade %': '-',
+            '_stats': None,
+            '_bt': None
+        }
+
+
+# ============================================
+# MAIN EXECUTION
+# ============================================
 
 if __name__ == "__main__":
-    run_7day_backtest()
+    print("=" * 60)
+    print("🚀 AUTOMATED STRATEGY BACKTESTING")
+    print("=" * 60)
+    
+    # Configuration
+    SYMBOL = 'BTC/USDT'
+    TIMEFRAME = '15m'
+    MONTHS = 6
+    INITIAL_CASH = 10000
+    COMMISSION = 0.0006
+    
+    # Fetch data once
+    df = fetch_data(SYMBOL, TIMEFRAME, MONTHS, 'binance')
+    
+    # Define strategies to test
+    strategies = [
+        (GoldenCrossStrategy, "Golden Cross (SMA 50/200)"),
+        (RSIReversalStrategy, "RSI Reversal (30/70)"),
+        (BollingerBreakoutStrategy, "Bollinger Breakout"),
+        (ScalpEMAStrategy, "Scalp EMA (9/21/200)"),
+    ]
+    
+    # Run all backtests
+    results = []
+    for strategy_class, strategy_name in strategies:
+        result = run_backtest(df, strategy_class, strategy_name, INITIAL_CASH, COMMISSION)
+        results.append(result)
+    
+    # Display comparison table
+    print("\n" + "=" * 60)
+    print("📊 STRATEGY COMPARISON")
+    print("=" * 60)
+    
+    # Summary table
+    summary_headers = ['Strategy', 'Return %', 'Win Rate %', 'Trades', 'Sharpe', 'Max DD %']
+    summary_data = [[r['Strategy'], r['Return %'], r['Win Rate %'], r['Trades'], r['Sharpe'], r['Max DD %']] 
+                    for r in results]
+    
+    print("\n" + tabulate(summary_data, headers=summary_headers, tablefmt='grid'))
+    
+    # Detailed table
+    print("\n" + "=" * 60)
+    print("📈 DETAILED METRICS")
+    print("=" * 60)
+    
+    detailed_headers = ['Strategy', 'Final $', 'Avg Trade %', 'Best Trade %', 'Worst Trade %']
+    detailed_data = [[r['Strategy'], r['Final $'], r['Avg Trade %'], r['Best Trade %'], r['Worst Trade %']] 
+                     for r in results]
+    
+    print("\n" + tabulate(detailed_data, headers=detailed_headers, tablefmt='grid'))
+    
+    # Find best strategy
+    valid_results = [r for r in results if r['_stats'] is not None]
+    if valid_results:
+        best_strategy = max(valid_results, key=lambda x: x['_stats']['Return [%]'])
+        
+        print("\n" + "=" * 60)
+        print("🏆 BEST PERFORMING STRATEGY")
+        print("=" * 60)
+        print(f"\n✨ {best_strategy['Strategy']}")
+        print(f"   Return: {best_strategy['Return %']}")
+        print(f"   Win Rate: {best_strategy['Win Rate %']}")
+        print(f"   Sharpe Ratio: {best_strategy['Sharpe']}")
+        print(f"   Total Trades: {best_strategy['Trades']}")
+        
+        # Ask if user wants to see the chart
+        print("\n" + "=" * 60)
+        print("📊 Would you like to see the interactive chart?")
+        print("=" * 60)
+        response = input("Open chart for best strategy? (y/n): ").lower()
+        
+        if response == 'y':
+            print("\n🎨 Opening interactive chart...")
+            best_strategy['_bt'].plot()
+    
+    print("\n✅ Backtesting complete!")
+    print("=" * 60)
