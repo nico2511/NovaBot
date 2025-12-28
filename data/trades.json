@@ -24,5 +24,31 @@
     "exit_time": "2025-12-27T17:21:56.559634",
     "exit_reason": "SL",
     "id": "trade_1766852516_1"
+  },
+  {
+    "symbol": "BTC",
+    "strategy": "Manual/Adopted",
+    "side": "BUY",
+    "entry_price": 87834.0,
+    "exit_price": 87834.0,
+    "pnl": 0.0,
+    "pnl_percent": 0.0,
+    "entry_time": "2025-12-28T15:03:58.607290",
+    "exit_time": "2025-12-28T15:04:21.208701",
+    "exit_reason": "Manual API Close",
+    "id": "trade_1766930661_2"
+  },
+  {
+    "symbol": "BTC",
+    "strategy": "ScalpEmaRsi",
+    "side": "BUY",
+    "entry_price": 87937.0,
+    "exit_price": 88015.0,
+    "pnl": 78.0,
+    "pnl_percent": 0.08869986467584748,
+    "entry_time": "2025-12-28T15:19:03.656214",
+    "exit_time": "2025-12-28T15:42:10.839600",
+    "exit_reason": "SL",
+    "id": "trade_1766932930_3"
   }
 ]

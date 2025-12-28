@@ -6,7 +6,7 @@
     "cash": 10000,
     "commission": 0.0006
   },
-  "timestamp": "2025-12-28T10:10:24.342871",
+  "timestamp": "2025-12-28T10:13:13.379814",
   "results": [
     {
       "name": "Golden Cross (SMA 50/200)",
@@ -19,7 +19,7 @@
       "avg_trade": NaN,
       "best_trade": NaN,
       "worst_trade": NaN,
-      "buy_hold": -20.102534049560216,
+      "buy_hold": -20.089492892705934,
       "duration": "180 days 00:45:00"
     },
     {
@@ -33,7 +33,7 @@
       "avg_trade": NaN,
       "best_trade": NaN,
       "worst_trade": NaN,
-      "buy_hold": -17.693448699090474,
+      "buy_hold": -17.680014322506914,
       "duration": "180 days 00:45:00"
     },
     {
@@ -47,7 +47,7 @@
       "avg_trade": NaN,
       "best_trade": NaN,
       "worst_trade": NaN,
-      "buy_hold": -17.483541774757025,
+      "buy_hold": -17.47007313639692,
       "duration": "180 days 00:45:00"
     },
     {
@@ -61,7 +61,7 @@
       "avg_trade": NaN,
       "best_trade": NaN,
       "worst_trade": NaN,
-      "buy_hold": -20.102534049560216,
+      "buy_hold": -20.089492892705934,
       "duration": "180 days 00:45:00"
     }
   ]

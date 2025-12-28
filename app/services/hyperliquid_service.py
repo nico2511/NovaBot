@@ -73,22 +73,49 @@ class HyperliquidService:
             print(f"Error fetching candles: {e}")
             return pd.DataFrame()
 
+    
+    def _fetch_metadata(self):
+        """Fetch and cache exchange metadata for precision"""
+        if hasattr(self, "_meta_cache") and self._meta_cache:
+            return self._meta_cache
+        try:
+            self._meta_cache = self.info.meta()
+            return self._meta_cache
+        except Exception as e:
+            print(f"⚠️ Failed to fetch metadata: {e}")
+            return None
+
+    def _get_precision(self, symbol: str):
+        """Get precision for size and price from metadata"""
+        meta = self._fetch_metadata()
+        if not meta:
+            return 6, 4 # Safe defaults
+            
+        try:
+            universe = meta.get("universe", [])
+            for asset in universe:
+                if asset["name"] == symbol:
+                    return asset["szDecimals"], asset["maxPriceDecimals"]
+        except Exception as e:
+            print(f"⚠️ Error parsing metadata for {symbol}: {e}")
+            
+        return 6, 4 # Defaults if not found
+
     def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None):
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
         try:
-            # Determine rounding for size/price based on coin (simplified)
-            # In a real app we need meta = self.info.meta() to get precise rounding
-            # Using 5 decimals for better precision on small positions (e.g., BTC)
-            quantity = float(f"{quantity:.5f}")
+            # Dynamic Precision Rounding
+            sz_decimals, price_decimals = self._get_precision(symbol)
+            
+            # Format Quantity
+            quantity = float(f"{quantity:.{sz_decimals}f}")
             
             if price:
                 # LIMIT ORDER
-                price = float(f"{price:.4f}")
+                price = float(f"{price:.{price_decimals}f}")
                 print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price}")
-                # Use order method directly if available, fast wrapper:
-                # API usually requires explicit parameters: coin, is_buy, sz, limit_px, order_type, reduce_only
                 result = self.exchange.order(symbol, is_buy, quantity, price, {"limit": {"tif": "Gtc"}})
             else:
                 # MARKET ORDER
@@ -100,6 +127,20 @@ class HyperliquidService:
             
         except Exception as e:
             print(f"❌ Order execution failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def update_leverage(self, symbol: str, leverage: int, is_cross: bool = True):
+        """Update leverage and margin type (Cross/Isolated) for a symbol"""
+        if not self.exchange:
+            return {"status": "error", "message": "No private key configured"}
+            
+        try:
+            print(f"⚙️ Updating leverage for {symbol}: {leverage}x (Cross: {is_cross})")
+            # Set leverage
+            self.exchange.update_leverage(leverage, symbol, is_cross)
+            return {"status": "success", "leverage": leverage, "is_cross": is_cross}
+        except Exception as e:
+            print(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
     def get_account_balance(self):

@@ -75,6 +75,16 @@ class StateManager:
                 context.risk_manager.state.is_stop_mode = rs.get("is_stop_mode", False)
                 context.risk_manager.state.stop_reason = rs.get("stop_reason", "")
             
+            # SANITY CHECK: Sync Risk Manager with Active Trade
+            if context.active_trade is None:
+                if context.risk_manager.state.open_positions > 0:
+                    print(f"⚠️ Detected phantom positions in RiskManager ({context.risk_manager.state.open_positions}). Reseting to 0.")
+                    context.risk_manager.state.open_positions = 0
+            else:
+                # If we have an active trade, ensure at least 1 position is counted
+                if context.risk_manager.state.open_positions == 0:
+                     context.risk_manager.state.open_positions = 1
+            
             # Restore Sidebar Settings
             if "sidebar_settings" in state:
                 context.sidebar_settings = state["sidebar_settings"]

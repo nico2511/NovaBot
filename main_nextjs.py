@@ -93,6 +93,18 @@ class BotContext:
         # ============================================
         if not self.startup_sync_done:
             self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
+
+            # --- LEVERAGE SYNC ---
+            try:
+                if self.execution_mode == "Auto (Hyperliquid)":
+                    target_leverage = int(self.sidebar_settings.get("leverage", 5))
+                    margin_type = self.sidebar_settings.get("margin_type", "Cross")
+                    is_cross = (margin_type == "Cross")
+                    
+                    self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
+                    hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
+            except Exception as e:
+                self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
             
             try:
                 # Récupérer les positions réelles sur Hyperliquid
@@ -219,6 +231,79 @@ class BotContext:
                 # Get current 1m candle time (trigger on 1m for MTF)
                 current_candle_time = df_1m.index[-1]
                 
+                # --- POSITION ADOPTION & SYNC (Moved to start) ---
+                # Check real positions from Hyperliquid
+                try:
+                    real_positions = hyperliquid_service.get_positions()
+                    active_symbol_pos = next((p for p in real_positions if p["symbol"] == self.active_symbol), None)
+                    
+                    if active_symbol_pos:
+                        # Case 1: We have a real position but bot doesn't know about it (Manual Trade)
+                        if not self.active_trade:
+                            self.add_log(f"🕵️ DETECTED MANUAL POSITION on {self.active_symbol}. Adopting...")
+                            
+                            # Adopt it with default SL/TP parameters based on current ATR or percentage
+                            # We'll use 5% default if ATR not available, or last known ATR
+                            current_price = df_15m['close'].iloc[-1]
+                            entry_price = active_symbol_pos["entry_price"]
+                            side = active_symbol_pos["side"]
+                            
+                            # Default Risk Parameters for adopted trades
+                            # If we have SL/TP setting, use it, otherwise reasonable defaults
+                            atr = 0
+                            if 'ATRr_14' in df_15m.columns:
+                                atr = df_15m['ATRr_14'].iloc[-1]
+                            else:
+                                atr = current_price * 0.01
+
+                            if side == "BUY":
+                                sl = entry_price - (2.0 * atr) 
+                                tp = entry_price + (3.0 * atr)
+                            else:
+                                sl = entry_price + (2.0 * atr)
+                                tp = entry_price - (3.0 * atr)
+                            
+                            self.active_trade = {
+                                "symbol": self.active_symbol,
+                                "side": side,
+                                "entry": entry_price,
+                                "sl": sl,
+                                "tp": tp,
+                                "strategy": "Manual/Adopted",
+                                "timestamp": pd.Timestamp.now().isoformat(),
+                                "size": active_symbol_pos["size"],
+                                "leverage": active_symbol_pos.get("leverage", 1.0)
+                            }
+                            self.risk_manager.record_trade_open()
+                            self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
+                            discord_service.send_alert(
+                                "🛡️ MANUAL TRADE ADOPTED",
+                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
+                                color="0000ff"
+                            )
+                            
+                        # Case 2: We have a position and bot matches -> Sync PnL or check if size changed
+                        else:
+                            # Update PnL in active_trade for display if we want?
+                            pass
+                            
+                    else:
+                        # Case 3: Bot thinks we have a trade, but no position in HL (Manual Close or Liquidation)
+                        if self.active_trade and self.execution_mode == "Auto (Hyperliquid)":
+                             # Check if trade is very recent (Grace period for API latency / fill time)
+                             trade_time = pd.Timestamp(self.active_trade["timestamp"])
+                             time_since_entry = (pd.Timestamp.now() - trade_time).total_seconds()
+                             
+                             if time_since_entry > 30: # 30 seconds grace period
+                                 self.add_log(f"⚠️ Position vanished on exchange! Closing bot trade.")
+                                 self.active_trade = None
+                                 self.risk_manager.record_trade_close(0) # PnL unknown here effectively
+                             else:
+                                 self.add_log(f"⏳ Position pending verification ({time_since_entry:.1f}s ago)...")
+                
+                except Exception as e:
+                    self.add_log(f"⚠️ Error checking positions: {e}")
+                
                 # Only analyze on new 1m candle
                 if self.last_candle_time != current_candle_time:
                     self.last_candle_time = current_candle_time
@@ -339,6 +424,31 @@ class BotContext:
                             can_trade, reason = self.risk_manager.check_can_trade()
                             if can_trade:
                                 # Open trade
+                                # 1. Calculate Position Size
+                                size = 0.0
+                                try:
+                                    size_type = self.sidebar_settings.get("size_type", "Fixed (USDC)")
+                                    size_value = float(self.sidebar_settings.get("size_value", 15.0)) # Default usually 15-20$ min on HL
+                                    leverage = int(self.sidebar_settings.get("leverage", 5))
+                                    
+                                    if size_type == "Fixed (USDC)":
+                                        # Size in coins = (USDC Value * Leverage) / Price
+                                        if entry_price > 0:
+                                            # Example: $100 margin * 5x = $500 position / $50000 BTC = 0.01 BTC
+                                            # Wait, usually "Fixed (USDC)" implies Margin Amount.
+                                            # Let's assume size_value is the MARGIN amount.
+                                            position_value = size_value * leverage
+                                            size = position_value / entry_price
+                                    elif size_type == "% Balance":
+                                         # Balance based calculation (needs balance fetch, skipped for safety/simplicity now, fallback to Fixed)
+                                         # Fallback to $20 margin * leverage
+                                         position_value = 20.0 * leverage
+                                         size = position_value / entry_price
+                                         
+                                except Exception as e:
+                                    self.add_log(f"⚠️ Error calculating size: {e}. Using min default.")
+                                    size = (20.0 * 5) / entry_price if entry_price else 0
+
                                 self.active_trade = {
                                     "symbol": self.active_symbol,
                                     "side": action,
@@ -346,9 +456,22 @@ class BotContext:
                                     "sl": sl,
                                     "tp": tp,
                                     "strategy": strat_name,
-                                    "timestamp": pd.Timestamp.now().isoformat()
+                                    "timestamp": pd.Timestamp.now().isoformat(),
+                                    "size": size,
+                                    "leverage": self.sidebar_settings.get("leverage", 5)
                                 }
                                 self.risk_manager.record_trade_open()
+                                
+                                # 2. EXECUTE ORDER ON HYPERLIQUID
+                                if self.execution_mode == "Auto (Hyperliquid)":
+                                    self.add_log(f"🚀 EXECUTING {action} {size:.5f} {self.active_symbol} (Market)")
+                                    is_buy = (action == "BUY")
+                                    # Execute Market Order
+                                    hyperliquid_service.execute_order(
+                                        self.active_symbol,
+                                        is_buy,
+                                        size
+                                    )
                                 
                                 msg = f"🚨 ENTRY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
                                 self.add_log(msg)
@@ -388,6 +511,9 @@ class BotContext:
                                 
                                 # Save state
                                 StateManager.save_state(self)
+                            else:
+                                # LOG THE REASON FOR REJECTION
+                                self.add_log(f"⚠️ Trade rejected by Risk Manager: {reason}")
                 else:
                     # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
                     if not hasattr(self, '_skip_counter'):
@@ -396,71 +522,7 @@ class BotContext:
                     if self._skip_counter % 12 == 0:
                         self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 1m candle...")
                 
-                # --- POSITION ADOPTION & SYNC ---
-                # Check real positions from Hyperliquid
-                try:
-                    real_positions = hyperliquid_service.get_positions()
-                    active_symbol_pos = next((p for p in real_positions if p["symbol"] == self.active_symbol), None)
-                    
-                    if active_symbol_pos:
-                        # Case 1: We have a real position but bot doesn't know about it (Manual Trade)
-                        if not self.active_trade:
-                            self.add_log(f"🕵️ DETECTED MANUAL POSITION on {self.active_symbol}. Adopting...")
-                            
-                            # Adopt it with default SL/TP parameters based on current ATR or percentage
-                            # We'll use 5% default if ATR not available, or last known ATR
-                            current_price = df_15m['close'].iloc[-1]
-                            entry_price = active_symbol_pos["entry_price"]
-                            side = active_symbol_pos["side"]
-                            
-                            # Default Risk Parameters for adopted trades
-                            # If we have SL/TP setting, use it, otherwise reasonable defaults
-                            atr = 0
-                            if 'ATRr_14' in df_15m.columns:
-                                atr = df_15m['ATRr_14'].iloc[-1]
-                            else:
-                                atr = current_price * 0.01
-
-                            if side == "BUY":
-                                sl = entry_price - (2.0 * atr) 
-                                tp = entry_price + (3.0 * atr)
-                            else:
-                                sl = entry_price + (2.0 * atr)
-                                tp = entry_price - (3.0 * atr)
-                            
-                            self.active_trade = {
-                                "symbol": self.active_symbol,
-                                "side": side,
-                                "entry": entry_price,
-                                "sl": sl,
-                                "tp": tp,
-                                "strategy": "Manual/Adopted",
-                                "timestamp": pd.Timestamp.now().isoformat(),
-                                "size": active_symbol_pos["size"],
-                                "leverage": active_symbol_pos.get("leverage", 1.0)
-                            }
-                            self.risk_manager.record_trade_open()
-                            self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
-                            discord_service.send_alert(
-                                "🛡️ MANUAL TRADE ADOPTED",
-                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
-                                color="0000ff"
-                            )
-                            
-                        # Case 2: We have a position and bot matches -> Sync PnL or check if size changed
-                        else:
-                            # Update PnL in active_trade for display if we want?
-                            pass
-                            
-                    else:
-                        # Case 3: Bot thinks we have a trade, but no position in HL (Manual Close or Liquidation)
-                        if self.active_trade and self.execution_mode == "Auto (Hyperliquid)":
-                             self.add_log(f"⚠️ Position vanished on exchange! Closing bot trade.")
-                             self.active_trade = None
-                             self.risk_manager.record_trade_close(0) # PnL unknown here effectively
-                
-                except Exception as e:
-                    self.add_log(f"⚠️ Error checking positions: {e}")
+                # --- Position Sync moved to start of loop ---
 
                 # Check active trade management
                 if self.active_trade:
@@ -733,6 +795,81 @@ class BotContext:
         else:
             self.add_log("⚠️ Bot already running with active thread, skipping start")
     
+    def close_active_trade(self, reason="Manual Close"):
+        """Close the currently active trade"""
+        if not self.active_trade:
+            return False, "No active trade"
+            
+        try:
+            symbol = self.active_trade["symbol"]
+            side = self.active_trade["side"]
+            entry_price = self.active_trade["entry"]
+            size = self.active_trade.get("size", 0)
+            
+            # Execute Market Close
+            if self.execution_mode == "Auto (Hyperliquid)":
+                try:
+                    is_buy = side == "BUY"
+                    # To close BUY, we SELL. To close SELL, we BUY.
+                    # hyperliquid_service.execute_order takes is_buy boolean
+                    # So if we are closing a BUY, is_buy for close order is False.
+                    self.add_log(f"📉 CLOSING {side} {symbol} ({reason})")
+                    hyperliquid_service.execute_order(
+                        symbol, 
+                        not is_buy, # Reverse side
+                        size
+                    )
+                except Exception as e:
+                    self.add_log(f"❌ Failed to execute close order: {e}")
+                    # Force close locally anyway logic could go here if critical
+            
+            # Record Close locally
+            current_price = 0
+            try:
+                # Try to get live price, fallback to entry if needed (shouldn't happen in loop)
+                # But here we are outside loop context maybe? 
+                # Ideally we fetch latest price.
+                current_price = hyperliquid_service.get_current_price(symbol)
+            except:
+                current_price = entry_price # Fallback
+                
+            pnl = current_price - entry_price if side == "BUY" else entry_price - current_price
+            
+            self.add_log(f"✅ Trade Closed ({reason}). PnL: {pnl:.2f}")
+            
+            # Discord Alert
+            try:
+                discord_service.send_alert(
+                    f"🛑 TRADE CLOSED ({reason})",
+                    f"Symbol: {symbol}\nExit Price: {current_price}\nPnL: {pnl:.2f}",
+                    color="ff0000" if pnl < 0 else "00ff00"
+                )
+            except: pass
+            
+            # Record outcome
+            self.trade_recorder.add_trade({
+                "symbol": symbol,
+                "strategy": self.active_trade.get("strategy", "Unknown"),
+                "side": side,
+                "entry_price": entry_price,
+                "exit_price": current_price,
+                "pnl": pnl,
+                "pnl_percent": (pnl / entry_price) * 100 if entry_price else 0,
+                "entry_time": self.active_trade.get("timestamp"),
+                "exit_time": pd.Timestamp.now().isoformat(),
+                "exit_reason": reason
+            })
+            
+            self.active_trade = None
+            self.risk_manager.record_trade_close(pnl) # Decrement position count and update daily PnL
+            StateManager.save_state(self)
+            
+            return True, "Trade closed successfully"
+            
+        except Exception as e:
+            self.add_log(f"❌ Error closing trade: {e}")
+            return False, str(e)
+
     def stop(self):
         """Stop the bot"""
         if self.is_running:

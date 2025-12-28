@@ -180,6 +180,24 @@ async def stop_engine():
         bot_state.save_state()
         return {"status": "stopped", "message": "Standalone mode - bot_state updated"}
 
+@app.post("/api/close_trade")
+async def close_trade():
+    """Manually close the active trade"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            success, message = bot.close_active_trade(reason="Manual API Close")
+            
+            if success:
+                return {"status": "success", "message": message}
+            else:
+                return {"status": "error", "message": message}
+        else:
+            return {"status": "error", "message": "Bot not connected"}
+    except Exception as e:
+        print(f"Error closing trade: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/trading/enable")
 async def enable_trading():
     """Enable live trading"""
@@ -809,9 +827,15 @@ async def switch_symbol(data: dict):
         new_symbol = data.get("symbol", "BTC")
         
         # Update bot if connected
+        # Update bot if connected
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
             bot.active_symbol = new_symbol
+            
+            # Sync to sidebar settings to ensure persistence
+            if hasattr(bot, 'sidebar_settings'):
+                bot.sidebar_settings["asset"] = new_symbol
+                
             bot.add_log(f"🔄 Switched to {new_symbol}")
             
             # Save state
