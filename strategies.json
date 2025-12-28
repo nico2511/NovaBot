@@ -111,8 +111,20 @@
                 "require_volume": true
             }
         },
+        "golden_cross": {
+            "enabled": true,
+            "type": "trend",
+            "params": {
+                "fast_length": 20,
+                "slow_length": 50,
+                "trend_length": 200,
+                "rsi_length": 14,
+                "sl_pct": 0.015,
+                "tp_pct": 0.030
+            }
+        },
         "rsi_reversal": {
-            "enabled": false,
+            "enabled": true,
             "type": "range",
             "params": {
                 "rsi_period": 14,
@@ -124,7 +136,7 @@
             }
         },
         "bollinger_breakout": {
-            "enabled": false,
+            "enabled": true,
             "type": "range",
             "params": {
                 "bb_length": 20,
