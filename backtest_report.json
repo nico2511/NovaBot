@@ -1,0 +1,68 @@
+{
+  "config": {
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "months": 6,
+    "cash": 10000,
+    "commission": 0.0006
+  },
+  "timestamp": "2025-12-28T10:10:24.342871",
+  "results": [
+    {
+      "name": "Golden Cross (SMA 50/200)",
+      "return_pct": 0.0,
+      "win_rate": NaN,
+      "trades": 0,
+      "max_dd": -0.0,
+      "sharpe": NaN,
+      "final_equity": 10000.0,
+      "avg_trade": NaN,
+      "best_trade": NaN,
+      "worst_trade": NaN,
+      "buy_hold": -20.102534049560216,
+      "duration": "180 days 00:45:00"
+    },
+    {
+      "name": "RSI Reversal (30/70)",
+      "return_pct": 0.0,
+      "win_rate": NaN,
+      "trades": 0,
+      "max_dd": -0.0,
+      "sharpe": NaN,
+      "final_equity": 10000.0,
+      "avg_trade": NaN,
+      "best_trade": NaN,
+      "worst_trade": NaN,
+      "buy_hold": -17.693448699090474,
+      "duration": "180 days 00:45:00"
+    },
+    {
+      "name": "Bollinger Breakout",
+      "return_pct": 0.0,
+      "win_rate": NaN,
+      "trades": 0,
+      "max_dd": -0.0,
+      "sharpe": NaN,
+      "final_equity": 10000.0,
+      "avg_trade": NaN,
+      "best_trade": NaN,
+      "worst_trade": NaN,
+      "buy_hold": -17.483541774757025,
+      "duration": "180 days 00:45:00"
+    },
+    {
+      "name": "Scalp EMA (9/21/200)",
+      "return_pct": 0.0,
+      "win_rate": NaN,
+      "trades": 0,
+      "max_dd": -0.0,
+      "sharpe": NaN,
+      "final_equity": 10000.0,
+      "avg_trade": NaN,
+      "best_trade": NaN,
+      "worst_trade": NaN,
+      "buy_hold": -20.102534049560216,
+      "duration": "180 days 00:45:00"
+    }
+  ]
+}
