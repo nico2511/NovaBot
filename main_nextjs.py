@@ -56,6 +56,10 @@ class BotContext:
             "market_snapshots": deque(maxlen=10)  # Pour comparer l'évolution
         }
         
+        # Startup synchronization flags
+        self.startup_sync_done = False
+        self._initial_position_analyzed = False
+        
         # Load persisted state
         try:
             StateManager.load_state(self)
@@ -83,6 +87,113 @@ class BotContext:
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
         self.add_log(f"⚙️ Loop initialized. is_running={self.is_running}")
+        
+        # ============================================
+        # STARTUP SYNCHRONIZATION WITH HYPERLIQUID
+        # ============================================
+        if not self.startup_sync_done:
+            self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
+            
+            try:
+                # Récupérer les positions réelles sur Hyperliquid
+                real_positions = hyperliquid_service.get_positions()
+                
+                if real_positions:
+                    # Prendre la première position (ou celle avec le plus gros volume)
+                    main_position = real_positions[0]
+                    position_symbol = main_position["symbol"]
+                    
+                    self.add_log(f"✅ SYNC: Found position on Hyperliquid: {position_symbol}")
+                    
+                    # SÉCURITÉ: Vérifier si le symbol actif correspond
+                    if self.active_symbol != position_symbol:
+                        self.add_log(f"⚠️ SYNC: Symbol mismatch detected!")
+                        self.add_log(f"   Bot was tracking: {self.active_symbol}")
+                        self.add_log(f"   Real position on: {position_symbol}")
+                        self.add_log(f"🔄 SYNC: Switching to {position_symbol}")
+                        
+                        # Basculer sur le bon symbol
+                        old_symbol = self.active_symbol
+                        self.active_symbol = position_symbol
+                        
+                        # Mettre à jour bot_state.json
+                        StateManager.save_state(self)
+                        
+                        # Notifier Discord
+                        try:
+                            discord_service.send_alert(
+                                "🔄 BOT SYNC",
+                                f"Symbol switched: {old_symbol} → {position_symbol}\nReason: Position detected on Hyperliquid",
+                                color="FFA500"
+                            )
+                        except Exception as e:
+                            self.add_log(f"⚠️ Discord notification failed: {e}")
+                    else:
+                        self.add_log(f"✅ SYNC: Symbol matches ({position_symbol})")
+                    
+                    # Analyser immédiatement la position avec l'IA
+                    if not self._initial_position_analyzed:
+                        self.add_log("🤖 STARTUP: Analyzing existing position with AI...")
+                        
+                        try:
+                            from app.services.gemini_service import gemini_service
+                            
+                            # Récupérer le prix actuel
+                            df = hyperliquid_service.get_candles(self.active_symbol, "15m", 50)
+                            
+                            if not df.empty:
+                                market_context = {
+                                    "price": float(df['close'].iloc[-1]),
+                                    "symbol": self.active_symbol
+                                }
+                                
+                                # Analyser la position
+                                analysis = gemini_service.analyze_active_position(
+                                    self.active_trade if self.active_trade else {
+                                        "symbol": position_symbol,
+                                        "side": main_position.get("side", "LONG"),
+                                        "entry": main_position.get("entryPrice", market_context["price"]),
+                                        "sl": 0,
+                                        "tp": 0,
+                                        "strategy": "Adopted/Manual"
+                                    },
+                                    market_context
+                                )
+                                
+                                # Logger et envoyer sur Discord
+                                if analysis.get("raw_output"):
+                                    import json
+                                    try:
+                                        ai_data = json.loads(analysis["raw_output"])
+                                        reasoning = ai_data.get('reasoning', 'Position analysée')
+                                        risk_level = ai_data.get('risk_level', 'UNKNOWN')
+                                        
+                                        self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
+                                        
+                                        # Envoyer sur Discord si risque élevé
+                                        if risk_level in ["HIGH", "CRITICAL"]:
+                                            try:
+                                                discord_service.send_alert(
+                                                    f"🤖 AI Analysis - {risk_level} RISK",
+                                                    f"Symbol: {position_symbol}\n{reasoning}",
+                                                    color="FF0000" if risk_level == "CRITICAL" else "FFA500"
+                                                )
+                                            except Exception as e:
+                                                self.add_log(f"⚠️ Discord AI notification failed: {e}")
+                                    except json.JSONDecodeError:
+                                        self.add_log(f"🤖 IA Startup: Analysis completed")
+                                
+                                self._initial_position_analyzed = True
+                        except Exception as e:
+                            self.add_log(f"⚠️ Error in startup AI analysis: {e}")
+                else:
+                    self.add_log("ℹ️ SYNC: No positions found on Hyperliquid")
+                    
+            except Exception as e:
+                self.add_log(f"⚠️ SYNC Error: {e}")
+            
+            self.startup_sync_done = True
+            self.add_log("✅ STARTUP SYNC: Complete")
         
         while self.is_running:
             self.add_log("🔄 Entering loop iteration...")

@@ -80,8 +80,8 @@ class HyperliquidService:
         try:
             # Determine rounding for size/price based on coin (simplified)
             # In a real app we need meta = self.info.meta() to get precise rounding
-            # forcing some sane defaults for now
-            quantity = float(f"{quantity:.4f}")
+            # Using 5 decimals for better precision on small positions (e.g., BTC)
+            quantity = float(f"{quantity:.5f}")
             
             if price:
                 # LIMIT ORDER

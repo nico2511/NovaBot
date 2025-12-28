@@ -539,15 +539,71 @@ async def get_active_trade():
 
 @app.post("/api/close_trade")
 async def close_trade():
-    """Close active trade"""
+    """Close active trade - NOW WITH REAL EXECUTION"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         if bot.active_trade:
+            symbol = bot.active_trade["symbol"]
+            side = bot.active_trade["side"]
+            
+            # EXÉCUTION RÉELLE si mode Auto
+            if bot.execution_mode == "Auto (Hyperliquid)":
+                try:
+                    from app.services.hyperliquid_service import hyperliquid_service
+                    
+                    # Récupérer la taille de la position réelle
+                    positions = hyperliquid_service.get_positions()
+                    position = next((p for p in positions if p["symbol"] == symbol), None)
+                    
+                    if position:
+                        size = float(position["size"])  # Already absolute value from get_positions()
+                        
+                        # Ordre inverse pour fermer
+                        is_buy = (side == "SELL")  # Si SHORT, on BUY pour fermer
+                        
+                        bot.add_log(f"🔴 MANUAL CLOSE: Executing {symbol} (size: {size})")
+                        
+                        result = hyperliquid_service.execute_order(
+                            symbol=symbol,
+                            is_buy=is_buy,
+                            quantity=size  # Use 'quantity' parameter name
+                        )
+                        
+                        bot.add_log(f"✅ Position closed on Hyperliquid: {result}")
+                        
+                        # Envoyer notification Discord
+                        try:
+                            from app.services.discord_service import discord_service
+                            discord_service.send_alert(
+                                "🔴 MANUAL CLOSE",
+                                f"Position {symbol} closed manually via UI\nSize: {size}\nResult: {result.get('status', 'unknown')}",
+                                color="0000FF"
+                            )
+                        except Exception as e:
+                            bot.add_log(f"⚠️ Discord notification failed: {e}")
+                    else:
+                        bot.add_log(f"⚠️ No position found on Hyperliquid for {symbol}")
+                        
+                except Exception as e:
+                    bot.add_log(f"❌ Error closing position: {e}")
+                    return {"status": "error", "message": str(e)}
+            
+            # Nettoyer le bot state
             bot.add_log(f"🔴 Trade closed manually via API")
             bot.active_trade = None
-            return {"status": "closed", "message": "Trade closed on real bot"}
+            bot.risk_manager.record_trade_close(0)  # PnL unknown for manual close
+            
+            # Sauvegarder
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+            except Exception as e:
+                print(f"Error saving state: {e}")
+            
+            return {"status": "closed", "message": "Trade closed (executed on Hyperliquid if Auto mode)"}
         return {"status": "no_active_trade"}
     
+    # Standalone mode
     if bot_state.active_trade:
         bot_state.active_trade = None
         return {"status": "closed", "message": "Standalone mode - trade closed"}
