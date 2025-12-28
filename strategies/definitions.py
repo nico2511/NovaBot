@@ -1181,3 +1181,299 @@ class RSIBollingerBands(BaseStrategy):
         except:
             return 0
 
+
+
+# ============================================
+# STRATEGY: Golden Cross (Trend Following)
+# ============================================
+class StrategyGoldenCross(BaseStrategy):
+    """
+    Classic Trend Following strategy using SMA crossovers.
+    
+    Entry:
+    - LONG: SMA 50 crosses above SMA 200 (Golden Cross)
+    - SHORT: SMA 50 crosses below SMA 200 (Death Cross)
+    
+    Exit:
+    - Close LONG if price closes below SMA 50
+    - Close SHORT if price closes above SMA 50
+    """
+    
+    def add_indicators(self, df):
+        df['SMA_50'] = ta.sma(df['close'], length=50)
+        df['SMA_200'] = ta.sma(df['close'], length=200)
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 201:  # Need at least 201 candles for SMA 200
+            return None
+        
+        # Current and previous values
+        sma_50_curr = df['SMA_50'].iloc[-1]
+        sma_50_prev = df['SMA_50'].iloc[-2]
+        sma_200_curr = df['SMA_200'].iloc[-1]
+        sma_200_prev = df['SMA_200'].iloc[-2]
+        close = df['close'].iloc[-1]
+        
+        # Golden Cross: SMA 50 crosses above SMA 200
+        if sma_50_prev <= sma_200_prev and sma_50_curr > sma_200_curr:
+            return {
+                'signal': 'BUY',
+                'price': close,
+                'sl': sma_50_curr * 0.97,  # 3% below SMA 50
+                'tp': close * 1.10,  # 10% profit target
+                'comment': 'Golden Cross detected - SMA 50 crossed above SMA 200'
+            }
+        
+        # Death Cross: SMA 50 crosses below SMA 200
+        if sma_50_prev >= sma_200_prev and sma_50_curr < sma_200_curr:
+            return {
+                'signal': 'SELL',
+                'price': close,
+                'sl': sma_50_curr * 1.03,  # 3% above SMA 50
+                'tp': close * 0.90,  # 10% profit target
+                'comment': 'Death Cross detected - SMA 50 crossed below SMA 200'
+            }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to Golden/Death Cross"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 201:
+                return 0
+            
+            sma_50 = df['SMA_50'].iloc[-1]
+            sma_200 = df['SMA_200'].iloc[-1]
+            
+            # Calculate distance between SMAs (as percentage)
+            distance_pct = abs(sma_50 - sma_200) / sma_200 * 100
+            
+            # Closer = higher progress
+            if distance_pct < 0.5:  # Very close
+                return 90
+            elif distance_pct < 1.0:
+                return 70
+            elif distance_pct < 2.0:
+                return 50
+            elif distance_pct < 5.0:
+                return 30
+            else:
+                return 10
+        except:
+            return 0
+
+
+# ============================================
+# STRATEGY: RSI Reversal (Intraday)
+# ============================================
+class StrategyRSIReversal(BaseStrategy):
+    """
+    Intraday reversal strategy based on RSI exits from extreme zones.
+    
+    Entry:
+    - LONG: RSI was < 30 (N-1) and now > 30 (N) - Exit from oversold
+    - SHORT: RSI was > 70 (N-1) and now < 70 (N) - Exit from overbought
+    
+    Risk Management:
+    - Stop Loss: 1.5% from entry
+    - Take Profit: 3.0% from entry (1:2 ratio)
+    """
+    
+    def add_indicators(self, df):
+        params = self.config.get("params", {})
+        rsi_len = params.get("rsi_period", 14)
+        
+        df['RSI'] = ta.rsi(df['close'], length=rsi_len)
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 15:
+            return None
+        
+        rsi_curr = df['RSI'].iloc[-1]
+        rsi_prev = df['RSI'].iloc[-2]
+        close = df['close'].iloc[-1]
+        
+        # LONG: Exit from oversold (RSI crosses above 30)
+        if rsi_prev < 30 and rsi_curr > 30:
+            sl = close * 0.985  # 1.5% stop loss
+            tp = close * 1.030  # 3.0% take profit
+            
+            return {
+                'signal': 'BUY',
+                'price': close,
+                'sl': sl,
+                'tp': tp,
+                'comment': f'RSI Reversal Long - Exit from oversold (RSI: {rsi_curr:.1f})'
+            }
+        
+        # SHORT: Exit from overbought (RSI crosses below 70)
+        if rsi_prev > 70 and rsi_curr < 70:
+            sl = close * 1.015  # 1.5% stop loss
+            tp = close * 0.970  # 3.0% take profit
+            
+            return {
+                'signal': 'SELL',
+                'price': close,
+                'sl': sl,
+                'tp': tp,
+                'comment': f'RSI Reversal Short - Exit from overbought (RSI: {rsi_curr:.1f})'
+            }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to RSI reversal zones"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 15:
+                return 0
+            
+            rsi = df['RSI'].iloc[-1]
+            
+            # In oversold zone (approaching long signal)
+            if rsi < 30:
+                return int(100 * (30 - rsi) / 30)  # Deeper = higher progress
+            
+            # In overbought zone (approaching short signal)
+            if rsi > 70:
+                return int(100 * (rsi - 70) / 30)  # Higher = higher progress
+            
+            # Approaching zones
+            if 30 <= rsi <= 40:
+                return int(50 * (40 - rsi) / 10)
+            if 60 <= rsi <= 70:
+                return int(50 * (rsi - 60) / 10)
+            
+            return 0
+        except:
+            return 0
+
+
+# ============================================
+# STRATEGY: Bollinger Breakout
+# ============================================
+class StrategyBollingerBreakout(BaseStrategy):
+    """
+    Breakout strategy using Bollinger Bands.
+    
+    Entry:
+    - LONG: Green candle closes above Upper Band + impulsive body
+    - SHORT: Red candle closes below Lower Band + impulsive body
+    
+    Filter:
+    - Candle body must be larger than average of last 10 candles
+    
+    Exit:
+    - Close when price touches Middle Band (SMA 20)
+    """
+    
+    def add_indicators(self, df):
+        params = self.config.get("params", {})
+        bb_length = params.get("bb_length", 20)
+        bb_std = params.get("bb_std", 2.0)
+        
+        # Bollinger Bands
+        bbands = ta.bbands(df['close'], length=bb_length, std=bb_std)
+        df['BB_UPPER'] = bbands[f'BBU_{bb_length}_{bb_std}']
+        df['BB_MIDDLE'] = bbands[f'BBM_{bb_length}_{bb_std}']
+        df['BB_LOWER'] = bbands[f'BBL_{bb_length}_{bb_std}']
+        
+        # Candle body size
+        df['BODY'] = abs(df['close'] - df['open'])
+        df['AVG_BODY_10'] = df['BODY'].rolling(window=10).mean()
+        
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 30:
+            return None
+        
+        close = df['close'].iloc[-1]
+        open_price = df['open'].iloc[-1]
+        bb_upper = df['BB_UPPER'].iloc[-1]
+        bb_lower = df['BB_LOWER'].iloc[-1]
+        bb_middle = df['BB_MIDDLE'].iloc[-1]
+        body = df['BODY'].iloc[-1]
+        avg_body = df['AVG_BODY_10'].iloc[-1]
+        
+        # Check if candle is impulsive (body > average)
+        is_impulsive = body > avg_body
+        
+        if not is_impulsive:
+            return None
+        
+        # LONG: Green candle closes above Upper Band
+        if close > open_price and close > bb_upper:
+            sl = bb_middle  # Exit at middle band
+            tp = close + (close - bb_middle) * 1.5  # 1.5x the distance
+            
+            return {
+                'signal': 'BUY',
+                'price': close,
+                'sl': sl,
+                'tp': tp,
+                'comment': f'Bollinger Breakout Long - Strong bullish momentum (Body: {body/avg_body:.2f}x avg)'
+            }
+        
+        # SHORT: Red candle closes below Lower Band
+        if close < open_price and close < bb_lower:
+            sl = bb_middle  # Exit at middle band
+            tp = close - (bb_middle - close) * 1.5  # 1.5x the distance
+            
+            return {
+                'signal': 'SELL',
+                'price': close,
+                'sl': sl,
+                'tp': tp,
+                'comment': f'Bollinger Breakout Short - Strong bearish momentum (Body: {body/avg_body:.2f}x avg)'
+            }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to Bollinger Band breakout"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 30:
+                return 0
+            
+            close = df['close'].iloc[-1]
+            bb_upper = df['BB_UPPER'].iloc[-1]
+            bb_lower = df['BB_LOWER'].iloc[-1]
+            bb_middle = df['BB_MIDDLE'].iloc[-1]
+            body = df['BODY'].iloc[-1]
+            avg_body = df['AVG_BODY_10'].iloc[-1]
+            
+            progress = 0
+            
+            # Proximity to bands (50 points)
+            dist_to_upper = abs(close - bb_upper) / bb_upper
+            dist_to_lower = abs(close - bb_lower) / bb_lower
+            
+            if dist_to_upper < 0.002:  # Very close to upper
+                progress += 50
+            elif dist_to_upper < 0.005:
+                progress += 30
+            
+            if dist_to_lower < 0.002:  # Very close to lower
+                progress += 50
+            elif dist_to_lower < 0.005:
+                progress += 30
+            
+            # Impulsive candle (50 points)
+            if body > avg_body:
+                impulse_ratio = min(body / avg_body, 2.0)  # Cap at 2x
+                progress += int(50 * impulse_ratio / 2.0)
+            
+            return min(100, max(0, progress))
+        except:
+            return 0
