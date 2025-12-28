@@ -1477,3 +1477,421 @@ class StrategyBollingerBreakout(BaseStrategy):
             return min(100, max(0, progress))
         except:
             return 0
+
+# ============================================
+# CHARTIST PATTERNS STRATEGIES
+# ============================================
+
+class StrategyDoubleTopBottom(BaseStrategy):
+    """
+    Double Top/Bottom Pattern Detection
+    
+    Entry:
+    - LONG: Double Bottom + RSI divergence bullish
+    - SHORT: Double Top + RSI divergence bearish
+    
+    Detection:
+    - 2 peaks/troughs at similar levels (±2%)
+    - Minimum 10 candles between peaks
+    - Volume confirmation
+    """
+    
+    def add_indicators(self, df):
+        params = self.config.get("params", {})
+        
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        df['Volume_SMA'] = ta.sma(df['volume'], length=20)
+        
+        # Find local peaks and troughs
+        df['High_Peak'] = df['high'].rolling(window=5, center=True).max() == df['high']
+        df['Low_Trough'] = df['low'].rolling(window=5, center=True).min() == df['low']
+        
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 50:
+            return None
+        
+        current_price = df['close'].iloc[-1]
+        current_rsi = df['RSI'].iloc[-1]
+        
+        # Get recent peaks and troughs
+        recent_peaks = df[df['High_Peak'] == True].tail(3)
+        recent_troughs = df[df['Low_Trough'] == True].tail(3)
+        
+        # DOUBLE BOTTOM (Bullish)
+        if len(recent_troughs) >= 2:
+            trough1 = recent_troughs.iloc[-2]
+            trough2 = recent_troughs.iloc[-1]
+            
+            # Check if troughs are at similar level (±2%)
+            price_diff = abs(trough1['low'] - trough2['low']) / trough1['low']
+            
+            if price_diff < 0.02:  # Within 2%
+                # Check RSI divergence (bullish)
+                rsi1_idx = trough1.name
+                rsi2_idx = trough2.name
+                
+                if rsi2_idx in df.index and rsi1_idx in df.index:
+                    rsi1 = df.loc[rsi1_idx, 'RSI']
+                    rsi2 = df.loc[rsi2_idx, 'RSI']
+                    
+                    # Bullish divergence: price lower, RSI higher
+                    if trough2['low'] <= trough1['low'] and rsi2 > rsi1:
+                        # Neckline break
+                        neckline = max(df.loc[rsi1_idx:rsi2_idx, 'high'])
+                        
+                        if current_price > neckline:
+                            return {
+                                'signal': 'BUY',
+                                'price': current_price,
+                                'sl': trough2['low'] * 0.99,
+                                'tp': current_price + (current_price - trough2['low']) * 1.5,
+                                'comment': f'Double Bottom detected - Bullish divergence (RSI: {current_rsi:.1f})'
+                            }
+        
+        # DOUBLE TOP (Bearish)
+        if len(recent_peaks) >= 2:
+            peak1 = recent_peaks.iloc[-2]
+            peak2 = recent_peaks.iloc[-1]
+            
+            # Check if peaks are at similar level (±2%)
+            price_diff = abs(peak1['high'] - peak2['high']) / peak1['high']
+            
+            if price_diff < 0.02:  # Within 2%
+                # Check RSI divergence (bearish)
+                rsi1_idx = peak1.name
+                rsi2_idx = peak2.name
+                
+                if rsi2_idx in df.index and rsi1_idx in df.index:
+                    rsi1 = df.loc[rsi1_idx, 'RSI']
+                    rsi2 = df.loc[rsi2_idx, 'RSI']
+                    
+                    # Bearish divergence: price higher, RSI lower
+                    if peak2['high'] >= peak1['high'] and rsi2 < rsi1:
+                        # Neckline break
+                        neckline = min(df.loc[rsi1_idx:rsi2_idx, 'low'])
+                        
+                        if current_price < neckline:
+                            return {
+                                'signal': 'SELL',
+                                'price': current_price,
+                                'sl': peak2['high'] * 1.01,
+                                'tp': current_price - (peak2['high'] - current_price) * 1.5,
+                                'comment': f'Double Top detected - Bearish divergence (RSI: {current_rsi:.1f})'
+                            }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to Double Top/Bottom pattern"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 50:
+                return 0
+            
+            recent_peaks = df[df['High_Peak'] == True].tail(2)
+            recent_troughs = df[df['Low_Trough'] == True].tail(2)
+            
+            progress = 0
+            
+            # Check for forming double bottom
+            if len(recent_troughs) >= 2:
+                trough1 = recent_troughs.iloc[-2]
+                trough2 = recent_troughs.iloc[-1]
+                price_diff = abs(trough1['low'] - trough2['low']) / trough1['low']
+                
+                if price_diff < 0.05:  # Within 5%
+                    progress = max(progress, int(100 * (1 - price_diff / 0.05)))
+            
+            # Check for forming double top
+            if len(recent_peaks) >= 2:
+                peak1 = recent_peaks.iloc[-2]
+                peak2 = recent_peaks.iloc[-1]
+                price_diff = abs(peak1['high'] - peak2['high']) / peak1['high']
+                
+                if price_diff < 0.05:  # Within 5%
+                    progress = max(progress, int(100 * (1 - price_diff / 0.05)))
+            
+            return min(100, progress)
+        except:
+            return 0
+
+
+class StrategyTriangleBreakout(BaseStrategy):
+    """
+    Triangle Pattern Breakout
+    
+    Entry:
+    - LONG: Ascending triangle breakout (resistance break)
+    - SHORT: Descending triangle breakout (support break)
+    
+    Detection:
+    - Converging trendlines
+    - Decreasing volatility (ATR)
+    - Volume spike on breakout
+    """
+    
+    def add_indicators(self, df):
+        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        df['Volume_SMA'] = ta.sma(df['volume'], length=20)
+        df['EMA_20'] = ta.ema(df['close'], length=20)
+        
+        # Calculate highs and lows for trendlines
+        df['Rolling_High'] = df['high'].rolling(window=20).max()
+        df['Rolling_Low'] = df['low'].rolling(window=20).min()
+        
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 40:
+            return None
+        
+        current_price = df['close'].iloc[-1]
+        current_volume = df['volume'].iloc[-1]
+        avg_volume = df['Volume_SMA'].iloc[-1]
+        
+        # Get recent data for pattern detection
+        recent_df = df.tail(30)
+        
+        # Calculate resistance and support levels
+        resistance = recent_df['high'].max()
+        support = recent_df['low'].min()
+        
+        # Check for decreasing volatility (triangle formation)
+        atr_current = df['ATR'].iloc[-1]
+        atr_20_ago = df['ATR'].iloc[-20] if len(df) >= 20 else atr_current
+        
+        volatility_decreasing = atr_current < atr_20_ago * 0.8
+        
+        if not volatility_decreasing:
+            return None
+        
+        # ASCENDING TRIANGLE (Bullish)
+        # Flat resistance, rising support
+        recent_highs = recent_df['high'].tail(10)
+        recent_lows = recent_df['low'].tail(10)
+        
+        # Check if highs are relatively flat (resistance)
+        high_std = recent_highs.std() / recent_highs.mean()
+        
+        # Check if lows are rising (support)
+        lows_slope = (recent_lows.iloc[-1] - recent_lows.iloc[0]) / len(recent_lows)
+        
+        if high_std < 0.02 and lows_slope > 0:  # Ascending triangle
+            # Breakout confirmation
+            if current_price > resistance and current_volume > avg_volume * 1.5:
+                triangle_height = resistance - support
+                
+                return {
+                    'signal': 'BUY',
+                    'price': current_price,
+                    'sl': support * 0.99,
+                    'tp': current_price + triangle_height * 1.0,
+                    'comment': f'Ascending Triangle Breakout - Volume spike ({current_volume/avg_volume:.1f}x)'
+                }
+        
+        # DESCENDING TRIANGLE (Bearish)
+        # Flat support, falling resistance
+        low_std = recent_lows.std() / recent_lows.mean()
+        highs_slope = (recent_highs.iloc[-1] - recent_highs.iloc[0]) / len(recent_highs)
+        
+        if low_std < 0.02 and highs_slope < 0:  # Descending triangle
+            # Breakout confirmation
+            if current_price < support and current_volume > avg_volume * 1.5:
+                triangle_height = resistance - support
+                
+                return {
+                    'signal': 'SELL',
+                    'price': current_price,
+                    'sl': resistance * 1.01,
+                    'tp': current_price - triangle_height * 1.0,
+                    'comment': f'Descending Triangle Breakout - Volume spike ({current_volume/avg_volume:.1f}x)'
+                }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to triangle breakout"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 40:
+                return 0
+            
+            recent_df = df.tail(30)
+            resistance = recent_df['high'].max()
+            support = recent_df['low'].min()
+            current_price = df['close'].iloc[-1]
+            
+            # Calculate distance to breakout levels
+            dist_to_resistance = abs(current_price - resistance) / resistance
+            dist_to_support = abs(current_price - support) / support
+            
+            min_dist = min(dist_to_resistance, dist_to_support)
+            
+            # Check volatility compression
+            atr_current = df['ATR'].iloc[-1]
+            atr_20_ago = df['ATR'].iloc[-20] if len(df) >= 20 else atr_current
+            
+            volatility_compression = 1 - (atr_current / atr_20_ago) if atr_20_ago > 0 else 0
+            
+            # Combine factors
+            progress = 0
+            
+            if min_dist < 0.01:  # Very close to breakout
+                progress += 50
+            elif min_dist < 0.02:
+                progress += 30
+            
+            if volatility_compression > 0.2:  # Significant compression
+                progress += 50
+            
+            return min(100, progress)
+        except:
+            return 0
+
+
+class StrategyHeadShoulders(BaseStrategy):
+    """
+    Head and Shoulders Pattern
+    
+    Entry:
+    - LONG: Inverse H&S - neckline break upward
+    - SHORT: H&S - neckline break downward
+    
+    Detection:
+    - 3 peaks: left shoulder, head (highest), right shoulder
+    - Neckline drawn through troughs
+    - Volume decreasing on right shoulder
+    """
+    
+    def add_indicators(self, df):
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        df['Volume_SMA'] = ta.sma(df['volume'], length=20)
+        
+        # Detect peaks and troughs
+        df['High_Peak'] = df['high'].rolling(window=7, center=True).max() == df['high']
+        df['Low_Trough'] = df['low'].rolling(window=7, center=True).min() == df['low']
+        
+        return df
+    
+    def generate_signal(self, df, extra_data=None):
+        df = self.add_indicators(df)
+        
+        if len(df) < 60:
+            return None
+        
+        current_price = df['close'].iloc[-1]
+        
+        # Get recent peaks for H&S pattern
+        recent_peaks = df[df['High_Peak'] == True].tail(5)
+        recent_troughs = df[df['Low_Trough'] == True].tail(4)
+        
+        # HEAD AND SHOULDERS (Bearish)
+        if len(recent_peaks) >= 3 and len(recent_troughs) >= 2:
+            # Get the 3 most recent peaks
+            left_shoulder = recent_peaks.iloc[-3]
+            head = recent_peaks.iloc[-2]
+            right_shoulder = recent_peaks.iloc[-1]
+            
+            # Validate pattern: head is highest
+            if head['high'] > left_shoulder['high'] and head['high'] > right_shoulder['high']:
+                # Shoulders should be roughly equal (±5%)
+                shoulder_diff = abs(left_shoulder['high'] - right_shoulder['high']) / left_shoulder['high']
+                
+                if shoulder_diff < 0.05:
+                    # Calculate neckline (support through troughs)
+                    trough1 = recent_troughs.iloc[-2]
+                    trough2 = recent_troughs.iloc[-1]
+                    neckline = (trough1['low'] + trough2['low']) / 2
+                    
+                    # Breakout confirmation
+                    if current_price < neckline:
+                        pattern_height = head['high'] - neckline
+                        
+                        return {
+                            'signal': 'SELL',
+                            'price': current_price,
+                            'sl': neckline * 1.02,
+                            'tp': current_price - pattern_height * 1.0,
+                            'comment': f'Head & Shoulders pattern - Neckline break'
+                        }
+        
+        # INVERSE HEAD AND SHOULDERS (Bullish)
+        recent_troughs_inv = df[df['Low_Trough'] == True].tail(5)
+        recent_peaks_inv = df[df['High_Peak'] == True].tail(4)
+        
+        if len(recent_troughs_inv) >= 3 and len(recent_peaks_inv) >= 2:
+            # Get the 3 most recent troughs
+            left_shoulder = recent_troughs_inv.iloc[-3]
+            head = recent_troughs_inv.iloc[-2]
+            right_shoulder = recent_troughs_inv.iloc[-1]
+            
+            # Validate pattern: head is lowest
+            if head['low'] < left_shoulder['low'] and head['low'] < right_shoulder['low']:
+                # Shoulders should be roughly equal (±5%)
+                shoulder_diff = abs(left_shoulder['low'] - right_shoulder['low']) / left_shoulder['low']
+                
+                if shoulder_diff < 0.05:
+                    # Calculate neckline (resistance through peaks)
+                    peak1 = recent_peaks_inv.iloc[-2]
+                    peak2 = recent_peaks_inv.iloc[-1]
+                    neckline = (peak1['high'] + peak2['high']) / 2
+                    
+                    # Breakout confirmation
+                    if current_price > neckline:
+                        pattern_height = neckline - head['low']
+                        
+                        return {
+                            'signal': 'BUY',
+                            'price': current_price,
+                            'sl': neckline * 0.98,
+                            'tp': current_price + pattern_height * 1.0,
+                            'comment': f'Inverse Head & Shoulders - Neckline break'
+                        }
+        
+        return None
+    
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate proximity to H&S pattern completion"""
+        try:
+            df = self.add_indicators(df)
+            if len(df) < 60:
+                return 0
+            
+            recent_peaks = df[df['High_Peak'] == True].tail(3)
+            recent_troughs = df[df['Low_Trough'] == True].tail(3)
+            
+            # Check if we have 3 peaks (potential H&S forming)
+            if len(recent_peaks) >= 3:
+                left_shoulder = recent_peaks.iloc[-3]
+                head = recent_peaks.iloc[-2]
+                right_shoulder = recent_peaks.iloc[-1]
+                
+                # Check if head is highest
+                if head['high'] > left_shoulder['high'] and head['high'] > right_shoulder['high']:
+                    shoulder_diff = abs(left_shoulder['high'] - right_shoulder['high']) / left_shoulder['high']
+                    
+                    if shoulder_diff < 0.1:  # Shoulders within 10%
+                        return int(100 * (1 - shoulder_diff / 0.1))
+            
+            # Check for inverse H&S
+            if len(recent_troughs) >= 3:
+                left_shoulder = recent_troughs.iloc[-3]
+                head = recent_troughs.iloc[-2]
+                right_shoulder = recent_troughs.iloc[-1]
+                
+                # Check if head is lowest
+                if head['low'] < left_shoulder['low'] and head['low'] < right_shoulder['low']:
+                    shoulder_diff = abs(left_shoulder['low'] - right_shoulder['low']) / left_shoulder['low']
+                    
+                    if shoulder_diff < 0.1:  # Shoulders within 10%
+                        return int(100 * (1 - shoulder_diff / 0.1))
+            
+            return 0
+        except:
+            return 0
