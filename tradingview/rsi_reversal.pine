@@ -1,0 +1,61 @@
+//@version=5
+strategy("RSI Reversal Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_value=0.06)
+
+// ============================================
+// PARAMETERS
+// ============================================
+rsiLength = input.int(14, "RSI Length", minval=5, maxval=50)
+rsiOversold = input.int(30, "RSI Oversold", minval=10, maxval=40)
+rsiOverbought = input.int(70, "RSI Overbought", minval=60, maxval=90)
+slPercent = input.float(1.5, "Stop Loss %", minval=0.5, maxval=5.0)
+tpPercent = input.float(3.0, "Take Profit %", minval=1.0, maxval=10.0)
+
+// ============================================
+// INDICATORS
+// ============================================
+rsi = ta.rsi(close, rsiLength)
+
+// ============================================
+// SIGNAL LOGIC
+// ============================================
+
+// LONG: RSI crosses above oversold level
+longCondition = ta.crossover(rsi, rsiOversold)
+
+// SHORT: RSI crosses below overbought level
+shortCondition = ta.crossunder(rsi, rsiOverbought)
+
+// ============================================
+// TRADING LOGIC
+// ============================================
+
+// Entry LONG
+if longCondition and strategy.position_size == 0
+    sl = close * (1 - slPercent / 100)
+    tp = close * (1 + tpPercent / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+
+// Entry SHORT
+if shortCondition and strategy.position_size == 0
+    sl = close * (1 + slPercent / 100)
+    tp = close * (1 - tpPercent / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
+
+// ============================================
+// VISUALIZATION
+// ============================================
+
+// Plot RSI
+plot(rsi, "RSI", color=color.blue, linewidth=2)
+hline(rsiOverbought, "Overbought", color=color.red, linestyle=hline.style_dashed)
+hline(rsiOversold, "Oversold", color=color.green, linestyle=hline.style_dashed)
+hline(50, "Midline", color=color.gray, linestyle=hline.style_dotted)
+
+// Plot signals
+plotshape(longCondition, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Color background
+bgcolor(rsi > rsiOverbought ? color.new(color.red, 90) : rsi < rsiOversold ? color.new(color.green, 90) : na)

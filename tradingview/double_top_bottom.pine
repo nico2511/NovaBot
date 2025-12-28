@@ -14,112 +14,96 @@ requireDivergence = input.bool(true, "Require RSI Divergence")
 // ============================================
 rsi = ta.rsi(close, rsiLength)
 
-// Find local peaks and troughs
-highPeak = ta.pivothigh(high, 5, 5)
-lowTrough = ta.pivotlow(low, 5, 5)
+// Find local peaks and troughs (simpler approach)
+lookback = 5
+isHighPeak = high == ta.highest(high, lookback * 2 + 1) and high[lookback] == ta.highest(high[lookback - lookback], lookback * 2 + 1)
+isLowTrough = low == ta.lowest(low, lookback * 2 + 1) and low[lookback] == ta.lowest(low[lookback - lookback], lookback * 2 + 1)
 
 // ============================================
 // PATTERN DETECTION
 // ============================================
 
-// Store recent peaks/troughs
-var float[] recentPeaks = array.new_float(0)
-var int[] recentPeaksBar = array.new_int(0)
-var float[] recentTroughs = array.new_float(0)
-var int[] recentTroughsBar = array.new_int(0)
+// Variables to store pattern info
+var float peak1 = na
+var float peak2 = na
+var int peak1Bar = na
+var int peak2Bar = na
+var float trough1 = na
+var float trough2 = na
+var int trough1Bar = na
+var int trough2Bar = na
 
 // Update peaks
-if not na(highPeak)
-    array.push(recentPeaks, highPeak)
-    array.push(recentPeaksBar, bar_index)
-    if array.size(recentPeaks) > 5
-        array.shift(recentPeaks)
-        array.shift(recentPeaksBar)
+if isHighPeak
+    peak1 := peak2
+    peak1Bar := peak2Bar
+    peak2 := high[lookback]
+    peak2Bar := bar_index - lookback
 
 // Update troughs
-if not na(lowTrough)
-    array.push(recentTroughs, lowTrough)
-    array.push(recentTroughsBar, bar_index)
-    if array.size(recentTroughs) > 5
-        array.shift(recentTroughs)
-        array.shift(recentTroughsBar)
+if isLowTrough
+    trough1 := trough2
+    trough1Bar := trough2Bar
+    trough2 := low[lookback]
+    trough2Bar := bar_index - lookback
 
 // ============================================
 // DOUBLE BOTTOM (Bullish)
 // ============================================
 doubleBottom = false
-if array.size(recentTroughs) >= 2
-    trough1 = array.get(recentTroughs, array.size(recentTroughs) - 2)
-    trough2 = array.get(recentTroughs, array.size(recentTroughs) - 1)
-    bar1 = array.get(recentTroughsBar, array.size(recentTroughsBar) - 2)
-    bar2 = array.get(recentTroughsBar, array.size(recentTroughsBar) - 1)
-    
+if not na(trough1) and not na(trough2)
     // Check price similarity
     priceDiff = math.abs(trough1 - trough2) / trough1
     
     // Check candle distance
-    candleDistance = bar2 - bar1
+    candleDistance = trough2Bar - trough1Bar
     
     if priceDiff < tolerance and candleDistance >= minCandles
-        // Check RSI divergence (bullish)
-        rsi1 = ta.valuewhen(bar_index == bar1, rsi, 0)
-        rsi2 = ta.valuewhen(bar_index == bar2, rsi, 0)
+        // Simple RSI check (current RSI vs RSI at trough)
+        currentRSI = rsi
         
-        hasDivergence = not requireDivergence or (trough2 <= trough1 and rsi2 > rsi1)
+        // Calculate neckline (highest point between troughs)
+        neckline = ta.highest(high, candleDistance)
         
-        if hasDivergence
-            // Calculate neckline
-            neckline = math.max(ta.highest(high, bar2 - bar1))
-            
-            // Breakout confirmation
-            if close > neckline
-                doubleBottom := true
+        // Breakout confirmation
+        if close > neckline and currentRSI > 30
+            doubleBottom := true
 
 // ============================================
 // DOUBLE TOP (Bearish)
 // ============================================
 doubleTop = false
-if array.size(recentPeaks) >= 2
-    peak1 = array.get(recentPeaks, array.size(recentPeaks) - 2)
-    peak2 = array.get(recentPeaks, array.size(recentPeaks) - 1)
-    bar1 = array.get(recentPeaksBar, array.size(recentPeaksBar) - 2)
-    bar2 = array.get(recentPeaksBar, array.size(recentPeaksBar) - 1)
-    
+if not na(peak1) and not na(peak2)
     // Check price similarity
     priceDiff = math.abs(peak1 - peak2) / peak1
     
     // Check candle distance
-    candleDistance = bar2 - bar1
+    candleDistance = peak2Bar - peak1Bar
     
     if priceDiff < tolerance and candleDistance >= minCandles
-        // Check RSI divergence (bearish)
-        rsi1 = ta.valuewhen(bar_index == bar1, rsi, 0)
-        rsi2 = ta.valuewhen(bar_index == bar2, rsi, 0)
+        // Simple RSI check
+        currentRSI = rsi
         
-        hasDivergence = not requireDivergence or (peak2 >= peak1 and rsi2 < rsi1)
+        // Calculate neckline (lowest point between peaks)
+        neckline = ta.lowest(low, candleDistance)
         
-        if hasDivergence
-            // Calculate neckline
-            neckline = math.min(ta.lowest(low, bar2 - bar1))
-            
-            // Breakout confirmation
-            if close < neckline
-                doubleTop := true
+        // Breakout confirmation
+        if close < neckline and currentRSI < 70
+            doubleTop := true
 
 // ============================================
 // TRADING LOGIC
 // ============================================
 
-// Entry
+// Entry LONG (Double Bottom)
 if doubleBottom and strategy.position_size == 0
-    trough2 = array.get(recentTroughs, array.size(recentTroughs) - 1)
     sl = trough2 * 0.99
     tp = close + (close - trough2) * 1.5
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
 
+// Entry SHORT (Double Top)
 if doubleTop and strategy.position_size == 0
-    peak2 = array.get(recentPeaks, array.size(recentPeaks) - 1)
     sl = peak2 * 1.01
     tp = close - (peak2 - close) * 1.5
     strategy.entry("Short", strategy.short)
@@ -133,7 +117,6 @@ if doubleTop and strategy.position_size == 0
 plotshape(doubleBottom, "Double Bottom", shape.triangleup, location.belowbar, color.green, size=size.small)
 plotshape(doubleTop, "Double Top", shape.triangledown, location.abovebar, color.red, size=size.small)
 
-// Plot RSI
+// Plot RSI levels
 hline(70, "Overbought", color.red, linestyle=hline.style_dashed)
 hline(30, "Oversold", color.green, linestyle=hline.style_dashed)
-plot(rsi, "RSI", color=color.blue, display=display.none)

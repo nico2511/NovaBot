@@ -1,11 +1,11 @@
 //@version=5
-strategy("Triangle Breakout", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95)
+strategy("Triangle Breakout", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_value=0.06)
 
 // ============================================
 // PARAMETERS
 // ============================================
 lookback = input.int(30, "Lookback Period", minval=20, maxval=100)
-volatilityThreshold = input.float(0.8, "Volatility Compression (%)", minval=0.5, maxval=1.0)
+volatilityThreshold = input.float(0.8, "Volatility Compression", minval=0.5, maxval=1.0)
 volumeMultiplier = input.float(1.5, "Volume Spike Multiplier", minval=1.0, maxval=3.0)
 flatnessThreshold = input.float(2.0, "Flatness Threshold (%)", minval=0.5, maxval=5.0) / 100
 
@@ -32,11 +32,23 @@ atrCurrent = atr
 atrPast = atr[20]
 volatilityDecreasing = atrCurrent < atrPast * volatilityThreshold
 
-// Calculate standard deviation of highs and lows
-highStd = ta.stdev(high, 10) / ta.sma(high, 10)
-lowStd = ta.stdev(low, 10) / ta.sma(low, 10)
+// Calculate standard deviation of highs and lows (last 10 bars)
+var float[] last10Highs = array.new_float(10, 0)
+var float[] last10Lows = array.new_float(10, 0)
 
-// Calculate slope of lows and highs
+// Update arrays
+array.shift(last10Highs)
+array.push(last10Highs, high)
+array.shift(last10Lows)
+array.push(last10Lows, low)
+
+// Calculate std dev
+highMean = array.avg(last10Highs)
+lowMean = array.avg(last10Lows)
+highStd = array.stdev(last10Highs) / highMean
+lowStd = array.stdev(last10Lows) / lowMean
+
+// Calculate slope
 lowsSlope = (low - low[10]) / 10
 highsSlope = (high - high[10]) / 10
 
@@ -45,10 +57,10 @@ highsSlope = (high - high[10]) / 10
 // ============================================
 ascendingTriangle = false
 if volatilityDecreasing
-    // Flat resistance (highs are relatively flat)
+    // Flat resistance
     flatResistance = highStd < flatnessThreshold
     
-    // Rising support (lows are rising)
+    // Rising support
     risingSupport = lowsSlope > 0
     
     if flatResistance and risingSupport
@@ -61,10 +73,10 @@ if volatilityDecreasing
 // ============================================
 descendingTriangle = false
 if volatilityDecreasing
-    // Flat support (lows are relatively flat)
+    // Flat support
     flatSupport = lowStd < flatnessThreshold
     
-    // Falling resistance (highs are falling)
+    // Falling resistance
     fallingResistance = highsSlope < 0
     
     if flatSupport and fallingResistance
@@ -79,14 +91,14 @@ if volatilityDecreasing
 // Calculate triangle height
 triangleHeight = resistance - support
 
-// Entry LONG (Ascending Triangle)
+// Entry LONG
 if ascendingTriangle and strategy.position_size == 0
     sl = support * 0.99
     tp = close + triangleHeight * 1.0
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
 
-// Entry SHORT (Descending Triangle)
+// Entry SHORT
 if descendingTriangle and strategy.position_size == 0
     sl = resistance * 1.01
     tp = close - triangleHeight * 1.0
@@ -98,15 +110,12 @@ if descendingTriangle and strategy.position_size == 0
 // ============================================
 
 // Plot triangle lines
-plot(resistance, "Resistance", color=color.red, linewidth=2, style=plot.style_stepline)
-plot(support, "Support", color=color.green, linewidth=2, style=plot.style_stepline)
+plot(resistance, "Resistance", color=color.red, linewidth=2)
+plot(support, "Support", color=color.green, linewidth=2)
 
 // Plot signals
-plotshape(ascendingTriangle, "Ascending Triangle", shape.triangleup, location.belowbar, color.green, size=size.normal)
-plotshape(descendingTriangle, "Descending Triangle", shape.triangledown, location.abovebar, color.red, size=size.normal)
+plotshape(ascendingTriangle, "Ascending", shape.triangleup, location.belowbar, color.green, size=size.normal)
+plotshape(descendingTriangle, "Descending", shape.triangledown, location.abovebar, color.red, size=size.normal)
 
-// Plot volume
-plot(volumeSMA, "Volume SMA", color=color.blue, display=display.none)
-
-// Background color for volatility compression
-bgcolor(volatilityDecreasing ? color.new(color.yellow, 95) : na, title="Volatility Compression")
+// Background for volatility compression
+bgcolor(volatilityDecreasing ? color.new(color.yellow, 95) : na)

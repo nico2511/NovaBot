@@ -4,6 +4,8 @@ Ce dossier contient les scripts Pine Script (v5) pour backtester les stratégies
 
 ## 📁 Scripts Disponibles
 
+### Stratégies Chartistes
+
 ### 1. `double_top_bottom.pine`
 **Stratégie** : Double Top/Bottom avec divergence RSI
 
@@ -24,7 +26,7 @@ Ce dossier contient les scripts Pine Script (v5) pour backtester les stratégies
 
 **Paramètres ajustables** :
 - `Lookback Period` : Période d'analyse (défaut: 30)
-- `Volatility Compression (%)` : Seuil compression ATR (défaut: 0.8)
+- `Volatility Compression` : Seuil compression ATR (défaut: 0.8)
 - `Volume Spike Multiplier` : Multiplicateur volume (défaut: 1.5x)
 - `Flatness Threshold (%)` : Seuil de platitude (défaut: 2%)
 
@@ -50,6 +52,48 @@ Ce dossier contient les scripts Pine Script (v5) pour backtester les stratégies
 **Signaux** :
 - 🔴 Label "H&S" = Head & Shoulders (SHORT)
 - 🟢 Label "IH&S" = Inverse H&S (LONG)
+
+---
+
+### Stratégies du Bot
+
+### 4. `rsi_reversal.pine`
+**Stratégie** : RSI Reversal (Zones extrêmes)
+
+**Paramètres** :
+- RSI Length: 14
+- Oversold: 30 / Overbought: 70
+- SL: 1.5% / TP: 3.0%
+
+---
+
+### 5. `golden_cross.pine`
+**Stratégie** : Golden Cross (SMA 50/200)
+
+**Paramètres** :
+- Fast SMA: 50
+- Slow SMA: 200
+- Exit on SMA cross
+
+---
+
+### 6. `scalp_ema.pine`
+**Stratégie** : Scalp EMA (9/21/200)
+
+**Paramètres** :
+- EMA 9, 21, 200
+- RSI filter: 50
+- SL: 2% / TP: 4%
+
+---
+
+### 7. `bollinger_breakout.pine`
+**Stratégie** : Bollinger Breakout
+
+**Paramètres** :
+- BB Length: 20
+- Std Dev: 2.0
+- Min Body Ratio: 1.0
 
 ---
 
