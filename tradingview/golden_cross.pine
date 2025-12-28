@@ -66,4 +66,5 @@ plotshape(goldenCross, "Golden Cross", shape.labelup, location.belowbar, color.g
 plotshape(deathCross, "Death Cross", shape.labeldown, location.abovebar, color.red, text="DC", size=size.normal)
 
 // Fill between SMAs
-fill(p1, p2, color=smaFast > smaSlow ? color.new(color.green, 90) : color.new(color.red, 90))
+fillColor = smaFast > smaSlow ? color.new(color.green, 90) : color.new(color.red, 90)
+fill(p1, p2, color=fillColor)
