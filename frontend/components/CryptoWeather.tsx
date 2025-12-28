@@ -162,36 +162,46 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                                 </div>
                             ) : aiReport ? (
                                 <div className="space-y-4">
-                                    <div className="flex items-center gap-4 mb-4">
-                                        <div className={`px-3 py-1 rounded-full text-xs font-bold border ${aiReport.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-400 border-red-500/50' :
-                                            aiReport.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50' :
-                                                'bg-green-500/20 text-green-400 border-green-500/50'
-                                            }`}>
-                                            RISK: {aiReport.risk_level}
+                                    {aiReport.error ? (
+                                        <div className="bg-red-500/20 border border-red-500/50 p-4 rounded-xl text-red-200 text-center">
+                                            <p className="font-bold">Analysis Failed</p>
+                                            <p className="text-sm mt-2">{aiReport.error}</p>
+                                            {aiReport.details && <p className="text-xs mt-2 text-red-300 overflow-auto max-h-20">{JSON.stringify(aiReport.details)}</p>}
                                         </div>
-                                        <div className="px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/50">
-                                            TREND: {aiReport.trend}
-                                        </div>
-                                    </div>
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center gap-4 mb-4">
+                                                <div className={`px-3 py-1 rounded-full text-xs font-bold border ${aiReport.risk_level === 'HIGH' ? 'bg-red-500/20 text-red-400 border-red-500/50' :
+                                                    aiReport.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50' :
+                                                        'bg-green-500/20 text-green-400 border-green-500/50'
+                                                    }`}>
+                                                    RISK: {aiReport.risk_level}
+                                                </div>
+                                                <div className="px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/50">
+                                                    TREND: {aiReport.trend}
+                                                </div>
+                                            </div>
 
-                                    <div className="bg-black/20 p-4 rounded-xl border border-white/5">
-                                        <p className="text-gray-200 leading-relaxed text-sm">
-                                            {aiReport.summary || aiReport.raw_output}
-                                        </p>
-                                    </div>
+                                            <div className="bg-black/20 p-4 rounded-xl border border-white/5">
+                                                <p className="text-gray-200 leading-relaxed text-sm">
+                                                    {aiReport.summary || aiReport.raw_output}
+                                                </p>
+                                            </div>
 
-                                    {aiReport.reasoning && (
-                                        <div>
-                                            <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Key Factors</h4>
-                                            <ul className="space-y-2">
-                                                {aiReport.reasoning.map((r: string, i: number) => (
-                                                    <li key={i} className="flex gap-2 text-sm text-gray-400">
-                                                        <span className="text-purple-400">•</span>
-                                                        {r}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
+                                            {aiReport.reasoning && (
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Key Factors</h4>
+                                                    <ul className="space-y-2">
+                                                        {aiReport.reasoning.map((r: string, i: number) => (
+                                                            <li key={i} className="flex gap-2 text-sm text-gray-400">
+                                                                <span className="text-purple-400">•</span>
+                                                                {r}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             ) : (

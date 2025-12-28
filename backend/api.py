@@ -658,11 +658,6 @@ async def get_ai_analysis(data: dict = {}):
         from app.services.gemini_service import gemini_service
         
         # 1. Gather Market Data
-        # We need to construct a summary of indicators to send to the AI
-
-        # Reuse get_market_data logic ideally, or just call it if refactored. 
-        # For now, we'll fetch fresh to be safe.
-        
         try:
             from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
         except ImportError:

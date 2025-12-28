@@ -7,6 +7,8 @@ load_dotenv()
 @dataclass
 class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini") # gemini, openrouter, or auto
     HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
     HL_ACCOUNT_ADDRESS: str = os.getenv("HL_ACCOUNT_ADDRESS")
     DISCORD_WEBHOOK_ALERTS: str = os.getenv("DISCORD_WEBHOOK_URL_ALERTS")
