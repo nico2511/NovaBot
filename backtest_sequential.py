@@ -62,14 +62,24 @@ class GoldenCrossStrategy(Strategy):
         self.sma_200 = self.I(ta.sma, close, length=200)
     
     def next(self):
-        if len(self.data) < 201 or self.position:
+        if len(self.data) < 201:
             return
         
-        # Use size parameter to control position size (10% of equity)
+        price = self.data.Close[-1]
+        
+        # Exit logic
+        if self.position:
+            if self.position.is_long and price < self.sma_50[-1]:
+                self.position.close()
+            elif self.position.is_short and price > self.sma_50[-1]:
+                self.position.close()
+            return
+        
+        # Entry logic - use fraction of equity
         if crossover(self.sma_50, self.sma_200):
-            self.buy(size=0.1)
+            self.buy(size=0.95)  # 95% of available cash
         elif crossover(self.sma_200, self.sma_50):
-            self.sell(size=0.1)
+            self.sell(size=0.95)
 
 
 class RSIReversalStrategy(Strategy):
@@ -80,16 +90,31 @@ class RSIReversalStrategy(Strategy):
         self.rsi = self.I(ta.rsi, close, length=self.rsi_period)
     
     def next(self):
-        if len(self.data) < self.rsi_period + 1 or self.position:
+        if len(self.data) < self.rsi_period + 1:
             return
         
+        price = self.data.Close[-1]
         current_rsi = self.rsi[-1]
         previous_rsi = self.rsi[-2]
         
+        # Exit logic - manual SL/TP
+        if self.position:
+            entry_price = self.position.entry_price
+            if self.position.is_long:
+                # TP: +3%, SL: -1.5%
+                if price >= entry_price * 1.03 or price <= entry_price * 0.985:
+                    self.position.close()
+            else:
+                # TP: -3%, SL: +1.5%
+                if price <= entry_price * 0.97 or price >= entry_price * 1.015:
+                    self.position.close()
+            return
+        
+        # Entry logic
         if previous_rsi < 30 and current_rsi > 30:
-            self.buy(size=0.1)
+            self.buy(size=0.95)
         elif previous_rsi > 70 and current_rsi < 70:
-            self.sell(size=0.1)
+            self.sell(size=0.95)
 
 
 class BollingerBreakoutStrategy(Strategy):
@@ -100,19 +125,31 @@ class BollingerBreakoutStrategy(Strategy):
         close = pd.Series(self.data.Close, index=self.data.index)
         bbands = ta.bbands(close, length=self.bb_length, std=self.bb_std)
         self.bb_upper = self.I(lambda: bbands[f'BBU_{self.bb_length}_{self.bb_std}'].values)
+        self.bb_middle = self.I(lambda: bbands[f'BBM_{self.bb_length}_{self.bb_std}'].values)
         self.bb_lower = self.I(lambda: bbands[f'BBL_{self.bb_length}_{self.bb_std}'].values)
     
     def next(self):
-        if len(self.data) < 30 or self.position:
+        if len(self.data) < 30:
             return
         
+        price = self.data.Close[-1]
+        
+        # Exit at middle band
+        if self.position:
+            if self.position.is_long and price <= self.bb_middle[-1]:
+                self.position.close()
+            elif self.position.is_short and price >= self.bb_middle[-1]:
+                self.position.close()
+            return
+        
+        # Entry logic
         close = self.data.Close[-1]
         open_price = self.data.Open[-1]
         
         if close > open_price and close > self.bb_upper[-1]:
-            self.buy(size=0.1)
+            self.buy(size=0.95)
         elif close < open_price and close < self.bb_lower[-1]:
-            self.sell(size=0.1)
+            self.sell(size=0.95)
 
 
 class ScalpEMAStrategy(Strategy):
@@ -124,19 +161,33 @@ class ScalpEMAStrategy(Strategy):
         self.rsi = self.I(ta.rsi, close, length=14)
     
     def next(self):
-        if len(self.data) < 201 or self.position:
+        if len(self.data) < 201:
             return
         
         price = self.data.Close[-1]
         
+        # Exit logic - manual SL/TP
+        if self.position:
+            entry_price = self.position.entry_price
+            if self.position.is_long:
+                # TP: +4%, SL: -2%
+                if price >= entry_price * 1.04 or price <= entry_price * 0.98:
+                    self.position.close()
+            else:
+                # TP: -4%, SL: +2%
+                if price <= entry_price * 0.96 or price >= entry_price * 1.02:
+                    self.position.close()
+            return
+        
+        # Entry logic
         if (crossover(self.ema_9, self.ema_21) and 
             price > self.ema_200[-1] and 
             self.rsi[-1] > 50):
-            self.buy(size=0.1)
+            self.buy(size=0.95)
         elif (crossover(self.ema_21, self.ema_9) and 
               price < self.ema_200[-1] and 
               self.rsi[-1] < 50):
-            self.sell(size=0.1)
+            self.sell(size=0.95)
 
 
 # ============================================
@@ -155,6 +206,7 @@ def run_single_backtest(df, strategy_class, strategy_name, config):
             strategy_class,
             cash=config['cash'],
             commission=config['commission'],
+            margin=1.0,  # No leverage - fixes margin issues
             exclusive_orders=True
         )
         
