@@ -119,7 +119,8 @@
                 "rsi_oversold": 30,
                 "rsi_overbought": 70,
                 "sl_pct": 0.015,
-                "tp_pct": 0.030
+                "tp_pct": 0.030,
+                "use_short_filter": true
             }
         },
         "bollinger_breakout": {

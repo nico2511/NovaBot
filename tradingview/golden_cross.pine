@@ -58,12 +58,12 @@ if strategy.position_size < 0 and exitShort
 // ============================================
 
 // Plot SMAs
-plot(smaFast, "SMA " + str.tostring(fastLength), color=color.orange, linewidth=2)
-plot(smaSlow, "SMA " + str.tostring(slowLength), color=color.blue, linewidth=2)
+p1 = plot(smaFast, "SMA " + str.tostring(fastLength), color=color.orange, linewidth=2)
+p2 = plot(smaSlow, "SMA " + str.tostring(slowLength), color=color.blue, linewidth=2)
 
 // Plot signals
 plotshape(goldenCross, "Golden Cross", shape.labelup, location.belowbar, color.green, text="GC", size=size.normal)
 plotshape(deathCross, "Death Cross", shape.labeldown, location.abovebar, color.red, text="DC", size=size.normal)
 
 // Fill between SMAs
-fill(plot(smaFast), plot(smaSlow), color=smaFast > smaSlow ? color.new(color.green, 90) : color.new(color.red, 90))
+fill(p1, p2, color=smaFast > smaSlow ? color.new(color.green, 90) : color.new(color.red, 90))
