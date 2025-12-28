@@ -1,0 +1,88 @@
+//@version=5
+strategy("RSI Reversal V2 (Optimized)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_value=0.06)
+
+// ============================================
+// PARAMETERS
+// ============================================
+rsiLength = input.int(14, "RSI Length", minval=5, maxval=50)
+rsiOversoldLong = input.int(30, "RSI Oversold (LONG)", minval=10, maxval=40)
+rsiOverboughtShort = input.int(70, "RSI Overbought (SHORT)", minval=60, maxval=90)
+slPercentLong = input.float(1.5, "Stop Loss % (LONG)", minval=0.5, maxval=5.0)
+tpPercentLong = input.float(3.0, "Take Profit % (LONG)", minval=1.0, maxval=10.0)
+slPercentShort = input.float(2.0, "Stop Loss % (SHORT)", minval=0.5, maxval=5.0)
+tpPercentShort = input.float(4.0, "Take Profit % (SHORT)", minval=1.0, maxval=10.0)
+useTrendFilter = input.bool(true, "Use Trend Filter (EMA 200)")
+useVolumeFilter = input.bool(true, "Use Volume Filter")
+volumeMultiplier = input.float(1.3, "Volume Multiplier", minval=1.0, maxval=3.0)
+
+// ============================================
+// INDICATORS
+// ============================================
+rsi = ta.rsi(close, rsiLength)
+ema200 = ta.ema(close, 200)
+volumeSMA = ta.sma(volume, 20)
+
+// ============================================
+// SIGNAL LOGIC
+// ============================================
+
+// Volume confirmation
+volumeOK = not useVolumeFilter or volume > volumeSMA * volumeMultiplier
+
+// Trend filters
+bullishTrend = not useTrendFilter or close > ema200
+bearishTrend = not useTrendFilter or close < ema200
+
+// LONG: RSI crosses above oversold + bullish trend + volume
+// More strict: RSI must be BELOW oversold first, then cross ABOVE
+rsiWasOversold = rsi[1] < rsiOversoldLong
+rsiCrossedUp = rsi > rsiOversoldLong
+longCondition = rsiWasOversold and rsiCrossedUp and bullishTrend and volumeOK
+
+// SHORT: RSI crosses below overbought + bearish trend + volume
+// More strict: RSI must be ABOVE overbought first, then cross BELOW
+// PLUS: Wait for confirmation (price below EMA 200)
+rsiWasOverbought = rsi[1] > rsiOverboughtShort
+rsiCrossedDown = rsi < rsiOverboughtShort
+shortCondition = rsiWasOverbought and rsiCrossedDown and bearishTrend and volumeOK and close < ema200
+
+// ============================================
+// TRADING LOGIC
+// ============================================
+
+// Entry LONG
+if longCondition and strategy.position_size == 0
+    sl = close * (1 - slPercentLong / 100)
+    tp = close * (1 + tpPercentLong / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+
+// Entry SHORT (with stricter conditions)
+if shortCondition and strategy.position_size == 0
+    sl = close * (1 + slPercentShort / 100)
+    tp = close * (1 - tpPercentShort / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
+
+// ============================================
+// VISUALIZATION
+// ============================================
+
+// Plot RSI
+plot(rsi, "RSI", color=color.blue, linewidth=2)
+hline(rsiOverboughtShort, "Overbought", color=color.red, linestyle=hline.style_dashed)
+hline(rsiOversoldLong, "Oversold", color=color.green, linestyle=hline.style_dashed)
+hline(50, "Midline", color=color.gray, linestyle=hline.style_dotted)
+
+// Plot EMA 200
+plot(ema200, "EMA 200", color=color.blue, linewidth=2, display=display.none)
+
+// Plot signals
+plotshape(longCondition, "Long Signal", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short Signal", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Color background
+bgcolor(rsi > rsiOverboughtShort ? color.new(color.red, 90) : rsi < rsiOversoldLong ? color.new(color.green, 90) : na)
+
+// Trend background
+bgcolor(close > ema200 ? color.new(color.green, 97) : color.new(color.red, 97))
