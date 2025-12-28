@@ -111,6 +111,26 @@
                 "require_volume": true
             }
         },
+        "rsi_reversal": {
+            "enabled": false,
+            "type": "range",
+            "params": {
+                "rsi_period": 14,
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+                "sl_pct": 0.015,
+                "tp_pct": 0.030
+            }
+        },
+        "bollinger_breakout": {
+            "enabled": false,
+            "type": "range",
+            "params": {
+                "bb_length": 20,
+                "bb_std": 2.0,
+                "min_body_ratio": 1.0
+            }
+        },
         "double_top_bottom": {
             "enabled": false,
             "type": "range",
