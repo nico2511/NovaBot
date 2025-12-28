@@ -16,7 +16,10 @@ class StrategyEngine:
         self.strategies = {
             "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
-            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend"))
+            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
+            "double_top_bottom": StrategyDoubleTopBottom(strats_config.get("double_top_bottom")),
+            "triangle_breakout": StrategyTriangleBreakout(strats_config.get("triangle_breakout")),
+            "head_shoulders": StrategyHeadShoulders(strats_config.get("head_shoulders"))
         }
 
     def load_config(self):

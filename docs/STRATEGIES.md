@@ -22,6 +22,31 @@ Le bot dispose maintenant de **10 stratégies** réparties en 3 catégories :
 
 ---
 
+## 🎯 Dépendance au Régime de Marché
+
+**Toutes les stratégies sont dépendantes du régime de marché** détecté par l'ADX :
+
+### Régime TREND (ADX > 25)
+- ✅ ScalpEmaRsi
+- ✅ SwingTrendPullback
+- ✅ StrategyGoldenCross
+- ✅ MomentumBreakout
+- ✅ StrategyScalpEMA
+- ✅ **StrategyTriangleBreakout** ⭐
+- ✅ **StrategyHeadShoulders** ⭐
+
+### Régime RANGE (ADX < 25)
+- ✅ StrategyRSIReversal
+- ✅ StrategyBollingerBreakout
+- ✅ **StrategyDoubleTopBottom** ⭐
+
+**Pourquoi c'est important ?**
+- Les stratégies de trend ne fonctionnent pas en range (faux breakouts)
+- Les stratégies de range perdent en trending (pas de reversals)
+- Le bot active automatiquement les bonnes stratégies selon le régime
+
+---
+
 ## 📐 Stratégies Chartistes (Détails)
 
 ### 1. Double Top/Bottom
