@@ -8,6 +8,7 @@ interface Signal {
     side: 'BUY' | 'SELL'
     price: number
     symbol: string
+    manual_approval?: boolean
 }
 
 export default function TradeHistory() {
@@ -25,10 +26,15 @@ export default function TradeHistory() {
         }
 
         fetchSignals()
-        const interval = setInterval(fetchSignals, 5000) // Update every 5s
+        const interval = setInterval(fetchSignals, 5000)
 
         return () => clearInterval(interval)
     }, [])
+
+    const handleExecute = (signal: Signal) => {
+        // TODO: Call API to execute trade
+        alert(`Executing ${signal.side} ${signal.symbol} @ $${signal.price}\nStrategy: ${signal.strategy}`)
+    }
 
     return (
         <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6">
@@ -44,7 +50,7 @@ export default function TradeHistory() {
                     <div className="text-4xl mb-3">📡</div>
                     <div className="text-gray-400">No signals yet</div>
                     <div className="text-sm text-gray-500 mt-2">
-                        Signals will appear here when strategies generate them
+                        Automatic signals will appear here
                     </div>
                 </div>
             ) : (
@@ -52,7 +58,10 @@ export default function TradeHistory() {
                     {signals.slice(0, 10).map((signal, index) => (
                         <div
                             key={index}
-                            className="bg-background/50 rounded-lg p-4 border border-border/20 hover:border-primary/20 transition-all"
+                            className={`rounded-lg p-4 border transition-all ${signal.manual_approval
+                                ? 'bg-orange-500/10 border-orange-500/30 hover:border-orange-500/50'
+                                : 'bg-background/50 border-border/20 hover:border-primary/20'
+                                }`}
                         >
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
@@ -63,17 +72,35 @@ export default function TradeHistory() {
                                         {signal.side === 'BUY' ? '📈' : '📉'}
                                     </div>
                                     <div>
-                                        <div className="font-semibold">
-                                            {signal.side} {signal.symbol}
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-semibold">
+                                                {signal.side} {signal.symbol}
+                                            </span>
+                                            {signal.manual_approval && (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                                                    VALIDATION NEEDED
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="text-sm text-gray-400">{signal.strategy}</div>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="font-semibold">${signal.price.toLocaleString()}</div>
-                                    <div className="text-xs text-gray-500">
-                                        {new Date(signal.timestamp).toLocaleTimeString('fr-FR')}
+                                <div className="text-right flex items-center gap-3">
+                                    <div>
+                                        <div className="font-semibold">${signal.price.toLocaleString()}</div>
+                                        <div className="text-xs text-gray-500">
+                                            {new Date(signal.timestamp).toLocaleTimeString('fr-FR')}
+                                        </div>
                                     </div>
+
+                                    {signal.manual_approval && (
+                                        <button
+                                            onClick={() => handleExecute(signal)}
+                                            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-md text-sm font-semibold transition-colors shadow-lg shadow-orange-500/20"
+                                        >
+                                            EXECUTE
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>

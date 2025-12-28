@@ -1427,9 +1427,9 @@ class StrategyBollingerBreakout(BaseStrategy):
         
         # Bollinger Bands
         bbands = ta.bbands(df['close'], length=bb_length, std=bb_std)
-        df['BB_UPPER'] = bbands[f'BBU_{bb_length}_{bb_std}']
-        df['BB_MIDDLE'] = bbands[f'BBM_{bb_length}_{bb_std}']
-        df['BB_LOWER'] = bbands[f'BBL_{bb_length}_{bb_std}']
+        df['BB_UPPER'] = bbands['BBU']
+        df['BB_MIDDLE'] = bbands['BBM']
+        df['BB_LOWER'] = bbands['BBL']
         
         # Trend filter
         df['EMA_200'] = ta.ema(df['close'], length=200)

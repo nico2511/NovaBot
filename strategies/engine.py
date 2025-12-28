@@ -19,8 +19,11 @@ class StrategyEngine:
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
+            "triangle_breakout": StrategyTriangleBreakout(strats_config.get("triangle_breakout")),
+            "head_shoulders": StrategyHeadShoulders(strats_config.get("head_shoulders")),
             
             # RANGE strategies
+            "double_top_bottom": StrategyDoubleTopBottom(strats_config.get("double_top_bottom")),
             "rsi_reversal": StrategyRSIReversal(strats_config.get("rsi_reversal")),
             "bollinger_breakout": StrategyBollingerBreakout(strats_config.get("bollinger_breakout"))
         }
@@ -77,12 +80,18 @@ class StrategyEngine:
         for strat in active_strategies:
             sig = strat.generate_signal(df, extra_data=extra_data)
             if sig:
+                # Check execution type
+                params = strat.config.get("params", {})
+                is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
+                
                 if isinstance(sig, dict):
                     # Strategy returned rich object
                     signal_data = sig
                     signal_data["strategy"] = strat.name
                     signal_data["price"] = sig.get("price", df['close'].iloc[-1])
                     signal_data["timestamp"] = df.index[-1]
+                    if is_manual:
+                        signal_data["manual_approval"] = True
                     signals.append(signal_data)
                 else:
                     # Legacy string return
@@ -92,6 +101,8 @@ class StrategyEngine:
                         "price": df['close'].iloc[-1],
                         "timestamp": df.index[-1]
                     }
+                    if is_manual:
+                        signal_data["manual_approval"] = True
                     signals.append(signal_data)
         
         # 5. Calculate Progress for each active strategy

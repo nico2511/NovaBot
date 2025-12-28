@@ -30,6 +30,10 @@ export default function DashboardClient() {
     const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, { refreshInterval: 2000 })
     const { data: balance } = useSWR(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000 })
 
+    // Check for manual signals
+    const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, { refreshInterval: 3000 })
+    const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
+
     const toggleEngine = async () => {
         const endpoint = status?.is_running ? '/api/engine/stop' : '/api/engine/start'
         await axios.post(`${API_URL}${endpoint}`)
@@ -44,6 +48,14 @@ export default function DashboardClient() {
         <>
             {/* Header */}
             <header className="bg-gradient-to-r from-surface/95 to-surface/80 backdrop-blur-lg border-b border-border/30 sticky top-0 z-50">
+                {/* MANUAL ACTION BANNER */}
+                {manualSignals.length > 0 && (
+                    <div className="bg-orange-500 text-white px-4 py-2 text-center font-bold animate-pulse cursor-pointer hover:bg-orange-600 transition-colors">
+                        ⚠️ ACTION REQUIRED: {manualSignals.length} Trade Opportunity Waiting for Validation!
+                        <span className="ml-2 text-sm font-normal opacity-90">(Check Signals below)</span>
+                    </div>
+                )}
+
                 <div className="container mx-auto px-6 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-8">

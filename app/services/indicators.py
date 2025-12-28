@@ -65,6 +65,11 @@ class Indicators:
         return pd.concat([adx, plus_di, minus_di], axis=1, keys=['ADX', 'DMP', 'DMN'])
 
     @staticmethod
+    def sma(series: pd.Series, length: int = 14) -> pd.Series:
+        """Simple Moving Average"""
+        return series.rolling(window=length).mean()
+
+    @staticmethod
     def bbands(series: pd.Series, length: int = 20, std: float = 2.0):
         """Bollinger Bands"""
         middle = series.rolling(window=length).mean()
@@ -80,6 +85,9 @@ class TaAdapter:
     
     def ema(self, close, length=14):
         return Indicators.ema(close, length)
+        
+    def sma(self, close, length=20):
+        return Indicators.sma(close, length)
     
     def atr(self, high, low, close, length=14):
         return Indicators.atr(high, low, close, length)

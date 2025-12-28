@@ -321,6 +321,20 @@ class BotContext:
                         # CRITICAL: Check if trading is enabled
                         if not self.trading_enabled:
                             self.add_log(f"⚠️ Signal detected but trading is DISABLED: {action} {strat_name}")
+                        elif sig_data.get("manual_approval"):
+                            # MANUEL - SIGNATURE REQUISE
+                            # On ne trade pas, on prévient juste
+                            msg = f"📝 MANUAL OPPORTUNITY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
+                            self.add_log(msg)
+                            
+                            try:
+                                discord_service.send_alert(
+                                    f"🔎 VALIDATION REQUISE : {strat_name}",
+                                    f"Symbol: {self.active_symbol}\nPrice: {entry_price}\nAction: {action}\nSL: {sl} | TP: {tp}\n\n👉 Vérifiez le graphique et prenez le trade manuellement.",
+                                    color="00AAFF" # Bleu
+                                )
+                            except:
+                                pass
                         else:
                             can_trade, reason = self.risk_manager.check_can_trade()
                             if can_trade:

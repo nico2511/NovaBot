@@ -148,27 +148,30 @@
             }
         },
         "double_top_bottom": {
-            "enabled": false,
+            "enabled": true,
             "type": "range",
             "params": {
+                "execution_type": "manual",
                 "tolerance": 0.02,
                 "min_candles": 10,
                 "rsi_divergence": true
             }
         },
         "triangle_breakout": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "params": {
+                "execution_type": "manual",
                 "min_candles": 30,
                 "volatility_threshold": 0.8,
                 "volume_multiplier": 1.5
             }
         },
         "head_shoulders": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "params": {
+                "execution_type": "manual",
                 "shoulder_tolerance": 0.05,
                 "min_candles": 60,
                 "volume_confirmation": true
