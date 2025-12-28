@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'hl-bot-engine',
       script: 'main_nextjs.py',
-      interpreter: '/home/nicolas/Bureau/GitPrject/PyBot/.venv/bin/python',
+      interpreter: './.venv/bin/python',
       cwd: process.cwd(),
       env: {
         PYTHONPATH: process.cwd(),
