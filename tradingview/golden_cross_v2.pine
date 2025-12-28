@@ -1,0 +1,84 @@
+//@version=5
+strategy("Golden Cross V2 (Intraday)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_value=0.06)
+
+// ============================================
+// PARAMETERS
+// ============================================
+fastLength = input.int(20, "Fast EMA", minval=5, maxval=50)
+slowLength = input.int(50, "Slow EMA", minval=20, maxval=100)
+trendLength = input.int(200, "Trend Filter EMA", minval=100, maxval=300)
+useRsiFilter = input.bool(true, "Use RSI Filter")
+rsiLength = input.int(14, "RSI Length", minval=5, maxval=50)
+rsiMid = input.int(50, "RSI Midline", minval=40, maxval=60)
+slPercent = input.float(1.5, "Stop Loss %", minval=0.5, maxval=5.0)
+tpPercent = input.float(3.0, "Take Profit %", minval=1.0, maxval=10.0)
+
+// ============================================
+// INDICATORS
+// ============================================
+emaFast = ta.ema(close, fastLength)
+emaSlow = ta.ema(close, slowLength)
+emaTrend = ta.ema(close, trendLength)
+rsi = ta.rsi(close, rsiLength)
+
+// ============================================
+// SIGNAL LOGIC
+// ============================================
+
+// Golden Cross: Fast EMA crosses above Slow EMA
+goldenCross = ta.crossover(emaFast, emaSlow)
+
+// Death Cross: Fast EMA crosses below Slow EMA
+deathCross = ta.crossunder(emaFast, emaSlow)
+
+// Trend filters
+bullishTrend = close > emaTrend
+bearishTrend = close < emaTrend
+
+// RSI filters
+rsiFilterLong = not useRsiFilter or rsi > rsiMid
+rsiFilterShort = not useRsiFilter or rsi < rsiMid
+
+// LONG: Golden Cross + bullish trend + RSI > 50
+longCondition = goldenCross and bullishTrend and rsiFilterLong
+
+// SHORT: Death Cross + bearish trend + RSI < 50
+shortCondition = deathCross and bearishTrend and rsiFilterShort
+
+// ============================================
+// TRADING LOGIC
+// ============================================
+
+// Entry LONG
+if longCondition and strategy.position_size == 0
+    sl = close * (1 - slPercent / 100)
+    tp = close * (1 + tpPercent / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+
+// Entry SHORT
+if shortCondition and strategy.position_size == 0
+    sl = close * (1 + slPercent / 100)
+    tp = close * (1 - tpPercent / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
+
+// ============================================
+// VISUALIZATION
+// ============================================
+
+// Plot EMAs
+p1 = plot(emaFast, "Fast EMA", color=color.green, linewidth=2)
+p2 = plot(emaSlow, "Slow EMA", color=color.red, linewidth=2)
+plot(emaTrend, "Trend EMA", color=color.blue, linewidth=2)
+
+// Plot signals
+plotshape(longCondition, "Golden Cross", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Death Cross", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Fill between fast/slow EMAs
+fillColor = emaFast > emaSlow ? color.new(color.green, 90) : color.new(color.red, 90)
+fill(p1, p2, color=fillColor)
+
+// Background trend
+bgcolor(close > emaTrend ? color.new(color.green, 97) : color.new(color.red, 97))
