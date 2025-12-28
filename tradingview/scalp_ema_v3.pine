@@ -1,0 +1,76 @@
+//@version=5
+strategy("Scalp EMA V3 (Balanced)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_value=0.06)
+
+// ============================================
+// PARAMETERS
+// ============================================
+emaFast = input.int(9, "Fast EMA", minval=5, maxval=50)
+emaSlow = input.int(21, "Slow EMA", minval=10, maxval=100)
+emaTrend = input.int(200, "Trend EMA", minval=100, maxval=300)
+rsiLength = input.int(14, "RSI Length", minval=5, maxval=50)
+rsiMidLong = input.int(52, "RSI Long Threshold", minval=50, maxval=70)
+rsiMidShort = input.int(48, "RSI Short Threshold", minval=30, maxval=50)
+slPercent = input.float(1.5, "Stop Loss %", minval=0.5, maxval=5.0)
+tpPercent = input.float(3.5, "Take Profit %", minval=1.0, maxval=10.0)
+useAtrFilter = input.bool(true, "Use ATR Filter (volatility)")
+atrMultiplier = input.float(1.5, "ATR Multiplier", minval=1.0, maxval=3.0)
+
+// ============================================
+// INDICATORS
+// ============================================
+ema9 = ta.ema(close, emaFast)
+ema21 = ta.ema(close, emaSlow)
+ema200 = ta.ema(close, emaTrend)
+rsi = ta.rsi(close, rsiLength)
+atr = ta.atr(14)
+atrSMA = ta.sma(atr, 20)
+
+// ============================================
+// SIGNAL LOGIC
+// ============================================
+
+// ATR filter (only trade when volatility is normal/high)
+atrOK = not useAtrFilter or atr > atrSMA * 0.8
+
+// LONG: EMA 9 crosses above EMA 21, price above EMA 200, RSI > 52, ATR OK
+longCondition = ta.crossover(ema9, ema21) and close > ema200 and rsi > rsiMidLong and atrOK
+
+// SHORT: EMA 9 crosses below EMA 21, price below EMA 200, RSI < 48, ATR OK  
+shortCondition = ta.crossunder(ema9, ema21) and close < ema200 and rsi < rsiMidShort and atrOK
+
+// ============================================
+// TRADING LOGIC
+// ============================================
+
+// Entry LONG
+if longCondition and strategy.position_size == 0
+    sl = close * (1 - slPercent / 100)
+    tp = close * (1 + tpPercent / 100)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", "Long", stop=sl, limit=tp)
+
+// Entry SHORT
+if shortCondition and strategy.position_size == 0
+    sl = close * (1 + slPercent / 100)
+    tp = close * (1 - tpPercent / 100)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", "Short", stop=sl, limit=tp)
+
+// ============================================
+// VISUALIZATION
+// ============================================
+
+// Plot EMAs
+plot(ema9, "EMA 9", color=color.green, linewidth=2)
+plot(ema21, "EMA 21", color=color.red, linewidth=2)
+plot(ema200, "EMA 200", color=color.blue, linewidth=2)
+
+// Plot signals
+plotshape(longCondition, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Color background based on trend
+bgcolor(close > ema200 ? color.new(color.green, 95) : color.new(color.red, 95))
+
+// Highlight high volatility
+bgcolor(atr > atrSMA * atrMultiplier ? color.new(color.orange, 90) : na)
