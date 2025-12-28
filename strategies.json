@@ -128,7 +128,10 @@
             "params": {
                 "bb_length": 20,
                 "bb_std": 2.0,
-                "min_body_ratio": 1.0
+                "min_body_ratio": 1.5,
+                "sl_pct": 0.02,
+                "tp_pct": 0.03,
+                "use_trend_filter": true
             }
         },
         "double_top_bottom": {
