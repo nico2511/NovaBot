@@ -15,6 +15,7 @@ import AICommentary from '@/components/AICommentary'
 
 import CryptoWeather from '@/components/CryptoWeather'
 import GamificationWidget from '@/components/GamificationWidget'
+import RecentSignals from '@/components/RecentSignals'
 
 // OPTIMIZATION: Dynamic import for heavy Chart component (lightweight-charts = 300KB)
 // This prevents blocking the main bundle and improves FCP/LCP
@@ -208,18 +209,21 @@ export default function DashboardClient() {
                                 strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
                             />
 
-                            {/* Strategy Monitor */}
-                            <StrategyMonitor
-                                strategies={marketData?.active_strategies || []}
-                                regime={marketData?.regime || 'UNKNOWN'}
-                                rsi={marketData?.rsi || 0}
-                                atr={marketData?.atr || 0}
-                                adx={marketData?.adx || 0}
-                                ema_20={marketData?.ema_20}
-                                ema_50={marketData?.ema_50}
-                                bb={marketData?.bb}
-                                strategy_progress={marketData?.strategy_progress || {}}
-                            />
+                            {/* Grid: Strategy Monitor + Recent Signals */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <StrategyMonitor
+                                    strategies={marketData?.active_strategies || []}
+                                    regime={marketData?.regime || 'UNKNOWN'}
+                                    rsi={marketData?.rsi || 0}
+                                    atr={marketData?.atr || 0}
+                                    adx={marketData?.adx || 0}
+                                    ema_20={marketData?.ema_20}
+                                    ema_50={marketData?.ema_50}
+                                    bb={marketData?.bb}
+                                    strategy_progress={marketData?.strategy_progress || {}}
+                                />
+                                <RecentSignals />
+                            </div>
                         </div>
                     )}
 
