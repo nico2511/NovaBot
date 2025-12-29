@@ -198,12 +198,29 @@ export default function DashboardClient() {
                         </button>
                     </div>
 
+
                     {/* Tab Content */}
                     {activeTab === 'overview' && (
-                        <Chart
-                            symbol={status?.active_symbol || 'BTC'}
-                            strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
-                        />
+                        <div className="space-y-6">
+                            {/* Chart */}
+                            <Chart
+                                symbol={status?.active_symbol || 'BTC'}
+                                strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                            />
+
+                            {/* Strategy Monitor */}
+                            <StrategyMonitor
+                                strategies={marketData?.active_strategies || []}
+                                regime={marketData?.regime || 'UNKNOWN'}
+                                rsi={marketData?.rsi || 0}
+                                atr={marketData?.atr || 0}
+                                adx={marketData?.adx || 0}
+                                ema_20={marketData?.ema_20}
+                                ema_50={marketData?.ema_50}
+                                bb={marketData?.bb}
+                                strategy_progress={marketData?.strategy_progress || {}}
+                            />
+                        </div>
                     )}
 
                     {activeTab === 'scanner' && (
@@ -220,19 +237,6 @@ export default function DashboardClient() {
                     <ActiveTrade />
                     <LiveLogs />
                 </div>
-
-                {/* Strategy Monitor */}
-                <StrategyMonitor
-                    strategies={marketData?.active_strategies || []}
-                    regime={marketData?.regime || 'UNKNOWN'}
-                    rsi={marketData?.rsi || 0}
-                    atr={marketData?.atr || 0}
-                    adx={marketData?.adx || 0}
-                    ema_20={marketData?.ema_20}
-                    ema_50={marketData?.ema_50}
-                    bb={marketData?.bb}
-                    strategy_progress={marketData?.strategy_progress || {}}
-                />
 
                 {/* Trade History */}
                 <div className="mt-8">
