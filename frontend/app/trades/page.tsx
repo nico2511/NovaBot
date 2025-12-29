@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import axios from 'axios'
 import useSWR from 'swr'
 import Link from 'next/link'
@@ -18,12 +18,56 @@ interface Trade {
     exit_time: string
     strategy: string
     exit_reason: string
+    timestamp?: string // For Hyperliquid trades
 }
 
-const fetcher = (url: string) => axios.get(url).then(res => res.data)
+const fetcher = (url: string) => fetch(url).then(res => res.json())
 
 export default function TradesPage() {
-    const { data: tradeData, error } = useSWR('/api/trades', fetcher, { refreshInterval: 5000 })
+    const [tradeSource, setTradeSource] = useState<'local' | 'hyperliquid' | 'all'>('all')
+
+    // Fetch both sources
+    const { data: localData, error: localError } = useSWR('/api/trades', fetcher, { refreshInterval: 5000 })
+    const { data: hlData, error: hlError } = useSWR('/api/trades/hyperliquid?limit=100', fetcher, { refreshInterval: 30000 })
+
+    // Merge and deduplicate trades
+    const allTrades = useMemo(() => {
+        const local = localData?.trades || []
+        const hl = hlData?.trades || []
+
+        let tradesToProcess: Trade[] = []
+
+        if (tradeSource === 'local') {
+            tradesToProcess = local
+        } else if (tradeSource === 'hyperliquid') {
+            tradesToProcess = hl
+        } else { // 'all'
+            // Merge and deduplicate by timestamp + symbol
+            const merged = [...local, ...hl]
+            const uniqueMap = new Map<string, Trade>()
+
+            merged.forEach(trade => {
+                // Use exit_time if available, otherwise timestamp
+                const timeKey = trade.exit_time || trade.timestamp;
+                if (timeKey) {
+                    const key = `${trade.symbol}_${timeKey}`;
+                    // Prioritize local trades if both exist for the same key (or just take the first one)
+                    if (!uniqueMap.has(key)) {
+                        uniqueMap.set(key, trade);
+                    }
+                }
+            })
+            tradesToProcess = Array.from(uniqueMap.values())
+        }
+
+        // Sort by exit_time (or timestamp) descending for display in table
+        return tradesToProcess.sort((a, b) => {
+            const timeA = new Date(a.exit_time || a.timestamp || 0).getTime()
+            const timeB = new Date(b.exit_time || b.timestamp || 0).getTime()
+            return timeB - timeA
+        })
+    }, [localData, hlData, tradeSource])
+
     const { data: statsData } = useSWR('/api/stats', fetcher, { refreshInterval: 5000 })
 
     const [trades, setTrades] = useState<Trade[]>([])
@@ -31,24 +75,26 @@ export default function TradesPage() {
     const [cumulativePnL, setCumulativePnL] = useState(0)
 
     useEffect(() => {
-        if (tradeData?.trades) {
-            const sortedTrades = [...tradeData.trades].sort((a, b) => new Date(a.exit_time).getTime() - new Date(b.exit_time).getTime())
-            setTrades(sortedTrades.reverse()) // Show newest first in table
+        if (allTrades && allTrades.length > 0) {
+            // allTrades is already sorted descending, reverse for chart (oldest first)
+            const sortedForChart = [...allTrades].reverse()
+            setTrades(allTrades) // Already sorted newest first for table
 
             // Process chart data (cumulative PnL)
             let runningPnL = 0
-            const cData = sortedTrades.map(t => {
-                runningPnL += t.pnl
+            const cData = sortedForChart.map(t => {
+                const pnl = t.pnl ?? 0
+                runningPnL += pnl
                 return {
-                    time: new Date(t.exit_time).toLocaleDateString() + ' ' + new Date(t.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    time: new Date(t.exit_time || t.timestamp || '').toLocaleDateString() + ' ' + new Date(t.exit_time || t.timestamp || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     pnl: runningPnL,
-                    trade_pnl: t.pnl
+                    trade_pnl: pnl
                 }
             })
             setChartData(cData)
             setCumulativePnL(runningPnL)
         }
-    }, [tradeData])
+    }, [allTrades])
 
     const stats = statsData?.stats || {
         total_trades: 0,
@@ -57,7 +103,7 @@ export default function TradesPage() {
         profit_factor: 0
     }
 
-    if (error) return <div className="p-8 text-center text-red-400">Failed to load trade data. Is the backend running?</div>
+    if (localError || hlError) return <div className="p-8 text-center text-red-400">Failed to load trade data. Is the backend running?</div>
 
     return (
         <div className="min-h-screen bg-background text-white p-6">
@@ -131,8 +177,39 @@ export default function TradesPage() {
 
                 {/* Trade History Table */}
                 <div className="bg-surface/50 backdrop-blur border border-white/5 rounded-xl overflow-hidden">
-                    <div className="p-4 border-b border-white/5">
-                        <h3 className="text-lg font-semibold">Trade History</h3>
+                    <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                        <h2 className="text-xl font-semibold">Trade History</h2>
+
+                        {/* Source Toggle */}
+                        <div className="flex items-center gap-2 bg-background/50 rounded-lg p-1">
+                            <button
+                                onClick={() => setTradeSource('all')}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${tradeSource === 'all'
+                                    ? 'bg-primary text-white'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                All
+                            </button>
+                            <button
+                                onClick={() => setTradeSource('local')}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${tradeSource === 'local'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                🤖 Bot
+                            </button>
+                            <button
+                                onClick={() => setTradeSource('hyperliquid')}
+                                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${tradeSource === 'hyperliquid'
+                                    ? 'bg-purple-500 text-white'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                📊 Hyperliquid
+                            </button>
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -162,13 +239,13 @@ export default function TradesPage() {
                                             </span>
                                         </td>
                                         <td className="p-4 text-gray-300">{trade.strategy}</td>
-                                        <td className="p-4 text-right font-mono">${trade.entry_price.toFixed(4)}</td>
-                                        <td className="p-4 text-right font-mono">${trade.exit_price.toFixed(4)}</td>
-                                        <td className={`p-4 text-right font-bold ${trade.pnl >= 0 ? 'text-success' : 'text-error'}`}>
-                                            {trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(2)}
+                                        <td className="p-4 text-right font-mono">${(trade.entry_price ?? 0).toFixed(4)}</td>
+                                        <td className="p-4 text-right font-mono">${(trade.exit_price ?? 0).toFixed(4)}</td>
+                                        <td className={`p-4 text-right font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                                            {(trade.pnl ?? 0) >= 0 ? '+' : ''}{(trade.pnl ?? 0).toFixed(2)}
                                         </td>
-                                        <td className={`p-4 text-right font-bold ${trade.pnl >= 0 ? 'text-success' : 'text-error'}`}>
-                                            {trade.pnl_percent.toFixed(2)}%
+                                        <td className={`p-4 text-right font-bold ${(trade.pnl ?? 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                                            {(trade.pnl_percent ?? 0).toFixed(2)}%
                                         </td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 rounded text-xs ${trade.exit_reason === 'TP' ? 'bg-green-500/20 text-green-400' :

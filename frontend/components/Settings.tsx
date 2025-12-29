@@ -43,28 +43,34 @@ export default function Settings() {
 
     const [isOpen, setIsOpen] = useState(false)
 
+    // CRITICAL: Fetch active_symbol from status endpoint
+    const { data: statusData } = useSWR(`${API_URL}/api/status`, async (url) => {
+        const res = await axios.get(url)
+        return res.data
+    }, { refreshInterval: 2000 })
+
     // Use SWR for auto-syncing settings (especially asset/symbol changes)
     const { data: serverSettings } = useSWR(`${API_URL}/api/settings`, async (url) => {
         const res = await axios.get(url)
         return res.data
     }, { refreshInterval: 2000 })
 
-    // Sync local state when server data changes (unless user is editing - tricky, but for now strict sync on asset is safer)
+    // Sync local state when server data changes
     useEffect(() => {
-        if (serverSettings) {
+        if (serverSettings || statusData) {
             setSettings(prev => ({
                 ...prev,
                 ...serverSettings,
+                // CRITICAL FIX: Use active_symbol from status if available
+                asset: statusData?.active_symbol || serverSettings?.asset || prev.asset,
                 // Ensure numeric values are parsed correctly
-                size_value: parseFloat(serverSettings.size_value || prev.size_value),
-                leverage: parseInt(serverSettings.leverage || prev.leverage),
-                max_positions: parseInt(serverSettings.max_positions || prev.max_positions),
-                daily_stop_loss: parseFloat(serverSettings.daily_stop_loss || prev.daily_stop_loss),
-                // Important: Update asset if backend switched it
-                asset: serverSettings.asset || prev.asset
+                size_value: parseFloat(serverSettings?.size_value || prev.size_value),
+                leverage: parseInt(serverSettings?.leverage || prev.leverage),
+                max_positions: parseInt(serverSettings?.max_positions || prev.max_positions),
+                daily_stop_loss: parseFloat(serverSettings?.daily_stop_loss || prev.daily_stop_loss),
             }))
         }
-    }, [serverSettings])
+    }, [serverSettings, statusData])
 
     const saveSettings = async () => {
         try {

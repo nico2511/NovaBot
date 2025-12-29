@@ -107,95 +107,78 @@ class BotContext:
                 self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
             
             try:
-                # Récupérer les positions réelles sur Hyperliquid
+                self.add_log("🔄 INITIAL SYNC: Checking Hyperliquid for existing positions...")
+                
                 real_positions = hyperliquid_service.get_positions()
                 
                 if real_positions:
-                    # Prendre la première position (ou celle avec le plus gros volume)
                     main_position = real_positions[0]
                     position_symbol = main_position["symbol"]
                     
                     self.add_log(f"✅ SYNC: Found position on Hyperliquid: {position_symbol}")
                     
-                    # SÉCURITÉ: Vérifier si le symbol actif correspond
+                    # CRITICAL FIX: Switch active_symbol IMMEDIATELY if different
                     if self.active_symbol != position_symbol:
                         self.add_log(f"⚠️ SYNC: Symbol mismatch detected!")
                         self.add_log(f"   Bot was tracking: {self.active_symbol}")
                         self.add_log(f"   Real position on: {position_symbol}")
                         self.add_log(f"🔄 SYNC: Switching to {position_symbol}")
                         
-                        # Basculer sur le bon symbol
+                        # Switch to correct symbol
                         old_symbol = self.active_symbol
                         self.active_symbol = position_symbol
                         
-                        # Mettre à jour bot_state.json
+                        # CRITICAL: Save state immediately to persist the switch
                         StateManager.save_state(self)
                         
-                        # Notifier Discord
-                        try:
-                            discord_service.send_alert(
-                                "🔄 BOT SYNC",
-                                f"Symbol switched: {old_symbol} → {position_symbol}\nReason: Position detected on Hyperliquid",
-                                color="FFA500"
-                            )
-                        except Exception as e:
-                            self.add_log(f"⚠️ Discord notification failed: {e}")
-                    else:
-                        self.add_log(f"✅ SYNC: Symbol matches ({position_symbol})")
+                        self.add_log(f"✅ SYNC: Symbol switched from {old_symbol} to {position_symbol}")
                     
-                    # Analyser immédiatement la position avec l'IA
+                    # CRITICAL: Wait 10 seconds for full synchronization before AI analysis
+                    self.add_log("⏳ SYNC: Waiting 10 seconds for full synchronization...")
+                    time.sleep(10)
+                    self.add_log("✅ SYNC: Synchronization complete, ready for AI analysis")
+                    
+                    # Now perform AI analysis with the CORRECT symbol
                     if not self._initial_position_analyzed:
-                        self.add_log("🤖 STARTUP: Analyzing existing position with AI...")
-                        
                         try:
                             from app.services.gemini_service import gemini_service
+                            import json
+                            self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
                             
-                            # Récupérer le prix actuel
+                            # Fetch fresh data for the CORRECT symbol
                             df = hyperliquid_service.get_candles(self.active_symbol, "15m", 50)
                             
                             if not df.empty:
-                                market_context = {
-                                    "price": float(df['close'].iloc[-1]),
-                                    "symbol": self.active_symbol
-                                }
-                                
-                                # Analyser la position
-                                analysis = gemini_service.analyze_active_position(
-                                    self.active_trade if self.active_trade else {
-                                        "symbol": position_symbol,
-                                        "side": main_position.get("side", "LONG"),
-                                        "entry": main_position.get("entryPrice", market_context["price"]),
-                                        "sl": 0,
-                                        "tp": 0,
-                                        "strategy": "Adopted/Manual"
-                                    },
-                                    market_context
+                                ai_result = gemini_service.analyze_position_risk(
+                                    symbol=self.active_symbol,
+                                    position=main_position,
+                                    market_data={
+                                        "close": float(df['close'].iloc[-1]),
+                                        "regime": "UNKNOWN"
+                                    }
                                 )
                                 
-                                # Logger et envoyer sur Discord
-                                if analysis.get("raw_output"):
-                                    import json
-                                    try:
-                                        ai_data = json.loads(analysis["raw_output"])
-                                        reasoning = ai_data.get('reasoning', 'Position analysée')
-                                        risk_level = ai_data.get('risk_level', 'UNKNOWN')
-                                        
-                                        self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
-                                        
-                                        # Envoyer sur Discord si risque élevé
-                                        if risk_level in ["HIGH", "CRITICAL"]:
-                                            try:
-                                                discord_service.send_alert(
-                                                    f"🤖 AI Analysis - {risk_level} RISK",
-                                                    f"Symbol: {position_symbol}\n{reasoning}",
-                                                    color="FF0000" if risk_level == "CRITICAL" else "FFA500"
-                                                )
-                                            except Exception as e:
-                                                self.add_log(f"⚠️ Discord AI notification failed: {e}")
-                                    except json.JSONDecodeError:
-                                        self.add_log(f"🤖 IA Startup: Analysis completed")
-                                
-                                self._initial_position_analyzed = True
+                                if ai_result:
+                                    ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
+                                    reasoning = ai_data.get('reasoning', 'Position analysée')
+                                    risk_level = ai_data.get('risk_level', 'UNKNOWN')
+                                    
+                                    self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
+                                    
+                                    # Send to Discord if high risk
+                                    if risk_level in ["HIGH", "CRITICAL"]:
+                                        try:
+                                            discord_service.send_alert(
+                                                f"🤖 AI Analysis - {risk_level} RISK",
+                                                f"Symbol: {self.active_symbol}\n{reasoning}",
+                                                color="FF0000" if risk_level == "CRITICAL" else "FFA500"
+                                            )
+                                        except Exception as e:
+                                            self.add_log(f"⚠️ Discord AI notification failed: {e}")
+                                else:
+                                    self.add_log(f"🤖 IA Startup: Analysis completed")
+                            
+                            self._initial_position_analyzed = True
                         except Exception as e:
                             self.add_log(f"⚠️ Error in startup AI analysis: {e}")
                 else:
@@ -235,6 +218,27 @@ class BotContext:
                 # Check real positions from Hyperliquid
                 try:
                     real_positions = hyperliquid_service.get_positions()
+                    
+                    # CRITICAL FIX: Check if we have a position on a DIFFERENT symbol
+                    for pos in real_positions:
+                        pos_symbol = pos["symbol"]
+                        
+                        # If we detect a position on a different symbol than what we're tracking
+                        if pos_symbol != self.active_symbol and not self.active_trade:
+                            self.add_log(f"🔄 SWITCHING SYMBOL: {self.active_symbol} → {pos_symbol} (Manual position detected)")
+                            self.active_symbol = pos_symbol
+                            
+                            # Re-fetch candles for the NEW symbol
+                            df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+                            df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
+                            
+                            if df_15m.empty or df_1m.empty:
+                                self.add_log(f"❌ Failed to fetch candles for {self.active_symbol}")
+                                continue
+                            
+                            break  # Only switch to first detected position
+                    
+                    # Now check for position on the CURRENT active_symbol
                     active_symbol_pos = next((p for p in real_positions if p["symbol"] == self.active_symbol), None)
                     
                     if active_symbol_pos:
@@ -243,8 +247,8 @@ class BotContext:
                             self.add_log(f"🕵️ DETECTED MANUAL POSITION on {self.active_symbol}. Adopting...")
                             
                             # Adopt it with default SL/TP parameters based on current ATR or percentage
-                            # We'll use 5% default if ATR not available, or last known ATR
-                            current_price = df_15m['close'].iloc[-1]
+                            # CRITICAL: Use the CORRECT symbol's price
+                            current_price = hyperliquid_service.get_current_price(self.active_symbol)
                             entry_price = active_symbol_pos["entry_price"]
                             side = active_symbol_pos["side"]
                             
@@ -276,9 +280,10 @@ class BotContext:
                             }
                             self.risk_manager.record_trade_open()
                             self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
+                            self.add_log(f"   Current Price: {current_price} | SL: {sl:.4f} | TP: {tp:.4f}")
                             discord_service.send_alert(
                                 "🛡️ MANUAL TRADE ADOPTED",
-                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
+                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
                                 color="0000ff"
                             )
                             
@@ -296,13 +301,66 @@ class BotContext:
                              
                              if time_since_entry > 30: # 30 seconds grace period
                                  self.add_log(f"⚠️ Position vanished on exchange! Closing bot trade.")
+                                 
+                                 # Calculer PNL final avant de fermer
+                                 try:
+                                     current_price = hyperliquid_service.get_current_price(self.active_symbol)
+                                     entry_price = self.active_trade["entry"]
+                                     side = self.active_trade["side"]
+                                     size = self.active_trade.get("size", 0)
+                                     leverage = self.active_trade.get("leverage", 1)
+                                     
+                                     # CORRECT PNL CALCULATION
+                                     pnl_per_coin = (current_price - entry_price) if side == "BUY" else (entry_price - current_price)
+                                     pnl_usdc = pnl_per_coin * size * leverage
+                                     
+                                     self.add_log(f"💰 PNL Final: ${pnl_usdc:.2f} USDC")
+                                     
+                                     # Enregistrer le trade
+                                     self.trade_recorder.add_trade({
+                                         "symbol": self.active_symbol,
+                                         "strategy": self.active_trade.get("strategy", "Unknown"),
+                                         "side": side,
+                                         "entry_price": entry_price,
+                                         "exit_price": current_price,
+                                         "size": size,
+                                         "leverage": leverage,
+                                         "pnl_usdc": pnl_usdc,
+                                         "pnl_percent": (pnl_per_coin / entry_price) * 100,
+                                         "entry_time": self.active_trade.get("timestamp"),
+                                         "exit_time": pd.Timestamp.now().isoformat(),
+                                         "exit_reason": "External Close"
+                                     })
+                                     
+                                     # Notification Discord
+                                     discord_service.send_alert(
+                                         "🔴 POSITION FERMÉE EXTERNELLEMENT",
+                                         f"Symbol: {self.active_symbol}\nPNL: ${pnl_usdc:.2f} USDC\nRaison: Fermée via Hyperliquid UI",
+                                         color="FF6600"
+                                     )
+                                     
+                                     self.risk_manager.record_trade_close(pnl_usdc)
+                                 except Exception as e:
+                                     self.add_log(f"Error calculating final PNL: {e}")
+                                     self.risk_manager.record_trade_close(0)
+                                 
                                  self.active_trade = None
-                                 self.risk_manager.record_trade_close(0) # PnL unknown here effectively
+                                 StateManager.save_state(self)
                              else:
                                  self.add_log(f"⏳ Position pending verification ({time_since_entry:.1f}s ago)...")
                 
                 except Exception as e:
                     self.add_log(f"⚠️ Error checking positions: {e}")
+                
+                # === SYNCHRONISATION RISK MANAGER ===
+                # Force sync avec Hyperliquid (source de vérité)
+                try:
+                    sync_result = self.risk_manager.sync_with_hyperliquid(hyperliquid_service)
+                    if sync_result.get("synced"):
+                        self.add_log(f"🔄 SYNC: Positions {sync_result['old_count']} → {sync_result['new_count']}")
+                except Exception as e:
+                    self.add_log(f"⚠️ Sync error: {e}")
+                
                 
                 # Only analyze on new 1m candle
                 if self.last_candle_time != current_candle_time:
@@ -383,23 +441,41 @@ class BotContext:
                                 "price": entry_price
                             }
                             
-                            ai_analysis = gemini_service.analyze_trade_signal(signal_for_ai, market_context)
+                            # CRITICAL: Déduplication - créer hash unique du signal
+                            import hashlib
+                            signal_hash = hashlib.md5(
+                                f"{strat_name}_{self.active_symbol}_{action}_{int(pd.Timestamp.now().timestamp() / 300)}".encode()
+                            ).hexdigest()
                             
-                            # Stocker l'analyse
-                            self.ai_cache["signal_analyses"].append({
-                                "signal": signal_for_ai,
-                                "analysis": ai_analysis,
-                                "timestamp": pd.Timestamp.now().isoformat()
-                            })
+                            # Vérifier si ce signal a déjà été analysé (dans les 5 dernières minutes)
+                            recent_hashes = [
+                                item.get("signal_hash") 
+                                for item in list(self.ai_cache["signal_analyses"])[-10:]
+                            ]
                             
-                            # Logger l'explication IA
-                            if ai_analysis.get("raw_output"):
-                                try:
-                                    import json
-                                    ai_data = json.loads(ai_analysis["raw_output"])
-                                    self.add_log(f"🤖 IA: {ai_data.get('explanation', 'Signal analysé')}")
-                                except:
-                                    pass
+                            if signal_hash not in recent_hashes:
+                                # Nouveau signal unique - analyser avec IA
+                                ai_analysis = gemini_service.analyze_trade_signal(signal_for_ai, market_context)
+                                
+                                # Stocker l'analyse avec hash
+                                self.ai_cache["signal_analyses"].append({
+                                    "signal": signal_for_ai,
+                                    "analysis": ai_analysis,
+                                    "timestamp": pd.Timestamp.now().isoformat(),
+                                    "signal_hash": signal_hash  # Pour déduplication
+                                })
+                                
+                                # Logger l'explication IA
+                                if ai_analysis.get("raw_output"):
+                                    try:
+                                        import json
+                                        ai_data = json.loads(ai_analysis["raw_output"])
+                                        self.add_log(f"🤖 IA: {ai_data.get('explanation', 'Signal analysé')}")
+                                    except:
+                                        pass
+                            else:
+                                # Signal déjà analysé récemment - skip pour économiser tokens
+                                self.add_log(f"⏭️ Signal {strat_name} déjà analysé récemment (cache)")
                         except Exception as e:
                             print(f"Error in AI signal analysis: {e}")
                         
@@ -616,11 +692,16 @@ class BotContext:
                                     self.add_log(f"❌ Failed to execution SL close: {e}")
 
                             try:
-                                pnl = current_price - entry_price # Long PnL
+                                # CORRECT PNL CALCULATION
+                                size = self.active_trade.get("size", 0)
+                                leverage = self.active_trade.get("leverage", 1)
+                                pnl_per_coin = current_price - entry_price  # Long PnL
+                                pnl_usdc = pnl_per_coin * size * leverage
+                                
                                 discord_service.send_alert(
                                     "🛑 STOP LOSS HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
-                                    color="ff0000" if pnl < 0 else "ffff00" # Red if loss, Yellow if BE/Profit
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
+                                    color="ff0000" if pnl_usdc < 0 else "ffff00"
                                 )
                                 # Record Trade
                                 self.trade_recorder.add_trade({
@@ -629,8 +710,10 @@ class BotContext:
                                     "side": "BUY",
                                     "entry_price": entry_price,
                                     "exit_price": current_price,
-                                    "pnl": pnl,
-                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "size": size,
+                                    "leverage": leverage,
+                                    "pnl_usdc": pnl_usdc,
+                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
                                     "entry_time": self.active_trade.get("timestamp"),
                                     "exit_time": pd.Timestamp.now().isoformat(),
                                     "exit_reason": "SL"
@@ -655,10 +738,15 @@ class BotContext:
                                     self.add_log(f"❌ Failed to execute TP close: {e}")
 
                             try:
-                                pnl = current_price - entry_price # Long PnL
+                                # CORRECT PNL CALCULATION
+                                size = self.active_trade.get("size", 0)
+                                leverage = self.active_trade.get("leverage", 1)
+                                pnl_per_coin = current_price - entry_price  # Long PnL
+                                pnl_usdc = pnl_per_coin * size * leverage
+                                
                                 discord_service.send_alert(
                                     "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
                                     color="00ff00"
                                 )
                                 # Record Trade
@@ -668,8 +756,10 @@ class BotContext:
                                     "side": "BUY",
                                     "entry_price": entry_price,
                                     "exit_price": current_price,
-                                    "pnl": pnl,
-                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "size": size,
+                                    "leverage": leverage,
+                                    "pnl_usdc": pnl_usdc,
+                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
                                     "entry_time": self.active_trade.get("timestamp"),
                                     "exit_time": pd.Timestamp.now().isoformat(),
                                     "exit_reason": "TP"
@@ -695,11 +785,16 @@ class BotContext:
                                     self.add_log(f"❌ Failed to execute SL close: {e}")
 
                             try:
-                                pnl = entry_price - current_price # Short PnL
+                                # CORRECT PNL CALCULATION
+                                size = self.active_trade.get("size", 0)
+                                leverage = self.active_trade.get("leverage", 1)
+                                pnl_per_coin = entry_price - current_price  # Short PnL
+                                pnl_usdc = pnl_per_coin * size * leverage
+                                
                                 discord_service.send_alert(
                                     "🛑 STOP LOSS HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
-                                    color="ff0000" if pnl < 0 else "ffff00"
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
+                                    color="ff0000" if pnl_usdc < 0 else "ffff00"
                                 )
                                 # Record Trade
                                 self.trade_recorder.add_trade({
@@ -708,8 +803,10 @@ class BotContext:
                                     "side": "SELL",
                                     "entry_price": entry_price,
                                     "exit_price": current_price,
-                                    "pnl": pnl,
-                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "size": size,
+                                    "leverage": leverage,
+                                    "pnl_usdc": pnl_usdc,
+                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
                                     "entry_time": self.active_trade.get("timestamp"),
                                     "exit_time": pd.Timestamp.now().isoformat(),
                                     "exit_reason": "SL"
@@ -734,10 +831,15 @@ class BotContext:
                                     self.add_log(f"❌ Failed to execute TP close: {e}")
 
                             try:
-                                pnl = entry_price - current_price # Short PnL
+                                # CORRECT PNL CALCULATION
+                                size = self.active_trade.get("size", 0)
+                                leverage = self.active_trade.get("leverage", 1)
+                                pnl_per_coin = entry_price - current_price  # Short PnL
+                                pnl_usdc = pnl_per_coin * size * leverage
+                                
                                 discord_service.send_alert(
                                     "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: {pnl:.2f}",
+                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
                                     color="00ff00"
                                 )
                                 # Record Trade
@@ -747,8 +849,10 @@ class BotContext:
                                     "side": "SELL",
                                     "entry_price": entry_price,
                                     "exit_price": current_price,
-                                    "pnl": pnl,
-                                    "pnl_percent": (pnl / entry_price) * 100,
+                                    "size": size,
+                                    "leverage": leverage,
+                                    "pnl_usdc": pnl_usdc,
+                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
                                     "entry_time": self.active_trade.get("timestamp"),
                                     "exit_time": pd.Timestamp.now().isoformat(),
                                     "exit_reason": "TP"

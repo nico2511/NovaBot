@@ -16,12 +16,15 @@ export default function Chart({ symbol, strategy }: ChartProps) {
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
     const extraSeriesRefs = useRef<Map<string, ISeriesApi<"Line">>>(new Map())
 
-    // Fetch candles
+    // OPTIMIZATION: Fetch candles with optimized SWR config
     const { data: candleData, error } = useSWR(
         symbol ? `/api/candles?limit=200&strategy=${strategy || 'ScalpEmaRsi'}&symbol=${symbol}` : null,
         fetcher,
         {
             refreshInterval: 15000,
+            dedupingInterval: 10000,  // Dedupe requests within 10s
+            revalidateOnFocus: false,  // Don't refetch on window focus
+            revalidateOnReconnect: false,  // Don't refetch on reconnect
             shouldRetryOnError: true
         }
     )

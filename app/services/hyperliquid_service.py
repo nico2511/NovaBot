@@ -150,46 +150,41 @@ class HyperliquidService:
                 "status": "error",
                 "message": "No account address configured",
                 "equity": 0.0,
-                "available": 0.0,
-                "margin_used": 0.0
+                "message": "No Hyperliquid account configured",
+                "total_equity": 0,
+                "available_balance": 0,
+                "margin_used": 0
             }
         
         try:
-            # Get user state from Hyperliquid API
-            user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
+            info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
+            user_state = info.user_state(config.HL_ACCOUNT_ADDRESS)
             
-            if not user_state:
-                return {
-                    "status": "error",
-                    "message": "Failed to fetch user state",
-                    "equity": 0.0,
-                    "available": 0.0,
-                    "margin_used": 0.0
-                }
-            
-            # Extract balance information
-            # user_state structure: {"assetPositions": [...], "crossMarginSummary": {...}, ...}
-            margin_summary = user_state.get("crossMarginSummary", {})
-            
-            account_value = float(margin_summary.get("accountValue", 0.0))
-            total_margin_used = float(margin_summary.get("totalMarginUsed", 0.0))
-            withdrawable = float(user_state.get("withdrawable", account_value))
+            # Extract balance info
+            margin_summary = user_state.get("marginSummary", {})
+            account_value = float(margin_summary.get("accountValue", 0))
+            total_margin_used = float(margin_summary.get("totalMarginUsed", 0))
             
             return {
                 "status": "success",
-                "equity": account_value,
-                "available": withdrawable,
-                "margin_used": total_margin_used,
-                "account_value": account_value
+                "total_equity": account_value,
+                "available_balance": account_value - total_margin_used,
+                "margin_used": total_margin_used
             }
-            
         except Exception as e:
             print(f"Error fetching account balance: {e}")
             return {
                 "status": "error",
                 "message": str(e),
-                "margin_used": 0.0
+                "total_equity": 0,
+                "available_balance": 0,
+                "margin_used": 0
             }
+    
+    def get_account_value(self):
+        """Get total account value in USDC for gamification"""
+        balance = self.get_account_balance()
+        return balance.get("total_equity", 0)
 
     def get_positions(self):
         """Fetch open positions from Hyperliquid"""
@@ -225,6 +220,116 @@ class HyperliquidService:
             return positions
         except Exception as e:
             print(f"Error fetching positions: {e}")
+            return []
+
+    def close_position(self, symbol: str):
+        """Close an open position on Hyperliquid"""
+        if not self.exchange:
+            return {"status": "error", "message": "No private key configured"}
+        
+        try:
+            # Get current position
+            positions = self.get_positions()
+            position = next((p for p in positions if p["symbol"] == symbol), None)
+            
+            if not position:
+                return {"status": "error", "message": f"No position found for {symbol}"}
+            
+            size = position["size"]
+            side = position["side"]
+            
+            # Close with opposite order (market order)
+            is_buy = (side == "SELL")  # If SHORT, BUY to close
+            
+            print(f"🔴 CLOSING {side} position: {size} {symbol}")
+            result = self.execute_order(symbol, is_buy, size)
+            
+            return {"status": "success", "result": result, "closed_size": size}
+            
+        except Exception as e:
+            print(f"❌ Failed to close position: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def get_current_price(self, symbol: str) -> float:
+        """Get current market price for a symbol"""
+        try:
+            df = self.get_candles(symbol, "1m", 1)
+            if not df.empty:
+                return float(df['close'].iloc[-1])
+            return 0.0
+        except Exception as e:
+            print(f"Error getting current price: {e}")
+            return 0.0
+
+    def get_trade_history(self, limit: int = 100):
+        """
+        Récupère l'historique des trades depuis Hyperliquid
+        
+        Returns:
+            List of trades with: symbol, side, entry, exit, pnl, timestamp
+        """
+        if not config.HL_ACCOUNT_ADDRESS:
+            return []
+        
+        try:
+            # Utiliser l'API Hyperliquid pour récupérer les fills (trades exécutés)
+            user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
+            
+            if not user_fills:
+                return []
+            
+            # Parser et formater les trades
+            trades = []
+            
+            # Grouper les fills par position (entry + exit)
+            # Pour simplifier, on prend chaque fill comme un trade individuel
+            for fill in user_fills[:limit]:
+                try:
+                    coin = fill.get("coin", "")
+                    side = "BUY" if fill.get("side") == "B" else "SELL"
+                    price = float(fill.get("px", 0))
+                    size = float(fill.get("sz", 0))
+                    timestamp = fill.get("time", 0)
+                    
+                    # Calculer PnL si disponible
+                    closed_pnl = float(fill.get("closedPnl", 0))
+                    
+                    # Formater timestamp
+                    if timestamp:
+                        timestamp_str = pd.Timestamp(timestamp, unit='ms').isoformat()
+                    else:
+                        timestamp_str = pd.Timestamp.now().isoformat()
+                    
+                    trade_data = {
+                        "id": fill.get("oid", f"{coin}_{timestamp}"),
+                        "symbol": coin,
+                        "side": side,
+                        "entry_price": price,
+                        "exit_price": price,  # Pour un fill unique, entry = exit
+                        "size": size,
+                        "pnl": closed_pnl,
+                        "pnl_percent": (closed_pnl / (price * size) * 100) if (price * size) > 0 else 0,
+                        "entry_time": timestamp_str,
+                        "exit_time": timestamp_str,
+                        "timestamp": timestamp_str,
+                        "strategy": "Unknown",  # Non disponible depuis Hyperliquid
+                        "exit_reason": "Hyperliquid",
+                        "source": "hyperliquid",
+                        "leverage": 1  # Non disponible, default
+                    }
+                    
+                    trades.append(trade_data)
+                    
+                except Exception as e:
+                    print(f"Error parsing fill: {e}")
+                    continue
+            
+            return trades
+            
+        except Exception as e:
+            print(f"Error fetching trade history from Hyperliquid: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
 hyperliquid_service = HyperliquidService()

@@ -74,3 +74,38 @@ class RiskManager:
                 "max_positions": self.max_positions,
                 "daily_stop_loss": self.daily_stop_loss
             }
+
+    def sync_with_hyperliquid(self, hyperliquid_service):
+        """Synchronize position count with actual Hyperliquid positions - HYPERLIQUID IS SOURCE OF TRUTH"""
+        try:
+            real_positions = hyperliquid_service.get_positions()
+            real_count = len(real_positions)
+            
+            with self._lock:
+                # IMPORTANT: Hyperliquid est la source de vérité
+                # On force TOUJOURS la synchronisation
+                if self.state.open_positions != real_count:
+                    print(f"⚠️ SYNC: Position mismatch detected!")
+                    print(f"   Bot thinks: {self.state.open_positions}")
+                    print(f"   Hyperliquid has: {real_count} (SOURCE OF TRUTH)")
+                    
+                    # Force sync - PAS DE POSITIONS FANTÔMES
+                    old_count = self.state.open_positions
+                    self.state.open_positions = real_count
+                    
+                    print(f"✅ SYNC: Forced sync {old_count} → {real_count}")
+                    
+                    return {
+                        "synced": True,
+                        "old_count": old_count,
+                        "new_count": real_count,
+                        "positions": real_positions
+                    }
+            
+            return {"synced": False, "count": real_count}
+            
+        except Exception as e:
+            print(f"Error syncing with Hyperliquid: {e}")
+            return {"synced": False, "error": str(e)}
+
+

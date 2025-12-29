@@ -15,6 +15,28 @@ interface Trade {
     leverage?: number
 }
 
+// CRITICAL FIX: Dynamic price formatting based on value
+const formatPrice = (price: number): string => {
+    if (price === 0) return '$0.00'
+
+    // For very small prices (< $0.01), use up to 6 decimals
+    if (Math.abs(price) < 0.01) {
+        return `$${price.toFixed(6).replace(/\.?0+$/, '')}`
+    }
+    // For small prices (< $1), use 4 decimals
+    else if (Math.abs(price) < 1) {
+        return `$${price.toFixed(4)}`
+    }
+    // For medium prices (< $100), use 3 decimals
+    else if (Math.abs(price) < 100) {
+        return `$${price.toFixed(3)}`
+    }
+    // For large prices, use 2 decimals
+    else {
+        return `$${price.toFixed(2)}`
+    }
+}
+
 export default function ActiveTrade() {
     const [trade, setTrade] = useState<Trade | null>(null)
     const [currentPrice, setCurrentPrice] = useState<number>(0)
@@ -102,7 +124,7 @@ export default function ActiveTrade() {
                     </div>
                     <div className="text-right">
                         <div className={`text-2xl font-bold ${isProfitable ? 'text-success' : 'text-error'}`}>
-                            {isProfitable ? '+' : ''}{pnl.toFixed(2)}
+                            {isProfitable ? '+' : ''}{formatPrice(pnl).replace('$', '')}
                         </div>
                         <div className={`text-sm ${isProfitable ? 'text-success' : 'text-error'}`}>
                             {isProfitable ? '+' : ''}{pnlPercent.toFixed(2)}%
@@ -114,23 +136,23 @@ export default function ActiveTrade() {
                 <div className="grid grid-cols-3 gap-4">
                     <div className="bg-background/50 rounded-lg p-3 border border-border/20">
                         <div className="text-xs text-gray-400 mb-1">Entry</div>
-                        <div className="text-lg font-semibold">${trade.entry.toFixed(2)}</div>
+                        <div className="text-lg font-semibold">{formatPrice(trade.entry)}</div>
                     </div>
                     <div className="bg-background/50 rounded-lg p-3 border border-border/20">
                         <div className="text-xs text-gray-400 mb-1">Current</div>
-                        <div className="text-lg font-semibold">${currentPrice.toFixed(2)}</div>
+                        <div className="text-lg font-semibold">{formatPrice(currentPrice)}</div>
                     </div>
                     <div className="bg-background/50 rounded-lg p-3 border border-success/20">
                         <div className="text-xs text-success mb-1">Take Profit</div>
-                        <div className="text-lg font-semibold text-success">${trade.tp.toFixed(2)}</div>
+                        <div className="text-lg font-semibold text-success">{formatPrice(trade.tp)}</div>
                     </div>
                 </div>
 
                 {/* Progress Bar */}
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-gray-400">
-                        <span>SL: ${trade.sl.toFixed(2)}</span>
-                        <span>TP: ${trade.tp.toFixed(2)}</span>
+                        <span>SL: {formatPrice(trade.sl)}</span>
+                        <span>TP: {formatPrice(trade.tp)}</span>
                     </div>
                     <div className="w-full bg-background/50 rounded-full h-3 overflow-hidden">
                         <div
@@ -144,11 +166,11 @@ export default function ActiveTrade() {
                 <div className="grid grid-cols-3 gap-4 pt-4 border-t border-border/20">
                     <div>
                         <div className="text-xs text-gray-400">Distance to SL</div>
-                        <div className="text-sm font-semibold">${distanceToSL.toFixed(2)}</div>
+                        <div className="text-sm font-semibold">{formatPrice(distanceToSL)}</div>
                     </div>
                     <div>
                         <div className="text-xs text-gray-400">Distance to TP</div>
-                        <div className="text-sm font-semibold">${distanceToTP.toFixed(2)}</div>
+                        <div className="text-sm font-semibold">{formatPrice(distanceToTP)}</div>
                     </div>
                     <div>
                         <div className="text-xs text-gray-400">Leverage</div>

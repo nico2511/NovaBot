@@ -28,12 +28,50 @@ class HyperliquidScanner:
         self.max_spread_pct = 0.1  # Maximum bid/ask spread
     
     def get_all_tokens(self) -> List[str]:
-        """Get list of all tradable tokens"""
+        """
+        Get list of tradable tokens FILTERED by gamification level
+        
+        The scanner's PRIMARY purpose is to find opportunities within allowed assets.
+        Gamification filtering is ALWAYS applied.
+        """
         try:
+            from app.core.asset_gamification import AssetGamification
+            from app.services.hyperliquid_service import hyperliquid_service
+            
+            # Get all available tokens
             meta = self.info.meta()
-            tokens = [asset['name'] for asset in meta['universe']]
-            print(f"📊 Found {len(tokens)} total tokens on Hyperliquid")
-            return tokens
+            all_tokens = [asset['name'] for asset in meta['universe']]
+            
+            # ALWAYS apply gamification filter - this is the scanner's purpose
+            try:
+                # Get account balance for gamification level
+                account_value = hyperliquid_service.get_account_value()
+                gam = AssetGamification(account_value)
+                
+                # Get allowed assets for current level
+                allowed_assets = gam.get_allowed_assets()
+                
+                # Filter tokens to only allowed ones
+                filtered_tokens = [token for token in all_tokens if token in allowed_assets]
+                
+                # Import ACCESS_RULES for display
+                from app.core.asset_gamification import ACCESS_RULES
+                
+                print(f"🎮 Gamification Level: {gam.level.value} (Balance: ${account_value:.2f})")
+                print(f"📊 Allowed tokens: {len(filtered_tokens)}/{len(all_tokens)}")
+                print(f"🎯 Tiers: {', '.join([tier.value for tier in ACCESS_RULES[gam.level]['allowed_tiers']])}")
+                
+                if not filtered_tokens:
+                    print("⚠️ No tokens available for current level!")
+                    return []
+                
+                return filtered_tokens
+                
+            except Exception as e:
+                print(f"❌ Gamification error: {e}")
+                print("⚠️ Scanner requires gamification - cannot proceed")
+                return []
+                
         except Exception as e:
             print(f"❌ Error fetching tokens: {e}")
             return []

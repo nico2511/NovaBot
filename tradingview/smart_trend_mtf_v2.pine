@@ -1,0 +1,133 @@
+//@version=5
+strategy("Smart Trend MTF Strategy v2 (Optimized)", overlay=true, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ============================================
+// MULTI-TIMEFRAME STRATEGY - OPTIMIZED
+// ============================================
+// Setup: Trend Filter + Pullback Zone
+// Trigger: Momentum Confirmation
+// Optimisations: Conditions assouplies pour plus de trades
+// ============================================
+
+// === INPUTS ===
+ema21_length = input.int(21, "EMA 21 Length", minval=1)
+ema50_length = input.int(50, "EMA 50 Length", minval=1)
+atr_length = input.int(14, "ATR Length", minval=1)
+rr_ratio = input.float(2.0, "Risk:Reward Ratio", minval=1.0, step=0.5)
+pullback_tolerance = input.float(0.01, "Pullback Tolerance %", minval=0.001, step=0.001)  // Augmenté de 0.002 à 0.01
+bos_lookback = input.int(2, "BOS Lookback Candles", minval=1, maxval=5)  // Réduit de 3 à 2
+
+// === INDICATORS ===
+ema_21 = ta.ema(close, ema21_length)
+ema_50 = ta.ema(close, ema50_length)
+atr = ta.atr(atr_length)
+rsi = ta.rsi(close, 14)
+
+// === PLOT INDICATORS ===
+plot(ema_21, "EMA 21", color=color.new(color.blue, 0), linewidth=2)
+plot(ema_50, "EMA 50", color=color.new(color.orange, 0), linewidth=2)
+
+// === SETUP DETECTION ===
+// LONG Setup: Price above EMA 50 OR in pullback zone near EMA 21
+long_trend = close > ema_50 or (close > ema_21 and ema_21 > ema_50)  // Condition assouplie
+long_pullback = low <= ema_21 * (1 + pullback_tolerance) and low >= ema_21 * (1 - pullback_tolerance)
+long_rsi_ok = rsi > 30 and rsi < 70  // Filtre RSI pour éviter extrêmes
+long_setup = long_trend and long_pullback and long_rsi_ok
+
+// SHORT Setup: Price below EMA 50 OR in pullback zone near EMA 21
+short_trend = close < ema_50 or (close < ema_21 and ema_21 < ema_50)  // Condition assouplie
+short_pullback = high >= ema_21 * (1 - pullback_tolerance) and high <= ema_21 * (1 + pullback_tolerance)
+short_rsi_ok = rsi > 30 and rsi < 70
+short_setup = short_trend and short_pullback and short_rsi_ok
+
+// === TRIGGER DETECTION (Micro-BOS) ===
+// LONG Trigger: Close > High of last N candles (N = bos_lookback)
+high_of_last_n = ta.highest(high, bos_lookback)[1]  // [1] pour exclure la bougie actuelle
+long_trigger = close > high_of_last_n
+
+// SHORT Trigger: Close < Low of last N candles
+low_of_last_n = ta.lowest(low, bos_lookback)[1]
+short_trigger = close < low_of_last_n
+
+// === ENTRY CONDITIONS ===
+long_entry = long_setup and long_trigger and strategy.position_size == 0
+short_entry = short_setup and short_trigger and strategy.position_size == 0
+
+// === STOP LOSS & TAKE PROFIT ===
+var float long_sl = na
+var float long_tp = na
+var float short_sl = na
+var float short_tp = na
+
+if long_entry
+    swing_low = ta.lowest(low, 10)
+    long_sl := swing_low - (0.3 * atr)  // Augmenté de 0.2 à 0.3 pour plus de marge
+    risk = close - long_sl
+    long_tp := close + (rr_ratio * risk)
+
+if short_entry
+    swing_high = ta.highest(high, 10)
+    short_sl := swing_high + (0.3 * atr)
+    risk = short_sl - close
+    short_tp := close - (rr_ratio * risk)
+
+// === STRATEGY EXECUTION ===
+if long_entry
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=long_sl, limit=long_tp)
+    
+if short_entry
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=short_sl, limit=short_tp)
+
+// === VISUAL SIGNALS ===
+// Setup Zones
+bgcolor(long_setup ? color.new(color.green, 90) : na, title="Long Setup Zone")
+bgcolor(short_setup ? color.new(color.red, 90) : na, title="Short Setup Zone")
+
+// Entry Signals
+plotshape(long_entry, "Long Entry", shape.triangleup, location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(short_entry, "Short Entry", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.small)
+
+// SL/TP Lines
+plot(strategy.position_size > 0 ? long_sl : na, "Long SL", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size > 0 ? long_tp : na, "Long TP", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? short_sl : na, "Short SL", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size < 0 ? short_tp : na, "Short TP", color=color.new(color.green, 0), linewidth=2, style=plot.style_linebr)
+
+// === ALERTS ===
+alertcondition(long_entry, "Long Entry", "Smart Trend v2: LONG Entry Signal")
+alertcondition(short_entry, "Short Entry", "Smart Trend v2: SHORT Entry Signal")
+
+// === PERFORMANCE TABLE ===
+if barstate.islast
+    var table perf_table = table.new(position.top_right, 2, 6, border_width=1)
+    
+    table.cell(perf_table, 0, 0, "Metric", bgcolor=color.new(color.gray, 70), text_color=color.white, text_size=size.small)
+    table.cell(perf_table, 1, 0, "Value", bgcolor=color.new(color.gray, 70), text_color=color.white, text_size=size.small)
+    
+    table.cell(perf_table, 0, 1, "Net Profit", text_color=color.white, text_size=size.small)
+    table.cell(perf_table, 1, 1, str.tostring(strategy.netprofit, "#.##") + " USDC", 
+               bgcolor=strategy.netprofit > 0 ? color.new(color.green, 70) : color.new(color.red, 70), 
+               text_color=color.white, text_size=size.small)
+    
+    table.cell(perf_table, 0, 2, "Win Rate", text_color=color.white, text_size=size.small)
+    win_rate = strategy.closedtrades > 0 ? (strategy.wintrades / strategy.closedtrades * 100) : 0
+    table.cell(perf_table, 1, 2, str.tostring(win_rate, "#.#") + "%", 
+               bgcolor=win_rate > 50 ? color.new(color.green, 70) : color.new(color.red, 70), 
+               text_color=color.white, text_size=size.small)
+    
+    table.cell(perf_table, 0, 3, "Total Trades", text_color=color.white, text_size=size.small)
+    table.cell(perf_table, 1, 3, str.tostring(strategy.closedtrades), text_color=color.white, text_size=size.small)
+    
+    table.cell(perf_table, 0, 4, "Profit Factor", text_color=color.white, text_size=size.small)
+    pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0
+    table.cell(perf_table, 1, 4, str.tostring(pf, "#.##"), 
+               bgcolor=pf > 1.5 ? color.new(color.green, 70) : color.new(color.red, 70), 
+               text_color=color.white, text_size=size.small)
+    
+    table.cell(perf_table, 0, 5, "Avg Trade", text_color=color.white, text_size=size.small)
+    avg_trade = strategy.closedtrades > 0 ? strategy.netprofit / strategy.closedtrades : 0
+    table.cell(perf_table, 1, 5, str.tostring(avg_trade, "#.##"), 
+               bgcolor=avg_trade > 0 ? color.new(color.green, 70) : color.new(color.red, 70), 
+               text_color=color.white, text_size=size.small)

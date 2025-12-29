@@ -76,68 +76,73 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
 
     return (
         <>
-            <div className="bg-gradient-to-br from-blue-900/30 to-surface border border-white/10 rounded-xl p-3 flex items-center gap-6 shadow-xl backdrop-blur-md relative">
-                {/* Weather Icon & Main Status */}
-                <div className="flex items-center gap-3 border-r border-white/10 pr-6">
-                    <div className="text-4xl filter drop-shadow-lg animate-pulse-slow">
-                        {weatherIcon}
-                    </div>
-                    <div>
-                        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Market Weather</h3>
-                        <div className={`text-sm font-bold ${color} leading-tight`}>
-                            {weatherText}
+            {/* Météo Container - Responsive Mobile */}
+            <div className="bg-gradient-to-br from-blue-900/30 to-surface border border-white/10 rounded-xl p-3 shadow-xl backdrop-blur-md relative">
+                {/* Container avec flex-wrap pour mobile */}
+                <div className="flex flex-wrap items-center gap-3 lg:gap-6">
+
+                    {/* Weather Icon & Main Status - INDÉPENDANT DE L'IA */}
+                    <div className="flex items-center gap-3 border-r border-white/10 pr-3 lg:pr-6">
+                        <div className="text-3xl lg:text-4xl filter drop-shadow-lg animate-pulse-slow">
+                            {weatherIcon}
+                        </div>
+                        <div>
+                            <h3 className="text-[9px] lg:text-[10px] font-bold text-gray-400 uppercase tracking-wider">Market Weather</h3>
+                            <div className={`text-xs lg:text-sm font-bold ${color} leading-tight`}>
+                                {weatherText}
+                            </div>
                         </div>
                     </div>
+
+                    {/* Metrics Grid - Responsive */}
+                    <div className="flex flex-wrap items-center gap-3 lg:gap-6 text-xs flex-1">
+                        {/* RSI */}
+                        <div className="text-center min-w-[50px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">RSI</div>
+                            <div className={`font-mono font-bold text-xs ${rsi && rsi < 30 ? 'text-success' : rsi && rsi > 70 ? 'text-error' : 'text-gray-300'}`}>
+                                {rsi?.toFixed(0) || '--'}
+                            </div>
+                        </div>
+
+                        {/* ADX */}
+                        <div className="text-center min-w-[50px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">ADX</div>
+                            <div className="font-mono font-bold text-xs text-gray-300">
+                                {adx?.toFixed(0) || '--'}
+                            </div>
+                        </div>
+
+                        {/* EMAs - Hidden on very small screens */}
+                        <div className="hidden sm:block text-center border-l border-white/10 pl-3 lg:pl-6 min-w-[100px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">EMA 20/50</div>
+                            <div className="font-mono font-bold text-xs">
+                                <span className="text-blue-400">
+                                    {ema_20 ? (ema_20 < 10 ? ema_20.toFixed(4) : ema_20.toFixed(0)) : '-'}
+                                </span>
+                                <span className="text-gray-600 mx-1">/</span>
+                                <span className="text-purple-400">
+                                    {ema_50 ? (ema_50 < 10 ? ema_50.toFixed(4) : ema_50.toFixed(0)) : '-'}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* ATR */}
+                        <div className="text-center min-w-[50px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">ATR</div>
+                            <div className="font-mono font-bold text-xs text-gray-300">
+                                {atr ? (atr < 1 ? atr.toFixed(4) : atr.toFixed(2)) : '--'}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* AI Button - Always visible */}
+                    <button
+                        onClick={handleAskAi}
+                        className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg transition-transform active:scale-95 whitespace-nowrap"
+                    >
+                        ✨ <span className="hidden sm:inline">Ask AI</span>
+                    </button>
                 </div>
-
-                {/* Metrics Grid (Compact) */}
-                <div className="flex items-center gap-6 text-xs">
-                    {/* Momentum */}
-                    <div className="text-center">
-                        <div className="text-gray-500 mb-0.5">RSI</div>
-                        <div className={`font-mono font-bold ${rsi && rsi < 30 ? 'text-success' : rsi && rsi > 70 ? 'text-error' : 'text-gray-300'}`}>
-                            {rsi?.toFixed(0) || '--'}
-                        </div>
-                    </div>
-
-                    {/* ADX */}
-                    <div className="text-center">
-                        <div className="text-gray-500 mb-0.5">ADX</div>
-                        <div className="font-mono font-bold text-gray-300">
-                            {adx?.toFixed(0) || '--'}
-                        </div>
-                    </div>
-
-                    {/* Trend EMAs */}
-                    <div className="text-center border-l border-white/10 pl-6">
-                        <div className="text-gray-500 mb-0.5">EMA 20/50</div>
-                        <div className="font-mono font-bold">
-                            <span className="text-blue-400">
-                                {ema_20 ? (ema_20 < 10 ? ema_20.toFixed(4) : ema_20.toFixed(0)) : '-'}
-                            </span>
-                            <span className="text-gray-600 mx-1">/</span>
-                            <span className="text-purple-400">
-                                {ema_50 ? (ema_50 < 10 ? ema_50.toFixed(4) : ema_50.toFixed(0)) : '-'}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Volatility */}
-                    <div className="text-center">
-                        <div className="text-gray-500 mb-0.5">ATR</div>
-                        <div className="font-mono font-bold text-gray-300">
-                            {atr ? (atr < 1 ? atr.toFixed(4) : atr.toFixed(2)) : '--'}
-                        </div>
-                    </div>
-                </div>
-
-                {/* AI Button */}
-                <button
-                    onClick={handleAskAi}
-                    className="ml-auto flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg transition-transform active:scale-95"
-                >
-                    ✨ <span className="hidden sm:inline">Ask AI</span>
-                </button>
             </div>
 
             {/* AI Modal */}

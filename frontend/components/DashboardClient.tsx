@@ -14,24 +14,52 @@ import TokenScanner from '@/components/TokenScanner'
 import AICommentary from '@/components/AICommentary'
 
 import CryptoWeather from '@/components/CryptoWeather'
+import GamificationWidget from '@/components/GamificationWidget'
 
-// Dynamic import for heavy Chart component
+// OPTIMIZATION: Dynamic import for heavy Chart component (lightweight-charts = 300KB)
+// This prevents blocking the main bundle and improves FCP/LCP
 const Chart = dynamic(() => import('@/components/Chart'), {
     ssr: false,
-    loading: () => <div className="w-full h-[400px] bg-surface/50 animate-pulse rounded-2xl" />
+    loading: () => (
+        <div className="w-full h-[400px] bg-surface/50 border border-border/30 rounded-2xl overflow-hidden p-4 animate-pulse">
+            <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-400 text-sm">Loading chart...</p>
+                </div>
+            </div>
+        </div>
+    )
 })
+
 
 const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
+// OPTIMIZATION: SWR configuration to reduce API waterfalls
+const swrConfig = {
+    refreshInterval: 2000,
+    dedupingInterval: 1500,  // Dedupe requests within 1.5s
+    revalidateOnFocus: false,  // Don't refetch on window focus
+    revalidateOnReconnect: false,  // Don't refetch on reconnect
+}
+
 export default function DashboardClient() {
     const [activeTab, setActiveTab] = useState('overview')
-    const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, { refreshInterval: 2000 })
-    const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, { refreshInterval: 2000 })
-    const { data: balance } = useSWR(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000 })
+
+    // OPTIMIZATION: Parallel API calls with optimized config
+    const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, swrConfig)
+    const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, swrConfig)
+    const { data: balance } = useSWR(`${API_URL}/api/balance`, fetcher, {
+        ...swrConfig,
+        refreshInterval: 5000  // Less frequent for balance
+    })
 
     // Check for manual signals
-    const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, { refreshInterval: 3000 })
+    const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, {
+        ...swrConfig,
+        refreshInterval: 3000
+    })
     const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
 
     const toggleEngine = async () => {
@@ -56,18 +84,19 @@ export default function DashboardClient() {
                     </div>
                 )}
 
-                <div className="container mx-auto px-6 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-8">
-                            <div>
-                                <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-blue-400 bg-clip-text text-transparent">
+                <div className="container mx-auto px-4 py-3">
+                    {/* Top Row: Title + Weather + Gamification */}
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <div className="min-w-0">
+                                <h1 className="text-xl lg:text-2xl font-bold bg-gradient-to-r from-primary to-blue-400 bg-clip-text text-transparent truncate">
                                     ⚡ HyperLiquid AI Trader
                                 </h1>
-                                <p className="text-sm text-gray-400 mt-1">Advanced algorithmic trading with AI-powered strategies</p>
+                                <p className="text-xs text-gray-400 mt-0.5 hidden sm:block">Advanced algorithmic trading</p>
                             </div>
 
-                            {/* Weather Widget */}
-                            <div className="hidden md:block">
+                            {/* Weather Widget - Hidden on small screens */}
+                            <div className="hidden xl:block">
                                 <CryptoWeather
                                     regime={marketData?.regime || 'UNKNOWN'}
                                     adx={marketData?.adx || 0}
@@ -80,34 +109,27 @@ export default function DashboardClient() {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-6">
-                            {/* NEW: Price & Balance in Header */}
-                            <div className="flex gap-6 items-center">
-                                <div className="text-right hidden sm:block">
-                                    <div className="text-xs text-gray-400">Price ({marketData?.symbol || 'BTC'})</div>
-                                    <div className="text-lg font-bold text-white">
-                                        {marketData?.price ? `$${marketData.price.toLocaleString()}` : '--'}
-                                    </div>
-                                </div>
-                                <div className="text-right hidden sm:block border-l border-white/10 pl-6">
-                                    <div className="text-xs text-gray-400">Balance (USDC)</div>
-                                    <div className="text-lg font-bold text-cyan-400">
-                                        {balance?.total_equity ? `$${balance.total_equity.toFixed(2)}` : '--'}
-                                    </div>
-                                </div>
+                        {/* Right Side: Gamification (Compact) + Status */}
+                        <div className="flex items-center gap-3">
+                            {/* Gamification Compact - Visible on medium+ screens */}
+                            <div className="hidden md:flex items-center gap-2 bg-surface/60 rounded-lg px-3 py-2 border border-border/20">
+                                <GamificationWidget />
                             </div>
 
                             {/* Navigation */}
+                            <a href="/gamification" className="p-2 hover:bg-white/10 rounded-lg transition-colors group" title="Gamification">
+                                <span className="text-xl group-hover:scale-110 transition-transform">🎮</span>
+                            </a>
                             <a href="/trades" className="p-2 hover:bg-white/10 rounded-lg transition-colors group" title="Trade Analysis">
                                 <span className="text-xl group-hover:scale-110 transition-transform">📊</span>
                             </a>
 
                             {/* Status Pill */}
-                            <div className={`px-4 py-2 rounded-full text-sm font-semibold ${status?.is_running
+                            <div className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${status?.is_running
                                 ? 'bg-success/20 text-success border border-success/30'
                                 : 'bg-gray-700/50 text-gray-400 border border-gray-600/30'
                                 }`}>
-                                {status?.is_running ? '🟢 LIVE' : '⚪ OFFLINE'}
+                                {status?.is_running ? '🟢 LIVE' : '⚪ OFF'}
                             </div>
                         </div>
                     </div>

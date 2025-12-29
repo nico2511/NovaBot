@@ -180,23 +180,6 @@ async def stop_engine():
         bot_state.save_state()
         return {"status": "stopped", "message": "Standalone mode - bot_state updated"}
 
-@app.post("/api/close_trade")
-async def close_trade():
-    """Manually close the active trade"""
-    try:
-        if bot_bridge and bot_bridge.is_connected():
-            bot = bot_bridge.get_bot_context()
-            success, message = bot.close_active_trade(reason="Manual API Close")
-            
-            if success:
-                return {"status": "success", "message": message}
-            else:
-                return {"status": "error", "message": message}
-        else:
-            return {"status": "error", "message": "Bot not connected"}
-    except Exception as e:
-        print(f"Error closing trade: {e}")
-        return {"status": "error", "message": str(e)}
 
 @app.post("/api/trading/enable")
 async def enable_trading():
@@ -358,13 +341,20 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
 async def get_market_data():
     """Get current market data from HyperLiquid with real indicators"""
     try:
+        # CRITICAL FIX: Use bot_bridge to get active_symbol from real bot
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            active_symbol = bot.active_symbol
+        else:
+            active_symbol = bot_state.active_symbol
+        
         try:
             from backend.market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb
         except ImportError:
             from market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb
         
-        # Get candles for indicator calculation
-        df = await get_hyperliquid_candles(bot_state.active_symbol, "15m", 100)
+        # Get candles for indicator calculation using ACTIVE symbol
+        df = await get_hyperliquid_candles(active_symbol, "15m", 100)
         
         if df is not None and len(df) > 0:
             # Get current price from latest candle
@@ -379,7 +369,7 @@ async def get_market_data():
             bb = await calculate_bb(df['close'], 20, 2)
         else:
             # Fallback to just price if candles fail
-            price = await get_current_price(bot_state.active_symbol)
+            price = await get_current_price(active_symbol)
             rsi = 50.0
             atr = price * 0.001
             adx = 50.0
@@ -397,6 +387,7 @@ async def get_market_data():
         ema_20 = price
         ema_50 = price
         bb = {"upper": price, "middle": price, "lower": price}
+        active_symbol = "BTC"  # Fallback symbol
     
     # Get active strategies and their progress from bot if connected
     active_strategies = []
@@ -428,7 +419,7 @@ async def get_market_data():
     regime = "TREND" if adx > 25 else "RANGE"
     
     return {
-        "symbol": bot_state.active_symbol,
+        "symbol": active_symbol,  # CRITICAL: Return the ACTIVE symbol from bot
         "price": float(price),
         "timestamp": datetime.now().isoformat(),
         "regime": regime,
@@ -557,59 +548,75 @@ async def get_active_trade():
 
 @app.post("/api/close_trade")
 async def close_trade():
-    """Close active trade - NOW WITH REAL EXECUTION"""
+    """Close active trade - WITH REAL EXECUTION AND CORRECT PNL"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         if bot.active_trade:
             symbol = bot.active_trade["symbol"]
             side = bot.active_trade["side"]
+            entry_price = bot.active_trade["entry"]
+            size = bot.active_trade.get("size", 0)
+            leverage = bot.active_trade.get("leverage", 1)
             
             # EXÉCUTION RÉELLE si mode Auto
             if bot.execution_mode == "Auto (Hyperliquid)":
                 try:
                     from app.services.hyperliquid_service import hyperliquid_service
                     
-                    # Récupérer la taille de la position réelle
-                    positions = hyperliquid_service.get_positions()
-                    position = next((p for p in positions if p["symbol"] == symbol), None)
+                    bot.add_log(f"🔴 MANUAL CLOSE: Closing {symbol}")
                     
-                    if position:
-                        size = float(position["size"])  # Already absolute value from get_positions()
+                    # Utiliser la nouvelle méthode close_position
+                    result = hyperliquid_service.close_position(symbol)
+                    
+                    if result["status"] == "success":
+                        bot.add_log(f"✅ Position closed: {result}")
                         
-                        # Ordre inverse pour fermer
-                        is_buy = (side == "SELL")  # Si SHORT, on BUY pour fermer
+                        # Calculer PNL correct
+                        current_price = hyperliquid_service.get_current_price(symbol)
                         
-                        bot.add_log(f"🔴 MANUAL CLOSE: Executing {symbol} (size: {size})")
+                        # CORRECT PNL CALCULATION
+                        pnl_per_coin = (current_price - entry_price) if side == "BUY" else (entry_price - current_price)
+                        pnl_usdc = pnl_per_coin * size * leverage
                         
-                        result = hyperliquid_service.execute_order(
-                            symbol=symbol,
-                            is_buy=is_buy,
-                            quantity=size  # Use 'quantity' parameter name
-                        )
+                        bot.add_log(f"💰 PNL: ${pnl_usdc:.2f} USDC")
                         
-                        bot.add_log(f"✅ Position closed on Hyperliquid: {result}")
+                        # Enregistrer le trade
+                        bot.trade_recorder.add_trade({
+                            "symbol": symbol,
+                            "strategy": bot.active_trade.get("strategy", "Unknown"),
+                            "side": side,
+                            "entry_price": entry_price,
+                            "exit_price": current_price,
+                            "size": size,
+                            "leverage": leverage,
+                            "pnl_usdc": pnl_usdc,
+                            "pnl_percent": (pnl_per_coin / entry_price) * 100,
+                            "entry_time": bot.active_trade.get("timestamp"),
+                            "exit_time": pd.Timestamp.now().isoformat(),
+                            "exit_reason": "Manual Close"
+                        })
                         
-                        # Envoyer notification Discord
+                        # Discord notification
                         try:
                             from app.services.discord_service import discord_service
                             discord_service.send_alert(
                                 "🔴 MANUAL CLOSE",
-                                f"Position {symbol} closed manually via UI\nSize: {size}\nResult: {result.get('status', 'unknown')}",
+                                f"Position {symbol} closed manually\\nPNL: ${pnl_usdc:.2f} USDC\\nEntry: ${entry_price}\\nExit: ${current_price}",
                                 color="0000FF"
                             )
                         except Exception as e:
                             bot.add_log(f"⚠️ Discord notification failed: {e}")
                     else:
-                        bot.add_log(f"⚠️ No position found on Hyperliquid for {symbol}")
+                        bot.add_log(f"❌ Close failed: {result.get('message')}")
+                        return {"status": "error", "message": result.get("message")}
                         
                 except Exception as e:
                     bot.add_log(f"❌ Error closing position: {e}")
                     return {"status": "error", "message": str(e)}
             
             # Nettoyer le bot state
-            bot.add_log(f"🔴 Trade closed manually via API")
             bot.active_trade = None
-            bot.risk_manager.record_trade_close(0)  # PnL unknown for manual close
+            bot.risk_manager.record_trade_close(pnl_usdc if 'pnl_usdc' in locals() else 0)
             
             # Sauvegarder
             try:
@@ -618,7 +625,7 @@ async def close_trade():
             except Exception as e:
                 print(f"Error saving state: {e}")
             
-            return {"status": "closed", "message": "Trade closed (executed on Hyperliquid if Auto mode)"}
+            return {"status": "closed", "message": "Trade closed successfully"}
         return {"status": "no_active_trade"}
     
     # Standalone mode
@@ -638,6 +645,30 @@ async def get_trades():
         print(f"Error loading trades: {e}")
         return {"trades": []}
 
+@app.get("/api/trades/hyperliquid")
+async def get_hyperliquid_trades(limit: int = 100):
+    """Get trade history from Hyperliquid API"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        
+        trades = hyperliquid_service.get_trade_history(limit)
+        
+        return {
+            "status": "success",
+            "trades": trades,
+            "source": "hyperliquid_api",
+            "count": len(trades)
+        }
+    except Exception as e:
+        print(f"Error in /api/trades/hyperliquid: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": str(e),
+            "trades": []
+        }
+
 @app.get("/api/stats")
 async def get_stats():
     """Get trade statistics"""
@@ -648,6 +679,163 @@ async def get_stats():
     except Exception as e:
         print(f"Error loading stats: {e}")
         return {"stats": {}}
+
+@app.post("/api/execute_manual_trade")
+async def execute_manual_trade(request: dict):
+    """Execute a manually validated trade signal"""
+    try:
+        symbol = request.get("symbol")
+        action = request.get("action")  # "BUY" or "SELL"
+        price = request.get("price")
+        sl = request.get("sl")
+        tp = request.get("tp")
+        strategy = request.get("strategy", "Manual")
+        
+        if not all([symbol, action, price, sl, tp]):
+            return {"status": "error", "message": "Missing required parameters"}
+        
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Vérifier qu'il n'y a pas déjà un trade actif
+            if bot.active_trade:
+                return {"status": "error", "message": "A trade is already active"}
+            
+            # Vérifier les limites de risque
+            can_trade, reason = bot.risk_manager.check_can_trade()
+            if not can_trade:
+                return {"status": "error", "message": reason}
+            
+            # Exécuter le trade si mode Auto
+            if bot.execution_mode == "Auto (Hyperliquid)":
+                try:
+                    from app.services.hyperliquid_service import hyperliquid_service
+                    
+                    is_buy = (action == "BUY")
+                    size = bot.trade_size  # Utiliser la taille configurée
+                    
+                    bot.add_log(f"📊 MANUAL TRADE: {action} {symbol} @ {price}")
+                    
+                    # Exécuter l'ordre
+                    result = hyperliquid_service.execute_order(
+                        symbol=symbol,
+                        is_buy=is_buy,
+                        quantity=size
+                    )
+                    
+                    bot.add_log(f"✅ Order executed: {result}")
+                    
+                    # Enregistrer le trade actif
+                    bot.active_trade = {
+                        "symbol": symbol,
+                        "side": action,
+                        "entry": price,
+                        "sl": sl,
+                        "tp": tp,
+                        "size": size,
+                        "leverage": bot.leverage,
+                        "strategy": strategy,
+                        "timestamp": pd.Timestamp.now().isoformat()
+                    }
+                    
+                    bot.risk_manager.record_trade_open()
+                    
+                    # Notification Discord
+                    try:
+                        from app.services.discord_service import discord_service
+                        rr = abs(tp - price) / abs(price - sl)
+                        discord_service.send_alert(
+                            f"📊 MANUAL TRADE: {action}",
+                            f"Symbol: {symbol}\nEntry: ${price}\nSL: ${sl}\nTP: ${tp}\nR:R: 1:{rr:.2f}\nStrategy: {strategy}",
+                            color="0000FF"
+                        )
+                    except: pass
+                    
+                    # Sauvegarder
+                    from app.core.state_manager import StateManager
+                    StateManager.save_state(bot)
+                    
+                    return {"status": "success", "message": "Trade executed successfully"}
+                    
+                except Exception as e:
+                    bot.add_log(f"❌ Failed to execute manual trade: {e}")
+                    return {"status": "error", "message": str(e)}
+            else:
+                # Mode Phantom
+                bot.active_trade = {
+                    "symbol": symbol,
+                    "side": action,
+                    "entry": price,
+                    "sl": sl,
+                    "tp": tp,
+                    "size": bot.trade_size,
+                    "leverage": bot.leverage,
+                    "strategy": strategy,
+                    "timestamp": pd.Timestamp.now().isoformat()
+                }
+                
+                bot.risk_manager.record_trade_open()
+                
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+                
+                return {"status": "success", "message": "Phantom trade recorded"}
+        
+        return {"status": "error", "message": "Bot not connected"}
+        
+    except Exception as e:
+        print(f"Error executing manual trade: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/gamification_status")
+async def get_gamification_status():
+    """Get gamification status based on account balance"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        from app.core.asset_gamification import AssetGamification
+        
+        # Récupérer le solde du compte (retourne un float directement)
+        balance_usdc = hyperliquid_service.get_account_value()
+        
+        # Créer l'instance de gamification
+        gam = AssetGamification(balance_usdc)
+        status = gam.get_status_summary()
+        
+        return {
+            "status": "success",
+            "gamification": status
+        }
+        
+    except Exception as e:
+        print(f"Error getting gamification status: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "gamification": {
+                "level": "Goblin",
+                "balance": 0,
+                "allowed_tiers": ["Casino"],
+                "allowed_assets_count": 0,
+                "max_leverage": 3,
+                "max_position_size": 50,
+                "description": "Erreur de connexion",
+                "recommendation": "Vérifiez votre connexion Hyperliquid",
+                "progress": {
+                    "current_level": "Goblin",
+                    "next_level": "Mercenary",
+                    "current_balance": 0,
+                    "required_balance": 100,
+                    "progress_percent": 0,
+                    "remaining": 100
+                },
+                "recommendations": []
+            }
+        }
+
+
+
+
+
 
 @app.post("/api/ai_analysis")
 async def get_ai_analysis(data: dict = {}):
