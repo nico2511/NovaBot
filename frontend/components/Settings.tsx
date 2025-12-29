@@ -149,61 +149,11 @@ export default function Settings() {
                             {/* Risk Management */}
                             <div className="border-t border-border/30 pt-6">
                                 <h3 className="text-lg font-semibold mb-4">🛡️ Risk Management</h3>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    ℹ️ Leverage and position size are managed by your Gamification level
+                                </p>
 
-                                {/* Position Sizing */}
                                 <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">Sizing Type</label>
-                                        <select
-                                            value={settings.size_type}
-                                            onChange={(e) => setSettings({ ...settings, size_type: e.target.value })}
-                                            className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
-                                        >
-                                            <option value="Fixed (USDC)">Fixed (USDC)</option>
-                                            <option value="% Equity">% Equity</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">
-                                            Size Value {settings.size_type === '% Equity' ? '(%)' : '(USDC)'}
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={settings.size_value}
-                                            onChange={(e) => setSettings({ ...settings, size_value: parseFloat(e.target.value) })}
-                                            min="1"
-                                            step="10"
-                                            className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">Leverage (1-20x)</label>
-                                        <input
-                                            type="range"
-                                            value={settings.leverage}
-                                            onChange={(e) => setSettings({ ...settings, leverage: parseInt(e.target.value) })}
-                                            min="1"
-                                            max="20"
-                                            className="w-full"
-                                        />
-                                        <div className="text-center text-lg font-bold mt-2">{settings.leverage}x</div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">Max Open Positions</label>
-                                        <input
-                                            type="number"
-                                            value={settings.max_positions}
-                                            onChange={(e) => setSettings({ ...settings, max_positions: parseInt(e.target.value) })}
-                                            min="1"
-                                            max="10"
-                                            className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
-                                        />
-                                        <div className="text-xs text-gray-400 mt-1">Hard limit on concurrent trades</div>
-                                    </div>
-
                                     <div>
                                         <label className="block text-sm font-semibold mb-2">Daily Stop Loss (USDC)</label>
                                         <input

@@ -13,15 +13,24 @@ import pandas_ta as ta
 
 class HyperliquidScanner:
     """
-    Scanner for identifying best trading opportunities on Hyperliquid
+    Scanner for Hyperliquid tokens
+    Filters by gamification level and finds best trading opportunities
     """
+    
+    # Rate limit protection
+    MAX_TOKENS_TO_SCAN = 10  # Limit to avoid API spam
+    CACHE_DURATION = 300  # 5 minutes cache
     
     def __init__(self):
         self.info = Info(skip_ws=True)
         self.hl_service = HyperliquidService()
         
+        # Simple cache
+        self._cache = {}
+        self._cache_time = 0
+        
         # Configuration thresholds
-        self.min_volume_24h = 1_000_000  # $1M minimum volume
+        self.min_volume_24h = 10_000_000  # $10M minimum
         self.min_atr_pct = 3.0  # Minimum volatility
         self.max_atr_pct = 8.0  # Maximum volatility
         self.min_momentum_pct = 5.0  # Minimum 24h change
@@ -257,6 +266,13 @@ class HyperliquidScanner:
         Main scanning function
         Returns top N opportunities sorted by score
         """
+        import time
+        
+        # Check cache first (5 min cache)
+        if self._cache and (time.time() - self._cache_time) < self.CACHE_DURATION:
+            print("📦 Using cached results (fresh)")
+            return self._cache.get('results', [])[:top_n]
+        
         print("\n" + "="*60)
         print("🔍 HYPERLIQUID TOKEN SCANNER")
         print("="*60)
@@ -274,6 +290,11 @@ class HyperliquidScanner:
         print(f"\n🔎 Filtering by volume (min ${self.min_volume_24h/1e6:.1f}M)...")
         candidates = self.filter_by_volume(market_data)
         
+        # RATE LIMIT: Limit to MAX_TOKENS_TO_SCAN
+        if len(candidates) > self.MAX_TOKENS_TO_SCAN:
+            print(f"⚠️ Limiting scan to {self.MAX_TOKENS_TO_SCAN} tokens (rate limit protection)")
+            candidates = candidates[:self.MAX_TOKENS_TO_SCAN]
+        
         if not candidates:
             print("❌ No tokens meet volume criteria")
             return []
@@ -282,27 +303,40 @@ class HyperliquidScanner:
         print(f"\n🔬 Analyzing {len(candidates)} candidates...")
         opportunities = []
         
-        for i, token in enumerate(candidates, 1):
-            symbol = token['symbol']
-            print(f"  [{i}/{len(candidates)}] Analyzing {symbol}...", end='\r')
+        for i, token_data in enumerate(candidates):
+            symbol = token_data['symbol']
+            print(f"  [{i+1}/{len(candidates)}] Analyzing {symbol}...", end='\r')
+            
+            # RATE LIMIT PROTECTION: Add delay between requests
+            if i > 0:  # Skip delay for first token
+                import time
+                time.sleep(0.5)  # 500ms delay to avoid Hyperliquid 429 errors
             
             analysis = self.analyze_token(symbol)
-            if not analysis:
-                continue
             
-            # Calculate score
-            scoring = self.calculate_opportunity_score(token, analysis)
-            
-            opportunities.append({
-                **token,
-                **analysis,
-                **scoring
-            })
+            if analysis:
+                opportunity = self.calculate_opportunity_score(token_data, analysis)
+                opportunity['symbol'] = symbol
+                opportunity['volume_24h'] = token_data['volume_24h']
+                opportunity['mark_price'] = token_data['mark_price']
+                opportunity['prev_day_px'] = token_data['prev_day_px']
+                opportunity['funding'] = token_data['funding']
+                opportunity['open_interest'] = token_data['open_interest']
+                opportunity['momentum_24h'] = token_data['momentum_24h']
+                opportunity.update(analysis)
+                opportunities.append(opportunity)
         
-        print("\n")
+        print("\n") # Keep the original newline after the loop
         
         # Step 5: Sort by score
         opportunities.sort(key=lambda x: x['score'], reverse=True)
+        
+        print(f"✅ Found {len(opportunities)} opportunities")
+        
+        # Cache results
+        import time
+        self._cache['results'] = opportunities
+        self._cache_time = time.time()
         
         # Step 6: Display results
         self.display_results(opportunities[:top_n])

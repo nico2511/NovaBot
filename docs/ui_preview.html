@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaBot - Ultra Minimal UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000000;
+            color: #ffffff;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 12px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: 180px 1fr;
+            gap: 8px;
+            max-width: 1400px;
+        }
+        
+        /* Sections */
+        .section {
+            border: 1px solid #4a9eff;
+            margin-bottom: 8px;
+        }
+        
+        .title {
+            padding: 6px 10px;
+            border-bottom: 1px solid #4a9eff;
+            font-weight: 600;
+            color: #4a9eff;
+        }
+        
+        .content {
+            padding: 10px;
+        }
+        
+        /* Rows */
+        .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+        
+        .label {
+            color: #8b949e;
+        }
+        
+        .value {
+            color: #ffffff;
+            font-weight: 600;
+        }
+        
+        /* States */
+        .on {
+            color: #00ff00;
+            font-weight: 600;
+        }
+        
+        .off {
+            color: #ff0000;
+            font-weight: 600;
+        }
+        
+        /* PnL */
+        .pnl {
+            font-weight: 600;
+        }
+        
+        .pnl.positive {
+            color: #00ff00;
+        }
+        
+        .pnl.negative {
+            color: #ff0000;
+        }
+        
+        /* Progress Bar */
+        .progress-container {
+            margin: 8px 0;
+        }
+        
+        .progress-label {
+            color: #8b949e;
+            margin-bottom: 4px;
+            font-size: 11px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #1a1a2e;
+            border: 1px solid #4a9eff;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4a9eff, #00ff00);
+            transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+            font-size: 11px;
+            color: #8b949e;
+            margin-top: 2px;
+        }
+        
+        /* Chart placeholder */
+        .chart {
+            height: 300px;
+            border: 1px solid #4a9eff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #4a9eff;
+            background: #0a0a0a;
+        }
+        
+        /* Signals list */
+        .signal-item {
+            padding: 4px 0;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 11px;
+        }
+        
+        .signal-item:last-child {
+            border-bottom: none;
+        }
+        
+        .signal-time {
+            color: #8b949e;
+        }
+        
+        .signal-action.buy {
+            color: #00ff00;
+        }
+        
+        .signal-action.sell {
+            color: #ff0000;
+        }
+        
+        /* Score badge */
+        .score {
+            display: inline-block;
+            padding: 2px 6px;
+            border: 1px solid #4a9eff;
+            color: #4a9eff;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .score.high {
+            border-color: #00ff00;
+            color: #00ff00;
+        }
+        
+        .score.low {
+            border-color: #ff0000;
+            color: #ff0000;
+        }
+        
+        /* Header */
+        .header {
+            grid-column: 1 / -1;
+            border: 1px solid #4a9eff;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .header-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a9eff;
+        }
+        
+        .header-status {
+            font-size: 11px;
+        }
+        
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff00;
+            margin-right: 4px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-title">NOVABOT</div>
+            <div class="header-status">
+                <span class="status-dot"></span>
+                <span>ONLINE</span>
+            </div>
+        </div>
+        
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- Settings -->
+            <div class="section">
+                <div class="title">Settings</div>
+                <div class="content">
+                    <div class="row">
+                        <span class="label">Symbol:</span>
+                        <span class="value">WIF</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Trading:</span>
+                        <span class="on">ON</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Scanner:</span>
+                        <span class="on">ON</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Interval:</span>
+                        <span class="value">15m</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Min Score:</span>
+                        <span class="value">75</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Auto-Switch:</span>
+                        <span class="off">OFF</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Position -->
+            <div class="section">
+                <div class="title">Position</div>
+                <div class="content">
+                    <div class="row">
+                        <span class="label">Symbol:</span>
+                        <span class="value">WIF LONG</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Entry:</span>
+                        <span class="value">0.3172</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Current:</span>
+                        <span class="value">0.3245</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Size:</span>
+                        <span class="value">47.00</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">PnL:</span>
+                        <span class="pnl positive">+12.50</span>
+                    </div>
+                    <div class="row">
+                        <span class="label"></span>
+                        <span class="pnl positive">+2.3%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- AI -->
+            <div class="section">
+                <div class="title">AI Analysis</div>
+                <div class="content">
+                    <div style="margin-bottom: 8px; color: #8b949e; font-style: italic;">
+                        "Strong uptrend detected. RSI healthy at 58."
+                    </div>
+                    <div style="font-size: 11px;">
+                        • Hold position<br>
+                        • Watch 0.35<br>
+                        • SL at 0.30
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gamification -->
+            <div class="section">
+                <div class="title">Gamification</div>
+                <div class="content">
+                    <div class="row">
+                        <span class="label">Level:</span>
+                        <span class="value">Goblin</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Balance:</span>
+                        <span class="value">$0.00</span>
+                    </div>
+                    <div class="row">
+                        <span class="label">Allowed:</span>
+                        <span class="value">4 tokens</span>
+                    </div>
+                    
+                    <div class="progress-container">
+                        <div class="progress-label">Progress to Mercenary</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text">$0 / $100</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Area -->
+        <div class="main">
+            <!-- Chart -->
+            <div class="section">
+                <div class="title">WIF/USDC - $0.3245 (+2.1%)</div>
+                <div class="chart">
+                    📈 Chart Area (TradingView Integration)
+                </div>
+            </div>
+            
+            <!-- Signals -->
+            <div class="section">
+                <div class="title">Recent Signals</div>
+                <div class="content">
+                    <div class="signal-item">
+                        <span class="signal-time">14:32</span>
+                        <span class="signal-action buy">BUY</span>
+                        <span>WIF</span>
+                        <span class="value">0.3172</span>
+                        <span class="score high">87</span>
+                    </div>
+                    <div class="signal-item">
+                        <span class="signal-time">14:15</span>
+                        <span class="signal-action sell">SELL</span>
+                        <span>DOGE</span>
+                        <span class="value">0.0845</span>
+                        <span class="score">72</span>
+                    </div>
+                    <div class="signal-item">
+                        <span class="signal-time">13:58</span>
+                        <span class="signal-action buy">BUY</span>
+                        <span>PEPE</span>
+                        <span class="value">0.00000123</span>
+                        <span class="score high">81</span>
+                    </div>
+                    <div class="signal-item">
+                        <span class="signal-time">13:45</span>
+                        <span class="signal-action sell">SELL</span>
+                        <span>BONK</span>
+                        <span class="value">0.00001234</span>
+                        <span class="score low">45</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Scanner Results -->
+            <div class="section">
+                <div class="title">Scanner Results</div>
+                <div class="content">
+                    <div class="signal-item">
+                        <span>1. WIF</span>
+                        <span class="score high">87</span>
+                        <span class="value">$0.3245</span>
+                        <span style="color: #00ff00;">↑ 2.1%</span>
+                    </div>
+                    <div class="signal-item">
+                        <span>2. DOGE</span>
+                        <span class="score">72</span>
+                        <span class="value">$0.0845</span>
+                        <span style="color: #00ff00;">↑ 1.5%</span>
+                    </div>
+                    <div class="signal-item">
+                        <span>3. PEPE</span>
+                        <span class="score low">64</span>
+                        <span class="value">$0.00000123</span>
+                        <span style="color: #ff0000;">↓ 0.8%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
