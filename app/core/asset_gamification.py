@@ -13,7 +13,10 @@ Tiers d'Actifs:
 - Growth Engines: Altcoins établis (SOL, AVAX, NEAR, SUI, ARB)
 - Kings: Blue chips (BTC, ETH)
 """
-
+"""
+Système de gamification pour le trading bot
+"""
+import os
 from typing import Dict, List, Tuple
 from enum import Enum
 
@@ -80,6 +83,7 @@ class AssetGamification:
     """Gestionnaire de gamification des actifs"""
     
     def __init__(self, account_balance_usdc: float = 0):
+        """Initialize gamification based on account value"""
         self.account_balance = account_balance_usdc
         self.level = self._calculate_level()
     

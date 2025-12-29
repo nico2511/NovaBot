@@ -37,7 +37,7 @@ class ScannerJob:
                 settings = getattr(self.bot, 'scanner_settings', {})
                 enabled = settings.get('enabled', False)
                 interval_minutes = settings.get('interval', 15)
-                min_score = settings.get('min_score', 75)
+                min_score = settings.get('min_score', 75)  # Back to 75 (quality over quantity)
                 auto_switch = settings.get('auto_switch', False)
 
                 if not enabled:
@@ -56,39 +56,41 @@ class ScannerJob:
                 
                 opportunities = self.scanner.scan(top_n=10)
                 
-                # Filter
+                # Filter by min_score
                 valid_opps = [o for o in opportunities if o['score'] >= min_score]
                 
-                if not valid_opps:
-                    self.bot.add_log("No opportunities found above threshold.")
-                    discord_service.send_log(f"🕵️ **Scanner**: Checked market, no opportunities found > {min_score}")
-                    continue
-
-                # Notify & Action
-                best_opp = valid_opps[0]
-                
-                # 1. Send Discord Summary
-                self._send_discord_alert(valid_opps)
-
-                # 2. Auto Switch
-                # SAFETY: Never switch if we are already in a trade!
-                if auto_switch and self.bot.active_symbol != best_opp['symbol']:
-                    if self.bot.active_trade:
-                        self.bot.add_log(f"⚠️ Scanner found {best_opp['symbol']} ({best_opp['score']}) but skipping switch: Trade Active on {self.bot.active_symbol}")
-                    else:
-                        old_symbol = self.bot.active_symbol
-                        self.bot.active_symbol = best_opp['symbol']
-                        
-                        # Ensure sidebar settings are also updated so they persist correctly
-                        if hasattr(self.bot, 'sidebar_settings'):
-                            self.bot.sidebar_settings['asset'] = self.bot.active_symbol
+                if valid_opps:
+                    # Send valid opportunities
+                    self.bot.add_log(f"Found {len(valid_opps)} opportunities >= {min_score}")
+                    self._send_discord_alert(valid_opps, min_score)
+                    
+                    # Auto Switch logic
+                    best_opp = valid_opps[0]
+                    if auto_switch and self.bot.active_symbol != best_opp['symbol']:
+                        if self.bot.active_trade:
+                            self.bot.add_log(f"⚠️ Scanner found {best_opp['symbol']} ({best_opp['score']}) but skipping switch: Trade Active on {self.bot.active_symbol}")
+                        else:
+                            old_symbol = self.bot.active_symbol
+                            self.bot.active_symbol = best_opp['symbol']
                             
-                        self.bot.add_log(f"🔄 Auto-switched market: {old_symbol} -> {self.bot.active_symbol}")
-                        
-                        # Persist the change
-                        StateManager.save_state(self.bot)
-                        
-                        discord_service.send_log(f"🔄 **Auto-Switch**: Changed market to **{self.bot.active_symbol}** (Score: {best_opp['score']})")
+                            if hasattr(self.bot, 'sidebar_settings'):
+                                self.bot.sidebar_settings['asset'] = self.bot.active_symbol
+                                
+                            self.bot.add_log(f"🔄 Auto-switched market: {old_symbol} -> {self.bot.active_symbol}")
+                            StateManager.save_state(self.bot)
+                            discord_service.send_log(f"🔄 **Auto-Switch**: Changed market to **{self.bot.active_symbol}** (Score: {best_opp['score']})")
+                
+                elif opportunities:
+                    # No valid opportunities, but send top 3 anyway
+                    top_3 = opportunities[:3]
+                    self.bot.add_log(f"No opportunities >= {min_score}. Top score: {top_3[0]['score']:.0f}")
+                    self._send_discord_alert(top_3, min_score, warning=True)
+                
+                else:
+                    # No opportunities at all (gamification filtered everything or market issue)
+                    self.bot.add_log("Scanner returned no opportunities")
+                    discord_service.send_log(f"🕵️ **Scanner**: No tokens available to scan (Level: Goblin)")
+
 
             except Exception as e:
                 print(f"❌ ScannerJob Error: {e}")
@@ -96,27 +98,38 @@ class ScannerJob:
             
             time.sleep(5)
 
-    def _send_discord_alert(self, opps):
+    def _send_discord_alert(self, opps, min_score=75, warning=False):
         """Send a nice formatted list of opportunities"""
         if not opps: return
         
+        from app.utils.formatters import format_price_for_notification
+        
         best = opps[0]
         
-        title = f"🔍 SCANNER: {len(opps)} Opportunities Found"
-        description = f"Found {len(opps)} assets with Score >= {self.bot.scanner_settings.get('min_score')}\n\n"
+        if warning:
+            title = f"⚠️ SCANNER: Marché Calme (Top {len(opps)})"
+            description = f"Aucune opportunité >={min_score}. Voici les meilleurs scores:\n\n"
+        else:
+            title = f"🔍 SCANNER: {len(opps)} Opportunities Found"
+            description = f"Found {len(opps)} assets with Score >= {min_score}\n\n"
         
         for i, opp in enumerate(opps[:5]): # Top 5 only
             stars = "⭐⭐⭐" if opp['score'] >= 80 else "⭐⭐" if opp['score'] >= 60 else "⭐"
             trend_icon = "📈" if opp['trend'] == "UP" else "📉"
             
+            # Format price with appropriate decimals
+            price_str = format_price_for_notification(opp.get('current_price', 0))
+            
             description += (
                 f"**{i+1}. {opp['symbol']}** {stars}\n"
                 f"Score: **{opp['score']:.0f}** | Trend: {trend_icon} | Vol: ${opp['volume_24h']/1e6:.1f}M\n"
-                f"`Adx: {opp.get('adx', 0):.1f}` | `Rsi: {opp['rsi']:.0f}`\n\n"
+                f"Price: {price_str} | `Adx: {opp.get('adx', 0):.1f}` | `Rsi: {opp['rsi']:.0f}`\n\n"
             )
             
+        color = "ffa500" if warning else "9b59b6"  # Orange if warning, Purple otherwise
+        
         discord_service.send_alert(
             title, 
             description, 
-            color="9b59b6" # Purple
+            color=color
         )
