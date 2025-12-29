@@ -151,7 +151,7 @@ class BotContext:
                             if not df.empty:
                                 ai_result = gemini_service.analyze_position_risk(
                                     symbol=self.active_symbol,
-                                    position=main_position,
+                                    position_data=main_position,  # Fixed: position → position_data
                                     market_data={
                                         "close": float(df['close'].iloc[-1]),
                                         "regime": "UNKNOWN"
