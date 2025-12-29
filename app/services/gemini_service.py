@@ -242,5 +242,30 @@ class GeminiService:
         - outlook: Perspective court terme
         """
         return self._call_ai_generic(prompt)
+    
+    def analyze_position_risk(self, symbol: str, position_data: dict = None, market_data: dict = None) -> dict:
+        """Analyze risk for a position or potential position"""
+        # Cache for 5 mins
+        key = self._get_cache_key("position_risk", symbol)
+        cached = self._get_cached_response(key, 5)
+        if cached:
+            return cached
+        
+        prompt = f"""
+        Risk Analyst Crypto. Analyse risque position {symbol}:
+        Position: {json.dumps(position_data) if position_data else 'Nouvelle position'}
+        Marché: {json.dumps(market_data) if market_data else 'N/A'}
+        
+        Réponds UNIQUEMENT avec JSON:
+        - risk_score: (0-100, 100 = très risqué)
+        - risk_factors: Liste facteurs de risque (FR)
+        - recommendations: Conseils gestion risque
+        - stop_loss_suggestion: Prix SL suggéré (si applicable)
+        - take_profit_suggestion: Prix TP suggéré (si applicable)
+        """
+        result = self._call_ai_generic(prompt)
+        if "error" not in result:
+            self._set_cache(key, result)
+        return result
 
 gemini_service = GeminiService()
