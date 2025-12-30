@@ -147,16 +147,62 @@ class GeminiService:
             return cached
 
         context_str = f"\nContexte: {json.dumps(market_context)}" if market_context else ""
+        
+        # Extract key data for better analysis
+        entry_price = signal_data.get("price", 0)
+        sl_price = signal_data.get("sl", 0)
+        tp_price = signal_data.get("tp", 0)
+        strategy = signal_data.get("strategy", "Unknown")
+        signal_type = signal_data.get("signal", "UNKNOWN")
+        
+        # Calculate current R:R if SL/TP exist
+        risk_reward = "N/A"
+        if sl_price and tp_price and entry_price:
+            risk = abs(entry_price - sl_price)
+            reward = abs(tp_price - entry_price)
+            if risk > 0:
+                risk_reward = f"{reward/risk:.2f}"
+        
         prompt = f"""
-        Expert Trader Crypto. Analyse ce signal:
-        {signal_data}
+        Tu es un Expert Trader Crypto spécialisé en Risk Management. Analyse ce signal de trading et fournis une évaluation COHÉRENTE.
+        
+        SIGNAL:
+        - Type: {signal_type}
+        - Stratégie: {strategy}
+        - Prix d'entrée: {entry_price}
+        - Stop Loss proposé: {sl_price}
+        - Take Profit proposé: {tp_price}
+        - Risk:Reward actuel: {risk_reward}
+        
+        CONTEXTE MARCHÉ:
         {context_str}
         
-        Réponds UNIQUEMENT avec un JSON valide contenant:
-        - explanation: Explication courte (FR)
-        - confidence: (HIGH, MEDIUM, LOW)
-        - risks: Liste de risques
-        - recommendation: Avis court
+        INSTRUCTIONS:
+        1. Analyse la COHÉRENCE du trade:
+           - Le SL est-il trop serré ou trop large par rapport à la volatilité?
+           - Le TP est-il réaliste par rapport au trend et à la stratégie?
+           - Le R:R est-il adapté au type de trade (scalp vs swing)?
+        
+        2. Considère le CONTEXTE:
+           - Volatilité actuelle (ATR, range récent)
+           - Direction du trend (bullish/bearish/range)
+           - Type de stratégie (scalp = R:R 1.5-2, swing = R:R 2-3)
+        
+        3. ADAPTE les niveaux si nécessaire:
+           - Si SL trop serré → suggère niveau plus respirant
+           - Si TP irréaliste → ajuste selon résistances/supports
+           - Si R:R < 1.5 → recommande ajustement
+        
+        Réponds UNIQUEMENT avec un JSON valide (sans markdown) contenant:
+        {{
+            "explanation": "Analyse courte du trade (2-3 phrases en FRANÇAIS)",
+            "confidence": "HIGH|MEDIUM|LOW",
+            "risks": ["risque1", "risque2"],
+            "recommendation": "TAKE|SKIP|ADJUST",
+            "suggested_sl": prix_sl_optimal (float, ou null si OK),
+            "suggested_tp": prix_tp_optimal (float, ou null si OK),
+            "reasoning": "Pourquoi ces ajustements (si ADJUST)"
+        }}
         """
         result = self._call_ai_generic(prompt)
         if "error" not in result:
