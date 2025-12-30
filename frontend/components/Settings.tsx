@@ -170,6 +170,45 @@ export default function Settings() {
                             </div>
 
 
+                            {/* Trading Control */}
+                            <div className="border-t border-border/30 pt-6">
+                                <h3 className="text-lg font-semibold mb-4">🤖 Trading Control</h3>
+
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border/30">
+                                        <div>
+                                            <label className="text-sm font-semibold block mb-1">Enable Automatic Trading</label>
+                                            <p className="text-xs text-gray-400">Allow bot to execute trades automatically</p>
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const endpoint = settings.trading_enabled ? '/api/trading/disable' : '/api/trading/enable'
+                                                    await axios.post(`${API_URL}${endpoint}`)
+                                                    setSettings({ ...settings, trading_enabled: !settings.trading_enabled })
+                                                } catch (error) {
+                                                    console.error('Failed to toggle trading:', error)
+                                                    alert('❌ Failed to toggle trading')
+                                                }
+                                            }}
+                                            className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${settings.trading_enabled
+                                                    ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
+                                                    : 'bg-primary/20 text-primary border-2 border-primary/50 hover:bg-primary/30'
+                                                }`}
+                                        >
+                                            {settings.trading_enabled ? '🛑 STOP BOT' : '▶️ START BOT'}
+                                        </button>
+                                    </div>
+
+                                    {!settings.trading_enabled && (
+                                        <div className="text-xs text-yellow-500 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                                            ⚠️ Trading is currently DISABLED. Bot will analyze signals but won't execute trades.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+
                             {/* Scanner Automation */}
                             <div className="border-t border-border/30 pt-6">
                                 <h3 className="text-lg font-semibold mb-4">🤖 Scanner Automation</h3>
