@@ -823,6 +823,29 @@ async def get_gamification_status():
         }
 
 
+@app.get("/api/dev/diagnostics")
+async def get_dev_diagnostics():
+    """Dev diagnostics endpoint"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        bot = bot_bridge.get_bot_context() if bot_bridge and bot_bridge.is_connected() else None
+        account_value = hyperliquid_service.get_account_value()
+        
+        return {
+            "account": {"balance": account_value, "margin_used": 0, "available_margin": account_value},
+            "positions": [],
+            "symbol": {"name": bot.active_symbol if bot else "N/A"},
+            "portfolio": {"total_value": account_value, "unrealized_pnl": 0, "realized_pnl_today": 0},
+            "api_status": {"hyperliquid_connected": hyperliquid_service.exchange is not None},
+            "bot_state": {
+                "trading_enabled": bot.trading_enabled if bot else bot_state.trading_enabled,
+                "is_running": bot.is_running if bot else bot_state.is_running,
+                "active_symbol": bot.active_symbol if bot else bot_state.active_symbol,
+                "execution_mode": bot.execution_mode if bot else bot_state.execution_mode
+            }
+        }
+    except Exception as e:
+        return {"error": str(e), "account": {"balance": 0}, "positions": [], "bot_state": {}}
 
 
 
