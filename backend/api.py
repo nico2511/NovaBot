@@ -105,7 +105,7 @@ class BotState:
             # Ensure sidebar settings match
             if "sidebar_settings" not in state:
                 state["sidebar_settings"] = {}
-            state["sidebar_settings"]["trading_enabled"] = self.trading_enabled
+            # Note: trading_enabled is now ONLY in global state, not duplicated in sidebar_settings
             state["sidebar_settings"]["execution_mode"] = self.execution_mode
             
             with open(state_file, "w") as f:
@@ -197,9 +197,8 @@ async def enable_trading():
             print(f"Error saving state: {e}")
         return {"status": "enabled", "message": "Live trading enabled on real bot"}
     else:
-        # Update BOTH fields to ensure UI and bot are in sync
+        # Single source of truth: only global trading_enabled
         bot_state.trading_enabled = True
-        bot_state.sidebar_settings['trading_enabled'] = True
         bot_state.execution_mode = "Auto (Hyperliquid)"
         bot_state.add_log("🟢 Live trading ENABLED")
         bot_state.save_state()
@@ -220,9 +219,8 @@ async def disable_trading():
             print(f"Error saving state: {e}")
         return {"status": "disabled", "message": "Live trading disabled on real bot"}
     else:
-        # Update BOTH fields to ensure UI and bot are in sync
+        # Single source of truth: only global trading_enabled
         bot_state.trading_enabled = False
-        bot_state.sidebar_settings['trading_enabled'] = False
         bot_state.add_log("🔴 Live trading DISABLED")
         bot_state.save_state()
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
