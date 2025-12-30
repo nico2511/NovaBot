@@ -1665,13 +1665,24 @@ class StrategyDoubleTopBottom(BaseStrategy):
                         # Neckline break
                         neckline = max(df.loc[rsi1_idx:rsi2_idx, 'high'])
                         
-                        if current_price > neckline:
+                        # IMPROVED: Wait for pullback confirmation (don't enter at top)
+                        # Check if price has pulled back from neckline (at least 0.3%)
+                        recent_high = df['high'].tail(5).max()
+                        pullback_pct = (recent_high - current_price) / recent_high
+                        
+                        # Only enter if:
+                        # 1. Price broke neckline
+                        # 2. Price has pulled back (not at the top)
+                        # 3. RSI shows momentum (not overbought)
+                        if current_price > neckline and pullback_pct > 0.003 and current_rsi < 70:
                             return {
                                 'signal': 'BUY',
                                 'price': current_price,
                                 'sl': trough2['low'] * 0.99,
                                 'tp': current_price + (current_price - trough2['low']) * 1.5,
-                                'comment': f'Double Bottom detected - Bullish divergence (RSI: {current_rsi:.1f})'
+                                'comment': f'Double Bottom - Bullish divergence + Pullback confirmed (RSI: {current_rsi:.1f})',
+                                'manual_approval': False,  # Enable auto-trading
+                                'discord_notify': True  # Enable Discord notifications
                             }
         
         # DOUBLE TOP (Bearish)
@@ -1696,13 +1707,24 @@ class StrategyDoubleTopBottom(BaseStrategy):
                         # Neckline break
                         neckline = min(df.loc[rsi1_idx:rsi2_idx, 'low'])
                         
-                        if current_price < neckline:
+                        # IMPROVED: Wait for pullback confirmation (don't enter at bottom)
+                        # Check if price has pulled back from neckline (at least 0.3%)
+                        recent_low = df['low'].tail(5).min()
+                        pullback_pct = (current_price - recent_low) / recent_low
+                        
+                        # Only enter if:
+                        # 1. Price broke neckline
+                        # 2. Price has pulled back (not at the bottom)
+                        # 3. RSI shows momentum (not oversold)
+                        if current_price < neckline and pullback_pct > 0.003 and current_rsi > 30:
                             return {
                                 'signal': 'SELL',
                                 'price': current_price,
                                 'sl': peak2['high'] * 1.01,
                                 'tp': current_price - (peak2['high'] - current_price) * 1.5,
-                                'comment': f'Double Top detected - Bearish divergence (RSI: {current_rsi:.1f})'
+                                'comment': f'Double Top - Bearish divergence + Pullback confirmed (RSI: {current_rsi:.1f})',
+                                'manual_approval': False,  # Enable auto-trading
+                                'discord_notify': True  # Enable Discord notifications
                             }
         
         return None
