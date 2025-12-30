@@ -838,31 +838,64 @@ async def get_dev_diagnostics():
         positions = hyperliquid_service.get_positions()
         unrealized_pnl = sum([pos.get('pnl', 0) for pos in positions])
         
+        # Get user state for additional metrics
+        try:
+            from hyperliquid.info import Info
+            info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
+            user_state = info.user_state(config.HL_ACCOUNT_ADDRESS)
+            margin_summary = user_state.get("marginSummary", {})
+            
+            # Extract all available margin data
+            withdrawable = float(margin_summary.get("withdrawable", 0))
+            total_ntl_pos = float(margin_summary.get("totalNtlPos", 0))  # Total notional position value
+            total_raw_usd = float(margin_summary.get("totalRawUsd", 0))
+            cross_margin_summary = user_state.get("crossMarginSummary", {})
+            
+            # Calculate additional metrics
+            account_leverage = (total_ntl_pos / account_value) if account_value > 0 else 0
+            
+        except Exception as e:
+            print(f"Error fetching extended margin data: {e}")
+            withdrawable = available_balance
+            total_ntl_pos = 0
+            total_raw_usd = account_value
+            account_leverage = 0
+        
         # Get trade history (last 10 trades)
         try:
             trade_history = hyperliquid_service.get_trade_history(limit=10)
             recent_trades = []
+            total_fees_paid = 0
             for trade in trade_history[:10]:
+                fee = abs(float(trade.get("fee", 0)))
+                total_fees_paid += fee
                 recent_trades.append({
                     "symbol": trade.get("coin", "N/A"),
                     "side": trade.get("side", "N/A"),
                     "size": float(trade.get("sz", 0)),
                     "price": float(trade.get("px", 0)),
+                    "fee": fee,
                     "time": trade.get("time", 0)
                 })
         except:
             recent_trades = []
+            total_fees_paid = 0
         
         # Calculate portfolio stats
         total_portfolio_value = account_value + unrealized_pnl
         margin_ratio = (margin_used / account_value * 100) if account_value > 0 else 0
+        
+        # Get daily PnL from bot state
+        daily_pnl = getattr(bot_state, 'risk_state', {}).get('daily_pnl', 0)
         
         return {
             "account": {
                 "balance": account_value,
                 "margin_used": margin_used,
                 "available_margin": available_balance,
-                "margin_ratio": round(margin_ratio, 2)
+                "margin_ratio": round(margin_ratio, 2),
+                "withdrawable": round(withdrawable, 2),
+                "account_leverage": round(account_leverage, 2)
             },
             "positions": [
                 {
@@ -880,11 +913,17 @@ async def get_dev_diagnostics():
                 "total_value": round(total_portfolio_value, 2),
                 "account_equity": round(account_value, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2),
-                "realized_pnl_today": round(getattr(bot_state, 'risk_state', {}).get('daily_pnl', 0), 2),
+                "realized_pnl_today": round(daily_pnl, 2),
                 "margin_used": round(margin_used, 2),
                 "available_balance": round(available_balance, 2),
+                "withdrawable_balance": round(withdrawable, 2),
                 "margin_ratio_pct": round(margin_ratio, 2),
-                "open_positions_count": len(positions)
+                "account_leverage": round(account_leverage, 2),
+                "total_notional_position": round(total_ntl_pos, 2),
+                "open_positions_count": len(positions),
+                "total_fees_paid_recent": round(total_fees_paid, 4),
+                "roi_today_pct": round((daily_pnl / account_value * 100) if account_value > 0 else 0, 2),
+                "roi_unrealized_pct": round((unrealized_pnl / account_value * 100) if account_value > 0 else 0, 2)
             },
             "recent_trades": recent_trades,
             "api_status": {
