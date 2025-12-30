@@ -197,7 +197,9 @@ async def enable_trading():
             print(f"Error saving state: {e}")
         return {"status": "enabled", "message": "Live trading enabled on real bot"}
     else:
+        # Update BOTH fields to ensure UI and bot are in sync
         bot_state.trading_enabled = True
+        bot_state.sidebar_settings['trading_enabled'] = True
         bot_state.execution_mode = "Auto (Hyperliquid)"
         bot_state.add_log("🟢 Live trading ENABLED")
         bot_state.save_state()
@@ -218,7 +220,9 @@ async def disable_trading():
             print(f"Error saving state: {e}")
         return {"status": "disabled", "message": "Live trading disabled on real bot"}
     else:
+        # Update BOTH fields to ensure UI and bot are in sync
         bot_state.trading_enabled = False
+        bot_state.sidebar_settings['trading_enabled'] = False
         bot_state.add_log("🔴 Live trading DISABLED")
         bot_state.save_state()
         return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
