@@ -303,8 +303,13 @@ class HyperliquidScanner:
             print(f"⚠️ Limiting scan to {self.MAX_TOKENS_TO_SCAN} tokens (rate limit protection)")
             candidates = candidates[:self.MAX_TOKENS_TO_SCAN]
         
+        # GAMIFICATION FILTER: Only scan allowed tokens for current level
+        allowed_tokens = tokens  # tokens already filtered by get_all_tokens()
+        candidates = [c for c in candidates if c['symbol'] in allowed_tokens]
+        
         if not candidates:
-            print("❌ No tokens meet volume criteria")
+            print("❌ No allowed tokens meet volume criteria for your level")
+            print(f"💡 Tip: Increase your balance to unlock more tokens!")
             return []
         
         # Step 4: Analyze each candidate
