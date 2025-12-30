@@ -6,7 +6,6 @@ import axios from 'axios'
 import dynamic from 'next/dynamic'
 import StatCard from '@/components/StatCard'
 import StrategyMonitor from '@/components/StrategyMonitor'
-import TradeHistory from '@/components/TradeHistory'
 import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
@@ -257,11 +256,6 @@ export default function DashboardClient() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                     <ActiveTrade />
                     <LiveLogs />
-                </div>
-
-                {/* Trade History */}
-                <div className="mt-8">
-                    <TradeHistory />
                 </div>
             </main >
 
