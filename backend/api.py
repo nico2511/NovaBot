@@ -542,10 +542,23 @@ async def get_logs():
 
 @app.get("/api/active_trade")
 async def get_active_trade():
-    """Get current active trade"""
+    """Get current active trade with AI analysis"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
-        return {"active_trade": bot.active_trade}
+        trade = bot.active_trade
+        
+        if trade:
+            # Inject AI Analysis if available
+            symbol = trade.get("symbol")
+            if hasattr(bot, 'ai_cache'):
+                cache_key = f"position_analysis_{symbol}"
+                ai_analysis = bot.ai_cache.get(cache_key)
+                if ai_analysis:
+                    # Create a copy to not mutate the original state
+                    trade = trade.copy()
+                    trade["ai_analysis"] = ai_analysis
+        
+        return {"active_trade": trade}
     return {"active_trade": bot_state.active_trade}
 
 @app.post("/api/close_trade")
@@ -686,6 +699,7 @@ async def get_stats():
 async def execute_manual_trade(request: dict):
     """Execute a manually validated trade signal"""
     try:
+        print(f"📥 RECEIVED MANUAL TRADE REQUEST: {request}") # DEBUG LOG
         symbol = request.get("symbol")
         action = request.get("action")  # "BUY" or "SELL"
         price = request.get("price")
@@ -694,6 +708,7 @@ async def execute_manual_trade(request: dict):
         strategy = request.get("strategy", "Manual")
         
         if not all([symbol, action, price, sl, tp]):
+            print("❌ Missing parameters in manual trade")
             return {"status": "error", "message": "Missing required parameters"}
         
         if bot_bridge and bot_bridge.is_connected():
@@ -701,11 +716,13 @@ async def execute_manual_trade(request: dict):
             
             # Vérifier qu'il n'y a pas déjà un trade actif
             if bot.active_trade:
+                print(f"❌ Trade rejected: Active trade exists ({bot.active_trade['symbol']})")
                 return {"status": "error", "message": "A trade is already active"}
             
             # Vérifier les limites de risque
             can_trade, reason = bot.risk_manager.check_can_trade()
             if not can_trade:
+                print(f"❌ Trade rejected by Risk Manager: {reason}")
                 return {"status": "error", "message": reason}
             
             # Exécuter le trade si mode Auto
@@ -714,15 +731,28 @@ async def execute_manual_trade(request: dict):
                     from app.services.hyperliquid_service import hyperliquid_service
                     
                     is_buy = (action == "BUY")
-                    size = bot.trade_size  # Utiliser la taille configurée
+                    size_value = bot.sidebar_settings.get("size_value", 100.0)
+                    size_type = bot.sidebar_settings.get("size_type", "Fixed (USDC)")
                     
-                    bot.add_log(f"📊 MANUAL TRADE: {action} {symbol} @ {price}")
+                    if size_type == "Fixed (USDC)":
+                         quantity = round(size_value / price, 1) # Round to 1 decimal for safety
+                    else:
+                         quantity = round(size_value / price, 1) # Default fallback
                     
+                    leverage = bot.sidebar_settings.get("leverage", 1)
+                    bot.add_log(f"📊 MANUAL TRADE: {action} {quantity} {symbol} @ {price} (${size_value}, {leverage}x)")
+                    
+                    # CRITICAL: Force update leverage before trading
+                    try:
+                        hyperliquid_service.update_leverage(symbol, leverage, is_cross=True)
+                    except Exception as lev_error:
+                        bot.add_log(f"⚠️ Leverage update failed: {lev_error}")
+
                     # Exécuter l'ordre
                     result = hyperliquid_service.execute_order(
                         symbol=symbol,
                         is_buy=is_buy,
-                        quantity=size
+                        quantity=quantity
                     )
                     
                     bot.add_log(f"✅ Order executed: {result}")
@@ -734,8 +764,9 @@ async def execute_manual_trade(request: dict):
                         "entry": price,
                         "sl": sl,
                         "tp": tp,
-                        "size": size,
-                        "leverage": bot.leverage,
+                        "size": quantity, # Use quantity (tokens)
+                        "size_value": size_value, # Store USDC value too
+                        "leverage": bot.sidebar_settings.get("leverage", 1), # Also fix leverage
                         "strategy": strategy,
                         "timestamp": pd.Timestamp.now().isoformat()
                     }
@@ -770,8 +801,8 @@ async def execute_manual_trade(request: dict):
                     "entry": price,
                     "sl": sl,
                     "tp": tp,
-                    "size": bot.trade_size,
-                    "leverage": bot.leverage,
+                    "size": bot.sidebar_settings.get("size_value", 100.0),
+                    "leverage": bot.sidebar_settings.get("leverage", 1), # Also fix leverage
                     "strategy": strategy,
                     "timestamp": pd.Timestamp.now().isoformat()
                 }
@@ -824,6 +855,7 @@ async def get_gamification_status():
 @app.get("/api/dev/diagnostics")
 async def get_dev_diagnostics():
     """Dev diagnostics endpoint"""
+    print("DEBUG: get_dev_diagnostics called")
     try:
         from app.services.hyperliquid_service import hyperliquid_service
         bot = bot_bridge.get_bot_context() if bot_bridge and bot_bridge.is_connected() else None
@@ -873,16 +905,34 @@ async def get_dev_diagnostics():
                 fee = abs(float(trade.get("fee", 0)))
                 total_fees_paid += fee
                 recent_trades.append({
-                    "symbol": trade.get("coin", "N/A"),
+                    "symbol": trade.get("symbol", "N/A"),
                     "side": trade.get("side", "N/A"),
-                    "size": float(trade.get("sz", 0)),
-                    "price": float(trade.get("px", 0)),
+                    "size": float(trade.get("size", 0)),
+                    "price": float(trade.get("entry_price", 0)),
                     "fee": fee,
-                    "time": trade.get("time", 0)
+                    "pnl_real": float(trade.get("pnl", 0)),
+                    "time": trade.get("timestamp", 0)
                 })
+            if recent_trades:
+                print(f"DEBUG TRADE: {recent_trades[0]}")
         except:
             recent_trades = []
             total_fees_paid = 0
+        
+        # Calculate portfolio stats
+        total_portfolio_value = account_value + unrealized_pnl
+        margin_ratio = (margin_used / account_value * 100) if account_value > 0 else 0
+        
+        # Get active symbol data
+        active_symbol = bot.active_symbol if bot else bot_state.active_symbol
+        symbol_data = {"name": active_symbol or "N/A"}
+        
+        if active_symbol and active_symbol != "N/A":
+            try:
+                market_data = hyperliquid_service.get_market_data(active_symbol)
+                symbol_data.update(market_data)
+            except Exception as e:
+                print(f"Error fetching market data: {e}")
         
         # Calculate portfolio stats
         total_portfolio_value = account_value + unrealized_pnl
@@ -911,7 +961,7 @@ async def get_dev_diagnostics():
                 }
                 for pos in positions
             ],
-            "symbol": {"name": bot.active_symbol if bot else "N/A"},
+            "symbol": symbol_data,
             "portfolio": {
                 "total_value": round(total_portfolio_value, 2),
                 "account_equity": round(account_value, 2),
@@ -1139,6 +1189,14 @@ async def switch_symbol(data: dict):
                 
             bot.add_log(f"🔄 Switched to {new_symbol}")
             
+            # Clear AI cache to prevent stale analysis
+            if hasattr(bot, 'ai_cache'):
+                if "last_market_analysis" in bot.ai_cache:
+                    del bot.ai_cache["last_market_analysis"]
+                if "last_market_analysis_time" in bot.ai_cache:
+                    del bot.ai_cache["last_market_analysis_time"]
+                bot.add_log(f"🧹 AI Cache cleared for {new_symbol}")
+            
             # Save state
             try:
                 from app.core.state_manager import StateManager
@@ -1230,7 +1288,9 @@ async def ai_position_analysis():
                 return {"error": "No active position"}
             
             # Retourner l'analyse en cache si récente
-            last_analysis = bot.ai_cache.get("last_position_analysis")
+            symbol = bot.active_symbol
+            cache_key = f"position_analysis_{symbol}"
+            last_analysis = bot.ai_cache.get(cache_key) or bot.ai_cache.get("last_position_analysis")
             last_time = bot.ai_cache.get("last_position_analysis_time")
             
             if last_analysis and last_time:

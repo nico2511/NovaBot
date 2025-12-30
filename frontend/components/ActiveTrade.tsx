@@ -13,6 +13,7 @@ interface Trade {
     tp: number
     strategy: string
     leverage?: number
+    ai_analysis?: any
 }
 
 // CRITICAL FIX: Dynamic price formatting based on value
@@ -177,6 +178,58 @@ export default function ActiveTrade() {
                         <div className="text-sm font-semibold text-primary">{trade.leverage ? `${trade.leverage}x` : '1x'}</div>
                     </div>
                 </div>
+
+                {/* AI Analysis Section */}
+                {trade.ai_analysis && (
+                    <div className="mt-4 pt-4 border-t border-border/20">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">🤖</span>
+                                <h4 className="text-sm font-bold text-gray-200">AI Position Analysis</h4>
+                            </div>
+                            {trade.ai_analysis.risk_level && (
+                                <span className={`px-2 py-1 rounded text-[10px] font-bold border ${trade.ai_analysis.risk_level === 'HIGH' || trade.ai_analysis.risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                        trade.ai_analysis.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
+                                            'bg-green-500/20 text-green-400 border-green-500/30'
+                                    }`}>
+                                    RISK: {trade.ai_analysis.risk_level}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="bg-black/20 rounded-lg p-4 space-y-3">
+                            {/* Reasoning */}
+                            <p className="text-gray-300 text-xs leading-relaxed italic border-l-2 border-primary/50 pl-3">
+                                "{trade.ai_analysis.reasoning || trade.ai_analysis.explanation}"
+                            </p>
+
+                            {/* Recommendations */}
+                            {trade.ai_analysis.recommendations && Array.isArray(trade.ai_analysis.recommendations) && (
+                                <div className="space-y-1">
+                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Recommendations</p>
+                                    <ul className="space-y-1">
+                                        {trade.ai_analysis.recommendations.map((rec: string, idx: number) => (
+                                            <li key={idx} className="text-xs text-gray-400 flex items-start gap-2">
+                                                <span className="text-primary mt-0.5">•</span>
+                                                <span>{rec}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Action */}
+                            <div className="flex items-center justify-between bg-black/30 rounded p-2 mt-2">
+                                <span className="text-gray-500 text-xs">Suggested Action:</span>
+                                <span className={`font-bold text-sm ${trade.ai_analysis.actions === 'CLOSE' ? 'text-red-400' :
+                                        trade.ai_analysis.actions === 'HOLD' ? 'text-blue-400' : 'text-gray-300'
+                                    }`}>
+                                    {trade.ai_analysis.actions || trade.ai_analysis.recommendations}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     )

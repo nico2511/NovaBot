@@ -64,6 +64,39 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
         }
     };
 
+    const handleTrade = async (signal: any) => {
+        const targetSymbol = signal.symbol || symbol;
+
+        if (!confirm(`Voulez-vous vraiment exécuter ce trade sur ${targetSymbol} ?\n\n${signal.signal} @ ${signal.price}\nSL: ${signal.sl}\nTP: ${signal.tp}`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('http://localhost:8001/api/execute_manual_trade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    symbol: targetSymbol,
+                    action: signal.signal,
+                    price: signal.price,
+                    sl: signal.sl,
+                    tp: signal.tp,
+                    strategy: signal.strategy
+                })
+            });
+
+            const data = await res.json();
+            if (data.status === 'success') {
+                alert('✅ Trade exécuté avec succès !');
+            } else {
+                alert(`❌ Erreur: ${data.message}`);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('❌ Erreur de connexion au serveur');
+        }
+    };
+
     const parseAIOutput = (analysis: AIAnalysis | null) => {
         if (!analysis || !analysis.raw_output) return null;
         try {
@@ -239,6 +272,17 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
                                     {analysis.recommendation && (
                                         <p className="text-xs text-gray-400 italic">💡 {analysis.recommendation}</p>
                                     )}
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center justify-end mt-3 border-t border-gray-700/50 pt-2">
+                                        <button
+                                            onClick={() => handleTrade(item.signal)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-medium transition-colors"
+                                        >
+                                            <Sparkles className="w-3 h-3" />
+                                            Trader
+                                        </button>
+                                    </div>
 
                                     <div className="flex items-center gap-1 mt-2 text-xs text-gray-600">
                                         <Clock className="w-3 h-3" />

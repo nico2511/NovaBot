@@ -24,6 +24,9 @@ class HyperliquidService:
             except Exception as e:
                 print(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
                 self.exchange = None
+        
+        # Initialize metadata cache
+        self._meta_cache = None
     
     def _parse_interval_to_seconds(self, interval: str) -> int:
         """Parse interval string (e.g., '1m', '15m', '1h') to seconds"""
@@ -378,6 +381,7 @@ class HyperliquidService:
                         "entry_time": timestamp_str,
                         "exit_time": timestamp_str,
                         "timestamp": timestamp_str,
+                        "fee": float(fill.get("fee", 0)),
                         "strategy": "Unknown",  # Non disponible depuis Hyperliquid
                         "exit_reason": "Hyperliquid",
                         "source": "hyperliquid",
@@ -397,5 +401,38 @@ class HyperliquidService:
             import traceback
             traceback.print_exc()
             return []
+
+    def get_market_data(self, symbol: str):
+        """
+        Get market data for a symbol (price, volume, etc.)
+        """
+        if not symbol or not self.info:
+            return {}
+            
+        try:
+            # Get all meta and context
+            meta_and_context = self.info.meta_and_asset_ctxs()
+            
+            # Find universe index for symbol
+            universe = meta_and_context[0]["universe"]
+            symbol_index = next((i for i, asset in enumerate(universe) if asset["name"] == symbol), None)
+            
+            if symbol_index is None:
+                return {}
+                
+            # Get context for this symbol
+            ctx = meta_and_context[1][symbol_index]
+            
+            return {
+                "price": float(ctx.get("markPx", 0)),
+                "volume_24h": float(ctx.get("dayNtlVlm", 0)),
+                "funding_rate": float(ctx.get("funding", 0)),
+                "open_interest": float(ctx.get("openInterest", 0)),
+                "oracle_price": float(ctx.get("oraclePx", 0)),
+                "prev_day_price": float(ctx.get("prevDayPx", 0))
+            }
+        except Exception as e:
+            print(f"Error fetching market data for {symbol}: {e}")
+            return {}
 
 hyperliquid_service = HyperliquidService()

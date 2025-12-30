@@ -31,6 +31,7 @@ class HyperliquidScanner:
         
         # Configuration thresholds
         self.min_volume_24h = 10_000_000  # $10M minimum
+        self.min_open_interest = 5_000_000 # $5M minimum OI
         self.min_atr_pct = 3.0  # Minimum volatility
         self.max_atr_pct = 8.0  # Maximum volatility
         self.min_momentum_pct = 5.0  # Minimum 24h change
@@ -60,12 +61,6 @@ class HyperliquidScanner:
                 # Get allowed assets for current level
                 allowed_assets = gam.get_allowed_assets()
                 
-                print(f"🕵️ DEBUG SCANNER: Balance={account_value}, Level={gam.level.value}")
-                print(f"🕵️ DEBUG ALLOWED FULL: {allowed_assets}")
-                
-                if "BTC" in allowed_assets:
-                    print(f"🚨 ALERT: BTC IS IN ALLOWED ASSETS for level {gam.level.value}!")
-
                 # Filter tokens to only allowed ones
                 filtered_tokens = [token for token in all_tokens if token in allowed_assets]
                 
@@ -74,7 +69,6 @@ class HyperliquidScanner:
                 
                 print(f"🎮 Gamification Level: {gam.level.value} (Balance: ${account_value:.2f})")
                 print(f"📊 Allowed tokens: {len(filtered_tokens)}/{len(all_tokens)}")
-                print(f"🎯 Tiers: {', '.join([tier.value for tier in ACCESS_RULES[gam.level]['allowed_tiers']])}")
                 
                 if not filtered_tokens:
                     print("⚠️ No tokens available for current level!")
@@ -84,8 +78,6 @@ class HyperliquidScanner:
                 
             except Exception as e:
                 print(f"⚠️ Gamification filter error: {e}")
-                # FALLBACK SECURISE: En cas d'erreur, ne retourner QUE les memecoins par défaut
-                # pour éviter de trader du BTC/ETH par erreur
                 print("⚠️ Fallback to default safe list (Casino tier)")
                 return ["PEPE", "DOGE", "WIF", "BONK", "FARTCOIN"]
                 
@@ -106,13 +98,15 @@ class HyperliquidScanner:
                 symbol = asset['name']
                 ctx = contexts[i]
                 
+                mark_px = float(ctx.get('markPx', 0))
+                
                 token_data[symbol] = {
                     'symbol': symbol,
                     'volume_24h': float(ctx.get('dayNtlVlm', 0)),
-                    'mark_price': float(ctx.get('markPx', 0)),
+                    'mark_price': mark_px,
                     'prev_day_px': float(ctx.get('prevDayPx', 0)),
                     'funding': float(ctx.get('funding', 0)),
-                    'open_interest': float(ctx.get('openInterest', 0)),
+                    'open_interest': float(ctx.get('openInterest', 0)) * mark_px, # Convert OI (coins) to USD
                 }
             
             return token_data
@@ -120,12 +114,13 @@ class HyperliquidScanner:
             print(f"❌ Error fetching market data: {e}")
             return {}
     
-    def filter_by_volume(self, token_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Filter tokens by minimum volume"""
+    def filter_candidates(self, token_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Filter tokens by minimum volume AND open interest"""
         candidates = []
         
         for symbol, data in token_data.items():
-            if data['volume_24h'] >= self.min_volume_24h:
+            # Check Volume AND Open Interest
+            if data['volume_24h'] >= self.min_volume_24h and data['open_interest'] >= self.min_open_interest:
                 # Calculate 24h momentum
                 if data['prev_day_px'] > 0:
                     momentum_pct = ((data['mark_price'] - data['prev_day_px']) / data['prev_day_px']) * 100
@@ -135,7 +130,7 @@ class HyperliquidScanner:
                 data['momentum_24h'] = momentum_pct
                 candidates.append(data)
         
-        print(f"✅ {len(candidates)} tokens with volume > ${self.min_volume_24h/1e6:.1f}M")
+        print(f"✅ {len(candidates)} tokens with Volume > ${self.min_volume_24h/1e6:.1f}M & OI > ${self.min_open_interest/1e6:.1f}M")
         return candidates
     
     def analyze_token(self, symbol: str) -> Dict[str, Any]:
@@ -208,60 +203,66 @@ class HyperliquidScanner:
         score = 0
         reasons = []
         
-        # Volume Score (0-30 points)
+        # 1. Volume Score (0-20 points)
         volume_millions = token_data['volume_24h'] / 1_000_000
-        volume_score = min(30, volume_millions * 0.5)  # 1 point per $2M, max 30
+        volume_score = min(20, volume_millions * 0.4)  # 1 point per $2.5M
         score += volume_score
         
-        if volume_score >= 20:
-            reasons.append(f"High volume: ${volume_millions:.1f}M")
+        if volume_score >= 15:
+            reasons.append(f"🔥 High Volume: ${volume_millions:.1f}M")
+            
+        # 2. Open Interest Score (0-15 points) - NEW
+        oi_millions = token_data['open_interest'] / 1_000_000
+        oi_score = min(15, oi_millions * 0.5) # 1 point per $2M
+        score += oi_score
         
-        # Volatility Score (0-25 points)
+        if oi_score >= 10:
+            reasons.append(f"🏛️ Big Open Interest: ${oi_millions:.1f}M")
+        
+        # 3. Volatility Score (0-20 points)
         atr = analysis['atr_pct']
         if self.min_atr_pct <= atr <= self.max_atr_pct:
-            vol_score = 25
-            reasons.append(f"Optimal volatility: {atr:.2f}%")
+            vol_score = 20
+            reasons.append(f"⚡ Optimal Volatility: {atr:.2f}%")
         elif atr > self.max_atr_pct:
-            # Too volatile, penalize
-            vol_score = max(0, 25 - (atr - self.max_atr_pct) * 2)
-            if vol_score > 0:
-                reasons.append(f"High volatility: {atr:.2f}%")
+            # Too volatile, penalize slightly
+            vol_score = max(5, 20 - (atr - self.max_atr_pct) * 1.5)
+            reasons.append(f"⚠️ High Volatility: {atr:.2f}%")
         else:
             # Too low volatility
-            vol_score = atr * 5  # Scale up low volatility
+            vol_score = atr * 4
         
         score += vol_score
         
-        # Momentum Score (0-25 points)
+        # 4. Momentum Score (0-20 points)
         momentum = abs(analysis['momentum_pct'])
         if momentum >= self.min_momentum_pct:
-            mom_score = min(25, momentum * 2)
+            mom_score = min(20, momentum * 1.5)
             score += mom_score
-            reasons.append(f"Strong momentum: {analysis['momentum_pct']:+.2f}%")
+            reasons.append(f"🚀 Strong Momentum: {analysis['momentum_pct']:+.2f}%")
         else:
-            mom_score = momentum * 2
+            mom_score = momentum * 1.5
             score += mom_score
         
-        # RSI Score (0-20 points) - Favor extremes for mean reversion
+        # 5. RSI Score (0-15 points) - Favor extremes for mean reversion OR trend
         rsi = analysis['rsi']
         if rsi < 30:
-            rsi_score = 20
-            reasons.append(f"RSI oversold: {rsi:.0f}")
-        elif rsi > 70:
-            rsi_score = 20
-            reasons.append(f"RSI overbought: {rsi:.0f}")
-        elif 40 <= rsi <= 60:
             rsi_score = 15
-            reasons.append(f"RSI neutral: {rsi:.0f}")
+            reasons.append(f"💎 Oversold (RSI {rsi:.0f})")
+        elif rsi > 70:
+            rsi_score = 15
+            reasons.append(f"🔥 Overbought (RSI {rsi:.0f})")
+        elif 45 <= rsi <= 55:
+            rsi_score = 5 # Boring
         else:
             rsi_score = 10
         
         score += rsi_score
         
-        # Trend bonus (0-10 points)
+        # 6. Trend bonus (0-10 points)
         if analysis['trend'] != 'NEUTRAL':
             score += 10
-            reasons.append(f"Clear trend: {analysis['trend']}")
+            reasons.append(f"{'📈' if analysis['trend']=='UP' else '📉'} Clear Trend")
         
         return {
             'score': round(score, 2),
@@ -294,9 +295,9 @@ class HyperliquidScanner:
         print("\n📊 Fetching market data...")
         market_data = self.get_market_data()
         
-        # Step 3: Filter by volume
-        print(f"\n🔎 Filtering by volume (min ${self.min_volume_24h/1e6:.1f}M)...")
-        candidates = self.filter_by_volume(market_data)
+        # Step 3: Filter by volume and open interest
+        print(f"\n🔎 Filtering by liquidity (Vol > ${self.min_volume_24h/1e6:.1f}M, OI > ${self.min_open_interest/1e6:.1f}M)...")
+        candidates = self.filter_candidates(market_data)
         
         # RATE LIMIT: Limit to MAX_TOKENS_TO_SCAN
         if len(candidates) > self.MAX_TOKENS_TO_SCAN:
@@ -308,7 +309,7 @@ class HyperliquidScanner:
         candidates = [c for c in candidates if c['symbol'] in allowed_tokens]
         
         if not candidates:
-            print("❌ No allowed tokens meet volume criteria for your level")
+            print("❌ No allowed tokens meet liquidity criteria for your level")
             print(f"💡 Tip: Increase your balance to unlock more tokens!")
             return []
         
@@ -369,7 +370,7 @@ class HyperliquidScanner:
                 stars = "⭐"
             
             print(f"\n{i}. {opp['symbol']} (Score: {opp['score']:.0f}/100) {stars}")
-            print(f"   💰 Volume 24h: ${opp['volume_24h']/1e6:.1f}M")
+            print(f"   💰 Volume: ${opp['volume_24h']/1e6:.1f}M | OI: ${opp['open_interest']/1e6:.1f}M")
             print(f"   📈 Momentum: {opp['momentum_24h']:+.2f}% ({opp['trend']})")
             print(f"   📊 ATR: {opp['atr_pct']:.2f}%")
             print(f"   🎯 RSI: {opp['rsi']:.0f}")

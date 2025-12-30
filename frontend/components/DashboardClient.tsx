@@ -62,15 +62,6 @@ export default function DashboardClient() {
     })
     const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
 
-    const toggleEngine = async () => {
-        const endpoint = status?.is_running ? '/api/engine/stop' : '/api/engine/start'
-        await axios.post(`${API_URL}${endpoint}`)
-    }
-
-    const toggleTrading = async () => {
-        const endpoint = status?.trading_enabled ? '/api/trading/disable' : '/api/trading/enable'
-        await axios.post(`${API_URL}${endpoint}`)
-    }
 
     return (
         <>
@@ -137,33 +128,9 @@ export default function DashboardClient() {
             </header>
 
             {/* Main Content */}
-            < main className="container mx-auto px-6 py-8" >
+            <main className="container mx-auto px-6 py-8">
                 {/* Stats Grid Removed as requested */}
 
-                {/* Controls */}
-                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
-                    <h3 className="text-lg font-semibold mb-4">Controls</h3>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={toggleEngine}
-                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.is_running
-                                ? 'bg-error/20 hover:bg-error/30 text-error border border-error/30'
-                                : 'bg-success/20 hover:bg-success/30 text-success border border-success/30'
-                                }`}
-                        >
-                            {status?.is_running ? '⏸ Stop Engine' : '▶️ Start Engine'}
-                        </button>
-                        <button
-                            onClick={toggleTrading}
-                            className={`px-6 py-3 rounded-lg font-semibold transition-all ${status?.trading_enabled
-                                ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
-                                : 'bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30'
-                                }`}
-                        >
-                            {status?.trading_enabled ? '🔴 Disable Trading' : '🟢 Enable Trading'}
-                        </button>
-                    </div>
-                </div>
 
                 {/* Chart */}
                 <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
@@ -260,7 +227,7 @@ export default function DashboardClient() {
             </main >
 
             {/* Settings Panel */}
-            < Settings />
+            <Settings />
         </>
     )
 }

@@ -165,6 +165,11 @@ class BotContext:
                                     
                                     self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
                                     
+                                    # CACHE THE RESULT for UI
+                                    self.ai_cache[f"position_analysis_{self.active_symbol}"] = ai_data
+                                    self.ai_cache["last_position_analysis"] = ai_data
+                                    self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
+                                    
                                     # Send to Discord if high risk
                                     if risk_level in ["HIGH", "CRITICAL"]:
                                         try:
@@ -413,8 +418,8 @@ class BotContext:
                     except Exception as e:
                         print(f"Error in AI market analysis: {e}")
                     
-                    # Process signals
-                    if result.get("signals"):
+                    # Process signals (Only if NO active trade)
+                    if result.get("signals") and not self.active_trade:
                         sig_data = result["signals"][0]
                         strat_name = sig_data.get("strategy", "Unknown")
                         action = sig_data.get("signal")
@@ -497,6 +502,18 @@ class BotContext:
                                 )
                             except:
                                 pass
+                            
+                            # LOG TO SIGNALS FOR UI
+                            log_entry = {
+                                "time": pd.Timestamp.now(),
+                                "symbol": self.active_symbol,
+                                "strategy": strat_name,
+                                "type": action,
+                                "price": entry_price,
+                                "action": "MANUAL_REQ",
+                                "manual_approval": True
+                            }
+                            self.signals_log.append(log_entry)
                         else:
                             can_trade, reason = self.risk_manager.check_can_trade()
                             if can_trade:
@@ -630,6 +647,8 @@ class BotContext:
                             
                             position_analysis = gemini_service.analyze_active_position(self.active_trade, market_context)
                             
+                            # CRITICAL FIX: Store with specific key for API retrieval
+                            self.ai_cache[f"position_analysis_{self.active_symbol}"] = position_analysis
                             self.ai_cache["last_position_analysis"] = position_analysis
                             self.ai_cache["last_position_analysis_time"] = now
                             

@@ -170,6 +170,35 @@ export default function Settings() {
                             </div>
 
 
+                            {/* Engine Control */}
+                            <div className="border-t border-border/30 pt-6">
+                                <h3 className="text-lg font-semibold mb-4">⚙️ Engine Control</h3>
+                                <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border/30">
+                                    <div>
+                                        <label className="text-sm font-semibold block mb-1">Bot Engine Status</label>
+                                        <p className="text-xs text-gray-400">Start or stop the main trading loop</p>
+                                    </div>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const endpoint = statusData?.is_running ? '/api/engine/stop' : '/api/engine/start'
+                                                await axios.post(`${API_URL}${endpoint}`)
+                                                // SWR will auto-refresh status
+                                            } catch (error) {
+                                                console.error('Failed to toggle engine:', error)
+                                                alert('❌ Failed to toggle engine')
+                                            }
+                                        }}
+                                        className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${statusData?.is_running
+                                            ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
+                                            : 'bg-green-500/20 text-green-500 border-2 border-green-500/50 hover:bg-green-500/30'
+                                            }`}
+                                    >
+                                        {statusData?.is_running ? '⏸ STOP ENGINE' : '▶️ START ENGINE'}
+                                    </button>
+                                </div>
+                            </div>
+
                             {/* Trading Control */}
                             <div className="border-t border-border/30 pt-6">
                                 <h3 className="text-lg font-semibold mb-4">🤖 Trading Control</h3>
@@ -192,8 +221,8 @@ export default function Settings() {
                                                 }
                                             }}
                                             className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${settings.trading_enabled
-                                                    ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
-                                                    : 'bg-primary/20 text-primary border-2 border-primary/50 hover:bg-primary/30'
+                                                ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
+                                                : 'bg-primary/20 text-primary border-2 border-primary/50 hover:bg-primary/30'
                                                 }`}
                                         >
                                             {settings.trading_enabled ? '🛑 STOP BOT' : '▶️ START BOT'}

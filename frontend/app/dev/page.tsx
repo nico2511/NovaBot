@@ -248,6 +248,7 @@ export default function DevPage() {
                                         <th className="pb-2">Size</th>
                                         <th className="pb-2">Price</th>
                                         <th className="pb-2">Fee</th>
+                                        <th className="pb-2">PnL</th>
                                     </tr>
                                 </thead>
                                 <tbody className="text-gray-300">
@@ -264,6 +265,9 @@ export default function DevPage() {
                                                 <td className="py-2 font-mono">{trade.size}</td>
                                                 <td className="py-2 font-mono">${trade.price.toFixed(4)}</td>
                                                 <td className="py-2 font-mono text-gray-400">${trade.fee?.toFixed(4)}</td>
+                                                <td className={`py-2 font-mono ${(trade.pnl_real || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    ${(trade.pnl_real || 0).toFixed(4)}
+                                                </td>
                                             </tr>
                                         ))
                                     ) : (

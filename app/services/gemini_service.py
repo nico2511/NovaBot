@@ -1,9 +1,8 @@
 import google.generativeai as genai
-from openai import OpenAI
 from app.core.config import config
 import threading
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class GeminiService:
     def __init__(self):
@@ -19,15 +18,24 @@ class GeminiService:
                 'gemini-2.0-flash-lite'
             ]  # Try 2.5 first, fallback to 2.0
         
-        # 2. Init OpenRouter (via OpenAI client)
+        # 2. Init OpenRouter (via OpenAI client) - OPTIONAL
         self.openrouter_key = config.OPENROUTER_API_KEY
         self.openrouter_client = None
+        self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free"
+
         if self.openrouter_key:
-            self.openrouter_client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.openrouter_key,
-            )
-            self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free" # Fallback model
+            try:
+                from openai import OpenAI
+                self.openrouter_client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self.openrouter_key,
+                )
+            except ImportError:
+                print("⚠️ OpenAI module not found. OpenRouter fallback disabled.")
+                self.openrouter_client = None
+            except Exception as e:
+                print(f"⚠️ Failed to init OpenRouter: {e}")
+                self.openrouter_client = None
 
         self.provider_order = ["gemini", "openrouter"]  # Gemini first, OpenRouter fallback
 
@@ -35,6 +43,9 @@ class GeminiService:
         self.last_market_analysis = None
         self.last_market_analysis_time = None
         self.cache = {}
+        
+        # Circuit Breaker
+        self.circuit_breaker_until = None
 
     def _call_gemini_api(self, prompt: str) -> dict:
         """Call official Gemini API"""
@@ -52,7 +63,7 @@ class GeminiService:
                 if "429" in str(e) or "quota" in str(e).lower():
                     continue 
                 raise e # Other errors might be fatal
-        raise Exception("All Gemini models failed (Quota or Error)")
+        raise Exception("All Gemini models exhausted (Quota or Error)")
 
     def _call_openrouter_api(self, prompt: str) -> dict:
         """Call OpenRouter API"""
@@ -74,6 +85,18 @@ class GeminiService:
 
     def _call_ai_generic(self, prompt: str) -> dict:
         """Dispatcher: Try providers in order"""
+        
+        # Check Circuit Breaker
+        if self.circuit_breaker_until:
+            if datetime.now() < self.circuit_breaker_until:
+                remaining = int((self.circuit_breaker_until - datetime.now()).total_seconds() / 60)
+                # Silent return to avoid spamming logs
+                return {"error": "AI Circuit Breaker Active", "raw_output": json.dumps({"explanation": f"IA en pause pour {remaining} min (Quota épuisé)"})}
+            else:
+                # Reset breaker
+                self.circuit_breaker_until = None
+                print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
+
         errors = []
         
         for provider in self.provider_order:
@@ -83,11 +106,22 @@ class GeminiService:
                 elif provider == "openrouter":
                     return self._call_openrouter_api(prompt)
             except Exception as e:
+                error_str = str(e).lower()
                 print(f"⚠️ AI Provider {provider} failed: {e}")
                 errors.append(f"{provider}: {e}")
+                
+                # Check for Quota/Rate Limit errors to trigger Circuit Breaker
+                if "429" in error_str or "quota" in error_str or "exhausted" in error_str:
+                     # Only trigger if this is the LAST provider or if we want to be aggressive
+                     pass 
                 continue
         
         # If we get here, all failed
+        # Check if it was a quota issue
+        if any("quota" in e.lower() or "429" in e.lower() or "exhausted" in e.lower() for e in errors):
+            self.circuit_breaker_until = datetime.now() + timedelta(minutes=10)
+            print("❄️ AI CIRCUIT BREAKER TRIGGERED: Pausing AI for 10 minutes (Quota/Rate Limits)")
+            
         return {"raw_output": json.dumps({"error": "All AI providers failed", "details": errors})}
 
     def _get_cache_key(self, type_: str, unique_id: str) -> str:
