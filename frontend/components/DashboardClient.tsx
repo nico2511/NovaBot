@@ -169,10 +169,10 @@ export default function DashboardClient() {
                 {/* Chart */}
                 <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6 mb-8">
                     {/* Tab Navigation */}
-                    <div className="flex gap-2 mb-6 border-b border-border/30 pb-4">
+                    <div className="flex gap-2 mb-6 border-b border-border/30 pb-4 overflow-x-auto">
                         <button
                             onClick={() => setActiveTab('overview')}
-                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'overview'
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'overview'
                                 ? 'bg-primary text-white'
                                 : 'text-gray-400 hover:text-white hover:bg-surface/50'
                                 }`}
@@ -180,8 +180,26 @@ export default function DashboardClient() {
                             📊 Overview
                         </button>
                         <button
+                            onClick={() => setActiveTab('strategies')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'strategies'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            📈 Strategies
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('signals')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'signals'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            📡 Signals
+                        </button>
+                        <button
                             onClick={() => setActiveTab('scanner')}
-                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'scanner'
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'scanner'
                                 ? 'bg-primary text-white'
                                 : 'text-gray-400 hover:text-white hover:bg-surface/50'
                                 }`}
@@ -190,41 +208,40 @@ export default function DashboardClient() {
                         </button>
                         <button
                             onClick={() => setActiveTab('ai')}
-                            className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'ai'
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'ai'
                                 ? 'bg-primary text-white'
                                 : 'text-gray-400 hover:text-white hover:bg-surface/50'
                                 }`}
                         >
-                            🤖 AI Commentary
+                            🤖 AI Analysis
                         </button>
                     </div>
 
 
                     {/* Tab Content */}
                     {activeTab === 'overview' && (
-                        <div className="space-y-6">
-                            {/* Chart */}
-                            <Chart
-                                symbol={status?.active_symbol || 'BTC'}
-                                strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
-                            />
+                        <Chart
+                            symbol={status?.active_symbol || 'BTC'}
+                            strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                        />
+                    )}
 
-                            {/* Grid: Strategy Monitor + Recent Signals */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <StrategyMonitor
-                                    strategies={marketData?.active_strategies || []}
-                                    regime={marketData?.regime || 'UNKNOWN'}
-                                    rsi={marketData?.rsi || 0}
-                                    atr={marketData?.atr || 0}
-                                    adx={marketData?.adx || 0}
-                                    ema_20={marketData?.ema_20}
-                                    ema_50={marketData?.ema_50}
-                                    bb={marketData?.bb}
-                                    strategy_progress={marketData?.strategy_progress || {}}
-                                />
-                                <RecentSignals />
-                            </div>
-                        </div>
+                    {activeTab === 'strategies' && (
+                        <StrategyMonitor
+                            strategies={marketData?.active_strategies || []}
+                            regime={marketData?.regime || 'UNKNOWN'}
+                            rsi={marketData?.rsi || 0}
+                            atr={marketData?.atr || 0}
+                            adx={marketData?.adx || 0}
+                            ema_20={marketData?.ema_20}
+                            ema_50={marketData?.ema_50}
+                            bb={marketData?.bb}
+                            strategy_progress={marketData?.strategy_progress || {}}
+                        />
+                    )}
+
+                    {activeTab === 'signals' && (
+                        <RecentSignals />
                     )}
 
                     {activeTab === 'scanner' && (
