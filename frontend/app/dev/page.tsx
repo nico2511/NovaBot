@@ -232,6 +232,52 @@ export default function DevPage() {
                         </div>
                     </div>
 
+                    {/* Recent Trades */}
+                    <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6 md:col-span-2 lg:col-span-3">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Activity className="text-gray-400" size={20} />
+                            <h2 className="text-xl font-bold">Recent Trades</h2>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-gray-500 border-b border-white/5">
+                                        <th className="pb-2">Time</th>
+                                        <th className="pb-2">Symbol</th>
+                                        <th className="pb-2">Side</th>
+                                        <th className="pb-2">Size</th>
+                                        <th className="pb-2">Price</th>
+                                        <th className="pb-2">Fee</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="text-gray-300">
+                                    {data.recent_trades && data.recent_trades.length > 0 ? (
+                                        data.recent_trades.map((trade: any, i: number) => (
+                                            <tr key={i} className="border-b border-white/5 hover:bg-white/5">
+                                                <td className="py-2 font-mono">
+                                                    {new Date(trade.time).toLocaleTimeString()}
+                                                </td>
+                                                <td className="py-2 font-bold">{trade.symbol}</td>
+                                                <td className={`py-2 ${trade.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {trade.side}
+                                                </td>
+                                                <td className="py-2 font-mono">{trade.size}</td>
+                                                <td className="py-2 font-mono">${trade.price.toFixed(4)}</td>
+                                                <td className="py-2 font-mono text-gray-400">${trade.fee?.toFixed(4)}</td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={6} className="py-4 text-center text-gray-500">
+                                                No recent trades
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     {/* API Status */}
                     <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
                         <div className="flex items-center gap-2 mb-4">
