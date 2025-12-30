@@ -827,14 +827,70 @@ async def get_dev_diagnostics():
     try:
         from app.services.hyperliquid_service import hyperliquid_service
         bot = bot_bridge.get_bot_context() if bot_bridge and bot_bridge.is_connected() else None
-        account_value = hyperliquid_service.get_account_value()
+        
+        # Get detailed account info
+        account_balance = hyperliquid_service.get_account_balance()
+        account_value = account_balance.get("total_equity", 0)
+        margin_used = account_balance.get("margin_used", 0)
+        available_balance = account_balance.get("available_balance", 0)
+        
+        # Get positions
+        positions = hyperliquid_service.get_positions()
+        unrealized_pnl = sum([pos.get('pnl', 0) for pos in positions])
+        
+        # Get trade history (last 10 trades)
+        try:
+            trade_history = hyperliquid_service.get_trade_history(limit=10)
+            recent_trades = []
+            for trade in trade_history[:10]:
+                recent_trades.append({
+                    "symbol": trade.get("coin", "N/A"),
+                    "side": trade.get("side", "N/A"),
+                    "size": float(trade.get("sz", 0)),
+                    "price": float(trade.get("px", 0)),
+                    "time": trade.get("time", 0)
+                })
+        except:
+            recent_trades = []
+        
+        # Calculate portfolio stats
+        total_portfolio_value = account_value + unrealized_pnl
+        margin_ratio = (margin_used / account_value * 100) if account_value > 0 else 0
         
         return {
-            "account": {"balance": account_value, "margin_used": 0, "available_margin": account_value},
-            "positions": [],
+            "account": {
+                "balance": account_value,
+                "margin_used": margin_used,
+                "available_margin": available_balance,
+                "margin_ratio": round(margin_ratio, 2)
+            },
+            "positions": [
+                {
+                    "symbol": pos.get('symbol'),
+                    "side": pos.get('side'),
+                    "size": pos.get('size'),
+                    "entry_price": pos.get('entry_price'),
+                    "leverage": pos.get('leverage', 1),
+                    "pnl": pos.get('pnl', 0)
+                }
+                for pos in positions
+            ],
             "symbol": {"name": bot.active_symbol if bot else "N/A"},
-            "portfolio": {"total_value": account_value, "unrealized_pnl": 0, "realized_pnl_today": 0},
-            "api_status": {"hyperliquid_connected": hyperliquid_service.exchange is not None},
+            "portfolio": {
+                "total_value": round(total_portfolio_value, 2),
+                "account_equity": round(account_value, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "realized_pnl_today": round(bot.risk_manager.daily_pnl if bot else 0, 2),
+                "margin_used": round(margin_used, 2),
+                "available_balance": round(available_balance, 2),
+                "margin_ratio_pct": round(margin_ratio, 2),
+                "open_positions_count": len(positions)
+            },
+            "recent_trades": recent_trades,
+            "api_status": {
+                "hyperliquid_connected": hyperliquid_service.exchange is not None,
+                "last_call": pd.Timestamp.now().isoformat()
+            },
             "bot_state": {
                 "trading_enabled": bot.trading_enabled if bot else bot_state.trading_enabled,
                 "is_running": bot.is_running if bot else bot_state.is_running,
@@ -843,7 +899,16 @@ async def get_dev_diagnostics():
             }
         }
     except Exception as e:
-        return {"error": str(e), "account": {"balance": 0}, "positions": [], "bot_state": {}}
+        print(f"Error in dev diagnostics: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": str(e),
+            "account": {"balance": 0, "margin_used": 0, "available_margin": 0},
+            "positions": [],
+            "portfolio": {"total_value": 0},
+            "bot_state": {}
+        }
 
 
 
