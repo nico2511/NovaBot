@@ -880,7 +880,7 @@ async def get_dev_diagnostics():
                 "total_value": round(total_portfolio_value, 2),
                 "account_equity": round(account_value, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2),
-                "realized_pnl_today": round(bot.risk_manager.daily_pnl if bot else 0, 2),
+                "realized_pnl_today": round(bot.risk_state.get('daily_pnl', 0) if bot else 0, 2),
                 "margin_used": round(margin_used, 2),
                 "available_balance": round(available_balance, 2),
                 "margin_ratio_pct": round(margin_ratio, 2),
