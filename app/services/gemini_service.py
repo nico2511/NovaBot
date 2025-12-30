@@ -25,11 +25,12 @@ class GeminiService:
                 base_url="https://openrouter.ai/api/v1",
                 api_key=self.openrouter_key,
             )
-            self.openrouter_model = "google/gemini-2.0-flash-exp:free" # Use free or cheap model
-        
-        self.provider_order = ["gemini", "openrouter"] if config.GEMINI_API_KEY else ["openrouter"]
-        if config.AI_PROVIDER == "openrouter":
-            self.provider_order = ["openrouter", "gemini"]
+            # self.openrouter_model = "google/gemini-2.0-flash-exp:free" 
+            self.openrouter_model = "meta-llama/llama-3.1-8b-instruct:free" # User requested model
+
+        self.provider_order = ["openrouter", "gemini"] # Prioritize OpenRouter by default as requested
+        if config.AI_PROVIDER == "gemini":
+            self.provider_order = ["gemini", "openrouter"]
 
         # Cache
         self.last_market_analysis = None
