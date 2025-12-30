@@ -813,14 +813,12 @@ async def get_gamification_status():
         return {
             "status": "error",
             "message": str(e),
-                    "current_balance": 0,
-                    "required_balance": 100,
-                    "progress_percent": 0,
-                    "remaining": 100
-                },
-                "recommendations": []
+            "gamification": {
+                "level": "Goblin",
+                "balance": 0
             }
         }
+
 
 
 @app.get("/api/dev/diagnostics")
