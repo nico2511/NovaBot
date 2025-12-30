@@ -12,7 +12,12 @@ class GeminiService:
         self.gemini_models = []
         if self.gemini_key:
             genai.configure(api_key=self.gemini_key)
-            self.gemini_models = ['gemini-2.0-flash','gemini-2.0-flash-lite']  # Free tier: 1500 req/day
+            self.gemini_models = [
+                'gemini-2.5-flash',
+                'gemini-2.5-flash-lite',
+                'gemini-2.0-flash',
+                'gemini-2.0-flash-lite'
+            ]  # Try 2.5 first, fallback to 2.0
         
         # 2. Init OpenRouter (via OpenAI client)
         self.openrouter_key = config.OPENROUTER_API_KEY
