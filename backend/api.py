@@ -841,7 +841,7 @@ async def get_dev_diagnostics():
         # Get user state for additional metrics
         try:
             from hyperliquid.info import Info
-            from app import config
+            from app.config import config
             info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
             user_state = info.user_state(config.HL_ACCOUNT_ADDRESS)
             margin_summary = user_state.get("marginSummary", {})
