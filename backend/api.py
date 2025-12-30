@@ -813,18 +813,6 @@ async def get_gamification_status():
         return {
             "status": "error",
             "message": str(e),
-            "gamification": {
-                "level": "Goblin",
-                "balance": 0,
-                "allowed_tiers": ["Casino"],
-                "allowed_assets_count": 0,
-                "max_leverage": 3,
-                "max_position_size": 50,
-                "description": "Erreur de connexion",
-                "recommendation": "Vérifiez votre connexion Hyperliquid",
-                "progress": {
-                    "current_level": "Goblin",
-                    "next_level": "Mercenary",
                     "current_balance": 0,
                     "required_balance": 100,
                     "progress_percent": 0,
