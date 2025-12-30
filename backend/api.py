@@ -841,6 +841,7 @@ async def get_dev_diagnostics():
         # Get user state for additional metrics
         try:
             from hyperliquid.info import Info
+            from app import config
             info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
             user_state = info.user_state(config.HL_ACCOUNT_ADDRESS)
             margin_summary = user_state.get("marginSummary", {})
@@ -856,6 +857,8 @@ async def get_dev_diagnostics():
             
         except Exception as e:
             print(f"Error fetching extended margin data: {e}")
+            import traceback
+            traceback.print_exc()
             withdrawable = available_balance
             total_ntl_pos = 0
             total_raw_usd = account_value
