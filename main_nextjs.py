@@ -490,7 +490,28 @@ class BotContext:
                             continue  # Skip execution completely - don't create phantom positions
                         elif sig_data.get("manual_approval"):
                             # MANUEL - SIGNATURE REQUISE
-                            # On ne trade pas, on prévient juste
+                            # On ne trade pas, on prévient juste, SAUF si le trade existe déjà (Just-In-Time adoption)
+                            
+                            # CRITICAL: Double check against exchange before spamming
+                            jit_positions = hyperliquid_service.get_positions()
+                            existing_pos = next((p for p in jit_positions if p["symbol"] == self.active_symbol), None)
+                            
+                            if existing_pos:
+                                self.add_log(f"🕵️ JIT: Found existing position on {self.active_symbol} just before alert. Adopting instead.")
+                                self.active_trade = {
+                                    "symbol": self.active_symbol,
+                                    "side": existing_pos["side"],
+                                    "entry": existing_pos["entry_price"],
+                                    "sl": existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05,
+                                    "tp": existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95,
+                                    "strategy": strat_name, # Associate the signal's strategy!
+                                    "timestamp": pd.Timestamp.now().isoformat(),
+                                    "size": existing_pos["size"],
+                                    "leverage": existing_pos.get("leverage", 1.0)
+                                }
+                                self.risk_manager.record_trade_open()
+                                continue # Skip alert, we are now managing it
+                            
                             msg = f"📝 MANUAL OPPORTUNITY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
                             self.add_log(msg)
                             

@@ -60,9 +60,13 @@ class ScannerJob:
                 valid_opps = [o for o in opportunities if o['score'] >= min_score]
                 
                 if valid_opps:
-                    # Send valid opportunities
-                    self.bot.add_log(f"Found {len(valid_opps)} opportunities >= {min_score}")
-                    self._send_discord_alert(valid_opps, min_score)
+                    # Check if trade is active - if so, DO NOT SPAM
+                    if self.bot.active_trade:
+                        self.bot.add_log(f"🕵️ Scanner found {len(valid_opps)} opps, but skipped alert (Active Trade)")
+                    else:
+                        # Send valid opportunities
+                        self.bot.add_log(f"Found {len(valid_opps)} opportunities >= {min_score}")
+                        self._send_discord_alert(valid_opps, min_score)
                     
                     # Auto Switch logic
                     best_opp = valid_opps[0]
@@ -82,9 +86,12 @@ class ScannerJob:
                 
                 elif opportunities:
                     # No valid opportunities, but send top 3 anyway
-                    top_3 = opportunities[:3]
-                    self.bot.add_log(f"No opportunities >= {min_score}. Top score: {top_3[0]['score']:.0f}")
-                    self._send_discord_alert(top_3, min_score, warning=True)
+                    if self.bot.active_trade:
+                        self.bot.add_log(f"🕵️ Scanner: Market calm, skipped alert (Active Trade)")
+                    else:
+                        top_3 = opportunities[:3]
+                        self.bot.add_log(f"No opportunities >= {min_score}. Top score: {top_3[0]['score']:.0f}")
+                        self._send_discord_alert(top_3, min_score, warning=True)
                 
                 else:
                     # No opportunities at all (gamification filtered everything or market issue)
