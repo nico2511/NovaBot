@@ -7,12 +7,12 @@ from datetime import datetime
 
 class GeminiService:
     def __init__(self):
-        # 1. Init Gemini - TEMPORARILY DISABLED (all models return 404)
+        # 1. Init Gemini - Using Gemini 2.0 Flash (free 1500 req/day)
         self.gemini_key = config.GEMINI_API_KEY
-        self.gemini_models = []  # Disabled until we find working model name
-        # if self.gemini_key:
-        #     genai.configure(api_key=self.gemini_key)
-        #     self.gemini_models = ['gemini-pro']
+        self.gemini_models = []
+        if self.gemini_key:
+            genai.configure(api_key=self.gemini_key)
+            self.gemini_models = ['gemini-2.0-flash']  # Free tier: 1500 req/day
         
         # 2. Init OpenRouter (via OpenAI client)
         self.openrouter_key = config.OPENROUTER_API_KEY
@@ -24,7 +24,7 @@ class GeminiService:
             )
             self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free" # Fallback model
 
-        self.provider_order = ["openrouter"]  # Only OpenRouter until Gemini model name is fixed
+        self.provider_order = ["gemini", "openrouter"]  # Gemini first, OpenRouter fallback
 
         # Cache
         self.last_market_analysis = None
