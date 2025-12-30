@@ -75,15 +75,43 @@ class HyperliquidService:
 
     
     def _fetch_metadata(self):
-        """Fetch and cache exchange metadata for precision"""
+        """Fetch and cache exchange metadata for precision (Persistent Cache)"""
+        import json
+        import os
+        CACHE_FILE = "token_meta_cache.json"
+
+        # 1. Check in-memory cache
         if hasattr(self, "_meta_cache") and self._meta_cache:
             return self._meta_cache
-        try:
-            self._meta_cache = self.info.meta()
-            return self._meta_cache
-        except Exception as e:
-            print(f"⚠️ Failed to fetch metadata: {e}")
-            return None
+        
+        # 2. Try to load from disk
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, "r") as f:
+                    self._meta_cache = json.load(f)
+                    print("✅ Metadata loaded from disk cache.")
+            except Exception as e:
+                print(f"⚠️ Failed to load metadata cache from disk: {e}")
+
+        # 3. If still needed, fetch from API (and save)
+        if not self._meta_cache:
+            try:
+                print("🌐 Fetching metadata from Hyperliquid API...")
+                self._meta_cache = self.info.meta()
+                
+                # Save to disk
+                try:
+                    with open(CACHE_FILE, "w") as f:
+                        json.dump(self._meta_cache, f)
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not save metadata cache: {e}")
+                    
+            except Exception as e:
+                print(f"⚠️ Failed to fetch metadata from API: {e}")
+                # Fallback to defaults will happen in _get_precision
+                return None
+        
+        return self._meta_cache
 
     def _get_precision(self, symbol: str):
         """Get precision for size and price from metadata"""
@@ -101,7 +129,40 @@ class HyperliquidService:
             
         return 6, 4 # Defaults if not found
 
-    def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None):
+    def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
+        """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
+        try:
+            sz_decimals, price_decimals = self._get_precision(symbol)
+            
+            # SL/TP logic: 
+            # If opened LONG (is_buy=True) -> SL/TP are SELL orders (is_buy=False)
+            # If opened SHORT (is_buy=False) -> SL/TP are BUY orders (is_buy=True)
+            close_is_buy = not is_buy
+            
+            if sl_price:
+                sl_price = float(f"{sl_price:.{price_decimals}f}")
+                print(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price}")
+                # "trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}
+                self.exchange.order(
+                    symbol, close_is_buy, quantity, sl_price, 
+                    {"trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}},
+                    reduce_only=True
+                )
+                
+            if tp_price:
+                tp_price = float(f"{tp_price:.{price_decimals}f}")
+                print(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price}")
+                # "trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}
+                self.exchange.order(
+                    symbol, close_is_buy, quantity, tp_price, 
+                    {"trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}},
+                    reduce_only=True
+                )
+                
+        except Exception as e:
+            print(f"⚠️ Failed to place protection orders: {e}")
+
+    def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None, sl_price: float = None, tp_price: float = None):
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
@@ -123,6 +184,11 @@ class HyperliquidService:
                 result = self.exchange.market_open(symbol, is_buy, quantity)
                 
             print(f"✅ Order execution result: {result}")
+            
+            # Place Hard Stops if main order succeeded
+            if result.get("status") == "ok":
+                 self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
+
             return {"status": "success", "result": result}
             
         except Exception as e:

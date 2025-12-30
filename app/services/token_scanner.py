@@ -60,6 +60,12 @@ class HyperliquidScanner:
                 # Get allowed assets for current level
                 allowed_assets = gam.get_allowed_assets()
                 
+                print(f"🕵️ DEBUG SCANNER: Balance={account_value}, Level={gam.level.value}")
+                print(f"🕵️ DEBUG ALLOWED FULL: {allowed_assets}")
+                
+                if "BTC" in allowed_assets:
+                    print(f"🚨 ALERT: BTC IS IN ALLOWED ASSETS for level {gam.level.value}!")
+
                 # Filter tokens to only allowed ones
                 filtered_tokens = [token for token in all_tokens if token in allowed_assets]
                 
@@ -330,14 +336,11 @@ class HyperliquidScanner:
         
         print("\n") # Keep the original newline after the loop
         
-        # Step 5: Sort by score
+        # Sort by score
         opportunities.sort(key=lambda x: x['score'], reverse=True)
         
-        print(f"✅ Found {len(opportunities)} opportunities")
-        
         # Cache results
-        import time
-        self._cache['results'] = opportunities
+        self._cache['opportunities'] = opportunities
         self._cache_time = time.time()
         
         # Step 6: Display results

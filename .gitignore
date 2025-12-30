@@ -28,3 +28,4 @@ build/
 
 # Logs
 *.log
+token_meta_cache.json

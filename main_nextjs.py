@@ -543,10 +543,14 @@ class BotContext:
                                     self.add_log(f"🚀 EXECUTING {action} {size:.5f} {self.active_symbol} (Market)")
                                     is_buy = (action == "BUY")
                                     # Execute Market Order
+                                    # Execute Market Order with Hard Stops
                                     hyperliquid_service.execute_order(
                                         self.active_symbol,
                                         is_buy,
-                                        size
+                                        size,
+                                        price=None,
+                                        sl_price=sl,
+                                        tp_price=tp
                                     )
                                 
                                 msg = f"🚨 ENTRY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
