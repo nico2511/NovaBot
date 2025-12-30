@@ -12,9 +12,9 @@ class GeminiService:
         if self.gemini_key:
             genai.configure(api_key=self.gemini_key)
             self.gemini_models = [
+                'gemini-1.5-flash',  # Primary model - no rate limits
+                'gemini-1.5-flash-latest',
                 'gemini-2.0-flash-lite-preview-02-05',
-                'gemini-2.0-flash', 
-                'gemini-flash-latest'
             ]
         
         # 2. Init OpenRouter (via OpenAI client)
@@ -25,11 +25,11 @@ class GeminiService:
                 base_url="https://openrouter.ai/api/v1",
                 api_key=self.openrouter_key,
             )
-            self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free" # User requested model
+            self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free" # Fallback model
 
-        self.provider_order = ["openrouter", "gemini"] # Prioritize OpenRouter by default as requested
-        if config.AI_PROVIDER == "gemini":
-            self.provider_order = ["gemini", "openrouter"]
+        self.provider_order = ["gemini", "openrouter"] # Prioritize Gemini 1.5 Flash (no limits)
+        if config.AI_PROVIDER == "openrouter":
+            self.provider_order = ["openrouter", "gemini"]
 
         # Cache
         self.last_market_analysis = None
