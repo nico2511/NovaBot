@@ -482,6 +482,7 @@ class BotContext:
                         # CRITICAL: Check if trading is enabled
                         if not self.trading_enabled:
                             self.add_log(f"⚠️ Signal detected but trading is DISABLED: {action} {strat_name}")
+                            continue  # Skip execution completely - don't create phantom positions
                         elif sig_data.get("manual_approval"):
                             # MANUEL - SIGNATURE REQUISE
                             # On ne trade pas, on prévient juste
