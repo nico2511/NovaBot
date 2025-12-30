@@ -36,7 +36,7 @@ class AssetTier(Enum):
 ASSET_TIERS: Dict[AssetTier, List[str]] = {
     AssetTier.CASINO: [
         "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
-        "MEME", "PEPE2", "WOJAK", "TURBO"
+        "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",

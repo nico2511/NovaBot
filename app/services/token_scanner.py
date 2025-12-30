@@ -77,9 +77,11 @@ class HyperliquidScanner:
                 return filtered_tokens
                 
             except Exception as e:
-                print(f"❌ Gamification error: {e}")
-                print("⚠️ Scanner requires gamification - cannot proceed")
-                return []
+                print(f"⚠️ Gamification filter error: {e}")
+                # FALLBACK SECURISE: En cas d'erreur, ne retourner QUE les memecoins par défaut
+                # pour éviter de trader du BTC/ETH par erreur
+                print("⚠️ Fallback to default safe list (Casino tier)")
+                return ["PEPE", "DOGE", "WIF", "BONK", "FARTCOIN"]
                 
         except Exception as e:
             print(f"❌ Error fetching tokens: {e}")
