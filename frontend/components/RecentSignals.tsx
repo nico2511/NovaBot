@@ -6,7 +6,7 @@ import axios from 'axios'
 const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
-export default function RecentSignals() {
+export default function RecentSignals({ hideHeader = false, embedded = false }: { hideHeader?: boolean, embedded?: boolean }) {
     const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, {
         refreshInterval: 3000
     })
@@ -14,9 +14,13 @@ export default function RecentSignals() {
     const signals = signalsData?.signals || []
     const recentSignals = signals.slice(0, 5) // Last 5 signals
 
+    const containerClass = embedded
+        ? "space-y-4"
+        : "bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6"
+
     return (
-        <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6">
-            <h3 className="text-lg font-semibold mb-4">📊 Recent Signals</h3>
+        <div className={containerClass}>
+            {!hideHeader && <h3 className="text-lg font-semibold mb-4">📊 Recent Signals</h3>}
 
             {recentSignals.length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-8">No signals yet</p>

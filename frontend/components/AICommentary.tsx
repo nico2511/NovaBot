@@ -193,47 +193,7 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
                 </div>
             )}
 
-            {/* Position Analysis */}
-            {positionData && (
-                <div className="bg-gradient-to-br from-blue-900/20 to-cyan-900/20 backdrop-blur-sm rounded-lg p-6 border border-blue-500/30">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-5 h-5 text-blue-400" />
-                            <h3 className="text-lg font-semibold text-white">Position Active</h3>
-                        </div>
-                        {positionData.risk_level && (
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRiskColor(positionData.risk_level)}`}>
-                                Risque: {positionData.risk_level}
-                            </span>
-                        )}
-                    </div>
-
-                    {positionData.reasoning && (
-                        <p className="text-gray-200 mb-4">{positionData.reasoning}</p>
-                    )}
-
-                    {positionData.recommendations && Array.isArray(positionData.recommendations) && (
-                        <div className="space-y-2 mb-4">
-                            <p className="text-sm text-gray-400 font-medium">Recommandations :</p>
-                            <ul className="space-y-2">
-                                {positionData.recommendations.map((rec: string, idx: number) => (
-                                    <li key={idx} className="text-sm text-gray-300 flex items-start gap-2 bg-black/20 rounded p-2">
-                                        <span className="text-blue-400 mt-0.5">→</span>
-                                        <span>{rec}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-
-                    {positionData.actions && (
-                        <div className="bg-black/30 rounded-lg p-3 mt-3">
-                            <p className="text-xs text-gray-400 mb-1">Action suggérée :</p>
-                            <p className="text-sm font-medium text-blue-300">{positionData.actions}</p>
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Position Analysis removed as redundant with Active Trade block */}
 
             {/* Signal History */}
             {signalHistory.length > 0 && (

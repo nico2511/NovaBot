@@ -194,7 +194,7 @@ export default function Chart({ symbol, strategy }: ChartProps) {
     }, [candleData])
 
     return (
-        <div className="w-full relative bg-background/50 backdrop-blur border border-border/30 rounded-2xl overflow-hidden p-4">
+        <div className="w-full relative">
             <div className="absolute top-6 left-6 z-10 flex gap-2">
                 <div className="bg-surface/80 backdrop-blur px-3 py-1 rounded text-sm border border-border/50 shadow-sm">
                     <span className="font-bold text-white">{symbol}</span>

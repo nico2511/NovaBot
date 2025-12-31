@@ -196,3 +196,30 @@ async def get_formatted_candles(symbol: str = "BTC", interval: str = "15m", limi
             "close": float(row['close'])
         })
     return candles
+
+
+async def get_open_interest(symbol: str = "BTC") -> float:
+    """Get Open Interest for a symbol (Mock or Real)"""
+    # Hyperliquid doesn't expose clean OI in public info endpoint easily without iteration
+    # returns value in USD
+    try:
+        url = 'https://api.hyperliquid.xyz/info'
+        payload = {"type": "metaAndAssetCtxs"}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Find symbol index
+                    universe = data[0]["universe"]
+                    asset_ctxs = data[1]
+                    
+                    try:
+                        idx = next(i for i, coin in enumerate(universe) if coin["name"] == symbol)
+                        ctx = asset_ctxs[idx]
+                        return float(ctx["openInterest"]) * float(ctx["oraclePx"])
+                    except StopIteration:
+                        return 0.0
+    except Exception as e:
+        print(f"Error fetching OI: {e}")
+    return 0.0

@@ -17,10 +17,11 @@ interface Opportunity {
     reasons: string[]
 }
 
-export default function TokenScanner() {
+export default function TokenScanner({ hideHeader = false }: { hideHeader?: boolean }) {
     const [isScanning, setIsScanning] = useState(false)
     const [topN, setTopN] = useState(10)
 
+    // ... (rest of the state hooks)
     const { data, error, mutate } = useSWR<{
         success: boolean
         opportunities: Opportunity[]
@@ -66,10 +67,14 @@ export default function TokenScanner() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-white">🔍 Token Scanner</h2>
-                    <p className="text-gray-400 text-sm mt-1">
-                        Scan Hyperliquid for best trading opportunities
-                    </p>
+                    {!hideHeader && (
+                        <>
+                            <h2 className="text-2xl font-bold text-white">🔍 Token Scanner</h2>
+                            <p className="text-gray-400 text-sm mt-1">
+                                Scan Hyperliquid for best trading opportunities
+                            </p>
+                        </>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -89,7 +94,7 @@ export default function TokenScanner() {
                     <button
                         onClick={handleScan}
                         disabled={isScanning && !data}
-                        className="bg-primary hover:bg-primary/80 disabled:bg-primary/50 text-white px-6 py-2 rounded-lg font-medium transition-all"
+                        className="bg-primary hover:bg-primary/80 disabled:bg-primary/50 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-all shadow-lg shadow-primary/20"
                     >
                         {isScanning && !data ? '🔄 Scanning...' : '🚀 Scan Now'}
                     </button>

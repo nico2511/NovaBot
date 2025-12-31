@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import useSWR from 'swr'
 import axios from 'axios'
 import dynamic from 'next/dynamic'
-// import StatCard from '@/components/StatCard' // Unused
+import StatCard from '@/components/StatCard'
 import StrategyMonitor from '@/components/StrategyMonitor'
 import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
@@ -12,12 +12,10 @@ import Settings from '@/components/Settings'
 import TokenScanner from '@/components/TokenScanner'
 import AICommentary from '@/components/AICommentary'
 
-// NEW HEADER COMPONENT
-import MarketCard from '@/components/MarketCard'
-
+import CryptoWeather from '@/components/CryptoWeather'
 import GamificationWidget from '@/components/GamificationWidget'
 import RecentSignals from '@/components/RecentSignals'
-import { Activity, Zap, TrendingUp, BarChart2, Terminal } from 'lucide-react'
+import { Activity, Zap, TrendingUp, BarChart2 } from 'lucide-react'
 
 // OPTIMIZATION: Dynamic import for heavy Chart component
 const Chart = dynamic(() => import('@/components/Chart'), {
@@ -45,7 +43,7 @@ const swrConfig = {
     revalidateOnReconnect: false,
 }
 
-export default function Home() {
+export default function V1Dashboard() {
     const [activeTab, setActiveTab] = useState('overview')
 
     const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, swrConfig)
@@ -82,7 +80,19 @@ export default function Home() {
                                     <Zap className="text-blue-500 fill-blue-500/20" size={24} />
                                     HyperLiquid AI
                                 </h1>
-                                <p className="text-xs text-gray-500 font-mono mt-1">NOVA BOT • v2.0</p>
+                                <p className="text-xs text-gray-500 font-mono mt-1">NOVA BOT • v1.0</p>
+                            </div>
+
+                            <div className="hidden xl:block ml-8 opacity-80 hover:opacity-100 transition-opacity">
+                                <CryptoWeather
+                                    regime={marketData?.regime || 'UNKNOWN'}
+                                    adx={marketData?.adx || 0}
+                                    rsi={marketData?.rsi}
+                                    ema_20={marketData?.ema_20}
+                                    ema_50={marketData?.ema_50}
+                                    atr={marketData?.atr}
+                                    symbol={status?.active_symbol || 'BTC'}
+                                />
                             </div>
                         </div>
 
@@ -112,12 +122,11 @@ export default function Home() {
                 {/* Main Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-                    {/* LEFT COLUMN: Chart, MarketCard, & Tabs (Span 2) */}
+                    {/* LEFT COLUMN: Chart & Tabs (Span 2) */}
                     <div className="lg:col-span-2 space-y-6">
-
-                        {/* CHART SECTION */}
+                        {/* Chart Card */}
                         <div className="bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
-                            {/* Tabs */}
+                            {/* Tab Navigation */}
                             <div className="flex border-b border-white/5 overflow-x-auto">
                                 {[
                                     { id: 'overview', label: 'Price Chart', icon: Activity },
@@ -125,7 +134,6 @@ export default function Home() {
                                     { id: 'signals', label: 'Signals', icon: Zap },
                                     { id: 'scanner', label: 'Scanner', icon: BarChart2 },
                                     { id: 'ai', label: 'AI Analysis', icon: Zap },
-                                    { id: 'logs', label: 'System Logs', icon: Terminal },
                                 ].map((tab) => (
                                     <button
                                         key={tab.id}
@@ -141,72 +149,53 @@ export default function Home() {
                                 ))}
                             </div>
 
-                            <div className="p-0">
+                            <div className={activeTab === 'overview' ? '' : 'p-6'}>
                                 {activeTab === 'overview' && (
-                                    <div className="p-6">
-                                        <Chart
-                                            symbol={status?.active_symbol || 'BTC'}
-                                            strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
-                                        />
-
-                                        {/* MARKET DATA CARD - Directly below Chart in Overview Tab */}
-                                        <div className="mt-6">
-                                            <MarketCard
-                                                symbol={status?.active_symbol || 'BTC'}
-                                                price={marketData?.price}
-                                                regime={marketData?.regime}
-                                                rsi={marketData?.rsi}
-                                                adx={marketData?.adx}
-                                                atr={marketData?.atr}
-                                                volume_24h={marketData?.volume_24h}
-                                                open_interest={marketData?.open_interest}
-                                                trends={marketData?.trends}
-                                            />
-                                        </div>
-                                    </div>
+                                    <Chart
+                                        symbol={status?.active_symbol || 'BTC'}
+                                        strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                                    />
                                 )}
 
                                 {activeTab === 'strategies' && (
-                                    <div className="p-6">
-                                        <StrategyMonitor
-                                            strategies={marketData?.active_strategies || []}
-                                            regime={marketData?.regime || 'UNKNOWN'}
-                                            rsi={marketData?.rsi || 0}
-                                            atr={marketData?.atr || 0}
-                                            adx={marketData?.adx || 0}
-                                            ema_20={marketData?.ema_20}
-                                            ema_50={marketData?.ema_50}
-                                            bb={marketData?.bb}
-                                            strategy_progress={marketData?.strategy_progress || {}}
-                                            hideHeader={true}
-                                            embedded={true}
-                                        />
-                                    </div>
+                                    <StrategyMonitor
+                                        strategies={marketData?.active_strategies || []}
+                                        regime={marketData?.regime || 'UNKNOWN'}
+                                        rsi={marketData?.rsi || 0}
+                                        atr={marketData?.atr || 0}
+                                        adx={marketData?.adx || 0}
+                                        ema_20={marketData?.ema_20}
+                                        ema_50={marketData?.ema_50}
+                                        bb={marketData?.bb}
+                                        strategy_progress={marketData?.strategy_progress || {}}
+                                        hideHeader={true}
+                                        embedded={true}
+                                    />
                                 )}
 
-                                {activeTab === 'signals' && <div className="p-6"><RecentSignals hideHeader={true} embedded={true} /></div>}
-                                {activeTab === 'scanner' && <div className="p-6"><TokenScanner hideHeader={true} /></div>}
-                                {activeTab === 'ai' && <div className="p-6"><AICommentary symbol={status?.active_symbol || 'BTC'} /></div>}
-                                {activeTab === 'logs' && (
-                                    <div className="p-6 h-[600px]">
-                                        <LiveLogs embedded={true} hideHeader={true} />
-                                    </div>
-                                )}
+                                {activeTab === 'signals' && <RecentSignals hideHeader={true} embedded={true} />}
+                                {activeTab === 'scanner' && <TokenScanner hideHeader={true} />}
+                                {activeTab === 'ai' && <AICommentary symbol={status?.active_symbol || 'BTC'} />}
                             </div>
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Active Trade Only */}
+                    {/* RIGHT COLUMN: Active Trade & Logs */}
                     <div className="space-y-6">
                         <div className="bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden p-6">
                             <ActiveTrade embedded={true} />
+                        </div>
+                        <div className="h-[400px] bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden p-4">
+                            <div className="h-full pb-6">
+                                <LiveLogs embedded={true} hideHeader={true} />
+                            </div>
                         </div>
                     </div>
 
                 </div>
             </div>
 
-            {/* Settings */}
+            {/* Settings (Hidden/Modal or Bottom) */}
             <div className="container mx-auto px-6 mb-8">
                 <Settings />
             </div>

@@ -12,6 +12,8 @@ class ScannerJob:
         self.thread = None
         self.last_scan_time = 0
         self.scanner = HyperliquidScanner()
+        self.last_results = [] # Store last scan results for UI
+        self.is_scanning = False # Status flag
         
     def start(self):
         if self.is_running:
@@ -53,8 +55,12 @@ class ScannerJob:
                 # RUN SCAN
                 self.last_scan_time = now
                 self.bot.add_log(f"🕵️ Running periodic scan (Interval: {interval_minutes}m)")
+                self.bot.add_log(f"🕵️ Running periodic scan (Interval: {interval_minutes}m)")
+                self.is_scanning = True
                 
                 opportunities = self.scanner.scan(top_n=10)
+                self.last_results = opportunities # Save raw results for UI
+                self.is_scanning = False
                 
                 # Filter by min_score
                 valid_opps = [o for o in opportunities if o['score'] >= min_score]
@@ -105,13 +111,42 @@ class ScannerJob:
             
             time.sleep(5)
 
+    def manual_scan(self):
+        """Trigger a manual scan immediately"""
+        if self.is_scanning:
+            return {"status": "busy", "message": "Scan already in progress"}
+            
+        print("🕵️ Starting Manual Scan...")
+        self.is_scanning = True
+        
+        try:
+            # 1. Scan
+            opportunities = self.scanner.scan(top_n=10)
+            self.last_results = opportunities
+            
+            # 2. Return results (don't auto-act, just return)
+            # Filter by min_score from settings just for info
+            min_score = getattr(self.bot, 'scanner_settings', {}).get('min_score', 75)
+            valid_opps = [o for o in opportunities if o['score'] >= min_score]
+            
+            self.bot.add_log(f"🕵️ Manual Scan done. Found {len(valid_opps)} opps >= {min_score}")
+            
+            self.is_scanning = False
+            return {
+                "status": "success", 
+                "results": opportunities,
+                "count": len(opportunities)
+            }
+        except Exception as e:
+            self.is_scanning = False
+            self.bot.add_log(f"❌ Manual Scan Error: {e}")
+            return {"status": "error", "message": str(e)}
+
     def _send_discord_alert(self, opps, min_score=75, warning=False):
         """Send a nice formatted list of opportunities"""
         if not opps: return
         
         from app.utils.formatters import format_price_for_notification
-        
-        best = opps[0]
         
         if warning:
             title = f"⚠️ SCANNER: Marché Calme (Top {len(opps)})"

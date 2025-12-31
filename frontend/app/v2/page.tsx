@@ -45,7 +45,7 @@ const swrConfig = {
     revalidateOnReconnect: false,
 }
 
-export default function Home() {
+export default function V2Dashboard() {
     const [activeTab, setActiveTab] = useState('overview')
 
     const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, swrConfig)

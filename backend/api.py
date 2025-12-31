@@ -351,34 +351,63 @@ async def get_market_data():
             active_symbol = bot_state.active_symbol
         
         try:
-            from backend.market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb
+            from backend.market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb, get_open_interest
         except ImportError:
-            from market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb
+            from market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb, get_open_interest
         
-        # Get candles for indicator calculation using ACTIVE symbol
-        df = await get_hyperliquid_candles(active_symbol, "15m", 100)
+        # MULTI-TIMEFRAME ANALYSIS
+        timeframes = ["15m", "1h", "4h", "1d"]
+        data_layers = {}
         
-        if df is not None and len(df) > 0:
-            # Get current price from latest candle
-            price = float(df['close'].iloc[-1])
+        # Base indicators from 15m as default for old components
+        base_df = await get_hyperliquid_candles(active_symbol, "15m", 100)
+        
+        price = 0.0
+        if base_df is not None and not base_df.empty:
+            price = float(base_df['close'].iloc[-1])
             
-            # Calculate real indicators
-            rsi = await calculate_rsi(df['close'], 14)
-            atr = await calculate_atr(df, 14)
-            adx = await calculate_adx(df, 14)
-            ema_20 = await calculate_ema(df['close'], 20)
-            ema_50 = await calculate_ema(df['close'], 50)
-            bb = await calculate_bb(df['close'], 20, 2)
+            # Base Layer (15m)
+            rsi = await calculate_rsi(base_df['close'], 14)
+            atr = await calculate_atr(base_df, 14)
+            adx = await calculate_adx(base_df, 14)
+            ema_20 = await calculate_ema(base_df['close'], 20)
+            ema_50 = await calculate_ema(base_df['close'], 50)
+            bb = await calculate_bb(base_df['close'], 20, 2)
+            
+            # Volume 24h approximation (sum of last 96 15m candles)
+            volume_24h = base_df['volume'].sum() * price
         else:
-            # Fallback to just price if candles fail
-            price = await get_current_price(active_symbol)
-            rsi = 50.0
-            atr = price * 0.001
-            adx = 50.0
-            ema_20 = price
-            ema_50 = price
-            bb = {"upper": price, "middle": price, "lower": price}
-            
+             price = await get_current_price(active_symbol)
+             rsi, atr, adx, ema_20, ema_50 = 50, 0, 0, price, price
+             bb = {"upper": price, "middle": price, "lower": price}
+             volume_24h = 0
+
+        # Fetch Open Interest
+        open_interest = await get_open_interest(active_symbol)
+
+        # Calculate Trends for all timeframes
+        trends = {}
+        for tf in timeframes:
+            tf_df = await get_hyperliquid_candles(active_symbol, tf, 50)
+            if tf_df is not None and not tf_df.empty:
+                tf_adx = await calculate_adx(tf_df, 14)
+                tf_ema20 = await calculate_ema(tf_df['close'], 20)
+                tf_ema50 = await calculate_ema(tf_df['close'], 50)
+                
+                # Simple Trend Logic
+                trend_dir = "NEUTRAL"
+                if tf_ema20 > tf_ema50:
+                    trend_dir = "BULLISH" if tf_adx > 20 else "RANGING BULL"
+                else:
+                    trend_dir = "BEARISH" if tf_adx > 20 else "RANGING BEAR"
+                    
+                trends[tf] = {
+                    "adx": tf_adx,
+                    "trend": trend_dir
+                }
+            else:
+                trends[tf] = {"adx": 0, "trend": "UNKNOWN"}
+
     except Exception as e:
         print(f"Error in get_market_data: {e}")
         # Fallback values
@@ -390,10 +419,17 @@ async def get_market_data():
         ema_50 = price
         bb = {"upper": price, "middle": price, "lower": price}
         active_symbol = "BTC"  # Fallback symbol
+        trends = {tf: {"adx": 0, "trend": "UNKNOWN"} for tf in ["15m", "1h", "4h", "1d"]}
+        open_interest = 0
+        volume_24h = 0
     
     # Get active strategies and their progress from bot if connected
     active_strategies = []
     strategy_progress = {}
+    
+    # Defaults from local calculation
+    final_regime = trends["15m"]["trend"]
+    
     try:
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
@@ -403,6 +439,10 @@ async def get_market_data():
                 # Get the list of active strategy names (these are already filtered by regime)
                 strategy_names = result.get('strategies', [])
                 progress_data = result.get('progress', {})
+                
+                # CRITICAL: Use the Bot's calculated regime and ADX as source of truth
+                if 'regime' in result:
+                    final_regime = result['regime']
                 
                 # Format for frontend
                 for name in strategy_names:
@@ -418,19 +458,20 @@ async def get_market_data():
         active_strategies = []
         strategy_progress = {}
     
-    regime = "TREND" if adx > 25 else "RANGE"
-    
     return {
         "symbol": active_symbol,  # CRITICAL: Return the ACTIVE symbol from bot
         "price": float(price),
         "timestamp": datetime.now().isoformat(),
-        "regime": regime,
+        "regime": final_regime,
         "adx": float(adx),
         "rsi": float(rsi),
         "atr": float(atr),
         "ema_20": float(ema_20),
         "ema_50": float(ema_50),
         "bb": bb,
+        "volume_24h": volume_24h,
+        "open_interest": open_interest,
+        "trends": trends,
         "active_strategies": active_strategies,
         "strategy_progress": strategy_progress,
         "signals": []
@@ -563,91 +604,38 @@ async def get_active_trade():
 
 @app.post("/api/close_trade")
 async def close_trade():
-    """Close active trade - WITH REAL EXECUTION AND CORRECT PNL"""
+    """Close active trade - Manual Override"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
+        
         if bot.active_trade:
             symbol = bot.active_trade["symbol"]
-            side = bot.active_trade["side"]
-            entry_price = bot.active_trade["entry"]
-            size = bot.active_trade.get("size", 0)
-            leverage = bot.active_trade.get("leverage", 1)
             
-            # EXÉCUTION RÉELLE si mode Auto
-            if bot.execution_mode == "Auto (Hyperliquid)":
-                try:
-                    from app.services.hyperliquid_service import hyperliquid_service
-                    
-                    bot.add_log(f"🔴 MANUAL CLOSE: Closing {symbol}")
-                    
-                    # Utiliser la nouvelle méthode close_position
-                    result = hyperliquid_service.close_position(symbol)
-                    
-                    if result["status"] == "success":
-                        bot.add_log(f"✅ Position closed: {result}")
-                        
-                        # Calculer PNL correct
-                        current_price = hyperliquid_service.get_current_price(symbol)
-                        
-                        # CORRECT PNL CALCULATION
-                        pnl_per_coin = (current_price - entry_price) if side == "BUY" else (entry_price - current_price)
-                        pnl_usdc = pnl_per_coin * size * leverage
-                        
-                        bot.add_log(f"💰 PNL: ${pnl_usdc:.2f} USDC")
-                        
-                        # Enregistrer le trade
-                        bot.trade_recorder.add_trade({
-                            "symbol": symbol,
-                            "strategy": bot.active_trade.get("strategy", "Unknown"),
-                            "side": side,
-                            "entry_price": entry_price,
-                            "exit_price": current_price,
-                            "size": size,
-                            "leverage": leverage,
-                            "pnl_usdc": pnl_usdc,
-                            "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                            "entry_time": bot.active_trade.get("timestamp"),
-                            "exit_time": pd.Timestamp.now().isoformat(),
-                            "exit_reason": "Manual Close"
-                        })
-                        
-                        # Discord notification
-                        try:
-                            from app.services.discord_service import discord_service
-                            discord_service.send_alert(
-                                "🔴 MANUAL CLOSE",
-                                f"Position {symbol} closed manually\\nPNL: ${pnl_usdc:.2f} USDC\\nEntry: ${entry_price}\\nExit: ${current_price}",
-                                color="0000FF"
-                            )
-                        except Exception as e:
-                            bot.add_log(f"⚠️ Discord notification failed: {e}")
-                    else:
-                        bot.add_log(f"❌ Close failed: {result.get('message')}")
-                        return {"status": "error", "message": result.get("message")}
-                        
-                except Exception as e:
-                    bot.add_log(f"❌ Error closing position: {e}")
-                    return {"status": "error", "message": str(e)}
-            
-            # Nettoyer le bot state
-            bot.active_trade = None
-            bot.risk_manager.record_trade_close(pnl_usdc if 'pnl_usdc' in locals() else 0)
-            
-            # Sauvegarder
             try:
-                from app.core.state_manager import StateManager
-                StateManager.save_state(bot)
+                from app.services.hyperliquid_service import hyperliquid_service
+                
+                bot.add_log(f"🔴 MANUAL CLOSE: Closing {symbol}")
+                
+                # Execute close regardless of bot mode (Manual Override)
+                result = hyperliquid_service.close_position(symbol)
+                
+                if result["status"] == "success":
+                    bot.add_log(f"✅ Position closed: {result.get('closed_size')} {symbol}")
+                    # Clear active trade in bot state immediately
+                    bot.active_trade = None
+                    return {"status": "success", "result": result}
+                else:
+                    bot.add_log(f"❌ Close failed: {result.get('message')}")
+                    return {"status": "error", "message": result.get("message")}
+                    
             except Exception as e:
-                print(f"Error saving state: {e}")
-            
-            return {"status": "closed", "message": "Trade closed successfully"}
-        return {"status": "no_active_trade"}
+                import traceback
+                traceback.print_exc()
+                return {"status": "error", "message": str(e)}
+        else:
+            return {"status": "error", "message": "No active trade to close"}
     
-    # Standalone mode
-    if bot_state.active_trade:
-        bot_state.active_trade = None
-        return {"status": "closed", "message": "Standalone mode - trade closed"}
-    return {"status": "no_active_trade"}
+    return {"status": "error", "message": "Bot not connected"}
 
 @app.get("/api/trades")
 async def get_trades():
@@ -858,6 +846,7 @@ async def get_dev_diagnostics():
     print("DEBUG: get_dev_diagnostics called")
     try:
         from app.services.hyperliquid_service import hyperliquid_service
+        from app.core.asset_gamification import AssetGamification
         bot = bot_bridge.get_bot_context() if bot_bridge and bot_bridge.is_connected() else None
         
         # Get detailed account info
@@ -988,7 +977,22 @@ async def get_dev_diagnostics():
                 "is_running": bot.is_running if bot else bot_state.is_running,
                 "active_symbol": bot.active_symbol if bot else bot_state.active_symbol,
                 "execution_mode": bot.execution_mode if bot else bot_state.execution_mode
-            }
+            },
+            "trading_settings": bot.sidebar_settings if bot else {},
+            "scanner_settings": getattr(bot, 'scanner_settings', {}) if bot else {},
+            "scanner_results": getattr(bot.scanner_job, 'last_results', []) if bot and getattr(bot, 'scanner_job', None) else [],
+            "gamification": (lambda: (
+                AssetGamification(account_value).get_status_summary()
+                if 'AssetGamification' in locals() else {}
+            ))(),
+            "active_strategy": (lambda: (
+                 {
+                     "name": getattr(bot, 'active_strategy_name', 'Unknown'), 
+                     "params": getattr(bot.strategy_engine.strategies.get(getattr(bot, 'active_strategy_name')), 'config', {}) 
+                     if hasattr(bot, 'strategy_engine') and hasattr(bot.strategy_engine, 'strategies') and getattr(bot, 'active_strategy_name') in bot.strategy_engine.strategies
+                     else {}
+                 } if bot else {"name": "Unknown", "params": {}}
+            ))()
         }
     except Exception as e:
         print(f"Error in dev diagnostics: {e}")
@@ -1004,6 +1008,18 @@ async def get_dev_diagnostics():
 
 
 
+
+@app.post("/api/dev/scan")
+async def manual_scan():
+    """Trigger a manual scan"""
+    bot = bot_bridge.get_bot_context()
+    if not bot:
+        return {"status": "error", "message": "Bot not initialized"}
+    
+    if not hasattr(bot, 'scanner_job'):
+        return {"status": "error", "message": "Scanner job not initialized"}
+        
+    return bot.scanner_job.manual_scan()
 
 @app.post("/api/ai_analysis")
 async def get_ai_analysis(data: dict = {}):
@@ -1111,6 +1127,37 @@ async def get_settings():
             "max_positions": 3,
             "daily_stop_loss": 100.0
         }
+
+@app.get("/api/logs")
+async def get_logs():
+    """Get recent bot logs"""
+    bot = bot_bridge.get_bot_context()
+    if not bot:
+        return {"logs": []}
+    
+    # Parse logs from strings "HH:MM:SS Message" to objects
+    logs = []
+    for log_str in list(bot.logs):
+        try:
+            parts = log_str.split(" ", 1)
+            if len(parts) == 2:
+                logs.append({"time": parts[0], "message": parts[1]})
+            else:
+                logs.append({"time": "", "message": log_str})
+        except:
+            continue
+            
+    # Return reversed to show newest first (frontend expects this? Or frontend handles it?)
+    # Frontend appends? No, frontend sets logs. Backend logs are deque (append). 
+    # Frontend LiveLogs.tsx: 
+    # logs.map(...)
+    # It just displays them. Usually we want newest at top or bottom?
+    # LiveLogs.tsx has `logsEndRef`.
+    # So it scrolls to bottom. So order should be chronological (oldest first).
+    # bot.logs is deque (append). list(bot.logs) is oldest to newest.
+    # So returning list(bot.logs) is correct.
+    
+    return {"logs": list(logs)}
 
 @app.post("/api/settings")
 async def save_settings(settings: dict):

@@ -7,7 +7,7 @@ interface Log {
     message: string
 }
 
-export default function LiveLogs() {
+export default function LiveLogs({ embedded = false, hideHeader = false }: { embedded?: boolean, hideHeader?: boolean }) {
     const [logs, setLogs] = useState<Log[]>([])
     const logsEndRef = useRef<HTMLDivElement>(null)
 
@@ -32,10 +32,37 @@ export default function LiveLogs() {
         return () => clearInterval(interval)
     }, [])
 
-    // Disabled auto-scroll to prevent page jumping
-    // useEffect(() => {
-    //     scrollToBottom()
     // }, [logs])
+
+    if (embedded) {
+        return (
+            <div className="h-full flex flex-col">
+                {!hideHeader && (
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold">📝 Live Logs</h3>
+                        <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                    </div>
+                )}
+                <div className="bg-background/80 flex-1 overflow-y-auto font-mono text-sm p-2">
+                    {logs.length === 0 ? (
+                        <div className="text-center text-gray-500 py-8">
+                            <div>No logs yet</div>
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            {logs.map((log, index) => (
+                                <div key={index} className="flex gap-3 text-gray-300 hover:bg-white/5 px-2 py-1">
+                                    <span className="text-gray-500 text-xs">{log.time}</span>
+                                    <span className="flex-1">{log.message}</span>
+                                </div>
+                            ))}
+                            <div ref={logsEndRef} />
+                        </div>
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6">

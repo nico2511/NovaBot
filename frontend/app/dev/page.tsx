@@ -310,6 +310,168 @@ export default function DevPage() {
                         </div>
                     </div>
 
+                    {/* Gamification Status */}
+                    <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Activity className="text-purple-500" size={20} />
+                            <h2 className="text-xl font-bold">Gamification</h2>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-400">Level</span>
+                                <span className="text-lg font-bold text-yellow-400">{data.gamification?.level || 'N/A'}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-400">Title</span>
+                                <span className="text-sm font-mono text-gray-300">{data.gamification?.title || 'Noob'}</span>
+                            </div>
+                            <div className="w-full bg-gray-700 h-2 rounded-full mt-2">
+                                <div
+                                    className="bg-purple-500 h-2 rounded-full"
+                                    style={{ width: `${Math.min(100, data.gamification?.progress_pct || 0)}%` }}
+                                ></div>
+                            </div>
+                            <div className="text-xs text-center text-gray-500 mt-1">
+                                {data.gamification?.progress_pct?.toFixed(1)}% to next level
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Trading Settings */}
+                    <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Activity className="text-orange-500" size={20} />
+                            <h2 className="text-xl font-bold">Trading Config</h2>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-xs text-gray-400">Leverage</div>
+                                    <div className="text-lg font-mono">{data.trading_settings?.leverage || 1}x</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-gray-400">Max Pos</div>
+                                    <div className="text-lg font-mono">{data.trading_settings?.max_positions || 1}</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-400">Size</div>
+                                <div className="text-sm font-mono">
+                                    {data.trading_settings?.size_value || 0} ({data.trading_settings?.size_type || 'Values'})
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-400">Daily Stop Loss</div>
+                                <div className="text-sm font-mono text-red-400">
+                                    ${data.trading_settings?.daily_stop_loss || 0}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Scanner Settings */}
+                    <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
+                        <div className="flex items-center gap-2 mb-4 justify-between">
+                            <div className="flex items-center gap-2">
+                                <Activity className="text-blue-500" size={20} />
+                                <h2 className="text-xl font-bold">Scanner</h2>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const btn = document.getElementById('scan-btn');
+                                    if (btn) btn.innerText = 'Scanning...';
+                                    try {
+                                        await fetch('/api/dev/scan', { method: 'POST' });
+                                        // window.location.reload(); // Let SWR update it
+                                    } catch (e) {
+                                        alert('Scan failed');
+                                    }
+                                    if (btn) btn.innerText = 'Run Scan';
+                                }}
+                                id="scan-btn"
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-xs rounded font-bold transition-colors"
+                            >
+                                Run Scan
+                            </button>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-400">Status</span>
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${data.scanner_settings?.enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                                    {data.scanner_settings?.enabled ? 'ACTIVE' : 'MANUAL'}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-400">Auto-Switch</span>
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${data.scanner_settings?.auto_switch ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                                    {data.scanner_settings?.auto_switch ? 'ON' : 'OFF'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-xs text-gray-400">Interval</div>
+                                    <div className="text-lg font-mono">{data.scanner_settings?.interval || 15}m</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-gray-400">Min Score</div>
+                                    <div className="text-lg font-mono">{data.scanner_settings?.min_score || 0}</div>
+                                </div>
+                            </div>
+
+                            {/* Detailed Scan Results */}
+                            <div className="mt-4 border-t border-gray-700/50 pt-3">
+                                <div className="text-xs text-gray-400 mb-2">Last Scan Results</div>
+                                {data.scanner_results && data.scanner_results.length > 0 ? (
+                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                        {data.scanner_results.map((res: any, idx: number) => (
+                                            <div key={idx} className="flex items-center justify-between text-xs bg-white/5 p-2 rounded">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-blue-300">{res.symbol}</span>
+                                                    <span className={res.trend === 'UP' ? 'text-green-400' : 'text-red-400'}>
+                                                        {res.trend === 'UP' ? '↗' : '↘'}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-gray-400 font-mono text-[10px] sm:text-xs text-right">
+                                                    <span>Sc: <b className="text-white">{Math.round(res.score)}</b></span>
+                                                    <span>RSI: {Math.round(res.rsi)}</span>
+
+                                                    <span>Vol: <b className="text-gray-300">${(res.volume_24h / 1e6).toFixed(1)}M</b></span>
+                                                    <span>ADX: {Math.round(res.adx || 0)}</span>
+
+                                                    <span>OI: <b className="text-gray-300">${(res.open_interest / 1e6).toFixed(1)}M</b></span>
+                                                    <span>F: <b className={(res.funding || 0) > 0 ? "text-green-400" : "text-red-400"}>{((res.funding || 0) * 100).toFixed(4)}%</b></span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-gray-500 italic text-center py-2">
+                                        Waiting for first scan...
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Active Strategy */}
+                    <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6 md:col-span-2">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Activity className="text-pink-500" size={20} />
+                            <h2 className="text-xl font-bold">Active Strategy</h2>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="text-lg font-bold text-primary">
+                                {data.active_strategy?.name || 'None'}
+                            </div>
+                            <div className="bg-white/5 rounded-lg p-3 text-xs font-mono overflow-x-auto">
+                                <div className="text-gray-400 mb-1">Parameters:</div>
+                                <pre>
+                                    {JSON.stringify(data.active_strategy?.params || {}, null, 2)}
+                                </pre>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Bot State */}
                     <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
                         <div className="flex items-center gap-2 mb-4">

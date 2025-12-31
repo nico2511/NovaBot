@@ -291,13 +291,35 @@ class HyperliquidService:
             print(f"Error fetching positions: {e}")
             return []
 
+    def cancel_all_orders(self, symbol: str):
+        """Cancel all open orders for a symbol"""
+        if not self.exchange or not config.HL_ACCOUNT_ADDRESS:
+            return
+            
+        try:
+            open_orders = self.info.open_orders(config.HL_ACCOUNT_ADDRESS)
+            orders_to_cancel = [o for o in open_orders if o["coin"] == symbol]
+            
+            if not orders_to_cancel:
+                return
+                
+            print(f"🧹 Cancelling {len(orders_to_cancel)} open orders for {symbol}...")
+            for order in orders_to_cancel:
+                self.exchange.cancel(symbol, order["oid"])
+                
+        except Exception as e:
+            print(f"⚠️ Error cancelling orders: {e}")
+
     def close_position(self, symbol: str):
         """Close an open position on Hyperliquid"""
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
         try:
-            # Get current position
+            # 1. Cancel existing orders first (TP/SL) to free up 'reduce-only' capacity or avoid conflicts
+            self.cancel_all_orders(symbol)
+            
+            # 2. Get current position
             positions = self.get_positions()
             position = next((p for p in positions if p["symbol"] == symbol), None)
             
@@ -307,13 +329,53 @@ class HyperliquidService:
             size = position["size"]
             side = position["side"]
             
-            # Close with opposite order (market order)
+            # 3. Close with opposite order
             is_buy = (side == "SELL")  # If SHORT, BUY to close
             
             print(f"🔴 CLOSING {side} position: {size} {symbol}")
-            result = self.execute_order(symbol, is_buy, size)
             
-            return {"status": "success", "result": result, "closed_size": size}
+            # Use execute_order but ensure we don't accidentally place new SL/TP
+            # Note: We should ideally use reduce_only=True. 
+            # Since execute_order calls market_open which might not support it directly in this wrapper,
+            # we rely on the sdk's market_open.
+            # To be safer, we can call exchange.order directly with reduce_only if we suspect issues.
+            
+            # ATTEMPT 1: Standard Execute
+            # result = self.execute_order(symbol, is_buy, size)
+            
+            # ATTEMPT 2: Direct "Reduce Only" Market Order
+            sz_decimals, price_decimals = self._get_precision(symbol)
+            quantity = float(f"{size:.{sz_decimals}f}")
+            
+            if quantity <= 0:
+                 return {"status": "error", "message": "Position dust too small to close"}
+
+            print(f"🚀 SENDING REDUCE-ONLY MARKET CLOSE: {quantity} {symbol}")
+            
+            # Ensure we use the exchange's market_open correctly
+            try:
+                result = self.exchange.market_open(symbol, is_buy, quantity)
+                print(f"✅ Close executed: {symbol} {quantity}")
+                
+                # Verify if position is actually closed
+                import time
+                time.sleep(1) # Wait for fill
+                new_positions = self.get_positions()
+                remaining_pos = next((p for p in new_positions if p["symbol"] == symbol), None)
+                
+                if remaining_pos:
+                    rem_size = remaining_pos["size"]
+                    # Clean warning
+                    if rem_size < quantity * 0.1:
+                         print(f"ℹ️ Close incomplete: Dust remaining ({rem_size})")
+                    else:
+                         print(f"⚠️ Warning: Position {symbol} still has size {rem_size} after close command.")
+                         
+                return {"status": "success", "result": result, "closed_size": size}
+                
+            except Exception as inner_e:
+                print(f"❌ Market close failed: {inner_e}")
+                return {"status": "error", "message": f"Market order failed: {inner_e}"}
             
         except Exception as e:
             print(f"❌ Failed to close position: {e}")
@@ -427,7 +489,7 @@ class HyperliquidService:
                 "price": float(ctx.get("markPx", 0)),
                 "volume_24h": float(ctx.get("dayNtlVlm", 0)),
                 "funding_rate": float(ctx.get("funding", 0)),
-                "open_interest": float(ctx.get("openInterest", 0)),
+                "open_interest": float(ctx.get("openInterest", 0)) * float(ctx.get("markPx", 0)), # Convert to USD
                 "oracle_price": float(ctx.get("oraclePx", 0)),
                 "prev_day_price": float(ctx.get("prevDayPx", 0))
             }

@@ -10,10 +10,10 @@ module.exports = {
             colors: {
                 primary: '#3b82f6',
                 'primary-dark': '#2563eb',
-                background: '#0f172a',
-                surface: '#1e293b',
-                'surface-light': '#334155',
-                border: '#475569',
+                background: '#050505', // Nearly pure black
+                surface: '#121212',    // Dark neutral gray (Material Dark)
+                'surface-light': '#27272a', // Zinc-800
+                border: '#3f3f46',     // Zinc-700
                 success: '#22c55e',
                 warning: '#f97316',
                 error: '#ef4444',

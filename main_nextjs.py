@@ -7,6 +7,7 @@ import sys
 import os
 import threading
 import time
+import asyncio
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +46,16 @@ class BotContext:
         self.last_candle_time = None
         self.active_trade = None
         self.execution_mode = "Manual (Phantom)"
+        self.active_strategy_name = "SmartTrend" # Default for display
+        self.active_strategies = [] # List of currently active strategies based on regime
+
+        # Scanner Settings defaults
+        self.scanner_settings = {
+            "enabled": False, # Manual only by default
+            "interval": 15,
+            "min_score": 75,
+            "auto_switch": False
+        }
         
         # AI Commentary Cache
         self.ai_cache = {
@@ -375,6 +386,11 @@ class BotContext:
                     # Analyze strategies with MTF data
                     result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
                     self.latest_strategy_result = result
+                    
+                    # Update active strategies list for UI
+                    self.active_strategies = result.get('strategies', [])
+                    if self.active_strategies:
+                         self.active_strategy_name = self.active_strategies[0] # Primary
                     
                     self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
                     
@@ -938,7 +954,10 @@ class BotContext:
             
             # Start Scanner Job
             if self.scanner_job:
+                # Enable scanner when engine starts
+                self.scanner_settings['enabled'] = True
                 self.scanner_job.start()
+                self.add_log("🕵️ Scanner auto-enabled with engine start")
                 
             StateManager.save_state(self)
         else:
@@ -1029,7 +1048,9 @@ class BotContext:
             
             # Stop Scanner Job
             if self.scanner_job:
+                self.scanner_settings['enabled'] = False
                 self.scanner_job.stop()
+                self.add_log("🕵️ Scanner disabled with engine stop")
                 
             StateManager.save_state(self)
 
@@ -1043,7 +1064,17 @@ def start_api_server(bot_context):
     bot_bridge.set_bot_context(bot_context)
     
     print("🚀 Starting FastAPI server on http://localhost:8001")
-    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
+    
+    # Create uvicorn configuration
+    config = uvicorn.Config(app, host="0.0.0.0", port=8001, log_level="info", loop="asyncio")
+    server = uvicorn.Server(config)
+    
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Run the server directly (skips signal handlers which cause crashes in threads on Windows)
+    loop.run_until_complete(server.serve())
 
 
 if __name__ == "__main__":

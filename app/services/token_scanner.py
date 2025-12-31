@@ -52,34 +52,16 @@ class HyperliquidScanner:
             meta = self.info.meta()
             all_tokens = [asset['name'] for asset in meta['universe']]
             
-            # ALWAYS apply gamification filter - this is the scanner's purpose
-            try:
-                # Get account balance for gamification level
-                account_value = hyperliquid_service.get_account_value()
-                gam = AssetGamification(account_value)
+            # Skip gamification filter - allow scanning ALL assets
+            # meta = self.info.meta()
+            # all_tokens = [asset['name'] for asset in meta['universe']]
+            
+            print(f"📊 Scanning all {len(all_tokens)} available tokens (Gamification filter bypassed)")
+            return all_tokens
                 
-                # Get allowed assets for current level
-                allowed_assets = gam.get_allowed_assets()
-                
-                # Filter tokens to only allowed ones
-                filtered_tokens = [token for token in all_tokens if token in allowed_assets]
-                
-                # Import ACCESS_RULES for display
-                from app.core.asset_gamification import ACCESS_RULES
-                
-                print(f"🎮 Gamification Level: {gam.level.value} (Balance: ${account_value:.2f})")
-                print(f"📊 Allowed tokens: {len(filtered_tokens)}/{len(all_tokens)}")
-                
-                if not filtered_tokens:
-                    print("⚠️ No tokens available for current level!")
-                    return []
-                
-                return filtered_tokens
-                
-            except Exception as e:
-                print(f"⚠️ Gamification filter error: {e}")
-                print("⚠️ Fallback to default safe list (Casino tier)")
-                return ["PEPE", "DOGE", "WIF", "BONK", "FARTCOIN"]
+        except Exception as e:
+            print(f"❌ Error fetching tokens: {e}")
+            return []
                 
         except Exception as e:
             print(f"❌ Error fetching tokens: {e}")

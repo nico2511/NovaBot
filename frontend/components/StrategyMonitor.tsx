@@ -8,9 +8,11 @@ interface StrategyMonitorProps {
     ema_50?: number
     bb?: { upper: number; middle: number; lower: number }
     strategy_progress?: { [key: string]: number }
+    hideHeader?: boolean
+    embedded?: boolean
 }
 
-export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {} }: StrategyMonitorProps) {
+export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
     const getStrategyDetails = (strategy: string) => {
         const details: { [key: string]: { icon: string; description: string; conditions: string[] } } = {
             'Scalp Ema Rsi': {
@@ -40,7 +42,6 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     'Reversal signals active'
                 ]
             },
-            // ... existing strategies ...
             'Institutional Scalp': {
                 icon: '🏦',
                 description: 'Liquidity grab and stop hunt detection',
@@ -68,15 +69,22 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
         }
     }
 
+    // Dynamic container class
+    const containerClass = embedded
+        ? "space-y-6" // No background/border when embedded
+        : "bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6"
+
     return (
-        <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold">🔬 Strategy Monitor</h3>
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                    <span className="text-sm text-gray-400">Live Monitoring</span>
+        <div className={containerClass}>
+            {!hideHeader && (
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-semibold">🔬 Strategy Monitor</h3>
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                        <span className="text-sm text-gray-400">Live Monitoring</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Market Overview Moved to Header */}
 
