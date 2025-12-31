@@ -65,6 +65,11 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         return () => clearInterval(interval)
     }, [])
 
+    // CRITICAL: Don't render if no active trade
+    if (!trade) {
+        return null
+    }
+
     const closeTrade = async () => {
         try {
             await axios.post(`${API_URL}/api/close_trade`)
