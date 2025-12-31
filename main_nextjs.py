@@ -493,7 +493,7 @@ class BotContext:
                         print(f"Error in AI market analysis: {e}")
                     
                     # CRITICAL: Check if this is a NEW candle before analyzing
-                    last_candle_time = df.index[-1]
+                    last_candle_time = df_1m.index[-1]
                     if last_candle_time == self.last_analyzed_candle:
                         self.add_log(f"⏸️ Same candle {last_candle_time}, waiting for next 1m candle...")
                         time.sleep(30)  # Wait for next candle
