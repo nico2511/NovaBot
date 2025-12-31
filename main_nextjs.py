@@ -308,8 +308,8 @@ class BotContext:
                                     if not sl or not tp:
                                         self.add_log("⚠️ AI didn't provide SL/TP, using ATR fallback")
                                         atr = 0
-                                        if 'ATRr_14' in df_15m.columns:
-                                            atr = df_15m['ATRr_14'].iloc[-1]
+                                        if hasattr(self, 'latest_data') and not self.latest_data.empty and 'ATRr_14' in self.latest_data.columns:
+                                            atr = self.latest_data['ATRr_14'].iloc[-1]
                                         else:
                                             atr = current_price * 0.01
                                         
@@ -329,8 +329,8 @@ class BotContext:
                                 # AI failed - use ATR fallback
                                 self.add_log(f"⚠️ AI validation failed: {e}, using ATR fallback")
                                 atr = 0
-                                if 'ATRr_14' in df_15m.columns:
-                                    atr = df_15m['ATRr_14'].iloc[-1]
+                                if hasattr(self, 'latest_data') and not self.latest_data.empty and 'ATRr_14' in self.latest_data.columns:
+                                    atr = self.latest_data['ATRr_14'].iloc[-1]
                                 else:
                                     atr = current_price * 0.01
 
