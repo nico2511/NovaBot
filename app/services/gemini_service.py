@@ -17,10 +17,13 @@ class GeminiService:
                 'gemini-flash-latest',
             ]  # Prioritize confirmed available models (1.5 removed)
         
-        # 2. Init OpenRouter (via OpenAI client) - OPTIONAL
+        self.provider_order = ["openrouter", "gemini"]  # OpenRouter first, then Gemini
+
+        # 2. Init OpenRouter (via OpenAI client)
         self.openrouter_key = config.OPENROUTER_API_KEY
         self.openrouter_client = None
-        self.openrouter_model = "meta-llama/llama-3.3-70b-instruct:free"
+        # Default to Llama 3.1 8B as requested for price analysis
+        self.openrouter_model = "meta-llama/llama-3.1-8b-instruct"
 
         if self.openrouter_key:
             try:
@@ -29,14 +32,16 @@ class GeminiService:
                     base_url="https://openrouter.ai/api/v1",
                     api_key=self.openrouter_key,
                 )
+                print(f"✅ OpenRouter initialized with model: {self.openrouter_model}")
             except ImportError:
                 print("⚠️ OpenAI module not found. OpenRouter fallback disabled.")
                 self.openrouter_client = None
             except Exception as e:
                 print(f"⚠️ Failed to init OpenRouter: {e}")
                 self.openrouter_client = None
-
-        self.provider_order = ["gemini", "openrouter"]  # Gemini first, OpenRouter fallback
+        else:
+             print("ℹ️ OpenRouter Key not found. Using Gemini as primary.")
+             self.provider_order = ["gemini"]
 
         # Cache
         self.last_market_analysis = None

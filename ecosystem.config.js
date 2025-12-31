@@ -18,8 +18,8 @@ module.exports = {
     },
     {
       name: 'hl-frontend',
-      script: 'node_modules/next/dist/bin/next',
-      args: 'start -p 3000',
+      script: 'npm',
+      args: 'start',
       cwd: './frontend',
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
