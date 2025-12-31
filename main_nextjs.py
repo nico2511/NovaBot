@@ -71,6 +71,9 @@ class BotContext:
         self.startup_sync_done = False
         self._initial_position_analyzed = False
         
+        # Candle analysis cache to prevent redundant calculations
+        self.last_analyzed_candle = None
+        
         # Load persisted state
         try:
             StateManager.load_state(self)
@@ -434,6 +437,17 @@ class BotContext:
                     except Exception as e:
                         print(f"Error in AI market analysis: {e}")
                     
+                    # CRITICAL: Check if this is a NEW candle before analyzing
+                    last_candle_time = df.index[-1]
+                    if last_candle_time == self.last_analyzed_candle:
+                        self.add_log(f"⏸️ Same candle {last_candle_time}, waiting for next 1m candle...")
+                        time.sleep(30)  # Wait for next candle
+                        continue
+                    
+                    # NEW CANDLE - Run analysis
+                    self.add_log(f"🔍 Analyzing new 1m candle at {last_candle_time}")
+                    self.last_analyzed_candle = last_candle_time
+                    
                     # Process signals (Only if NO active trade)
                     if result.get("signals") and not self.active_trade:
                         sig_data = result["signals"][0]
@@ -514,12 +528,49 @@ class BotContext:
                             
                             if existing_pos:
                                 self.add_log(f"🕵️ JIT: Found existing position on {self.active_symbol} just before alert. Adopting instead.")
+                                
+                                # CRITICAL FIX: Use AI to suggest appropriate SL/TP instead of hardcoded ±5%
+                                try:
+                                    from app.services.gemini_service import gemini_service
+                                    
+                                    # Get AI suggestion for SL/TP
+                                    ai_risk_analysis = gemini_service.analyze_position_risk(
+                                        symbol=self.active_symbol,
+                                        position_data=existing_pos,
+                                        market_data={"price": existing_pos["entry_price"], "regime": result.get("regime", "UNKNOWN")}
+                                    )
+                                    
+                                    # Parse AI suggestions
+                                    import json
+                                    if ai_risk_analysis.get("raw_output"):
+                                        ai_data = json.loads(ai_risk_analysis["raw_output"])
+                                        suggested_sl = ai_data.get("stop_loss_suggestion")
+                                        suggested_tp = ai_data.get("take_profit_suggestion")
+                                        
+                                        # Fallback to ±5% if AI doesn't provide suggestions
+                                        if not suggested_sl:
+                                            suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
+                                        if not suggested_tp:
+                                            suggested_tp = existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95
+                                        
+                                        self.add_log(f"🤖 AI Suggested SL: {suggested_sl:.2f}, TP: {suggested_tp:.2f}")
+                                    else:
+                                        # AI failed, use conservative defaults
+                                        suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
+                                        suggested_tp = existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95
+                                        self.add_log(f"⚠️ AI unavailable, using default SL/TP")
+                                except Exception as e:
+                                    # AI failed, use conservative defaults
+                                    self.add_log(f"⚠️ AI validation failed: {e}, using default SL/TP")
+                                    suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
+                                    suggested_tp = existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95
+                                
                                 self.active_trade = {
                                     "symbol": self.active_symbol,
                                     "side": existing_pos["side"],
                                     "entry": existing_pos["entry_price"],
-                                    "sl": existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05,
-                                    "tp": existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95,
+                                    "sl": suggested_sl,
+                                    "tp": suggested_tp,
                                     "strategy": strat_name, # Associate the signal's strategy!
                                     "timestamp": pd.Timestamp.now().isoformat(),
                                     "size": existing_pos["size"],
@@ -923,7 +974,7 @@ class BotContext:
                                 
                             self.active_trade = None
                 
-                time.sleep(5)  # Wait 5 seconds
+                time.sleep(30)  # Wait 30 seconds before next iteration (reduced API load)
                 
             except Exception as e:
                 self.add_log(f"❌ Error in trading loop: {e}")
