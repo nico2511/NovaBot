@@ -97,6 +97,111 @@ class BotContext:
         self.logs.append(f"{timestamp} {message}")
         print(f"[BOT] {message}")
     
+    def _prepare_ai_context(self, position_data: dict = None) -> dict:
+        """Prepare comprehensive market context for professional AI analysis"""
+        if not hasattr(self, 'latest_data') or self.latest_data.empty:
+            return {}
+        
+        df = self.latest_data
+        current_price = float(df['close'].iloc[-1])
+        
+        # Technical Indicators
+        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else None
+        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else None
+        
+        # EMAs for trend analysis
+        ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
+        ema_50 = float(df['close'].ewm(span=50).mean().iloc[-1])
+        ema_200 = float(df['close'].ewm(span=200).mean().iloc[-1]) if len(df) >= 200 else None
+        
+        # Price levels (swing high/low from last 20 candles)
+        swing_high = float(df['high'].rolling(20).max().iloc[-1])
+        swing_low = float(df['low'].rolling(20).min().iloc[-1])
+        
+        # Volume analysis
+        avg_volume = float(df['volume'].rolling(50).mean().iloc[-1])
+        current_volume = float(df['volume'].iloc[-1])
+        volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
+        
+        # Volatility percentile (ATR vs 50-period historical)
+        volatility_percentile = None
+        if atr and 'ATRr_14' in df.columns:
+            atr_series = df['ATRr_14'].dropna()
+            if len(atr_series) > 0:
+                volatility_percentile = int((atr_series < atr).sum() / len(atr_series) * 100)
+        
+        # Market regime
+        regime = "TREND" if ema_20 > ema_50 else "RANGE"
+        market_bias = "BULLISH" if ema_20 > ema_50 else "BEARISH"
+        
+        # Position-specific data
+        pnl_percent = 0
+        time_in_trade = None
+        sl_distance = None
+        tp_distance = None
+        rr_ratio = None
+        
+        if position_data:
+            entry = position_data.get('entry_price', current_price)
+            side = position_data.get('side', 'BUY')
+            
+            # Calculate PnL
+            if side == 'BUY':
+                pnl_percent = ((current_price - entry) / entry) * 100
+            else:
+                pnl_percent = ((entry - current_price) / entry) * 100
+            
+            # Time in trade
+            if 'timestamp' in position_data:
+                entry_time = pd.Timestamp(position_data['timestamp'])
+                time_in_trade = str(pd.Timestamp.now() - entry_time).split('.')[0]
+            
+            # SL/TP distances
+            if 'sl' in position_data and position_data['sl']:
+                sl_distance = abs((position_data['sl'] - entry) / entry) * 100
+            if 'tp' in position_data and position_data['tp']:
+                tp_distance = abs((position_data['tp'] - entry) / entry) * 100
+            
+            # Risk/Reward ratio
+            if sl_distance and tp_distance and sl_distance > 0:
+                rr_ratio = round(tp_distance / sl_distance, 2)
+        
+        return {
+            "symbol": self.active_symbol,
+            "current_price": current_price,
+            "regime": regime,
+            "market_bias": market_bias,
+            
+            # Technical Indicators
+            "rsi": rsi,
+            "atr": atr,
+            "volatility_percentile": volatility_percentile,
+            
+            # EMAs
+            "ema_20": ema_20,
+            "ema_50": ema_50,
+            "ema_200": ema_200,
+            "ema20_distance": round(((current_price - ema_20) / ema_20) * 100, 2),
+            "ema50_distance": round(((current_price - ema_50) / ema_50) * 100, 2),
+            
+            # Price Levels
+            "swing_high": swing_high,
+            "swing_low": swing_low,
+            
+            # Volume
+            "current_volume": current_volume,
+            "avg_volume": avg_volume,
+            "volume_ratio": round(volume_ratio, 1),
+            
+            # Position Data
+            "pnl_percent": round(pnl_percent, 2) if position_data else None,
+            "time_in_trade": time_in_trade,
+            "sl_distance": round(sl_distance, 2) if sl_distance else None,
+            "tp_distance": round(tp_distance, 2) if tp_distance else None,
+            "rr_ratio": rr_ratio
+        }
+    
+    
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
@@ -277,23 +382,14 @@ class BotContext:
                                 from app.services.gemini_service import gemini_service
                                 import json
                                 
-                                # Get current market regime for context
-                                regime = "UNKNOWN"
-                                if hasattr(self, 'latest_data') and not self.latest_data.empty:
-                                    # Simple regime detection
-                                    ema_20 = self.latest_data['close'].ewm(span=20).mean().iloc[-1]
-                                    ema_50 = self.latest_data['close'].ewm(span=50).mean().iloc[-1]
-                                    regime = "TREND" if ema_20 > ema_50 else "RANGE"
+                                # Prepare comprehensive market context
+                                market_context = self._prepare_ai_context(active_symbol_pos)
                                 
-                                # Call AI for position risk analysis
+                                # Call AI for position risk analysis with full context
                                 ai_risk_analysis = gemini_service.analyze_position_risk(
                                     symbol=self.active_symbol,
                                     position_data=active_symbol_pos,
-                                    market_data={
-                                        "price": current_price,
-                                        "regime": regime,
-                                        "entry_price": entry_price
-                                    }
+                                    market_data=market_context
                                 )
                                 
                                 # Parse AI response

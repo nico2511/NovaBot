@@ -328,28 +328,91 @@ class GeminiService:
         return self._call_ai_generic(prompt)
     
     def analyze_position_risk(self, symbol: str, position_data: dict = None, market_data: dict = None) -> dict:
-        """Analyze risk for a position or potential position"""
+        """Analyze risk for a position with comprehensive market context"""
         # Cache for 5 mins
         key = self._get_cache_key("position_risk", symbol)
         cached = self._get_cached_response(key, 5)
         if cached:
             return cached
         
-        prompt = f"""
-        Risk Analyst Crypto. Analyse risque position {symbol}:
-        Position: {json.dumps(position_data) if position_data else 'Nouvelle position'}
-        Marché: {json.dumps(market_data) if market_data else 'N/A'}
+        # Extract market context
+        ctx = market_data or {}
         
-        Réponds UNIQUEMENT avec JSON:
-        - risk_score: (0-100, 100 = très risqué)
-        - risk_factors: Liste facteurs de risque (FR)
-        - recommendations: Conseils gestion risque
-        - stop_loss_suggestion: Prix SL suggéré (si applicable)
-        - take_profit_suggestion: Prix TP suggéré (si applicable)
-        """
+        # Build professional prompt
+        prompt = f"""You are a professional crypto trading risk analyst with expertise in technical analysis and position management.
+
+=== POSITION ANALYSIS REQUEST ===
+
+Symbol: {symbol}
+Current Price: ${ctx.get('current_price', 'N/A')}
+Market Regime: {ctx.get('regime', 'UNKNOWN')}
+Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
+
+{f'''Position Details:
+- Direction: {position_data.get('side', 'N/A')}
+- Entry Price: ${position_data.get('entry_price', 'N/A')}
+- Unrealized PnL: {ctx.get('pnl_percent', 0):.2f}%
+- Time in Trade: {ctx.get('time_in_trade', 'N/A')}
+- Current SL: ${position_data.get('sl', 'N/A')} ({ctx.get('sl_distance', 'N/A')}% from entry)
+- Current TP: ${position_data.get('tp', 'N/A')} ({ctx.get('tp_distance', 'N/A')}% from entry)
+- Risk/Reward Ratio: {ctx.get('rr_ratio', 'N/A')}
+''' if position_data else 'Analyzing potential entry opportunity'}
+
+=== TECHNICAL INDICATORS ===
+- RSI(14): {ctx.get('rsi', 'N/A')} {self._get_rsi_label(ctx.get('rsi'))}
+- ATR: {ctx.get('atr', 'N/A')} (Volatility: {ctx.get('volatility_percentile', 'N/A')}th percentile)
+- Price vs EMA20: {ctx.get('ema20_distance', 'N/A')}%
+- Price vs EMA50: {ctx.get('ema50_distance', 'N/A')}%
+
+=== KEY PRICE LEVELS ===
+- Recent Swing High: ${ctx.get('swing_high', 'N/A')}
+- Recent Swing Low: ${ctx.get('swing_low', 'N/A')}
+- EMA20: ${ctx.get('ema_20', 'N/A')}
+- EMA50: ${ctx.get('ema_50', 'N/A')}
+{f"- EMA200: ${ctx.get('ema_200', 'N/A')}" if ctx.get('ema_200') else ''}
+
+=== VOLUME ANALYSIS ===
+- Current Volume: {ctx.get('current_volume', 'N/A')}
+- Average Volume (50): {ctx.get('avg_volume', 'N/A')}
+- Volume Ratio: {ctx.get('volume_ratio', 'N/A')}% of average
+
+=== REQUIRED OUTPUT ===
+Provide a JSON response with:
+1. Risk assessment (0-100 score, where 100 = extremely risky)
+2. Risk level classification
+3. Key risk factors identified
+4. Actionable recommendations
+5. Optimal SL/TP based on technical levels (not arbitrary percentages)
+
+Respond ONLY with valid JSON in this exact format:
+{{
+  "risk_score": <0-100>,
+  "risk_level": "LOW|MEDIUM|HIGH|CRITICAL",
+  "risk_factors": ["factor1", "factor2", "factor3"],
+  "market_bias": "BULLISH|BEARISH|NEUTRAL",
+  "recommendations": ["action1", "action2"],
+  "stop_loss_suggestion": <price_number>,
+  "stop_loss_reasoning": "brief explanation based on technical level",
+  "take_profit_suggestion": <price_number>,
+  "take_profit_reasoning": "brief explanation based on technical level",
+  "confidence": <0-100>,
+  "reasoning": "2-3 sentence summary of analysis"
+}}"""
+        
         result = self._call_ai_generic(prompt)
         if "error" not in result:
             self._set_cache(key, result)
         return result
+    
+    def _get_rsi_label(self, rsi):
+        """Helper to label RSI values"""
+        if rsi is None:
+            return ""
+        if rsi > 70:
+            return "→ OVERBOUGHT"
+        elif rsi < 30:
+            return "→ OVERSOLD"
+        else:
+            return "→ NEUTRAL"
 
 gemini_service = GeminiService()
