@@ -271,20 +271,75 @@ class BotContext:
                             entry_price = active_symbol_pos["entry_price"]
                             side = active_symbol_pos["side"]
                             
-                            # Default Risk Parameters for adopted trades
-                            # If we have SL/TP setting, use it, otherwise reasonable defaults
-                            atr = 0
-                            if 'ATRr_14' in df_15m.columns:
-                                atr = df_15m['ATRr_14'].iloc[-1]
-                            else:
-                                atr = current_price * 0.01
+                            # CRITICAL: ALWAYS use AI to determine SL/TP for manual trades
+                            self.add_log("🤖 Calling AI to validate manual trade SL/TP...")
+                            try:
+                                from app.services.gemini_service import gemini_service
+                                import json
+                                
+                                # Get current market regime for context
+                                regime = "UNKNOWN"
+                                if hasattr(self, 'latest_data') and not self.latest_data.empty:
+                                    # Simple regime detection
+                                    ema_20 = self.latest_data['close'].ewm(span=20).mean().iloc[-1]
+                                    ema_50 = self.latest_data['close'].ewm(span=50).mean().iloc[-1]
+                                    regime = "TREND" if ema_20 > ema_50 else "RANGE"
+                                
+                                # Call AI for position risk analysis
+                                ai_risk_analysis = gemini_service.analyze_position_risk(
+                                    symbol=self.active_symbol,
+                                    position_data=active_symbol_pos,
+                                    market_data={
+                                        "price": current_price,
+                                        "regime": regime,
+                                        "entry_price": entry_price
+                                    }
+                                )
+                                
+                                # Parse AI response
+                                if ai_risk_analysis.get("raw_output"):
+                                    ai_data = json.loads(ai_risk_analysis["raw_output"])
+                                    sl = ai_data.get("stop_loss_suggestion")
+                                    tp = ai_data.get("take_profit_suggestion")
+                                    risk_score = ai_data.get("risk_score", "N/A")
+                                    reasoning = ai_data.get("reasoning", "AI analysis complete")
+                                    
+                                    # Fallback to ATR if AI doesn't provide suggestions
+                                    if not sl or not tp:
+                                        self.add_log("⚠️ AI didn't provide SL/TP, using ATR fallback")
+                                        atr = 0
+                                        if 'ATRr_14' in df_15m.columns:
+                                            atr = df_15m['ATRr_14'].iloc[-1]
+                                        else:
+                                            atr = current_price * 0.01
+                                        
+                                        if side == "BUY":
+                                            sl = sl or (entry_price - (2.0 * atr))
+                                            tp = tp or (entry_price + (3.0 * atr))
+                                        else:
+                                            sl = sl or (entry_price + (2.0 * atr))
+                                            tp = tp or (entry_price - (3.0 * atr))
+                                    
+                                    self.add_log(f"🤖 AI Analysis (Risk: {risk_score}): {reasoning}")
+                                    self.add_log(f"   AI Suggested SL: {sl:.4f}, TP: {tp:.4f}")
+                                else:
+                                    raise Exception("AI returned no output")
+                                    
+                            except Exception as e:
+                                # AI failed - use ATR fallback
+                                self.add_log(f"⚠️ AI validation failed: {e}, using ATR fallback")
+                                atr = 0
+                                if 'ATRr_14' in df_15m.columns:
+                                    atr = df_15m['ATRr_14'].iloc[-1]
+                                else:
+                                    atr = current_price * 0.01
 
-                            if side == "BUY":
-                                sl = entry_price - (2.0 * atr) 
-                                tp = entry_price + (3.0 * atr)
-                            else:
-                                sl = entry_price + (2.0 * atr)
-                                tp = entry_price - (3.0 * atr)
+                                if side == "BUY":
+                                    sl = entry_price - (2.0 * atr) 
+                                    tp = entry_price + (3.0 * atr)
+                                else:
+                                    sl = entry_price + (2.0 * atr)
+                                    tp = entry_price - (3.0 * atr)
                             
                             self.active_trade = {
                                 "symbol": self.active_symbol,
@@ -301,8 +356,8 @@ class BotContext:
                             self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
                             self.add_log(f"   Current Price: {current_price} | SL: {sl:.4f} | TP: {tp:.4f}")
                             discord_service.send_alert(
-                                "🛡️ MANUAL TRADE ADOPTED",
-                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
+                                "🛡️ MANUAL TRADE ADOPTED (AI-Validated)",
+                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nAI SL: {sl:.4f}\nAI TP: {tp:.4f}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
                                 color="0000ff"
                             )
                             
