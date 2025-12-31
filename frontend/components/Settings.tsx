@@ -171,42 +171,41 @@ export default function Settings() {
 
 
                             {/* Engine Control */}
-                            <div className="border-t border-border/30 pt-6">
+                            <div className="border-t border-border/30 pt-6 space-y-4">
                                 <h3 className="text-lg font-semibold mb-4">⚙️ Engine Control</h3>
-                                <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border/30">
-                                    <div>
-                                        <label className="text-sm font-semibold block mb-1">Bot Engine Status</label>
-                                        <p className="text-xs text-gray-400">Start or stop the main trading loop</p>
-                                    </div>
-                                    <button
-                                        onClick={async () => {
-                                            try {
-                                                const endpoint = statusData?.is_running ? '/api/engine/stop' : '/api/engine/start'
-                                                await axios.post(`${API_URL}${endpoint}`)
-                                                // SWR will auto-refresh status
-                                            } catch (error) {
-                                                console.error('Failed to toggle engine:', error)
-                                                alert('❌ Failed to toggle engine')
-                                            }
-                                        }}
-                                        className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${statusData?.is_running
-                                            ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
-                                            : 'bg-green-500/20 text-green-500 border-2 border-green-500/50 hover:bg-green-500/30'
-                                            }`}
-                                    >
-                                        {statusData?.is_running ? '⏸ STOP ENGINE' : '▶️ START ENGINE'}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Trading Control */}
-                            <div className="border-t border-border/30 pt-6">
-                                <h3 className="text-lg font-semibold mb-4">🤖 Trading Control</h3>
-
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border/30">
+                                {/* Bot Engine Control */}
+                                <div className="bg-surface/30 border border-border/20 rounded-xl p-6">
+                                    <div className="flex items-center justify-between">
                                         <div>
-                                            <label className="text-sm font-semibold block mb-1">Enable Automatic Trading</label>
+                                            <h3 className="text-sm font-semibold text-white mb-1">🤖 Bot Engine Status</h3>
+                                            <p className="text-xs text-gray-400">Start or stop the main trading loop</p>
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const endpoint = statusData?.is_running ? '/api/engine/stop' : '/api/engine/start'
+                                                    await axios.post(`${API_URL}${endpoint}`)
+                                                    // SWR will auto-refresh status
+                                                } catch (error) {
+                                                    console.error('Failed to toggle engine:', error)
+                                                    alert('❌ Failed to toggle engine')
+                                                }
+                                            }}
+                                            className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${statusData?.is_running
+                                                ? 'bg-red-500/20 text-red-500 border-2 border-red-500/50 hover:bg-red-500/30'
+                                                : 'bg-green-500/20 text-green-500 border-2 border-green-500/50 hover:bg-green-500/30'
+                                                }`}
+                                        >
+                                            {statusData?.is_running ? '⏸️ STOP ENGINE' : '▶️ START ENGINE'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Trading Execution Control */}
+                                <div className="bg-surface/30 border border-border/20 rounded-xl p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-white mb-1">💰 Trading Execution</h3>
                                             <p className="text-xs text-gray-400">Allow bot to execute trades automatically</p>
                                         </div>
                                         <button
@@ -225,12 +224,12 @@ export default function Settings() {
                                                 : 'bg-primary/20 text-primary border-2 border-primary/50 hover:bg-primary/30'
                                                 }`}
                                         >
-                                            {settings.trading_enabled ? '🛑 STOP BOT' : '▶️ START BOT'}
+                                            {settings.trading_enabled ? '🛑 DISABLE TRADING' : '✅ ENABLE TRADING'}
                                         </button>
                                     </div>
 
                                     {!settings.trading_enabled && (
-                                        <div className="text-xs text-yellow-500 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                                        <div className="text-xs text-yellow-500 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mt-4">
                                             ⚠️ Trading is currently DISABLED. Bot will analyze signals but won't execute trades.
                                         </div>
                                     )}
