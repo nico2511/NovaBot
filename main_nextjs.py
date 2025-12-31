@@ -608,7 +608,84 @@ class BotContext:
                         sl = sig_data.get("sl", entry_price * 0.95)
                         tp = sig_data.get("tp", entry_price * 1.05)
                         
-                        # AI: Analyser le signal
+                        # AI: Validate signal before execution
+                        ai_approved = False
+                        ai_reasoning = "No AI validation performed"
+                        
+                        try:
+                            from app.services.gemini_service import gemini_service
+                            import json
+                            
+                            self.add_log("🤖 Validating signal with AI...")
+                            
+                            # Prepare market context for validation
+                            market_context = self._prepare_ai_context()
+                            
+                            # Prepare signal data
+                            signal_for_validation = {
+                                "symbol": self.active_symbol,
+                                "signal": action,
+                                "strategy": strat_name,
+                                "price": entry_price,
+                                "sl": sl,
+                                "tp": tp
+                            }
+                            
+                            # Call AI validation
+                            validation_result = gemini_service.validate_signal(
+                                signal_data=signal_for_validation,
+                                market_context=market_context
+                            )
+                            
+                            # Parse AI response
+                            if validation_result.get("raw_output"):
+                                ai_data = json.loads(validation_result["raw_output"])
+                                ai_approved = ai_data.get("approved", False)
+                                ai_confidence = ai_data.get("confidence", 0)
+                                ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
+                                risk_factors = ai_data.get("risk_factors", [])
+                                
+                                # Check for suggested adjustments
+                                adjustments = ai_data.get("suggested_adjustments", {})
+                                if adjustments.get("sl"):
+                                    sl = adjustments["sl"]
+                                    self.add_log(f"   AI adjusted SL to: {sl:.2f}")
+                                if adjustments.get("tp"):
+                                    tp = adjustments["tp"]
+                                    self.add_log(f"   AI adjusted TP to: {tp:.2f}")
+                                
+                                if ai_approved:
+                                    self.add_log(f"✅ AI APPROVED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                else:
+                                    self.add_log(f"❌ AI REJECTED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                    if risk_factors:
+                                        self.add_log(f"   Risk Factors: {', '.join(risk_factors)}")
+                            else:
+                                # AI failed, use conservative approach
+                                self.add_log("⚠️ AI validation failed, proceeding with caution")
+                                ai_approved = True  # Allow trade but log the failure
+                                
+                        except Exception as e:
+                            self.add_log(f"⚠️ AI validation error: {e}, proceeding with trade")
+                            ai_approved = True  # Fallback to allowing trade
+                        
+                        # Only execute if AI approved OR if user wants manual approval
+                        if not ai_approved:
+                            self.add_log(f"🚫 Signal REJECTED by AI: {action} {self.active_symbol} @ {entry_price}")
+                            # Log rejected signal for analysis
+                            log_entry = {
+                                "time": pd.Timestamp.now(),
+                                "symbol": self.active_symbol,
+                                "strategy": strat_name,
+                                "type": action,
+                                "price": entry_price,
+                                "action": "AI_REJECTED",
+                                "ai_reasoning": ai_reasoning
+                            }
+                            self.signals_log.append(log_entry)
+                            continue  # Skip this signal
+                        
+                        # Signal approved by AI, proceed with execution
                         try:
                             from app.services.gemini_service import gemini_service
                             

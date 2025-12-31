@@ -173,6 +173,76 @@ class GeminiService:
              self._set_cache(key, result)
         return result
     
+    def validate_signal(self, signal_data: dict, market_context: dict) -> dict:
+        """Validate a trading signal with AI before execution"""
+        # Cache for 1 min (signals are time-sensitive)
+        symbol = signal_data.get('symbol', 'UNKNOWN')
+        key = self._get_cache_key("signal_validation", f"{symbol}_{signal_data.get('signal')}")
+        cached = self._get_cached_response(key, 1)
+        if cached:
+            return cached
+        
+        ctx = market_context or {}
+        
+        prompt = f"""You are a professional crypto trading signal validator. Your job is to approve or reject trade signals based on technical analysis and market conditions.
+
+=== SIGNAL TO VALIDATE ===
+Symbol: {symbol}
+Direction: {signal_data.get('signal', 'N/A')}
+Strategy: {signal_data.get('strategy', 'N/A')}
+Entry Price: ${signal_data.get('price', 'N/A')}
+Proposed SL: ${signal_data.get('sl', 'N/A')}
+Proposed TP: ${signal_data.get('tp', 'N/A')}
+
+=== CURRENT MARKET CONDITIONS ===
+Current Price: ${ctx.get('current_price', 'N/A')}
+Market Regime: {ctx.get('regime', 'UNKNOWN')}
+Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
+
+Technical Indicators:
+- RSI(14): {ctx.get('rsi', 'N/A')} {self._get_rsi_label(ctx.get('rsi'))}
+- ATR: {ctx.get('atr', 'N/A')} (Volatility: {ctx.get('volatility_percentile', 'N/A')}th percentile)
+- Price vs EMA20: {ctx.get('ema20_distance', 'N/A')}%
+- Price vs EMA50: {ctx.get('ema50_distance', 'N/A')}%
+
+Key Levels:
+- Swing High: ${ctx.get('swing_high', 'N/A')}
+- Swing Low: ${ctx.get('swing_low', 'N/A')}
+
+Volume:
+- Current: {ctx.get('current_volume', 'N/A')}
+- Ratio vs Avg: {ctx.get('volume_ratio', 'N/A')}%
+
+=== VALIDATION CRITERIA ===
+Approve the signal ONLY if:
+1. Signal direction aligns with market bias and technical indicators
+2. Entry price is at a logical technical level (support/resistance, EMA, etc.)
+3. SL/TP placement is reasonable based on market structure
+4. Volume supports the move
+5. RSI is not in extreme territory against the signal direction
+6. Overall risk/reward is favorable
+
+Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, etc.)
+
+=== REQUIRED OUTPUT ===
+Respond ONLY with valid JSON:
+{{
+  "approved": true|false,
+  "confidence": <0-100>,
+  "reasoning": "brief 2-3 sentence explanation of decision",
+  "risk_factors": ["factor1", "factor2"],
+  "suggested_adjustments": {{
+    "entry": <price_or_null>,
+    "sl": <price_or_null>,
+    "tp": <price_or_null>
+  }}
+}}"""
+        
+        result = self._call_ai_generic(prompt)
+        if "error" not in result:
+            self._set_cache(key, result)
+        return result
+    
     def analyze_trade_signal(self, signal_data: dict, market_context: dict = None) -> dict:
         """Cached signal analysis (5 min TTL for same signal/price)"""
         # Key includes symbol, signal logic, and Price bucket (to avoid re-analyzing same price level)
