@@ -169,34 +169,72 @@ class HyperliquidService:
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
-        try:
-            # Dynamic Precision Rounding
-            sz_decimals, price_decimals = self._get_precision(symbol)
-            
-            # Format Quantity
-            quantity = float(f"{quantity:.{sz_decimals}f}")
-            
-            if price:
-                # LIMIT ORDER
-                price = float(f"{price:.{price_decimals}f}")
-                print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price}")
-                result = self.exchange.order(symbol, is_buy, quantity, price, {"limit": {"tif": "Gtc"}})
-            else:
-                # MARKET ORDER
-                print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
-                result = self.exchange.market_open(symbol, is_buy, quantity)
+        import time
+        
+        # Dynamic Precision Rounding
+        sz_decimals, price_decimals = self._get_precision(symbol)
+        
+        # Format Quantity
+        quantity = float(f"{quantity:.{sz_decimals}f}")
+        
+        # Retry configuration
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                if price:
+                    # LIMIT ORDER
+                    price = float(f"{price:.{price_decimals}f}")
+                    print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price} (Attempt {attempt + 1}/{max_retries})")
+                    result = self.exchange.order(symbol, is_buy, quantity, price, {"limit": {"tif": "Gtc"}})
+                else:
+                    # MARKET ORDER
+                    print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol} (Attempt {attempt + 1}/{max_retries})")
+                    result = self.exchange.market_open(symbol, is_buy, quantity)
                 
-            print(f"✅ Order execution result: {result}")
-            
-            # Place Hard Stops if main order succeeded
-            if result.get("status") == "ok":
-                 self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
-
-            return {"status": "success", "result": result}
-            
-        except Exception as e:
-            print(f"❌ Order execution failed: {e}")
-            return {"status": "error", "message": str(e)}
+                print(f"✅ Order execution result: {result}")
+                
+                # Verify order was accepted
+                if result.get("status") == "ok":
+                    # Wait a moment for order to fill
+                    time.sleep(2)
+                    
+                    # Verify position exists
+                    positions = self.get_positions()
+                    position_found = any(p["symbol"] == symbol for p in positions)
+                    
+                    if position_found:
+                        print(f"✅ Position verified on exchange for {symbol}")
+                        # Place Hard Stops
+                        self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
+                        return {"status": "success", "result": result}
+                    else:
+                        print(f"⚠️ Order accepted but position not found, retrying...")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                            continue
+                        else:
+                            return {"status": "error", "message": "Order accepted but position not found after retries"}
+                else:
+                    # Order rejected, retry
+                    error_msg = result.get("response", {}).get("data", {}).get("error", "Unknown error")
+                    print(f"❌ Order rejected: {error_msg}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (2 ** attempt))
+                        continue
+                    else:
+                        return {"status": "error", "message": f"Order rejected after {max_retries} attempts: {error_msg}"}
+                        
+            except Exception as e:
+                print(f"❌ Order execution failed (Attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                else:
+                    return {"status": "error", "message": f"Order failed after {max_retries} attempts: {str(e)}"}
+        
+        return {"status": "error", "message": "Order execution failed"}
 
     def update_leverage(self, symbol: str, leverage: int, is_cross: bool = True):
         """Update leverage and margin type (Cross/Isolated) for a symbol"""
