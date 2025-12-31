@@ -619,14 +619,23 @@ async def close_trade():
                 # Execute close regardless of bot mode (Manual Override)
                 result = hyperliquid_service.close_position(symbol)
                 
-                if result["status"] == "success":
-                    bot.add_log(f"✅ Position closed: {result.get('closed_size')} {symbol}")
-                    # Clear active trade in bot state immediately
+                # CRITICAL: Even if Hyperliquid says "No position found", clear bot state
+                # This handles desync cases where bot thinks it has a trade but exchange doesn't
+                if result.get("success") or "No position found" in result.get("message", ""):
                     bot.active_trade = None
-                    return {"status": "success", "result": result}
+                    bot.add_log(f"✅ Position cleared from bot state")
+                    
+                    # Record the close
+                    try:
+                        from app.core.state_manager import StateManager
+                        StateManager.save_state(bot)
+                    except Exception as e:
+                        print(f"Error saving state: {e}")
+                    
+                    return {"success": True, "message": "Position closed or cleared"}
                 else:
                     bot.add_log(f"❌ Close failed: {result.get('message')}")
-                    return {"status": "error", "message": result.get("message")}
+                    return {"success": False, "message": result.get("message")}
                     
             except Exception as e:
                 import traceback
