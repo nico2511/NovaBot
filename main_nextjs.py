@@ -142,8 +142,18 @@ class BotContext:
         rr_ratio = None
         
         if position_data:
-            entry = position_data.get('entry_price', current_price)
-            side = position_data.get('side', 'BUY')
+            # Handle both dict and direct values
+            entry = position_data.get('entry_price') if isinstance(position_data, dict) else position_data
+            if entry is None:
+                entry = position_data.get('entry') if isinstance(position_data, dict) else current_price
+            
+            # Ensure entry is a float
+            try:
+                entry = float(entry) if entry else current_price
+            except (TypeError, ValueError):
+                entry = current_price
+            
+            side = position_data.get('side', 'BUY') if isinstance(position_data, dict) else 'BUY'
             
             # Calculate PnL
             if side == 'BUY':
@@ -152,15 +162,24 @@ class BotContext:
                 pnl_percent = ((entry - current_price) / entry) * 100
             
             # Time in trade
-            if 'timestamp' in position_data:
+            if isinstance(position_data, dict) and 'timestamp' in position_data:
                 entry_time = pd.Timestamp(position_data['timestamp'])
                 time_in_trade = str(pd.Timestamp.now() - entry_time).split('.')[0]
             
             # SL/TP distances
-            if 'sl' in position_data and position_data['sl']:
-                sl_distance = abs((position_data['sl'] - entry) / entry) * 100
-            if 'tp' in position_data and position_data['tp']:
-                tp_distance = abs((position_data['tp'] - entry) / entry) * 100
+            if isinstance(position_data, dict):
+                if 'sl' in position_data and position_data['sl']:
+                    try:
+                        sl_val = float(position_data['sl'])
+                        sl_distance = abs((sl_val - entry) / entry) * 100
+                    except (TypeError, ValueError):
+                        pass
+                if 'tp' in position_data and position_data['tp']:
+                    try:
+                        tp_val = float(position_data['tp'])
+                        tp_distance = abs((tp_val - entry) / entry) * 100
+                    except (TypeError, ValueError):
+                        pass
             
             # Risk/Reward ratio
             if sl_distance and tp_distance and sl_distance > 0:
