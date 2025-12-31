@@ -1,7 +1,7 @@
 # Project Context: Hyperliquid AI Trading Bot
 
 ## 1. Project Overview
-This project is an advanced algorithmic trading bot designed for the **Hyperliquid** DEX. It features a hybrid architecture combining a **Python (FastAPI)** backend for trading logic and a **Next.js (React)** frontend for monitoring and control. The system integrates **Gemini AI** for market analysis and trade commentary.
+This project is an advanced algorithmic trading bot designed for the **Hyperliquid** DEX. It features a hybrid architecture combining a **Python (FastAPI)** backend for trading logic and a **Next.js (React)** frontend for monitoring and control. The system integrates **Gemini AI** for market analysis and trade commentary, with a strong focus on autonomous resilience and user experience.
 
 ## 2. Technical Stack & Architecture
 
@@ -21,38 +21,39 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 ## 3. Key Technical Decisions & Features
 
 ### A. Trade Execution & Safety
-- **Market Orders**: Chosen for immediate execution to avoid potential fill issues with unstable limit orders in fast markets.
-- **Dynamic Precision**: implemented `_get_precision` to fetch `szDecimals` and `maxPriceDecimals` from exchange metadata. This prevents "dust" issues and "invalid size" rejections.
+- **Dynamic Leverage Sync**: The bot strictly enforces the user-defined leverage (e.g., x3, x5) by sending a specific update command to Hyperliquid **immediately before** every manual trade execution. This prevents accidental "default leverage (x1/x20)" mishaps.
+- **Smart Order Sizing**: Inputs in USDC are dynamically converted to token quantities based on real-time prices, with rounding logic that respects Hyperliquid's distinct `szDecimals` requirements for each asset.
+- **Just-In-Time (JIT) Adoption**: Before alerting the user for a "Manual Validation" signal, the bot performs a final check against the exchange. If the position already exists, it silently adopts it instead of spamming the user.
 - **Grace Period**: A 30-second buffer after trade entry prevents the "Position Vanished" safety check from accidentally closing trades before they appear on the exchange API.
-- **Sync-First Architecture**: The bot synchronizes its leverage (forces x5, for example) and active position with the exchange immediately upon startup.
 
-### B. Strategy Engine
+### B. Strategy Engine & AI
 - **Modular Design**: Strategies (e.g., `ScalpEmaRsi`, `W Patten`) are defined in `strategies/definitions.py`.
-- **Regime Detection**: The engine first determines the market regime (TREND vs RANGE) via ADX/EMA before selecting valid strategies.
-- **AI Validation**: Signals are optionally cross-checked by Gemini AI for "sane" reasoning before execution.
+- **Regime Detection**: The engine first determines the market regime (TREND vs RANGE) via ADX/EMA.
+- **AI Circuit Breaker**: To handle API rate limits (Gemini 429 Errors), a circuit breaker pauses AI requests for **10 minutes** upon detection, preventing log floods and ensuring quota recovery.
+- **AI Analysis Cache**: Analyses are cached with symbol-specific keys (`position_analysis_BTC`) to ensure consistent display across the backend and frontend.
 
-### C. Resilience
-- **Ghost Position Cleanup**: Strict logic to detect and close "phantom" positions (state says open, exchange says closed).
+### C. Notifications & UX
+- **Smart Silence**: The Opportunity Scanner is automatically muted when a trade is active to prevent distraction ("Marché Calme" alerts are suppressed).
+- **Integrated Intelligence**: AI Risk Analysis (Risk Level, Reasoning, Recommendations) is displayed directly within the **Active Trade** card, eliminating the need to switch tabs.
 - **Discord Alerts**: Real-time notifications for Entries, Exits, AI Risk warnings, and Bot Sync events.
 
-## 4. Current Status (As of Dec 28, 2025)
+## 4. Current Status (As of Dec 30, 2025)
 
 ### ✅ Completed & Stable
-- **Execution**: Real trading is verified active.
-- **Precision**: Dynamic decimal handling is live.
+- **Execution**: Real trading is verified active with precise sizing and leverage enforcement.
+- **AI Resilience**: Circuit Breaker active; "Ask AI" functionality restored; Analysis display fixed.
+- **Notifications**: "Double Notification" issue resolved via JIT adoption; Scanner silence implemented.
 - **Persistence**: Settings (Symbol, Leverage, Trading Mode) persist across restarts.
-- **AI**: Integration active (despite library deprecation warnings, it works).
-- **Interface**: Full dashboard with Chart, Logs, and Manual Controls ("Close Trade", "Switch Symbol").
+- **Interface**: Full dashboard with Chart, Logs, Manual Controls, and Integrated AI Analysis.
 
 ### 🚧 Recent Critical Fixes (Fixed)
-- **False SL Hit**: Caused by "dust" residues -> Fixed by precision upgrade.
-- **Leverage Mismatch**: Fixed by forced sync on startup.
-- **Silent Rejections**: Added detailed logging for Risk Manager rejections.
+- **Notification Spam**: Fixed by supressing Scanner alerts during active trades.
+- **Leverage Mismatch**: Fixed by forced `update_leverage` call before execution.
+- **AI Display**: Fixed by harmonizing cache keys between `main_nextjs.py` and `api.py`.
 
 ## 5. Roadmap & Remaining Tasks
 
 ### Short Term (Optimization)
-- [ ] **AI Cache Optimization**: Reduce API calls by caching AI analysis for 5-15 minutes if price hasn't moved significantly.
 - [ ] **Dynamic Position Sizing**: Implement "% of Balance" sizing (currently falls back to Fixed USDC).
 - [ ] **Backtesting UI**: Integrate the backtest engine results directly into the Next.js dashboard.
 
@@ -66,8 +67,11 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 # Start everything
 npx pm2 start ecosystem.config.js
 
-# Restart Backend only
+# Restart Backend only (for logic updates)
 npx pm2 restart hl-bot-engine
+
+# Restart Frontend only (for UI updates)
+npx pm2 restart hl-frontend
 
 # View Logs
 npx pm2 logs hl-bot-engine
