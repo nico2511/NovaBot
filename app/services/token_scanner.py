@@ -287,8 +287,27 @@ class HyperliquidScanner:
             candidates = candidates[:self.MAX_TOKENS_TO_SCAN]
         
         # GAMIFICATION FILTER: Only scan allowed tokens for current level
-        allowed_tokens = tokens  # tokens already filtered by get_all_tokens()
-        candidates = [c for c in candidates if c['symbol'] in allowed_tokens]
+        try:
+            from app.core.asset_gamification import AssetGamification
+            
+            # Get latest balance to determine level
+            balance_data = self.hl_service.get_account_balance()
+            equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
+            
+            gamification = AssetGamification(equity)
+            allowed_assets = gamification.get_allowed_assets()
+            
+            print(f"🎮 Gamification Level: {gamification.level.value} (${equity:.2f})")
+            print(f"🔒 Allowed Assets: {len(allowed_assets)} (Tier: {[t.value for t in gamification.get_status_summary()['allowed_tiers']]})")
+            
+            # Filter candidates
+            # Normalize symbols (Hyperliquid usually formatted as 'PEPE' or 'kPEPE')
+            candidates = [c for c in candidates if c['symbol'] in allowed_assets]
+            
+        except Exception as e:
+            print(f"⚠️ Gamification filter error: {e}")
+            # Fallback: Allow all if error
+            pass
         
         if not candidates:
             print("❌ No allowed tokens meet liquidity criteria for your level")
