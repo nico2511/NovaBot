@@ -33,17 +33,18 @@ class AssetTier(Enum):
     KINGS = "Kings"  # BTC/ETH
 
 # Définition des actifs par tier
-ASSET_TIERS: Dict[AssetTier, List[str]] = {
     AssetTier.CASINO: [
         "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
-        "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA"
+        "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA",
+        "PURR", "KHEOWZOO"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
-        "ATOM", "DOT", "LINK", "UNI", "AAVE", "FTM", "INJ"
+        "ATOM", "DOT", "LINK", "UNI", "AAVE", "FTM", "INJ",
+        "HYPE", "VRID", "AIXBT"
     ],
     AssetTier.KINGS: [
-        "BTC", "ETH"
+        "BTC", "ETH", "SOL"
     ]
 }
 
