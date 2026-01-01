@@ -292,7 +292,7 @@ class HyperliquidScanner:
             
             # Get latest balance to determine level
             balance_data = self.hl_service.get_account_balance()
-            equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
+            equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
             
             gamification = AssetGamification(equity)
             allowed_assets = gamification.get_allowed_assets()
