@@ -157,7 +157,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
 
                                 <div className="text-right">
                                     <div className="text-2xl font-bold text-white">
-                                        ${opp.current_price.toFixed(4)}
+                                        ${opp.current_price < 0.01 ? opp.current_price.toFixed(8) : opp.current_price.toFixed(4)}
                                     </div>
                                     <div className={`text-sm font-medium ${getTrendColor(opp.trend)}`}>
                                         {opp.momentum_24h > 0 ? '+' : ''}{opp.momentum_24h.toFixed(2)}%

@@ -21,9 +21,9 @@ const formatPrice = (inputPrice: number | string | undefined | null): string => 
     const price = Number(inputPrice)
     if (inputPrice === undefined || inputPrice === null || isNaN(price) || price === 0) return '$0.00'
 
-    // For very small prices (< $0.01), use up to 6 decimals
+    // For very small prices (< $0.01), use up to 8 decimals
     if (Math.abs(price) < 0.01) {
-        return `$${price.toFixed(6).replace(/\.?0+$/, '')}`
+        return `$${price.toFixed(8).replace(/\.?0+$/, '')}`
     }
     // For small prices (< $1), use 4 decimals
     else if (Math.abs(price) < 1) {

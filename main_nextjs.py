@@ -1083,18 +1083,34 @@ class BotContext:
                     side = self.active_trade.get("side", "BUY")
 
                     # DEFENSIVE: If SL/TP missing (e.g. from old state or bad boot), set defaults to prevent crash
+                    # DEFENSIVE: If SL/TP missing (e.g. from old state or bad boot), set defaults to prevent crash
                     if not tp_price or not sl_price:
-                         # Calculate default ±10% safety net (reduced from 50% to be more realistic)
-                         if side == "BUY":
-                             sl_price = sl_price or (entry_price * 0.90)
-                             tp_price = tp_price or (entry_price * 1.10)
+                         # Smart Fallback: Use ATR if available, else 2.5% fixed
+                         atr = 0
+                         try:
+                             if 'ATRr_14' in df_15m.columns:
+                                 atr = df_15m['ATRr_14'].iloc[-1]
+                         except: pass
+                         
+                         if atr > 0:
+                             sl_dist = 2.0 * atr
+                             tp_dist = 3.0 * atr
+                             log_ctx = f"ATR-based ({atr:.6f})"
                          else:
-                             sl_price = sl_price or (entry_price * 1.10)
-                             tp_price = tp_price or (entry_price * 0.90)
+                             sl_dist = entry_price * 0.025 # 2.5% default (Realistic for Scalp/Day)
+                             tp_dist = entry_price * 0.04  # 4% default
+                             log_ctx = "Fixed 2.5%"
+
+                         if side == "BUY":
+                             sl_price = sl_price or (entry_price - sl_dist)
+                             tp_price = tp_price or (entry_price + tp_dist)
+                         else:
+                             sl_price = sl_price or (entry_price + sl_dist)
+                             tp_price = tp_price or (entry_price - tp_dist)
                          
                          self.active_trade["sl"] = sl_price
                          self.active_trade["tp"] = tp_price
-                         self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price}, TP={tp_price} (Default ±10%)")
+                         self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price:.6f}, TP={tp_price:.6f} ({log_ctx})")
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
