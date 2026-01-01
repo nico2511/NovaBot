@@ -452,7 +452,7 @@ class BotContext:
                                             tp = tp or (entry_price - (3.0 * atr))
                                     
                                     self.add_log(f"🤖 AI Analysis (Risk: {risk_score}): {reasoning}")
-                                    self.add_log(f"   AI Suggested SL: {sl:.4f}, TP: {tp:.4f}")
+                                    self.add_log(f"   AI Suggested SL: {sl:.8f}, TP: {tp:.8f}")
                                 else:
                                     raise Exception("AI returned no output")
                                     
@@ -485,10 +485,10 @@ class BotContext:
                             }
                             self.risk_manager.record_trade_open()
                             self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
-                            self.add_log(f"   Current Price: {current_price} | SL: {sl:.4f} | TP: {tp:.4f}")
+                            self.add_log(f"   Current Price: {current_price} | SL: {sl:.8f} | TP: {tp:.8f}")
                             discord_service.send_alert(
                                 "🛡️ MANUAL TRADE ADOPTED (AI-Validated)",
-                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nAI SL: {sl:.4f}\nAI TP: {tp:.4f}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
+                                f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nAI SL: {sl:.8f}\nAI TP: {tp:.8f}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
                                 color="0000ff"
                             )
                             
