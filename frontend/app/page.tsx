@@ -231,9 +231,7 @@ export default function Home() {
 
                     {/* RIGHT COLUMN: Active Trade Only */}
                     <div className="space-y-6">
-                        <div className="bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden p-6">
-                            <ActiveTrade embedded={true} />
-                        </div>
+                        <ActiveTrade embedded={true} />
                     </div>
 
                 </div>
