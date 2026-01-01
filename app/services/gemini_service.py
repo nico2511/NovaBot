@@ -313,6 +313,11 @@ Respond ONLY with valid JSON:
         2. Check for contradictions (e.g. BUY signal but RSI is 80, or huge resistance overhead).
         3. Make a GO/NO-GO decision.
         
+        CRITICAL RULES (DO NOT IGNORE):
+        - IF SIGNAL == SELL AND MARKET BIAS == BEARISH -> YOU MUST APPROVE (unless specific reason not to).
+        - IF SIGNAL == BUY AND MARKET BIAS == BULLISH -> YOU MUST APPROVE (unless specific reason not to).
+        - Alignment with trend is POSITIVE. Do NOT reject a SELL signal because the market is BEARISH - that is the POINT.
+        
         OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
         {{
             "decision": "APPROVE" | "REJECT",

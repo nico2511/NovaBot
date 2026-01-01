@@ -767,6 +767,29 @@ class BotContext:
                                 "price": entry_price
                             }
                             
+                            # === HARD RULES (VALIDATION HYBRIDE PHASE A) ===
+                            # Validation stricte AVANT appel IA pour économiser du temps et des tokens
+                            
+                            current_rsi = result.get("rsi")
+                            market_regime = result.get("regime", "UNKNOWN")
+                            
+                            # 1. RSI Guardrails
+                            if action == "SELL" and current_rsi is not None and current_rsi < 25:
+                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot SELL when RSI < 25 (RSI={current_rsi:.2f})")
+                                continue
+                            
+                            if action == "BUY" and current_rsi is not None and current_rsi > 75:
+                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot BUY when RSI > 75 (RSI={current_rsi:.2f})")
+                                continue
+                                
+                            # 2. Crash Protection (Waterfall)
+                            if action == "BUY" and market_regime == "TREND_BEAR_STRONG":
+                                self.add_log(f"⛔ HARD RULE BLOCK: Buying disabled in TREND_BEAR_STRONG regime.")
+                                continue
+
+                            # 3. Regime Compatibility (Optional, but safe)
+                            # if action == "BUY" and "BEAR" in market_regime: ... (Let AI decide on weak bear)
+
                             # CRITICAL: Déduplication - créer hash unique du signal
                             import hashlib
                             signal_hash = hashlib.md5(
@@ -781,6 +804,12 @@ class BotContext:
                             
                             if signal_hash not in recent_hashes:
                                 # Nouveau signal unique - analyser avec IA
+                                
+                                # Enrichir le context pour l'IA
+                                market_context["rsi"] = current_rsi
+                                market_context["ema_20"] = result.get("ema_20")
+                                market_context["ema_50"] = result.get("ema_50")
+                                
                                 ai_analysis = gemini_service.analyze_trade_signal(signal_for_ai, market_context)
                                 
                                 # Stocker l'analyse avec hash
@@ -797,7 +826,7 @@ class BotContext:
                                         import json
                                         ai_data = json.loads(ai_analysis["raw_output"])
                                         
-                                        # === AI GATEKEEPER ===
+                                        # === AI GATEKEEPER (PHASE B) ===
                                         decision = ai_data.get("decision", "APPROVE").upper()
                                         confidence = int(ai_data.get("confidence_score", 100))
                                         

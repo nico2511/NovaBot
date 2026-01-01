@@ -50,18 +50,47 @@ class StrategyEngine:
 
         # Use new custom indicators service
         adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
-        
-        # CRITICAL FIX: Use iloc[-2] (Previous Closed Candle) to avoid Repainting/Flip-Flopping
-        current_adx = adx_res['ADX'].iloc[-2] 
-        
-        # Add to df for strategies to use if needed
-        # Strategies typically use df.ta... we need to check definitions.py too to ensure they don't break
-        # But for now let's ensure engine works
-        df['ADX_14'] = adx_res['ADX']
+        rsi_series = ta.rsi(df['close'], length=14)
+        ema_9 = ta.ema(df['close'], length=9)
+        ema_20 = ta.ema(df['close'], length=20)
+        ema_50 = ta.ema(df['close'], length=50)
 
+        # 1. Standard Regime (ADX based on confirmed candle iloc[-2] for stability)
+        current_adx = adx_res['ADX'].iloc[-2] 
         threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
-        
         regime = "TREND" if current_adx > threshold else "RANGE"
+
+        # 2. WATERFALL DETECTION (Anti-Lag / Crash Detection)
+        # Priority: IMMÉDIATE. Uses current forming candle (iloc[-1]) to catch crash *during* the fall.
+        try:
+            curr_close = df['close'].iloc[-1]
+            curr_open = df['open'].iloc[-1]
+            curr_ema9 = ema_9.iloc[-1]
+            curr_ema20 = ema_20.iloc[-1]
+            
+            # Previous candle (confirmed)
+            prev_close = df['close'].iloc[-2]
+            prev_open = df['open'].iloc[-2]
+            prev_low = df['low'].iloc[-2]
+
+            is_curr_red = curr_close < curr_open
+            is_prev_red = prev_close < prev_open
+            
+            # Waterfall Condition: Price < EMA9 < EMA20 AND Double Red Candles AND Making Lower Lows
+            if (curr_close < curr_ema9) and (curr_ema9 < curr_ema20) and \
+               is_curr_red and is_prev_red and \
+               (curr_close < prev_low):
+                regime = "TREND_BEAR_STRONG"
+                # print(f"🌊 WATERFALL DETECTED! Price: {curr_close} < EMA9 < EMA20. Regime forced to: {regime}")
+        except Exception as e:
+            print(f"⚠️ Waterfall check failed: {e}")
+
+        # Add indicators to df for strategies
+        df['ADX_14'] = adx_res['ADX']
+        df['RSI_14'] = rsi_series
+        df['EMA_9'] = ema_9
+        df['EMA_20'] = ema_20
+        df['EMA_50'] = ema_50
         
         # 3. Select Strategies
         active_strategies = []
@@ -118,7 +147,11 @@ class StrategyEngine:
 
         return {
             "regime": regime,
+            "regime": regime,
             "adx": current_adx,
+            "rsi": rsi_series.iloc[-1],
+            "ema_20": ema_20.iloc[-1],
+            "ema_50": ema_50.iloc[-1],
             "strategies": [s.name for s in active_strategies],
             "progress": progress,
             "signals": signals
