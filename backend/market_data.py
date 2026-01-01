@@ -130,17 +130,23 @@ async def get_hyperliquid_candles(symbol: str = "BTC", interval: str = "15m", li
             async with session.post(url, json=payload) as resp:
                 result_df = None
                 
+                candles = []  # Initialize to empty list to avoid UnboundLocalError
+                
                 if resp.status == 200:
                     candles = await resp.json()
                     
                     # RETRY WITH 'k' PREFIX (e.g. PEPE -> kPEPE) if empty
                     if not candles and not symbol.startswith("k"):
+                         # Add exponential backoff for retry
+                         import asyncio
+                         await asyncio.sleep(0.5) 
+                         
                          print(f"⚠️ No candles for {symbol}, trying k{symbol}...")
                          payload["req"]["coin"] = f"k{symbol}"
                          async with session.post(url, json=payload) as resp_retry:
                               if resp_retry.status == 200:
                                    candles = await resp_retry.json()
-                
+                                   
                 if not candles:
                     return None
                 

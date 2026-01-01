@@ -298,7 +298,7 @@ class HyperliquidScanner:
             allowed_assets = gamification.get_allowed_assets()
             
             print(f"🎮 Gamification Level: {gamification.level.value} (${equity:.2f})")
-            print(f"🔒 Allowed Assets: {len(allowed_assets)} (Tier: {[t.value for t in gamification.get_status_summary()['allowed_tiers']]})")
+            print(f"🔒 Allowed Assets: {len(allowed_assets)} (Tier: {gamification.get_status_summary()['allowed_tiers']})")
             
             # Filter candidates
             # Normalize symbols (Hyperliquid usually formatted as 'PEPE' or 'kPEPE')
@@ -306,8 +306,19 @@ class HyperliquidScanner:
             
         except Exception as e:
             print(f"⚠️ Gamification filter error: {e}")
-            # Fallback: Allow all if error
-            pass
+            print("🔒 Safety Fallback: Defaulting to GOBLIN tier (Safe Mode)")
+            
+            # Fallback: Default to Goblin (Safe) - prevent leaking high tier assets
+            try:
+                # Re-import to be safe
+                from app.core.asset_gamification import AssetGamification 
+                # Initialize as 0 balance -> Goblin Tier
+                gamification = AssetGamification(0)
+                allowed_assets = gamification.get_allowed_assets()
+                candidates = [c for c in candidates if c['symbol'] in allowed_assets]
+            except:
+                print("❌ Critical: Could not apply safety fallback. Returning empty list.")
+                return []
         
         if not candidates:
             print("❌ No allowed tokens meet liquidity criteria for your level")

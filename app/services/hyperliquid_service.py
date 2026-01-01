@@ -177,7 +177,8 @@ class HyperliquidService:
             universe = meta.get("universe", [])
             for asset in universe:
                 if asset["name"] == symbol:
-                    return asset["szDecimals"], asset["maxPriceDecimals"]
+                    # Use .get() to avoid KeyErrors if API keys change/missing
+                    return asset.get("szDecimals", 6), asset.get("maxPriceDecimals", 4)
         except Exception as e:
             print(f"⚠️ Error parsing metadata for {symbol}: {e}")
             
