@@ -33,6 +33,7 @@ class AssetTier(Enum):
     KINGS = "Kings"  # BTC/ETH
 
 # Définition des actifs par tier
+ASSET_TIERS = {
     AssetTier.CASINO: [
         "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
         "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA",
