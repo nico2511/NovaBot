@@ -217,11 +217,41 @@ class HyperliquidService:
         except Exception as e:
             print(f"⚠️ Failed to place protection orders: {e}")
 
+    def get_canonical_symbol(self, symbol: str) -> str:
+        """
+        Resolve symbol to its canonical Hyperliquid name.
+        Handles aliases like PEPE -> kPEPE, BONK -> kBONK.
+        """
+        meta = self._fetch_metadata()
+        if not meta:
+            return symbol
+            
+        universe = [a["name"] for a in meta.get("universe", [])]
+        
+        # 1. Exact match
+        if symbol in universe:
+            return symbol
+            
+        # 2. Try adding 'k' prefix (e.g. PEPE -> kPEPE)
+        k_symbol = f"k{symbol}"
+        if k_symbol in universe:
+            print(f"ℹ️ Auto-resolving {symbol} -> {k_symbol}")
+            return k_symbol
+            
+        # 3. Try removing 'k' prefix (e.g. kPEPE -> PEPE - unlikely but safe)
+        if symbol.startswith("k") and symbol[1:] in universe:
+            return symbol[1:]
+            
+        return symbol
+
     def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None, sl_price: float = None, tp_price: float = None):
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
         import time
+        
+        # NORMALIZATION: Ensure we use the correct symbol (e.g. kPEPE)
+        symbol = self.get_canonical_symbol(symbol)
         
         # Dynamic Precision Rounding
         sz_decimals, price_decimals = self._get_precision(symbol)

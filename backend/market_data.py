@@ -128,31 +128,41 @@ async def get_hyperliquid_candles(symbol: str = "BTC", interval: str = "15m", li
         
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload) as resp:
+                result_df = None
+                
                 if resp.status == 200:
                     candles = await resp.json()
                     
-                    if not candles:
-                        return None
-                    
-                    # Convert to DataFrame
-                    df = pd.DataFrame(candles)
-                    df['time'] = pd.to_datetime(df['t'], unit='ms')
-                    df.set_index('time', inplace=True)
-                    
-                    # Convert to float
-                    for col in ['o', 'h', 'l', 'c', 'v']:
-                        df[col] = df[col].astype(float)
-                    
-                    # Rename columns
-                    df.rename(columns={
-                        'o': 'open',
-                        'h': 'high',
-                        'l': 'low',
-                        'c': 'close',
-                        'v': 'volume'
-                    }, inplace=True)
-                    
-                    return df.tail(limit)
+                    # RETRY WITH 'k' PREFIX (e.g. PEPE -> kPEPE) if empty
+                    if not candles and not symbol.startswith("k"):
+                         print(f"⚠️ No candles for {symbol}, trying k{symbol}...")
+                         payload["req"]["coin"] = f"k{symbol}"
+                         async with session.post(url, json=payload) as resp_retry:
+                              if resp_retry.status == 200:
+                                   candles = await resp_retry.json()
+                
+                if not candles:
+                    return None
+                
+                # Convert to DataFrame
+                df = pd.DataFrame(candles)
+                df['time'] = pd.to_datetime(df['t'], unit='ms')
+                df.set_index('time', inplace=True)
+                
+                # Convert to float
+                for col in ['o', 'h', 'l', 'c', 'v']:
+                    df[col] = df[col].astype(float)
+                
+                # Rename columns
+                df.rename(columns={
+                    'o': 'open',
+                    'h': 'high',
+                    'l': 'low',
+                    'c': 'close',
+                    'v': 'volume'
+                }, inplace=True)
+                
+                return df.tail(limit)
                     
     except Exception as e:
         print(f"Error fetching HyperLiquid candles: {e}")

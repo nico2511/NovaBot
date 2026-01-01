@@ -36,7 +36,7 @@ class AssetTier(Enum):
     AssetTier.CASINO: [
         "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
         "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA",
-        "PURR", "KHEOWZOO"
+        "PURR", "KHEOWZOO", "PENGU", "SPX", "POPCAT"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
@@ -130,11 +130,18 @@ class AssetGamification:
             return True, ""
         
         # Trouver le tier de l'actif
+        # Handle k-prefix (e.g. kPEPE -> PEPE)
+        check_symbols = [clean_symbol]
+        if clean_symbol.startswith("K") and len(clean_symbol) > 2:
+             check_symbols.append(clean_symbol[1:])
+             
         asset_tier = None
-        for tier, assets in ASSET_TIERS.items():
-            if clean_symbol in assets:
-                asset_tier = tier
-                break
+        for sym in check_symbols:
+            for tier, assets in ASSET_TIERS.items():
+                if sym in assets:
+                    asset_tier = tier
+                    break
+            if asset_tier: break
         
         if asset_tier is None:
             return False, f"Actif {symbol} non reconnu"
