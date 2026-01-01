@@ -1084,17 +1084,17 @@ class BotContext:
 
                     # DEFENSIVE: If SL/TP missing (e.g. from old state or bad boot), set defaults to prevent crash
                     if not tp_price or not sl_price:
-                         # Calculate default ±50% safety net just to prevent crash
+                         # Calculate default ±10% safety net (reduced from 50% to be more realistic)
                          if side == "BUY":
-                             sl_price = sl_price or (entry_price * 0.5)
-                             tp_price = tp_price or (entry_price * 1.5)
+                             sl_price = sl_price or (entry_price * 0.90)
+                             tp_price = tp_price or (entry_price * 1.10)
                          else:
-                             sl_price = sl_price or (entry_price * 1.5)
-                             tp_price = tp_price or (entry_price * 0.5)
+                             sl_price = sl_price or (entry_price * 1.10)
+                             tp_price = tp_price or (entry_price * 0.90)
                          
                          self.active_trade["sl"] = sl_price
                          self.active_trade["tp"] = tp_price
-                         self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price}, TP={tp_price}")
+                         self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price}, TP={tp_price} (Default ±10%)")
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
