@@ -408,6 +408,9 @@ class BotContext:
                     active_symbol_pos = next((p for p in real_positions if p["symbol"] == self.active_symbol), None)
                     
                     if active_symbol_pos:
+                        # Position FOUND! Reset counter
+                        self.missing_pos_counter = 0
+                        
                         # Case 1: We have a real position but bot doesn't know about it (Manual Trade)
                         if not self.active_trade:
                             self.add_log(f"🕵️ DETECTED MANUAL POSITION on {self.active_symbol}. Adopting...")
@@ -565,9 +568,7 @@ class BotContext:
                              else:
                                  self.add_log(f"⏳ Position pending verification ({time_since_entry:.1f}s ago)...")
                     
-                    # Position FOUND! Reset counter
-                    else:
-                        self.missing_pos_counter = 0
+
                 
                 except Exception as e:
                     self.add_log(f"⚠️ Error checking positions: {e}")
