@@ -229,9 +229,15 @@ export default function Home() {
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Active Trade Only */}
+                    {/* RIGHT COLUMN: Active Trade & AI Follow-up */}
                     <div className="space-y-6">
                         <ActiveTrade embedded={true} />
+
+                        {/* NEW: AI Follow-up for Active Trade */}
+                        <AICommentary
+                            symbol={status?.active_symbol || 'BTC'}
+                            displayMode="sidebar"
+                        />
                     </div>
 
                 </div>

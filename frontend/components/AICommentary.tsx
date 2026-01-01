@@ -16,9 +16,10 @@ interface SignalAnalysis {
 
 interface AICommentaryProps {
     symbol: string;
+    displayMode?: 'full' | 'sidebar';
 }
 
-export default function AICommentary({ symbol }: AICommentaryProps) {
+export default function AICommentary({ symbol, displayMode = 'full' }: AICommentaryProps) {
     const [marketAnalysis, setMarketAnalysis] = useState<any>(null);
     const [positionAnalysis, setPositionAnalysis] = useState<any>(null);
     const [signalHistory, setSignalHistory] = useState<SignalAnalysis[]>([]);
@@ -130,6 +131,7 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
     };
 
     if (loading) {
+        if (displayMode === 'sidebar') return null;
         return (
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 border border-gray-700">
                 <div className="flex items-center gap-2 mb-4">
@@ -144,7 +146,7 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
     return (
         <div className="space-y-4">
             {/* Market Analysis */}
-            {marketData && (
+            {displayMode === 'full' && marketData && (
                 <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/20 backdrop-blur-sm rounded-lg p-6 border border-purple-500/30">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
@@ -193,7 +195,49 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
                 </div>
             )}
 
-            {/* Position Analysis removed as redundant with Active Trade block */}
+            {/* Position Analysis (Target for Sidebar) */}
+            {positionData && (
+                <div className={`backdrop-blur-sm rounded-lg p-6 border ${displayMode === 'sidebar'
+                        ? 'bg-blue-900/10 border-blue-500/30'
+                        : 'bg-gradient-to-br from-blue-900/20 to-cyan-900/20 border-cyan-500/30'
+                    }`}>
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <Brain className={`w-5 h-5 ${displayMode === 'sidebar' ? 'text-blue-400' : 'text-cyan-400'}`} />
+                            <h3 className="text-lg font-semibold text-white">
+                                {displayMode === 'sidebar' ? 'Suivi IA du Trade' : 'Analyse de Position'}
+                            </h3>
+                        </div>
+                        {positionData.risk_assessment && (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRiskColor(positionData.risk_assessment)} bg-white/5`}>
+                                {positionData.risk_assessment} RISK
+                            </span>
+                        )}
+                    </div>
+
+                    {positionData.analysis && (
+                        <p className="text-gray-200 mb-4 text-sm leading-relaxed">
+                            {positionData.analysis}
+                        </p>
+                    )}
+
+                    {positionData.action_recommendation && (
+                        <div className="bg-black/20 rounded-lg p-3 mt-3 border border-white/5">
+                            <p className="text-xs text-gray-400 mb-1">Recommendation :</p>
+                            <p className="text-sm font-medium text-blue-200 flex items-center gap-2">
+                                💡 {positionData.action_recommendation}
+                            </p>
+                        </div>
+                    )}
+
+                    {positionAnalysis.timestamp && (
+                        <div className="flex items-center gap-1 mt-4 text-xs text-gray-500 justify-end">
+                            <Clock className="w-3 h-3" />
+                            <span suppressHydrationWarning>{new Date(positionAnalysis.timestamp).toLocaleTimeString('fr-FR')}</span>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Signal History */}
             {
