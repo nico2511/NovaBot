@@ -22,5 +22,8 @@ class Config:
     DEFAULT_MAX_POSITIONS: int = 1
     DEFAULT_DAILY_STOP_LOSS: float = 50.0  # USDC
     DEFAULT_LEVERAGE: int = 1
+    
+    # Operations
+    AUTO_START_TRADING: bool = os.getenv("AUTO_START_TRADING", "false").lower() == "true"
 
 config = Config()

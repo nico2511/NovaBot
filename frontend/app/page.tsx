@@ -8,7 +8,6 @@ import dynamic from 'next/dynamic'
 import StrategyMonitor from '@/components/StrategyMonitor'
 import LiveLogs from '@/components/LiveLogs'
 import ActiveTrade from '@/components/ActiveTrade'
-import Settings from '@/components/Settings'
 import TokenScanner from '@/components/TokenScanner'
 import AICommentary from '@/components/AICommentary'
 
@@ -17,7 +16,7 @@ import MarketCard from '@/components/MarketCard'
 
 import GamificationWidget from '@/components/GamificationWidget'
 import RecentSignals from '@/components/RecentSignals'
-import { Activity, Zap, TrendingUp, BarChart2, Terminal } from 'lucide-react'
+import { Activity, Zap, TrendingUp, BarChart2, Terminal, Settings as SettingsIcon } from 'lucide-react'
 
 // OPTIMIZATION: Dynamic import for heavy Chart component
 const Chart = dynamic(() => import('@/components/Chart'), {
@@ -46,7 +45,12 @@ const swrConfig = {
 }
 
 export default function Home() {
+    const [mounted, setMounted] = useState(false)
     const [activeTab, setActiveTab] = useState('overview')
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
 
     const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, swrConfig)
     const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, swrConfig)
@@ -61,6 +65,13 @@ export default function Home() {
     })
     const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
 
+    if (!mounted) {
+        return (
+            <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        )
+    }
 
     return (
         <div className="min-h-screen bg-[#050505] text-white">
@@ -117,7 +128,6 @@ export default function Home() {
 
                         {/* CHART SECTION */}
                         <div className="bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
-                            {/* Tabs */}
                             <div className="flex border-b border-white/5 overflow-x-auto">
                                 {[
                                     { id: 'overview', label: 'Price Chart', icon: Activity },
@@ -126,19 +136,42 @@ export default function Home() {
                                     { id: 'scanner', label: 'Scanner', icon: BarChart2 },
                                     { id: 'ai', label: 'AI Analysis', icon: Zap },
                                     { id: 'logs', label: 'System Logs', icon: Terminal },
+                                    { id: 'config', label: 'Config', icon: SettingsIcon },
+                                    { id: 'dev', label: 'Dev Ops', icon: Terminal },
                                 ].map((tab) => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setActiveTab(tab.id)}
-                                        className={`flex-1 min-w-[120px] py-4 text-sm font-bold flex items-center justify-center gap-2 transition-all ${activeTab === tab.id
-                                            ? 'text-blue-400 border-b-2 border-blue-500 bg-white/[0.02]'
-                                            : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.01]'
-                                            }`}
-                                    >
-                                        <tab.icon size={16} className={activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'} />
-                                        {tab.label}
-                                    </button>
-                                ))}
+                                    tab.id === 'dev' ? (
+                                        <a
+                                            key={tab.id}
+                                            href="/dev"
+                                            target="_blank"
+                                            className="flex-1 min-w-[120px] py-4 text-sm font-bold flex items-center justify-center gap-2 transition-all text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                                        >
+                                            <tab.icon size={16} />
+                                            {tab.label}
+                                        </a>
+                                    ) : tab.id === 'config' ? (
+                                        <a
+                                            key={tab.id}
+                                            href="/config"
+                                            target="_blank"
+                                            className="flex-1 min-w-[120px] py-4 text-sm font-bold flex items-center justify-center gap-2 transition-all text-orange-400 hover:text-orange-300 hover:bg-orange-500/10"
+                                        >
+                                            <tab.icon size={16} />
+                                            {tab.label}
+                                        </a>
+                                    ) : (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`flex-1 min-w-[120px] py-4 text-sm font-bold flex items-center justify-center gap-2 transition-all ${activeTab === tab.id
+                                                ? 'text-blue-400 border-b-2 border-blue-500 bg-white/[0.02]'
+                                                : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.01]'
+                                                }`}
+                                        >
+                                            <tab.icon size={16} className={activeTab === tab.id ? 'text-blue-400' : 'text-gray-500'} />
+                                            {tab.label}
+                                        </button>
+                                    )))}
                             </div>
 
                             <div className="p-0">
@@ -204,11 +237,6 @@ export default function Home() {
                     </div>
 
                 </div>
-            </div>
-
-            {/* Settings */}
-            <div className="container mx-auto px-6 mb-8">
-                <Settings />
             </div>
         </div>
     )

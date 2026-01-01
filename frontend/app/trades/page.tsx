@@ -229,7 +229,7 @@ export default function TradesPage() {
                             <tbody className="divide-y divide-white/5">
                                 {trades.map((trade) => (
                                     <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                                        <td className="p-4 text-gray-400">
+                                        <td className="p-4 text-gray-400" suppressHydrationWarning>
                                             {new Date(trade.exit_time).toLocaleString()}
                                         </td>
                                         <td className="p-4 font-bold">{trade.symbol}</td>

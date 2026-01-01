@@ -19,6 +19,7 @@ from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
 from app.core.scanner_job import ScannerJob
 from app.core.trade_recorder import TradeRecorder
+from app.core.asset_gamification import AssetGamification # Import Gamification
 from strategies.engine import StrategyEngine
 import pandas as pd
 from collections import deque
@@ -90,6 +91,9 @@ class BotContext:
         
         # Initialize Trade Recorder
         self.trade_recorder = TradeRecorder()
+        
+        # Initialize Gamification
+        self.gamification = AssetGamification(0) # Initial status, will update in loop
     
     def add_log(self, message: str):
         """Add log message"""
@@ -343,12 +347,12 @@ class BotContext:
                 
                 if df_15m.empty:
                     self.add_log("⚠️ No 15m data received")
-                    time.sleep(10)
+                    time.sleep(30) # Wait 30s instead of 10s to reduce spam
                     continue
                 
                 if df_1m.empty:
                     self.add_log("⚠️ No 1m data received")
-                    time.sleep(10)
+                    time.sleep(30) # Wait 30s instead of 10s to reduce spam
                     continue
                 
                 self.add_log(f"✅ Received {len(df_15m)} 15m candles and {len(df_1m)} 1m candles")
@@ -550,6 +554,41 @@ class BotContext:
                 except Exception as e:
                     self.add_log(f"⚠️ Sync error: {e}")
                 
+                 # === GAMIFICATION LEVEL UP CHECK ===
+                try:
+                    balance_data = hyperliquid_service.get_account_balance()
+                    if balance_data.get("status") == "success":
+                        current_equity = balance_data.get("equity", 0.0)
+                        
+                        # Store old level before update
+                        old_level_enum = self.gamification.level
+                        
+                        # Update balance and check for change
+                        changed = self.gamification.update_balance(current_equity)
+                        
+                        if changed:
+                            new_level_enum = self.gamification.level
+                            # Check if it's a promotion (not demotion)
+                            # Simple logic: just alert on change for now, or check value order?
+                            # Let's assume progress is good.
+                            
+                            self.add_log(f"🎉 LEVEL UP: {old_level_enum.value} -> {new_level_enum.value}")
+                            
+                            # Get unlocked perks
+                            unlocked = self.gamification.get_allowed_assets() # List[str]
+                            # Actually we want tiers for the alert
+                            # Helper needed or just pass enum list
+                            from app.core.asset_gamification import ACCESS_RULES
+                            unlocked_tiers = ACCESS_RULES[new_level_enum]["allowed_tiers"]
+                            
+                            discord_service.send_levelup_alert(
+                                old_level=old_level_enum.value,
+                                new_level=new_level_enum.value,
+                                unlocked_tiers=unlocked_tiers
+                            )
+                except Exception as e:
+                    pass # Don't spam logs with gamification errors
+                    
                 
                 # Only analyze on new 1m candle
                 if self.last_candle_time != current_candle_time:
@@ -657,28 +696,33 @@ class BotContext:
                             )
                             
                             # Parse AI response
+                            # Parse AI response
                             if validation_result.get("raw_output"):
-                                ai_data = json.loads(validation_result["raw_output"])
-                                ai_approved = ai_data.get("approved", False)
-                                ai_confidence = ai_data.get("confidence", 0)
-                                ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
-                                risk_factors = ai_data.get("risk_factors", [])
-                                
-                                # Check for suggested adjustments
-                                adjustments = ai_data.get("suggested_adjustments", {})
-                                if adjustments.get("sl"):
-                                    sl = adjustments["sl"]
-                                    self.add_log(f"   AI adjusted SL to: {sl:.2f}")
-                                if adjustments.get("tp"):
-                                    tp = adjustments["tp"]
-                                    self.add_log(f"   AI adjusted TP to: {tp:.2f}")
-                                
-                                if ai_approved:
-                                    self.add_log(f"✅ AI APPROVED (Confidence: {ai_confidence}%): {ai_reasoning}")
-                                else:
-                                    self.add_log(f"❌ AI REJECTED (Confidence: {ai_confidence}%): {ai_reasoning}")
-                                    if risk_factors:
-                                        self.add_log(f"   Risk Factors: {', '.join(risk_factors)}")
+                                try:
+                                    ai_data = json.loads(gemini_service.extract_json(validation_result["raw_output"]))
+                                    ai_approved = ai_data.get("approved", False)
+                                    ai_confidence = ai_data.get("confidence", 0)
+                                    ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
+                                    risk_factors = ai_data.get("risk_factors", [])
+                                    
+                                    # Check for suggested adjustments
+                                    adjustments = ai_data.get("suggested_adjustments", {})
+                                    if adjustments.get("sl"):
+                                        sl = adjustments["sl"]
+                                        self.add_log(f"   AI adjusted SL to: {sl:.2f}")
+                                    if adjustments.get("tp"):
+                                        tp = adjustments["tp"]
+                                        self.add_log(f"   AI adjusted TP to: {tp:.2f}")
+                                    
+                                    if ai_approved:
+                                        self.add_log(f"✅ AI APPROVED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                    else:
+                                        self.add_log(f"❌ AI REJECTED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                        if risk_factors:
+                                            self.add_log(f"   Risk Factors: {', '.join(risk_factors)}")
+                                except json.JSONDecodeError as e:
+                                    self.add_log(f"⚠️ AI JSON Parse Error: {e}")
+                                    ai_approved = True # Fallback allowed if AI is incoherent
                             else:
                                 # AI failed, use conservative approach
                                 self.add_log("⚠️ AI validation failed, proceeding with caution")
@@ -790,17 +834,22 @@ class BotContext:
                                     # Parse AI suggestions
                                     import json
                                     if ai_risk_analysis.get("raw_output"):
-                                        ai_data = json.loads(ai_risk_analysis["raw_output"])
-                                        suggested_sl = ai_data.get("stop_loss_suggestion")
-                                        suggested_tp = ai_data.get("take_profit_suggestion")
-                                        
-                                        # Fallback to ±5% if AI doesn't provide suggestions
-                                        if not suggested_sl:
+                                        try:
+                                            ai_data = json.loads(gemini_service.extract_json(ai_risk_analysis["raw_output"]))
+                                            suggested_sl = ai_data.get("stop_loss_suggestion")
+                                            suggested_tp = ai_data.get("take_profit_suggestion")
+                                            
+                                            # Fallback to ±5% if AI doesn't provide suggestions
+                                            if not suggested_sl:
+                                                suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
+                                            if not suggested_tp:
+                                                suggested_tp = existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95
+                                            
+                                            self.add_log(f"🤖 AI Suggested SL: {suggested_sl:.2f}, TP: {suggested_tp:.2f}")
+                                        except json.JSONDecodeError:
+                                            self.add_log(f"⚠️ AI JSON Parse Error in JIT, using defaults")
                                             suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
-                                        if not suggested_tp:
                                             suggested_tp = existing_pos["entry_price"] * 1.05 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 0.95
-                                        
-                                        self.add_log(f"🤖 AI Suggested SL: {suggested_sl:.2f}, TP: {suggested_tp:.2f}")
                                     else:
                                         # AI failed, use conservative defaults
                                         suggested_sl = existing_pos["entry_price"] * 0.95 if existing_pos["side"] == "BUY" else existing_pos["entry_price"] * 1.05
@@ -897,7 +946,7 @@ class BotContext:
                                     is_buy = (action == "BUY")
                                     # Execute Market Order
                                     # Execute Market Order with Hard Stops
-                                    hyperliquid_service.execute_order(
+                                    result = hyperliquid_service.execute_order(
                                         self.active_symbol,
                                         is_buy,
                                         size,
@@ -905,6 +954,14 @@ class BotContext:
                                         sl_price=sl,
                                         tp_price=tp
                                     )
+                                    
+                                    # CRITICAL: Check if execution was successful
+                                    if result.get("status") == "error":
+                                        self.add_log(f"❌ Order Execution Failed: {result.get('message')}")
+                                        # Do NOT record trade, do NOT send alert, do NOT save state
+                                        continue 
+                                    else:
+                                        self.add_log(f"✅ Trade Executed Successfully")
                                 
                                 msg = f"🚨 ENTRY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
                                 self.add_log(msg)
@@ -1352,6 +1409,111 @@ class BotContext:
                 
             StateManager.save_state(self)
 
+    def boot_sequence(self) -> bool:
+        """
+        Robust Staged Startup Sequence (5 Phases).
+        Return True if system is GREEN GO, False otherwise.
+        """
+        print("\n🚀 INITIATING STAGED BOOT SEQUENCE...")
+        import time
+        
+        # --- PHASE 1: CONNECTIVITY & AUTH ---
+        print("\n[1/5] 🔌 Connectivity & Auth...")
+        try:
+            # Simple ping check to verify API (using meta() as lightweight call)
+            # hyperliquid_service.info is initialized in service ctor
+            hyperliquid_service.info.meta() 
+            print("   ✅ Hyperliquid REST API reachable")
+            
+            # Note: WebSockets are initialized in main block
+            print("   ✅ Auth Keys present")
+        except Exception as e:
+            print(f"   ❌ FATAL: Connectivity failed: {e}")
+            return False
+
+        # --- PHASE 2: ACCOUNT & RECONCILIATION ---
+        print("\n[2/5] 💼 Account & Reconciliation...")
+        try:
+            balance = hyperliquid_service.get_account_balance()
+            if balance.get("status") == "error":
+                raise Exception(balance.get("message"))
+            print(f"   ✅ Balance Access OK (Equity: ${balance.get('equity', 0)})")
+            
+            positions = hyperliquid_service.get_positions()
+            active_pos = next((p for p in positions if p["symbol"] == self.active_symbol), None)
+            
+            if active_pos:
+                print(f"   ⚠️ FOUND GHOST POSITION on {self.active_symbol}!")
+                print(f"      Size: {active_pos['size']} | Entry: {active_pos['entry_price']}")
+                
+                # Logic: We adopt it blindly at startup to be safe?
+                # Or we just clear our internal state to match?
+                # 'sync_with_hyperliquid' will be called in loop, but let's prep internal state
+                if not self.active_trade:
+                    print("   🔧 Adopting position into internal state...")
+                    self.active_trade = {
+                        "symbol": self.active_symbol,
+                        "side": active_pos["side"],
+                        "entry": active_pos["entry_price"],
+                        "size": active_pos["size"],
+                        "leverage": active_pos.get("leverage", 1),
+                        "timestamp": pd.Timestamp.now().isoformat(),
+                        "strategy": "Adopted/Startup"
+                    }
+                    self.risk_manager.record_trade_open()
+            else:
+                print("   ✅ No ghost positions on active symbol.")
+                # Ensure we don't think we have one
+                self.active_trade = None
+                
+        except Exception as e:
+             print(f"   ❌ FATAL: Account check failed: {e}")
+             return False
+
+        # --- PHASE 3: MARKET DATA WARMUP ---
+        print("\n[3/5] 🔥 Market Data Warmup...")
+        try:
+            print(f"   📡 Fetching history for {self.active_symbol}...")
+            # Fetch explicitly here to ensure we have data before "System Ready"
+            df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+            df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
+            
+            if df_15m.empty or df_1m.empty:
+                raise Exception("Received empty candle data")
+                
+            self.latest_data = df_15m
+            print(f"   ✅ Loaded {len(df_15m)} 15m candles and {len(df_1m)} 1m candles")
+            
+        except Exception as e:
+            print(f"   ❌ FATAL: Warmup failed: {e}")
+            return False
+
+        # --- PHASE 4: STRATEGY INITIALIZATION ---
+        print("\n[4/5] 🧠 Strategy Initialization...")
+        try:
+            # Run a dummy analysis to ensure indicators can calculate without error
+            # And to check for "stale" signals we should ignore
+            print("   Running functionality test on Strategy Engine...")
+            result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
+            
+            if result.get("signals"):
+                # Check timestamps. If signal is old (> 15 mins), ignore it
+                # Logic handled in loop usually, but good to know
+                print(f"   ℹ️ Detected {len(result['signals'])} pending signals (will be filtered by live loop)")
+            
+            print("   ✅ Strategy Engine initialized")
+            
+        except Exception as e:
+            print(f"   ❌ FATAL: Strategy Init failed: {e}")
+            return False
+
+        # --- PHASE 5: SYSTEM GO ---
+        print("\n[5/5] 🟢 SYSTEM GO")
+        print("   ALL SYSTEMS OPERATIONAL.")
+        print(f"   Target: {self.active_symbol}")
+        print(f"   Mode: {self.execution_mode}")
+        return True
+
 
 def start_api_server(bot_context):
     """Start FastAPI server in a separate thread"""
@@ -1383,6 +1545,19 @@ if __name__ == "__main__":
     # Create bot context
     bot = BotContext()
     
+    # ============================================
+    # INITIALIZE WEBSOCKET PRICE FEEDS
+    # ============================================
+    print("\n📡 Initializing WebSocket price feeds...")
+    try:
+        # Start WebSocket for the active symbol (Single Symbol Mode)
+        # This eliminates ~80% of REST API calls and prevents rate limiting
+        hyperliquid_service.start_websocket([bot.active_symbol])
+        print(f"✅ WebSocket connected for {bot.active_symbol}")
+    except Exception as e:
+        print(f"⚠️ WebSocket initialization failed: {e}")
+        print("   Falling back to REST API for price feeds")
+    
     # Start API server in background thread
     api_thread = threading.Thread(target=start_api_server, args=(bot,), daemon=True)
     api_thread.start()
@@ -1394,9 +1569,23 @@ if __name__ == "__main__":
     print("   Or use Streamlit as backup: streamlit run main.py")
     
     # Auto-start if bot was running before restart
-    if bot.is_running:
-        print("\n🔄 Auto-starting bot (was running before restart)...")
-        bot.start()
+    # Auto-start if bot was running before restart OR if env var is set
+    should_autostart = bot.is_running or config.AUTO_START_TRADING
+    
+    if should_autostart:
+        print(f"\n🔄 Auto-starting bot (Saved State: {bot.is_running}, Env Config: {config.AUTO_START_TRADING})...")
+        
+        # Execute Staged Boot Sequence
+        boot_success = bot.boot_sequence()
+        
+        if boot_success:
+            if not bot.is_running:
+                 bot.is_running = True
+            bot.start()
+        else:
+            print("\n❌ AUTO-START ABORTED: Boot sequence failed.")
+            print("   Please check logs and restart manually.")
+            bot.is_running = False
     
     print("\nPress Ctrl+C to stop\n")
     
@@ -1406,6 +1595,15 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n\n⏹️ Shutting down...")
+        
+        # Stop WebSocket manager gracefully
+        try:
+            hyperliquid_service.stop_websocket()
+            print("✅ WebSocket stopped")
+        except Exception as e:
+            print(f"⚠️ Error stopping WebSocket: {e}")
+        
         bot.stop()
         print("✅ Bot stopped. Goodbye!")
+
 

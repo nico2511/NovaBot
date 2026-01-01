@@ -2,6 +2,7 @@
 
 import useSWR from 'swr'
 import axios from 'axios'
+import ClientOnly from './ClientOnly'
 
 const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
@@ -19,40 +20,42 @@ export default function RecentSignals({ hideHeader = false, embedded = false }: 
         : "bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6"
 
     return (
-        <div className={containerClass}>
-            {!hideHeader && <h3 className="text-lg font-semibold mb-4">📊 Recent Signals</h3>}
+        <ClientOnly>
+            <div className={containerClass}>
+                {!hideHeader && <h3 className="text-lg font-semibold mb-4">📊 Recent Signals</h3>}
 
-            {recentSignals.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-8">No signals yet</p>
-            ) : (
-                <div className="space-y-3">
-                    {recentSignals.map((signal: any, idx: number) => (
-                        <div
-                            key={idx}
-                            className="flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/20 hover:border-border/40 transition-colors"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className={`w-2 h-2 rounded-full ${signal.signal === 'BUY' ? 'bg-success' : 'bg-error'
-                                    }`} />
-                                <div>
-                                    <div className="font-medium text-sm">
-                                        {signal.symbol} {signal.signal}
-                                    </div>
-                                    <div className="text-xs text-gray-400">
-                                        {signal.strategy} • {new Date(signal.timestamp).toLocaleTimeString()}
+                {recentSignals.length === 0 ? (
+                    <p className="text-gray-400 text-sm text-center py-8">No signals yet</p>
+                ) : (
+                    <div className="space-y-3">
+                        {recentSignals.map((signal: any, idx: number) => (
+                            <div
+                                key={idx}
+                                className="flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/20 hover:border-border/40 transition-colors"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-2 h-2 rounded-full ${signal.signal === 'BUY' ? 'bg-success' : 'bg-error'
+                                        }`} />
+                                    <div>
+                                        <div className="font-medium text-sm">
+                                            {signal.symbol} {signal.signal}
+                                        </div>
+                                        <div className="text-xs text-gray-400">
+                                            {signal.strategy} • <span suppressHydrationWarning>{new Date(signal.timestamp).toLocaleTimeString()}</span>
+                                        </div>
                                     </div>
                                 </div>
+                                <div className="text-right">
+                                    <div className="text-sm font-mono">${signal.price?.toFixed(4)}</div>
+                                    {signal.manual_approval && (
+                                        <div className="text-xs text-warning">⚠️ Manual</div>
+                                    )}
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <div className="text-sm font-mono">${signal.price?.toFixed(4)}</div>
-                                {signal.manual_approval && (
-                                    <div className="text-xs text-warning">⚠️ Manual</div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </ClientOnly>
     )
 }

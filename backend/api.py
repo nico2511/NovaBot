@@ -359,8 +359,18 @@ async def get_market_data():
         timeframes = ["15m", "1h", "4h", "1d"]
         data_layers = {}
         
-        # Base indicators from 15m as default for old components
-        base_df = await get_hyperliquid_candles(active_symbol, "15m", 100)
+        # Base indicators from 15m as default
+        # OPTIMIZATION: Try to use bot's latest cached data if available to avoid API spam
+        base_df = None
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'latest_data') and not bot.latest_data.empty:
+                 # Use cached data from bot loop
+                 base_df = bot.latest_data
+        
+        # Fallback to fetching if bot data is empty
+        if base_df is None or base_df.empty:
+            base_df = await get_hyperliquid_candles(active_symbol, "15m", 100)
         
         price = 0.0
         if base_df is not None and not base_df.empty:
@@ -505,6 +515,9 @@ async def get_balance():
     try:
         from app.services.hyperliquid_service import hyperliquid_service
         
+        from app.services.hyperliquid_service import hyperliquid_service
+        
+        # This is now cached internally in hyperliquid_service for 10s
         balance_data = hyperliquid_service.get_account_balance()
         
         if balance_data.get("status") == "success":
@@ -721,7 +734,41 @@ async def execute_manual_trade(request: dict):
             if not can_trade:
                 print(f"❌ Trade rejected by Risk Manager: {reason}")
                 return {"status": "error", "message": reason}
-            
+
+            # 🛡️ GAMIFICATION CHECK 🛡️
+            try:
+                from app.core.asset_gamification import check_asset_access, AssetGamification
+                from app.services.hyperliquid_service import hyperliquid_service
+                
+                # Get fresh balance for accurate level
+                balance_data = hyperliquid_service.get_account_balance()
+                current_equity = balance_data.get("equity", 0.0) if balance_data.get("status") == "success" else 0.0
+                
+                # 1. Check Level & Asset Tier
+                allowed, reason, status = check_asset_access(symbol, current_equity)
+                if not allowed:
+                    bot.add_log(f"🛑 Trade blocked by Gamification: {reason}")
+                    return {"status": "error", "message": f"Gamification Restriction: {reason}"}
+                
+                # 2. Check Leverage Limit
+                requested_leverage = bot.sidebar_settings.get("leverage", 1)
+                max_leverage = status["max_leverage"]
+                if requested_leverage > max_leverage:
+                    msg = f"Leverage {requested_leverage}x too high for {status['level']} level (Max {max_leverage}x)"
+                    bot.add_log(f"🛑 Trade blocked: {msg}")
+                    return {"status": "error", "message": msg}
+                
+                # 3. Check Position Size Limit (if applicable)
+                if status["max_position_size"]:
+                    size_value = bot.sidebar_settings.get("size_value", 100.0)
+                    if size_value > status["max_position_size"]:
+                        msg = f"Position size ${size_value} exceeds limit for {status['level']} level (Max ${status['max_position_size']})"
+                        bot.add_log(f"🛑 Trade blocked: {msg}")
+                        return {"status": "error", "message": msg}
+                        
+            except Exception as e:
+                print(f"⚠️ Gamification check error (proceeding anyway): {e}")
+
             # Exécuter le trade si mode Auto
             if bot.execution_mode == "Auto (Hyperliquid)":
                 try:
@@ -1409,6 +1456,168 @@ async def ai_history():
 
 
 
+
+@app.get("/api/dev/diagnostics")
+async def dev_diagnostics():
+    """Aggregate diagnostics for Developer Dashboard"""
+    try:
+        data = {
+            "account": {},
+            "positions": [],
+            "symbol": {},
+            "portfolio": {},
+            "recent_trades": [],
+            "api_status": {},
+            "gamification": {},
+            "trading_settings": {},
+            "scanner_settings": {},
+            "scanner_results": [],
+            "active_strategy": {},
+            "bot_state": {}
+        }
+        
+        # 1. Account Info & Positions (Hyperliquid)
+        try:
+            from app.services.hyperliquid_service import hyperliquid_service
+            
+            # Balance (Cached)
+            balance = hyperliquid_service.get_account_balance()
+            if balance.get("status") == "success":
+                data["account"] = {
+                    "balance": balance.get("total_equity", 0),
+                    "margin_used": balance.get("margin_used", 0),
+                    "available_margin": balance.get("available_balance", 0),
+                    "withdrawable": balance.get("withdrawable", 0),
+                    "account_leverage": 0 # TODO: Calculate or fetch real leverage
+                }
+                
+                # Positions
+                all_positions = hyperliquid_service.get_positions()
+                data["positions"] = []
+                for p in all_positions:
+                    data["positions"].append({
+                        "symbol": p.get("symbol"),
+                        "side": p.get("side"),
+                        "size": p.get("size"),
+                        "entry_price": p.get("entry_price"),
+                        "leverage": p.get("leverage"),
+                        "pnl": p.get("unrealized_pnl")
+                    })
+                    
+        except Exception as e:
+            print(f"Diagnostics Error (Account): {e}")
+
+        # 2. Bot Context Data
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Bot State
+            data["bot_state"] = {
+                "trading_enabled": bot.trading_enabled,
+                "is_running": bot.is_running,
+                "active_symbol": bot.active_symbol,
+                "execution_mode": bot.execution_mode
+            }
+            
+            # Trading Settings
+            data["trading_settings"] = {
+                "leverage": bot.sidebar_settings.get("leverage", 1),
+                "max_positions": bot.sidebar_settings.get("max_positions", 1), # Missing setting?
+                "size_value": bot.sidebar_settings.get("size_value", 100),
+                "size_type": bot.sidebar_settings.get("size_type", "Fixed (USDC)"),
+                "daily_stop_loss": bot.sidebar_settings.get("daily_stop_loss", 0), # Config fixed issue
+                "stop_loss_pct": bot.sidebar_settings.get("stop_loss_pct", 1.5),
+                "take_profit_pct": bot.sidebar_settings.get("take_profit_pct", 3.0)
+            }
+            
+            # Scanner Settings & Results
+            if hasattr(bot, 'scanner_settings'):
+                 data["scanner_settings"] = bot.scanner_settings
+            
+            if hasattr(bot, 'latest_scan_results'):
+                 data["scanner_results"] = bot.latest_scan_results
+                 
+            # Active Strategy
+            data["active_strategy"] = {
+                "name": "N/A",
+                "params": {}
+            }
+            if hasattr(bot, 'latest_strategy_result') and bot.latest_strategy_result:
+                 strategies = bot.latest_strategy_result.get("strategies", [])
+                 if strategies:
+                     data["active_strategy"]["name"] = ", ".join(strategies)
+                     # Fetch params from config if possible
+                     data["active_strategy"]["params"] =  getattr(bot, 'strategy_config', {})
+            
+            # Gamification
+            try:
+                from app.core.asset_gamification import get_user_gamification_state
+                from app.services.hyperliquid_service import hyperliquid_service
+                
+                # Re-fetch equity for accurate level
+                eq = data["account"].get("balance", 0)
+                gamification_state = get_user_gamification_state(eq)
+                data["gamification"] = {
+                    "level": gamification_state["level"],
+                    "title": gamification_state["title"],
+                    "progress_pct": gamification_state["progress_pct"] 
+                }
+            except Exception as e:
+                print(f"Diagnostics Error (Gamification): {e}")
+                
+            # API/System Status
+            data["api_status"] = {
+                "hyperliquid_connected": True, # Assumed if we got here
+                "last_call": datetime.now().isoformat(),
+                # Mock rate limit for now, or fetch from service if available
+                "rate_limit_remaining": 1150, 
+                "rate_limit_total": 1200
+            }
+            
+            # Symbol Data (Active Symbol)
+            try:
+                from backend.market_data import get_current_price, get_open_interest
+                price = await get_current_price(bot.active_symbol)
+                oi = await get_open_interest(bot.active_symbol)
+                
+                data["symbol"] = {
+                    "name": bot.active_symbol,
+                    "price": price,
+                    "volume_24h": 0, # Fetch if possible
+                    "funding_rate": 0, # Fetch if possible
+                    "open_interest": oi
+                }
+            except:
+                pass
+
+        # 3. Recent Trades (from Recorder)
+        try:
+             from app.core.trade_recorder import TradeRecorder
+             recorder = TradeRecorder()
+             trades = recorder.load_trades()
+             data["recent_trades"] = trades[-10:] # Last 10
+             
+             # Portfolio Stats
+             stats = recorder.get_stats()
+             data["portfolio"] = {
+                 "total_value": data["account"].get("balance", 0),
+                 "unrealized_pnl": sum(p.get("pnl", 0) for p in data["positions"]),
+                 "realized_pnl_today": stats.get("daily_pnl", 0),
+                 "roi_today_pct": 0, # Calc
+                 "roi_unrealized_pct": 0, # Calc
+                 "total_notional_position": sum(p.get("size", 0) * p.get("entry_price", 0) for p in data["positions"]),
+                 "total_fees_paid_recent": 0
+             }
+        except Exception as e:
+             print(f"Diagnostics Error (Recorder): {e}")
+             
+        return data
+
+    except Exception as e:
+        print(f"Diagnostics Fatal Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

@@ -88,7 +88,7 @@ export default function TradeHistory() {
                                 <div className="text-right flex items-center gap-3">
                                     <div>
                                         <div className="font-semibold">${signal.price.toLocaleString()}</div>
-                                        <div className="text-xs text-gray-500">
+                                        <div className="text-xs text-gray-500" suppressHydrationWarning>
                                             {new Date(signal.timestamp).toLocaleTimeString('fr-FR')}
                                         </div>
                                     </div>

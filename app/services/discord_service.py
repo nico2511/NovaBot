@@ -40,4 +40,20 @@ class DiscordService:
         )
         self.send_alert(title, desc, color=color)
 
+    def send_levelup_alert(self, old_level: str, new_level: str, unlocked_tiers: list):
+        """Send a celebratory alert for leveling up"""
+        color = "FFD700"  # Gold
+        title = f"🎉 LEVEL UP! Promoted to {new_level}!"
+        
+        perks = ", ".join([tier.value for tier in unlocked_tiers])
+        desc = (
+            f"**Old Rank:** {old_level}\n"
+            f"**New Rank:** {new_level} 👑\n\n"
+            f"**Unlocked Access:**\n"
+            f"✅ {perks}\n\n"
+            f"Keep growing your capital to unlock more power!"
+        )
+        
+        self.send_alert(title, desc, color=color)
+
 discord_service = DiscordService()

@@ -19,9 +19,9 @@ module.exports = {
             min_uptime: '10s'
         },
         {
-            name: 'hl-frontend',
+            name: 'hl-front',
             script: 'node_modules/next/dist/bin/next',
-            args: 'start -p 3000',
+            args: 'dev',
             cwd: './frontend',
             error_file: './logs/frontend-error.log',
             out_file: './logs/frontend-out.log',

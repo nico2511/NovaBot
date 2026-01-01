@@ -154,20 +154,34 @@ export default function Settings() {
                                 </p>
 
                                 <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">Daily Stop Loss (USDC)</label>
-                                        <input
-                                            type="number"
-                                            value={settings.daily_stop_loss}
-                                            onChange={(e) => setSettings({ ...settings, daily_stop_loss: parseFloat(e.target.value) })}
-                                            min="1"
-                                            step="10"
-                                            className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
-                                        />
-                                        <div className="text-xs text-gray-400 mt-1">Circuit breaker: Stops bot if daily loss exceeds this</div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-semibold mb-2">Max Positions</label>
+                                            <input
+                                                type="number"
+                                                value={settings.max_positions}
+                                                onChange={(e) => setSettings({ ...settings, max_positions: parseInt(e.target.value) })}
+                                                min="1"
+                                                max="10"
+                                                className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold mb-2">Daily Stop Loss (USDC)</label>
+                                            <input
+                                                type="number"
+                                                value={settings.daily_stop_loss}
+                                                onChange={(e) => setSettings({ ...settings, daily_stop_loss: parseFloat(e.target.value) })}
+                                                min="1"
+                                                step="10"
+                                                className="w-full bg-background border border-border/30 rounded-lg px-4 py-2"
+                                            />
+                                        </div>
                                     </div>
+                                    <div className="text-xs text-gray-400 mt-1">Circuit breaker: Stops bot if daily loss exceeds this</div>
                                 </div>
                             </div>
+
 
 
                             {/* Engine Control */}
@@ -182,10 +196,14 @@ export default function Settings() {
                                         </div>
                                         <button
                                             onClick={async () => {
+                                                const newStatus = !statusData?.is_running;
+                                                // Optimistic update handled by SWR revalidation, but we can force UI feedback if needed
+                                                // For now, let's just make the call and trust the fast refresh
                                                 try {
                                                     const endpoint = statusData?.is_running ? '/api/engine/stop' : '/api/engine/start'
                                                     await axios.post(`${API_URL}${endpoint}`)
-                                                    // SWR will auto-refresh status
+                                                    // Force immediate revalidation
+                                                    // mutate(`${API_URL}/api/status`) 
                                                 } catch (error) {
                                                     console.error('Failed to toggle engine:', error)
                                                     alert('❌ Failed to toggle engine')
@@ -210,13 +228,18 @@ export default function Settings() {
                                         </div>
                                         <button
                                             onClick={async () => {
+                                                // Optimistic UI Update
+                                                const newState = !settings.trading_enabled
+                                                setSettings({ ...settings, trading_enabled: newState })
+
                                                 try {
                                                     const endpoint = settings.trading_enabled ? '/api/trading/disable' : '/api/trading/enable'
                                                     await axios.post(`${API_URL}${endpoint}`)
-                                                    setSettings({ ...settings, trading_enabled: !settings.trading_enabled })
                                                 } catch (error) {
                                                     console.error('Failed to toggle trading:', error)
                                                     alert('❌ Failed to toggle trading')
+                                                    // Revert on error
+                                                    setSettings({ ...settings, trading_enabled: !newState })
                                                 }
                                             }}
                                             className={`px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all ${settings.trading_enabled

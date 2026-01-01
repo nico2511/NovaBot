@@ -242,6 +242,7 @@ export default function DevPage() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="text-left text-gray-500 border-b border-white/5">
+                                        <th className="pb-2">Date</th>
                                         <th className="pb-2">Time</th>
                                         <th className="pb-2">Symbol</th>
                                         <th className="pb-2">Side</th>
@@ -255,7 +256,10 @@ export default function DevPage() {
                                     {data.recent_trades && data.recent_trades.length > 0 ? (
                                         data.recent_trades.map((trade: any, i: number) => (
                                             <tr key={i} className="border-b border-white/5 hover:bg-white/5">
-                                                <td className="py-2 font-mono">
+                                                <td className="py-2 font-mono text-gray-500" suppressHydrationWarning>
+                                                    {new Date(trade.time).toLocaleDateString()}
+                                                </td>
+                                                <td className="py-2 font-mono" suppressHydrationWarning>
                                                     {new Date(trade.time).toLocaleTimeString()}
                                                 </td>
                                                 <td className="py-2 font-bold">{trade.symbol}</td>
@@ -272,7 +276,7 @@ export default function DevPage() {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={6} className="py-4 text-center text-gray-500">
+                                            <td colSpan={8} className="py-4 text-center text-gray-500">
                                                 No recent trades
                                             </td>
                                         </tr>

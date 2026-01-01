@@ -51,6 +51,24 @@ class GeminiService:
         # Circuit Breaker
         self.circuit_breaker_until = None
 
+    @staticmethod
+    def extract_json(text: str) -> str:
+        """Robustly extract JSON from text even if markdown wrapped"""
+        import re
+        try:
+            # 1. Try to find JSON block ```json ... ```
+            match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if match:
+                return match.group(1)
+            # 2. Try to find just outer braces { ... }
+            # Match the first { to the last }
+            match = re.search(r"(\{.*\})", text, re.DOTALL)
+            if match:
+                return match.group(1)
+            return text.strip()
+        except Exception:
+            return text.strip()
+
     def _call_gemini_api(self, prompt: str) -> dict:
         """Call official Gemini API"""
         if not self.gemini_key:
@@ -60,7 +78,7 @@ class GeminiService:
             try:
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(prompt)
-                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                clean_text = self.extract_json(response.text)
                 return {"raw_output": clean_text, "model": f"gemini-official:{model_name}"}
             except Exception as e:
                 # If specific model fails, try next
@@ -82,7 +100,7 @@ class GeminiService:
                 ]
             )
             raw_content = completion.choices[0].message.content
-            clean_text = raw_content.replace("```json", "").replace("```", "").strip()
+            clean_text = self.extract_json(raw_content)
             return {"raw_output": clean_text, "model": f"openrouter:{self.openrouter_model}"}
         except Exception as e:
             raise Exception(f"OpenRouter failed: {e}")

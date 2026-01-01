@@ -9,7 +9,10 @@ interface Log {
 
 export default function LiveLogs({ embedded = false, hideHeader = false }: { embedded?: boolean, hideHeader?: boolean }) {
     const [logs, setLogs] = useState<Log[]>([])
+    const [mounted, setMounted] = useState(false)
     const logsEndRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => { setMounted(true) }, [])
 
     const scrollToBottom = () => {
         logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -34,6 +37,19 @@ export default function LiveLogs({ embedded = false, hideHeader = false }: { emb
 
     // }, [logs])
 
+    if (!mounted) return null;
+
+    const getLogColor = (msg: string) => {
+        const message = msg.toLowerCase();
+        if (message.includes('error') || message.includes('failed') || message.includes('❌') || message.includes('stop')) return 'text-red-400';
+        if (message.includes('warning') || message.includes('⚠️')) return 'text-yellow-400';
+        if (message.includes('success') || message.includes('✅') || message.includes('started')) return 'text-green-400';
+        if (message.includes('switch') || message.includes('🔄')) return 'text-blue-400';
+        if (message.includes('level up') || message.includes('🎉')) return 'text-yellow-300 font-bold'; // Gold for Level Up
+        if (message.includes('ai') || message.includes('🤖')) return 'text-purple-400';
+        return 'text-gray-300';
+    }
+
     if (embedded) {
         return (
             <div className="h-full flex flex-col">
@@ -43,17 +59,17 @@ export default function LiveLogs({ embedded = false, hideHeader = false }: { emb
                         <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
                     </div>
                 )}
-                <div className="bg-background/80 flex-1 overflow-y-auto font-mono text-sm p-2">
+                <div className="bg-background/80 flex-1 overflow-y-auto font-mono text-xs p-2 custom-scrollbar">
                     {logs.length === 0 ? (
                         <div className="text-center text-gray-500 py-8">
                             <div>No logs yet</div>
                         </div>
                     ) : (
-                        <div className="space-y-1">
+                        <div className="space-y-0.5">
                             {logs.map((log, index) => (
-                                <div key={index} className="flex gap-3 text-gray-300 hover:bg-white/5 px-2 py-1">
-                                    <span className="text-gray-500 text-xs">{log.time}</span>
-                                    <span className="flex-1">{log.message}</span>
+                                <div key={index} className={`flex gap-2 hover:bg-white/5 px-2 py-0.5 rounded transition-colors ${getLogColor(log.message)}`}>
+                                    <span className="text-gray-600 w-14 shrink-0">{log.time}</span>
+                                    <span className="flex-1 break-words">{log.message}</span>
                                 </div>
                             ))}
                             <div ref={logsEndRef} />
@@ -74,18 +90,18 @@ export default function LiveLogs({ embedded = false, hideHeader = false }: { emb
                 </div>
             </div>
 
-            <div className="bg-background/80 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+            <div className="bg-background/80 rounded-lg p-4 h-64 overflow-y-auto font-mono text-xs custom-scrollbar">
                 {logs.length === 0 ? (
                     <div className="text-center text-gray-500 py-8">
                         <div className="text-2xl mb-2">📋</div>
                         <div>No logs yet</div>
                     </div>
                 ) : (
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                         {logs.map((log, index) => (
-                            <div key={index} className="flex gap-3 text-gray-300 hover:bg-surface/30 px-2 py-1 rounded">
-                                <span className="text-gray-500 text-xs">{log.time}</span>
-                                <span className="flex-1">{log.message}</span>
+                            <div key={index} className={`flex gap-2 hover:bg-surface/30 px-2 py-0.5 rounded transition-colors ${getLogColor(log.message)}`}>
+                                <span className="text-gray-600 w-14 shrink-0">{log.time}</span>
+                                <span className="flex-1 break-words">{log.message}</span>
                             </div>
                         ))}
                         <div ref={logsEndRef} />

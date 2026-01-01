@@ -4,13 +4,22 @@ from hyperliquid.exchange import Exchange
 from hyperliquid.utils import types
 from app.core.config import config
 import pandas as pd
+import time
 
 from hyperliquid.utils.constants import MAINNET_API_URL
 
+# Import retry decorators and WebSocket manager
+from app.utils.retry_decorator import critical_operation, standard_operation, lightweight_operation
+from app.utils.websocket_manager import WebSocketPriceManager
+
 class HyperliquidService:
     def __init__(self):
+        # Initialize Info API (WebSocket will be managed separately)
         self.info = Info(base_url=MAINNET_API_URL, skip_ws=True)
         self.exchange = None
+        
+        # Initialize WebSocket Price Manager (will be started externally)
+        self.ws_manager: WebSocketPriceManager = None
         
         if config.HL_PRIVATE_KEY and config.HL_ACCOUNT_ADDRESS:
             try:
@@ -27,6 +36,48 @@ class HyperliquidService:
         
         # Initialize metadata cache
         self._meta_cache = None
+        
+        # Balance cache to prevent 429s from frontend polling
+        self._balance_cache = {"time": 0, "data": None}
+        self._cache_ttl = 10 # 10 seconds TTL
+    
+    def start_websocket(self, symbols: list[str]) -> None:
+        """
+        Start WebSocket price manager for real-time price feeds.
+        
+        This should be called once at bot startup with the list of symbols
+        to monitor. The WebSocket runs in a background thread and continuously
+        updates price cache.
+        
+        Args:
+            symbols: List of symbols to subscribe to (e.g., ["BTC", "ETH"])
+        
+        Example:
+            >>> service = HyperliquidService()
+            >>> service.start_websocket(["BTC", "HYPE"])
+        """
+        if self.ws_manager is not None:
+            print("⚠️ WebSocket manager already initialized")
+            return
+        
+        try:
+            self.ws_manager = WebSocketPriceManager(symbols)
+            self.ws_manager.start()
+            print(f"✅ WebSocket price feeds started for: {', '.join(symbols)}")
+        except Exception as e:
+            print(f"❌ Failed to start WebSocket manager: {e}")
+            print("⚠️ Falling back to REST API for price feeds")
+            self.ws_manager = None
+    
+    def stop_websocket(self) -> None:
+        """
+        Stop WebSocket price manager gracefully.
+        
+        Should be called on bot shutdown.
+        """
+        if self.ws_manager:
+            self.ws_manager.stop()
+            self.ws_manager = None
     
     def _parse_interval_to_seconds(self, interval: str) -> int:
         """Parse interval string (e.g., '1m', '15m', '1h') to seconds"""
@@ -132,6 +183,7 @@ class HyperliquidService:
             
         return 6, 4 # Defaults if not found
 
+    @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
         try:
@@ -235,6 +287,71 @@ class HyperliquidService:
                     return {"status": "error", "message": f"Order failed after {max_retries} attempts: {str(e)}"}
         
         return {"status": "error", "message": "Order execution failed"}
+    
+    @standard_operation
+    def set_sl_tp(
+        self,
+        symbol: str,
+        entry_price: float,
+        sl_percent: float,
+        tp_percent: float,
+        is_long: bool,
+        quantity: float
+    ) -> dict:
+        """
+        Calculate and place Stop Loss and Take Profit orders.
+        
+        This is a convenience method that calculates SL/TP prices based on
+        percentages and places them as native exchange orders (Trigger Orders).
+        
+        Args:
+            symbol: Trading pair symbol (e.g., "BTC")
+            entry_price: Position entry price
+            sl_percent: Stop loss percentage (e.g., 2.0 for 2%)
+            tp_percent: Take profit percentage (e.g., 5.0 for 5%)
+            is_long: True if LONG position, False if SHORT
+            quantity: Position size in tokens
+        
+        Returns:
+            dict: {"status": "success"|"error", "sl_price": float, "tp_price": float}
+        
+        Example:
+            >>> # For a LONG position at $50,000 with 2% SL and 5% TP
+            >>> service.set_sl_tp("BTC", 50000, 2.0, 5.0, True, 0.1)
+            >>> # SL = $49,000 (2% below entry)
+            >>> # TP = $52,500 (5% above entry)
+            
+            >>> # For a SHORT position at $3,000 with 2% SL and 5% TP
+            >>> service.set_sl_tp("ETH", 3000, 2.0, 5.0, False, 1.0)
+            >>> # SL = $3,060 (2% above entry)
+            >>> # TP = $2,850 (5% below entry)
+        
+        Raises:
+            Exception: If exchange not configured or order placement fails
+        """
+        if not self.exchange:
+            raise Exception("No private key configured")
+        
+        # Calculate SL/TP prices based on position direction
+        if is_long:
+            # LONG: SL below entry, TP above entry
+            sl_price = entry_price * (1 - sl_percent / 100)
+            tp_price = entry_price * (1 + tp_percent / 100)
+        else:
+            # SHORT: SL above entry, TP below entry
+            sl_price = entry_price * (1 + sl_percent / 100)
+            tp_price = entry_price * (1 - tp_percent / 100)
+        
+        print(f"🛡️ Setting SL/TP for {symbol}: SL={sl_price:.2f}, TP={tp_price:.2f}")
+        
+        # Use existing method (which also has retry logic via decorator)
+        self._place_protection_orders(symbol, is_long, quantity, sl_price, tp_price)
+        
+        return {
+            "status": "success",
+            "sl_price": sl_price,
+            "tp_price": tp_price
+        }
 
     def update_leverage(self, symbol: str, leverage: int, is_cross: bool = True):
         """Update leverage and margin type (Cross/Isolated) for a symbol"""
@@ -250,18 +367,21 @@ class HyperliquidService:
             print(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
-    def get_account_balance(self):
-        """Fetch account balance and margin information from Hyperliquid"""
+    def get_account_balance(self, force_refresh=False):
+        """Fetch account balance and margin information from Hyperliquid (Cached)"""
         if not config.HL_ACCOUNT_ADDRESS:
             return {
                 "status": "error",
                 "message": "No account address configured",
-                "equity": 0.0,
-                "message": "No Hyperliquid account configured",
                 "total_equity": 0,
                 "available_balance": 0,
                 "margin_used": 0
             }
+            
+        # Check Cache
+        now = time.time()
+        if not force_refresh and self._balance_cache["data"] and (now - self._balance_cache["time"] < self._cache_ttl):
+            return self._balance_cache["data"]
         
         try:
             info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
@@ -272,14 +392,24 @@ class HyperliquidService:
             account_value = float(margin_summary.get("accountValue", 0))
             total_margin_used = float(margin_summary.get("totalMarginUsed", 0))
             
-            return {
+            result = {
                 "status": "success",
                 "total_equity": account_value,
                 "available_balance": account_value - total_margin_used,
                 "margin_used": total_margin_used
             }
+            
+            # Update Cache
+            self._balance_cache = {"time": now, "data": result}
+            return result
+            
         except Exception as e:
             print(f"Error fetching account balance: {e}")
+            # If API fails, try to return stale cache if available
+            if self._balance_cache["data"]:
+                print("⚠️ Returning stale balance cache due to API error")
+                return self._balance_cache["data"]
+                
             return {
                 "status": "error",
                 "message": str(e),
@@ -329,6 +459,7 @@ class HyperliquidService:
             print(f"Error fetching positions: {e}")
             return []
 
+    @lightweight_operation
     def cancel_all_orders(self, symbol: str):
         """Cancel all open orders for a symbol"""
         if not self.exchange or not config.HL_ACCOUNT_ADDRESS:
@@ -348,87 +479,114 @@ class HyperliquidService:
         except Exception as e:
             print(f"⚠️ Error cancelling orders: {e}")
 
+    @critical_operation
     def close_position(self, symbol: str):
-        """Close an open position on Hyperliquid"""
-        if not self.exchange:
-            return {"status": "error", "message": "No private key configured"}
+        """
+        Close an open position on Hyperliquid with robust retry logic.
         
+        This method has the highest priority for retry logic as failing to close
+        a position during volatile markets can result in significant losses.
+        
+        The @critical_operation decorator provides:
+        - 5 retry attempts with exponential backoff
+        - Special handling for 429 rate limit errors
+        - Automatic delay increase: 2s → 4s → 8s → 16s → 32s
+        
+        Args:
+            symbol: Trading pair symbol (e.g., "BTC")
+        
+        Returns:
+            dict: {"status": "success"|"error", "message": str, "closed_size": float}
+        
+        Raises:
+            Exception: After max retries exhausted (will be caught by decorator)
+        """
+        if not self.exchange:
+            raise Exception("No private key configured")
+        
+        # Step 1: Cancel all pending orders (TP/SL)
+        print(f"🧹 Cancelling pending orders for {symbol}...")
         try:
-            # 1. Cancel existing orders first (TP/SL) to free up 'reduce-only' capacity or avoid conflicts
             self.cancel_all_orders(symbol)
-            
-            # 2. Get current position
-            positions = self.get_positions()
-            position = next((p for p in positions if p["symbol"] == symbol), None)
-            
-            if not position:
-                return {"status": "error", "message": f"No position found for {symbol}"}
-            
-            size = position["size"]
-            side = position["side"]
-            
-            # 3. Close with opposite order
-            is_buy = (side == "SELL")  # If SHORT, BUY to close
-            
-            print(f"🔴 CLOSING {side} position: {size} {symbol}")
-            
-            # Use execute_order but ensure we don't accidentally place new SL/TP
-            # Note: We should ideally use reduce_only=True. 
-            # Since execute_order calls market_open which might not support it directly in this wrapper,
-            # we rely on the sdk's market_open.
-            # To be safer, we can call exchange.order directly with reduce_only if we suspect issues.
-            
-            # ATTEMPT 1: Standard Execute
-            # result = self.execute_order(symbol, is_buy, size)
-            
-            # ATTEMPT 2: Direct "Reduce Only" Market Order
-            sz_decimals, price_decimals = self._get_precision(symbol)
-            quantity = float(f"{size:.{sz_decimals}f}")
-            
-            if quantity <= 0:
-                 return {"status": "error", "message": "Position dust too small to close"}
-
-            print(f"🚀 SENDING REDUCE-ONLY MARKET CLOSE: {quantity} {symbol}")
-            
-            # Ensure we use the exchange's market_open correctly
-            try:
-                result = self.exchange.market_open(symbol, is_buy, quantity)
-                print(f"✅ Close executed: {symbol} {quantity}")
-                
-                # Verify if position is actually closed
-                import time
-                time.sleep(1) # Wait for fill
-                new_positions = self.get_positions()
-                remaining_pos = next((p for p in new_positions if p["symbol"] == symbol), None)
-                
-                if remaining_pos:
-                    rem_size = remaining_pos["size"]
-                    # Clean warning
-                    if rem_size < quantity * 0.1:
-                         print(f"ℹ️ Close incomplete: Dust remaining ({rem_size})")
-                    else:
-                         print(f"⚠️ Warning: Position {symbol} still has size {rem_size} after close command.")
-                         
-                return {"status": "success", "result": result, "closed_size": size}
-                
-            except Exception as inner_e:
-                print(f"❌ Market close failed: {inner_e}")
-                return {"status": "error", "message": f"Market order failed: {inner_e}"}
-            
         except Exception as e:
-            print(f"❌ Failed to close position: {e}")
-            return {"status": "error", "message": str(e)}
+            print(f"⚠️ Failed to cancel orders (continuing anyway): {e}")
+        
+        # Step 2: Get current position
+        positions = self.get_positions()
+        position = next((p for p in positions if p["symbol"] == symbol), None)
+        
+        if not position:
+            raise Exception(f"No position found for {symbol}")
+        
+        size = position["size"]
+        side = position["side"]
+        is_buy = (side == "SELL")  # Close SHORT with BUY
+        
+        # Step 3: Calculate precise quantity
+        sz_decimals, _ = self._get_precision(symbol)
+        quantity = float(f"{size:.{sz_decimals}f}")
+        
+        if quantity <= 0:
+            raise Exception("Position size too small to close")
+        
+        print(f"🔴 CLOSING {side} position: {quantity} {symbol}")
+        
+        # Step 4: Execute market close order
+        # This will raise exception if it fails, triggering decorator retry
+        result = self.exchange.market_open(symbol, is_buy, quantity)
+        print(f"✅ Close order submitted: {symbol} {quantity}")
+        
+        # Step 5: Verify closure
+        time.sleep(2)  # Wait for fill
+        new_positions = self.get_positions()
+        remaining = next((p for p in new_positions if p["symbol"] == symbol), None)
+        
+        if remaining and remaining["size"] > quantity * 0.1:
+            # Significant position remains - this is an error
+            raise Exception(f"Position not fully closed, {remaining['size']} remaining")
+        elif remaining:
+            # Just dust remaining - acceptable
+            print(f"ℹ️ Close incomplete: Dust remaining ({remaining['size']})")
+        
+        print(f"✅ Position closed successfully: {symbol}")
+        return {"status": "success", "closed_size": size, "result": result}
 
     def get_current_price(self, symbol: str) -> float:
-        """Get current market price for a symbol"""
+        """
+        Get current market price from WebSocket cache.
+        
+        This method prioritizes WebSocket price feeds to minimize REST API calls
+        and reduce rate limit exposure. Falls back to REST API if WebSocket is
+        unavailable or price is stale.
+        
+        Args:
+            symbol: Trading pair symbol (e.g., "BTC")
+        
+        Returns:
+            Current price or 0.0 if unavailable
+        
+        Example:
+            >>> price = service.get_current_price("BTC")
+            >>> if price > 0:
+            ...     print(f"BTC: ${price}")
+        """
+        # Try WebSocket cache first (preferred method)
+        if self.ws_manager is not None:
+            price = self.ws_manager.get_price(symbol)
+            if price is not None:
+                return price
+            else:
+                print(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
+        
+        # Fallback to REST API (with warning)
         try:
             df = self.get_candles(symbol, "1m", 1)
             if not df.empty:
                 return float(df['close'].iloc[-1])
-            return 0.0
         except Exception as e:
-            print(f"Error getting current price: {e}")
-            return 0.0
+            print(f"❌ Error getting price via REST: {e}")
+        
+        return 0.0
 
     def get_trade_history(self, limit: int = 100):
         """

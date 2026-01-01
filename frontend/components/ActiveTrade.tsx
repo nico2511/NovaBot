@@ -17,8 +17,9 @@ interface Trade {
 }
 
 // CRITICAL FIX: Dynamic price formatting based on value
-const formatPrice = (price: number): string => {
-    if (price === 0) return '$0.00'
+const formatPrice = (inputPrice: number | string | undefined | null): string => {
+    const price = Number(inputPrice)
+    if (inputPrice === undefined || inputPrice === null || isNaN(price) || price === 0) return '$0.00'
 
     // For very small prices (< $0.01), use up to 6 decimals
     if (Math.abs(price) < 0.01) {

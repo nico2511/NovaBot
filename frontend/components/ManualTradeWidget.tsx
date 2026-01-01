@@ -177,7 +177,7 @@ export default function ManualTradeWidget({ signal, onDismiss }: Props) {
             </div>
 
             {/* Timestamp */}
-            <div className="mt-3 text-center text-gray-500 text-xs">
+            <div className="mt-3 text-center text-gray-500 text-xs" suppressHydrationWarning>
                 Signal reçu: {new Date(signal.timestamp).toLocaleTimeString()}
             </div>
         </div>
