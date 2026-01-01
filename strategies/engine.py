@@ -50,7 +50,9 @@ class StrategyEngine:
 
         # Use new custom indicators service
         adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
-        current_adx = adx_res['ADX'].iloc[-1]
+        
+        # CRITICAL FIX: Use iloc[-2] (Previous Closed Candle) to avoid Repainting/Flip-Flopping
+        current_adx = adx_res['ADX'].iloc[-2] 
         
         # Add to df for strategies to use if needed
         # Strategies typically use df.ta... we need to check definitions.py too to ensure they don't break
