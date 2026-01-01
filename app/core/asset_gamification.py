@@ -37,7 +37,9 @@ ASSET_TIERS = {
     AssetTier.CASINO: [
         "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
         "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA",
-        "PURR", "KHEOWZOO", "PENGU", "SPX", "POPCAT"
+        "PURR", "KHEOWZOO", "PENGU", "SPX", "POPCAT", "MOODENG", "PEOPLE",
+        "MELANIA", "BRETT", "PNUT", "CHILLGUY", "NEIRO", "GOAT", "VINE", "MEW",
+        "YZY", "BOME", "TST"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
