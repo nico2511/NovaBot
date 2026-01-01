@@ -18,20 +18,19 @@ if ! python3 -c "import pandas; import dotenv; import eth_account; import hyperl
     echo "📦 Installing Python dependencies..."
     # If in venv, no need for break-system-packages (usually), but keeping it safe if user is root without venv
     if [ -n "$VIRTUAL_ENV" ]; then
-        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn
+        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn google-generativeai openai
     else
-        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn --break-system-packages
+        pip install -q pandas numpy python-dotenv eth-account hyperliquid-python-sdk discord-webhook aiohttp pydantic fastapi uvicorn google-generativeai openai --break-system-packages
     fi
 fi
 
 # Build Frontend
 echo "🏗️  Building Next.js Frontend..."
 cd frontend
-# Install only if missing (speed up)
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing Frontend dependencies..."
-    npm install
-fi
+# Always install dependencies to ensure sync with package.json
+echo "📦 Installing/Updating Frontend dependencies..."
+npm install --no-audit --prefer-offline
+
 npm run build
 cd ..
 

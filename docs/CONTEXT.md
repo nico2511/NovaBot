@@ -82,12 +82,22 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 - **Navigation**: Added "Config" tab to the dashboard header for easy access.
 
 #### Technical Robustness
-- **Hydration Fixes**: Solved Next.js hydration validation errors on timestamps and dynamic components using `suppressHydrationWarning` and `ClientOnly` wrappers.
-- **Deployment Script**: Updated `start_integrated.sh` to include new Python dependencies (`google-generativeai`, `openai`) and robustly build the frontend.
+- **Hydration Fixes**: Solved Next.js hydration validation errors on timestamps and dynamic components.
+- **Deployment Script**: Updated `start_integrated.sh` to include new Python dependencies (`google-generativeai`, `openai`).
+- **Strategy Safety (Audit Fixes)**:
+  - **AI Gatekeeper**: Strictly blocks trades if AI decision is "REJECT" or confidence < 75%.
+  - **Signal Stability**: Strategies now use confirmed closed candles (`iloc[-2]`) to prevent repainting.
 
 ## 5. Recent Commits (Last 5)
 
-### 1. feat: Enhanced Config page, Bot Controls, Hydration fixes
+### 1. feat: Strategy Audit Fixes (Lead Quant)
+**Commit**: `Jan 1, 2026`
+- **AI Gatekeeper**: Block execution on low confidence/rejection
+- **Anti-Repainting**: Switched to `iloc[-2]` for validation
+- **Standardization**: Enforced consistent AI JSON output
+- **Files**: `main_nextjs.py`, `strategies/definitions.py`, `app/services/gemini_service.py`
+
+### 2. feat: Enhanced Config page, Bot Controls, Hydration fixes
 **Commit**: `Jan 1, 2026`
 - Created `/config` page
 - Added Bot Control buttons

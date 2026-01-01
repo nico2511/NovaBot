@@ -68,16 +68,19 @@ class ScalpEmaRsi(BaseStrategy):
         
         if trend_col not in df.columns or atr_col not in df.columns: return None
 
-        # Values
-        current_fast = df[fast_col].iloc[-1]
-        prev_fast = df[fast_col].iloc[-2]
-        current_slow = df[slow_col].iloc[-1]
-        prev_slow = df[slow_col].iloc[-2]
+        # Values (Use iloc[-2] for signal stability / avoiding repainting)
+        # However, checking cross often needs current vs prev.
+        # To be strict, we check if cross happened at Close of Prev.
         
-        current_trend = df[trend_col].iloc[-1]
-        current_rsi = df[rsi_col].iloc[-1]
-        close = df['close'].iloc[-1]
-        atr = df[atr_col].iloc[-1]
+        current_fast = df[fast_col].iloc[-2]
+        prev_fast = df[fast_col].iloc[-3]
+        current_slow = df[slow_col].iloc[-2]
+        prev_slow = df[slow_col].iloc[-3]
+        
+        current_trend = df[trend_col].iloc[-2]
+        current_rsi = df[rsi_col].iloc[-2]
+        close = df['close'].iloc[-2] # Closed price of previous candle
+        atr = df[atr_col].iloc[-2]
         
         # BUY: Bullish setup (EMA alignment + Trend + RSI)
         # Trigger on: 1) Active crossover OR 2) Already aligned with all conditions met
@@ -526,14 +529,14 @@ class StrategySmartTrend(BaseStrategy):
         self.add_indicators(df)
         
         # === STEP 1: Setup Check (15m) ===
-        # Get latest 15m values
-        close_15m = df['close'].iloc[-1]
-        low_15m = df['low'].iloc[-1]
-        high_15m = df['high'].iloc[-1]
-        ema_21 = df['EMA_21'].iloc[-1]
-        ema_50 = df['EMA_50'].iloc[-1]
-        atr_15m = df['ATRr_14'].iloc[-1]
-        rsi_15m = df['RSI_14'].iloc[-1]
+        # Get latest closed 15m values (iloc[-2]) for stability
+        close_15m = df['close'].iloc[-2]
+        low_15m = df['low'].iloc[-2]
+        high_15m = df['high'].iloc[-2]
+        ema_21 = df['EMA_21'].iloc[-2]
+        ema_50 = df['EMA_50'].iloc[-2]
+        atr_15m = df['ATRr_14'].iloc[-2]
+        rsi_15m = df['RSI_14'].iloc[-2]
         
         # RSI Filter (éviter extrêmes)
         if rsi_15m <= 30 or rsi_15m >= 70:
@@ -573,11 +576,14 @@ class StrategySmartTrend(BaseStrategy):
             return None
         
         # Get latest 1m values
-        if len(df_1m) < (self.bos_lookback + 1):
+        if len(df_1m) < (self.bos_lookback + 2): # Need +2 now because we look back from -2
             return None
         
-        current_1m = df_1m.iloc[-1]
-        last_n_1m = df_1m.iloc[-(self.bos_lookback + 1):-1]  # Last N candles before current
+        # Use COMPLETED candle for trigger
+        current_1m = df_1m.iloc[-2] 
+        # Last N before current_1m (which is -2) -> so from -2-N-1 to -2
+        # Slice: from -(lookback+2) to -2
+        last_n_1m = df_1m.iloc[-(self.bos_lookback + 2):-2]
         
         close_1m = current_1m['close']
         

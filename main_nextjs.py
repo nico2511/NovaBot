@@ -796,14 +796,31 @@ class BotContext:
                                     try:
                                         import json
                                         ai_data = json.loads(ai_analysis["raw_output"])
-                                        self.add_log(f"🤖 IA: {ai_data.get('explanation', 'Signal analysé')}")
-                                    except:
+                                        
+                                        # === AI GATEKEEPER ===
+                                        decision = ai_data.get("decision", "APPROVE").upper()
+                                        confidence = int(ai_data.get("confidence_score", 100))
+                                        
+                                        self.add_log(f"🤖 IA Decision: {decision} ({confidence}%) - {ai_data.get('reasoning', '')}")
+                                        
+                                        if decision == "REJECT":
+                                            self.add_log(f"⛔ TRADE BLOCKED BY AI: {ai_data.get('reasoning', 'Reason unavailable')}")
+                                            continue  # SKIP EXECUTION
+                                            
+                                        if confidence < 75:
+                                            self.add_log(f"⛔ TRADE BLOCKED BY AI: Confidence too low ({confidence}% < 75%)")
+                                            continue # SKIP EXECUTION
+                                            
+                                    except Exception as e:
+                                        self.add_log(f"⚠️ AI Parse Error: {e}. Proceeding with caution.")
                                         pass
                             else:
-                                # Signal déjà analysé récemment - skip pour économiser tokens
+                                # Signal déjà analysé récemment - skip pour économiser tokens (Assuming previous analysis still holds validity for short term duplicate)
+                                # TODO: Strictly we should check the result of that previous analysis, but duplicate signals usually mean same candle triggers.
                                 self.add_log(f"⏭️ Signal {strat_name} déjà analysé récemment (cache)")
                         except Exception as e:
                             print(f"Error in AI signal analysis: {e}")
+
                         
                         # CRITICAL: Check if trading is enabled
                         if not self.trading_enabled:

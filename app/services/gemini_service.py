@@ -295,44 +295,31 @@ Respond ONLY with valid JSON:
                 risk_reward = f"{reward/risk:.2f}"
         
         prompt = f"""
-        Tu es un Expert Trader Crypto spécialisé en Risk Management. Analyse ce signal de trading et fournis une évaluation COHÉRENTE.
+        ACT AS A SENIOR QUANT TRADER.
+        Review this trade signal and data.
         
         SIGNAL:
         - Type: {signal_type}
-        - Stratégie: {strategy}
-        - Prix d'entrée: {entry_price}
-        - Stop Loss proposé: {sl_price}
-        - Take Profit proposé: {tp_price}
-        - Risk:Reward actuel: {risk_reward}
+        - Strategy: {strategy}
+        - Enter: {entry_price}
+        - SL: {sl_price}
+        - TP: {tp_price}
         
-        CONTEXTE MARCHÉ:
+        MARKET CONTEXT:
         {context_str}
         
-        INSTRUCTIONS:
-        1. Analyse la COHÉRENCE du trade:
-           - Le SL est-il trop serré ou trop large par rapport à la volatilité?
-           - Le TP est-il réaliste par rapport au trend et à la stratégie?
-           - Le R:R est-il adapté au type de trade (scalp vs swing)?
+        TASK:
+        1. Analyze if this signal matches the current market regime.
+        2. Check for contradictions (e.g. BUY signal but RSI is 80, or huge resistance overhead).
+        3. Make a GO/NO-GO decision.
         
-        2. Considère le CONTEXTE:
-           - Volatilité actuelle (ATR, range récent)
-           - Direction du trend (bullish/bearish/range)
-           - Type de stratégie (scalp = R:R 1.5-2, swing = R:R 2-3)
-        
-        3. ADAPTE les niveaux si nécessaire:
-           - Si SL trop serré → suggère niveau plus respirant
-           - Si TP irréaliste → ajuste selon résistances/supports
-           - Si R:R < 1.5 → recommande ajustement
-        
-        Réponds UNIQUEMENT avec un JSON valide (sans markdown) contenant:
+        OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
         {{
-            "explanation": "Analyse courte du trade (2-3 phrases en FRANÇAIS)",
-            "confidence": "HIGH|MEDIUM|LOW",
-            "risks": ["risque1", "risque2"],
-            "recommendation": "TAKE|SKIP|ADJUST",
-            "suggested_sl": prix_sl_optimal (float, ou null si OK),
-            "suggested_tp": prix_tp_optimal (float, ou null si OK),
-            "reasoning": "Pourquoi ces ajustements (si ADJUST)"
+            "decision": "APPROVE" | "REJECT",
+            "confidence_score": (0-100),
+            "reasoning": "Short explanation...",
+            "risk_factors": ["risk1", "risk2"],
+            "suggested_modifications": "None or e.g. lower leverage"
         }}
         """
         result = self._call_ai_generic(prompt)
