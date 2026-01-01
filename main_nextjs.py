@@ -1074,12 +1074,27 @@ class BotContext:
                 # --- Position Sync moved to start of loop ---
 
                 # Check active trade management
+                # Check active trade management
                 if self.active_trade:
                     current_price = df_15m['close'].iloc[-1]
-                    entry_price = self.active_trade["entry"]
-                    tp_price = self.active_trade["tp"]
-                    sl_price = self.active_trade["sl"]
-                    side = self.active_trade["side"]
+                    entry_price = self.active_trade.get("entry", 0)
+                    tp_price = self.active_trade.get("tp")
+                    sl_price = self.active_trade.get("sl")
+                    side = self.active_trade.get("side", "BUY")
+
+                    # DEFENSIVE: If SL/TP missing (e.g. from old state or bad boot), set defaults to prevent crash
+                    if not tp_price or not sl_price:
+                         # Calculate default ±50% safety net just to prevent crash
+                         if side == "BUY":
+                             sl_price = sl_price or (entry_price * 0.5)
+                             tp_price = tp_price or (entry_price * 1.5)
+                         else:
+                             sl_price = sl_price or (entry_price * 1.5)
+                             tp_price = tp_price or (entry_price * 0.5)
+                         
+                         self.active_trade["sl"] = sl_price
+                         self.active_trade["tp"] = tp_price
+                         self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price}, TP={tp_price}")
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
@@ -1504,22 +1519,7 @@ class BotContext:
             if active_pos:
                 print(f"   ⚠️ FOUND GHOST POSITION on {self.active_symbol}!")
                 print(f"      Size: {active_pos['size']} | Entry: {active_pos['entry_price']}")
-                
-                # Logic: We adopt it blindly at startup to be safe?
-                # Or we just clear our internal state to match?
-                # 'sync_with_hyperliquid' will be called in loop, but let's prep internal state
-                if not self.active_trade:
-                    print("   🔧 Adopting position into internal state...")
-                    self.active_trade = {
-                        "symbol": self.active_symbol,
-                        "side": active_pos["side"],
-                        "entry": active_pos["entry_price"],
-                        "size": active_pos["size"],
-                        "leverage": active_pos.get("leverage", 1),
-                        "timestamp": pd.Timestamp.now().isoformat(),
-                        "strategy": "Adopted/Startup"
-                    }
-                    self.risk_manager.record_trade_open()
+                print("   ℹ️ It will be fully adopted (with SL/TP) in the main loop.")
             else:
                 print("   ✅ No ghost positions on active symbol.")
                 # Ensure we don't think we have one
