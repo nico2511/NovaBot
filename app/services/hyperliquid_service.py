@@ -195,25 +195,41 @@ class HyperliquidService:
             # If opened SHORT (is_buy=False) -> SL/TP are BUY orders (is_buy=True)
             close_is_buy = not is_buy
             
+            orders = []
+            
             if sl_price:
                 sl_price = float(f"{sl_price:.{price_decimals}f}")
                 print(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price}")
-                # "trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}
-                self.exchange.order(
-                    symbol, close_is_buy, quantity, sl_price, 
-                    {"trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}},
-                    reduce_only=True
-                )
+                orders.append({
+                    "coin": symbol,
+                    "is_buy": close_is_buy,
+                    "sz": quantity,
+                    "limit_px": sl_price,
+                    "order_type": {"trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}},
+                    "reduce_only": True
+                })
                 
             if tp_price:
                 tp_price = float(f"{tp_price:.{price_decimals}f}")
                 print(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price}")
-                # "trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}
-                self.exchange.order(
-                    symbol, close_is_buy, quantity, tp_price, 
-                    {"trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}},
-                    reduce_only=True
-                )
+                orders.append({
+                    "coin": symbol,
+                    "is_buy": close_is_buy,
+                    "sz": quantity,
+                    "limit_px": tp_price,
+                    "order_type": {"trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}},
+                    "reduce_only": True
+                })
+            
+            if orders:
+                # Use bulk_orders for efficiency
+                if len(orders) > 1:
+                     print(f"🚀 Bulking {len(orders)} protection orders...")
+                     self.exchange.bulk_orders(orders)
+                else:
+                     # Single order
+                     o = orders[0]
+                     self.exchange.order(o["coin"], o["is_buy"], o["sz"], o["limit_px"], o["order_type"], o["reduce_only"])
                 
         except Exception as e:
             print(f"⚠️ Failed to place protection orders: {e}")
@@ -246,92 +262,136 @@ class HyperliquidService:
         return symbol
 
     def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None, sl_price: float = None, tp_price: float = None):
+        """
+        Execute an order on Hyperliquid.
+        If SL/TP are provided, uses `bulk_orders` with 'normalTpsl' grouping for atomic execution.
+        """
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
         
         import time
         
-        # NORMALIZATION: Ensure we use the correct symbol (e.g. kPEPE)
+        # NORMALIZATION
         symbol = self.get_canonical_symbol(symbol)
         
-        # Dynamic Precision Rounding
+        # PRECISION
         sz_decimals, price_decimals = self._get_precision(symbol)
-        
-        # Format Quantity
         quantity = float(f"{quantity:.{sz_decimals}f}")
         
-        # Retry configuration
+        # RETRY CONFIG
         max_retries = 3
-        retry_delay = 1  # seconds
+        retry_delay = 1
         
         for attempt in range(max_retries):
             try:
-                if price:
-                    # LIMIT ORDER
-                    price = float(f"{price:.{price_decimals}f}")
-                    print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {price} (Attempt {attempt + 1}/{max_retries})")
-                    result = self.exchange.order(symbol, is_buy, quantity, price, {"limit": {"tif": "Gtc"}})
-                else:
-                    # MARKET ORDER
-                    print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol} (Attempt {attempt + 1}/{max_retries})")
-                    result = self.exchange.market_open(symbol, is_buy, quantity)
-                
-                print(f"✅ Order execution result: {result}")
-                
-                # Verify order was accepted
-                if result.get("status") == "ok":
-                    # Check for inner error status (CRITICAL FIX)
-                    # Hyperliquid returns "status": "ok" even if execution failed
-                    # Structure: {'status': 'ok', 'response': {'type': 'order', 'data': {'statuses': [{'error': 'Order has invalid size.'}]}}}
-                    response_data = result.get("response", {}).get("data", {})
-                    statuses = response_data.get("statuses", [])
+                # CASE 1: ATOMIC ENTRY + SL/TP (Recommended)
+                if sl_price or tp_price:
+                    print(f"🚀 SUBMITTING ATOMIC ORDER (Entry + SL/TP) for {symbol} (Attempt {attempt + 1})")
                     
-                    if statuses and statuses[0].get("error"):
-                         error_msg = statuses[0].get("error")
-                         print(f"❌ Order Rejected by Engine: {error_msg}")
-                         if attempt < max_retries - 1:
-                            time.sleep(retry_delay * (2 ** attempt))
-                            continue
-                         else:
-                            return {"status": "error", "message": f"Order rejected: {error_msg}"}
+                    orders = []
+                    
+                    # 1. ENTRY ORDER
+                    entry_order = {
+                        "coin": symbol,
+                        "is_buy": is_buy,
+                        "sz": quantity,
+                        "limit_px": price if price else float(f"{self.get_current_price(symbol):.{price_decimals}f}"), # Limit px required even for market?
+                        # For Market, usually we pass a safe limit offset, but 'limit' type means Limit. 
+                        # To do Market Entry, we use "limit": {"tif": "Ioc"} or similar? 
+                        # Wait, basic_tpsl.py uses "limit": {"tif": "Gtc"} for entry. It doesn't show Market Entry with SL/TP.
+                        # SDK `market_open` enables market. 
+                        # For bulk, we need explicit type.
+                        # If price is None, we want MARKET.
+                        # Using a very aggressive limit price simulates Market.
+                        "order_type": {"limit": {"tif": "Gtc"}}, 
+                        "reduce_only": False
+                    }
+                    
+                    # Adjust Entry Price for Market simulation if needed
+                    current_px = self.get_current_price(symbol)
+                    if not price:
+                        # Aggressive crossing: Buy @ +5%, Sell @ -5%
+                        simulated_limit_px = current_px * 1.05 if is_buy else current_px * 0.95
+                        entry_order["limit_px"] = float(f"{simulated_limit_px:.{price_decimals}f}")
+                    else:
+                        entry_order["limit_px"] = float(f"{price:.{price_decimals}f}")
 
-                    # Wait a moment for order to fill
-                    time.sleep(2)
+                    orders.append(entry_order)
+
+                    # 2. SL/TP ORDERS
+                    close_is_buy = not is_buy
                     
-                    # Verify position exists
-                    positions = self.get_positions()
-                    position_found = any(p["symbol"] == symbol for p in positions)
-                    
-                    if position_found:
-                        print(f"✅ Position verified on exchange for {symbol}")
-                        # Place Hard Stops
-                        self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
-                        return {"status": "success", "result": result}
-                    else:
-                        print(f"⚠️ Order accepted but position not found, retrying...")
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                            continue
-                        else:
-                            return {"status": "error", "message": "Order accepted but position not found after retries"}
-                else:
-                    # Request failed (HTML error etc)
-                    print(f"❌ Order Request Failed: {result}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay * (2 ** attempt))
-                        continue
-                    else:
-                        return {"status": "error", "message": f"Order request failed: {result}"}
+                    if sl_price:
+                        sl_px_fmt = float(f"{sl_price:.{price_decimals}f}")
+                        orders.append({
+                            "coin": symbol,
+                            "is_buy": close_is_buy,
+                            "sz": quantity,
+                            "limit_px": sl_px_fmt,
+                            "order_type": {"trigger": {"triggerPx": sl_px_fmt, "isMarket": True, "tpsl": "sl"}},
+                            "reduce_only": True
+                        })
                         
-            except Exception as e:
-                print(f"❌ Order execution failed (Attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (2 ** attempt))
-                    continue
+                    if tp_price:
+                        tp_px_fmt = float(f"{tp_price:.{price_decimals}f}")
+                        orders.append({
+                            "coin": symbol,
+                            "is_buy": close_is_buy,
+                            "sz": quantity,
+                            "limit_px": tp_px_fmt,
+                            "order_type": {"trigger": {"triggerPx": tp_px_fmt, "isMarket": True, "tpsl": "tp"}},
+                            "reduce_only": True
+                        })
+                    
+                    # EXECUTE BULK
+                    result = self.exchange.bulk_orders(orders, grouping="normalTpsl")
+                    
+                # CASE 2: SIMPLE ENTRY (No SL/TP provided)
                 else:
-                    return {"status": "error", "message": f"Order failed after {max_retries} attempts: {str(e)}"}
-        
-        return {"status": "error", "message": "Order execution failed"}
+                    if price:
+                         # LIMIT
+                         limit_px = float(f"{price:.{price_decimals}f}")
+                         print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {limit_px}")
+                         result = self.exchange.order(symbol, is_buy, quantity, limit_px, {"limit": {"tif": "Gtc"}})
+                    else:
+                         # MARKET
+                         print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
+                         result = self.exchange.market_open(symbol, is_buy, quantity)
+
+                # VERIFICATION LOGIC (Shared)
+                print(f"✅ Exec Result: {result}")
+                
+                if result.get("status") == "ok":
+                    response = result.get("response", {})
+                    data = response.get("data", {})
+                    statuses = data.get("statuses", [])
+                    
+                    # Check for any error in the batch
+                    errors = [s.get("error") for s in statuses if s.get("error")]
+                    if errors:
+                        print(f"❌ Order Rejected: {errors}")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                            continue
+                        return {"status": "error", "message": f"Rejected: {errors}"}
+                        
+                    # Success
+                    return {"status": "success", "result": result}
+                    
+                else:
+                     print(f"❌ API Error: {result}")
+                     if attempt < max_retries - 1:
+                         time.sleep(retry_delay)
+                         continue
+            
+            except Exception as e:
+                print(f"❌ Exception in execute_order: {e}")
+                if attempt < max_retries - 1:
+                     time.sleep(retry_delay)
+                     continue
+                return {"status": "error", "message": str(e)}
+
+        return {"status": "error", "message": "Max retries exceeded"}
     
     @standard_operation
     def set_sl_tp(

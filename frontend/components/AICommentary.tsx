@@ -198,15 +198,15 @@ export default function AICommentary({ symbol, displayMode = 'full' }: AIComment
             {/* Position Analysis (Target for Sidebar) */}
             {positionData && (
                 <div className={`backdrop-blur-sm rounded-lg p-6 border ${displayMode === 'sidebar'
-                        ? 'bg-blue-900/10 border-blue-500/30'
-                        : 'bg-gradient-to-br from-blue-900/20 to-cyan-900/20 border-cyan-500/30'
+                    ? 'bg-blue-900/10 border-blue-500/30'
+                    : 'bg-gradient-to-br from-blue-900/20 to-cyan-900/20 border-cyan-500/30'
                     }`}>
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                             <Brain className={`w-5 h-5 ${displayMode === 'sidebar' ? 'text-blue-400' : 'text-cyan-400'}`} />
-                            <h3 className="text-lg font-semibold text-white">
-                                {displayMode === 'sidebar' ? 'Suivi IA du Trade' : 'Analyse de Position'}
-                            </h3>
+                            {displayMode !== 'sidebar' && (
+                                <h3 className="text-lg font-semibold text-white">Analyse de Position</h3>
+                            )}
                         </div>
                         {positionData.risk_assessment && (
                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRiskColor(positionData.risk_assessment)} bg-white/5`}>
@@ -215,9 +215,9 @@ export default function AICommentary({ symbol, displayMode = 'full' }: AIComment
                         )}
                     </div>
 
-                    {positionData.analysis && (
+                    {(positionData.analysis || positionData.reasoning) && (
                         <p className="text-gray-200 mb-4 text-sm leading-relaxed">
-                            {positionData.analysis}
+                            {positionData.analysis || positionData.reasoning}
                         </p>
                     )}
 

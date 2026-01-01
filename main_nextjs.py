@@ -73,7 +73,14 @@ class BotContext:
         self._initial_position_analyzed = False
         
         # Candle analysis cache to prevent redundant calculations
+        # Candle analysis cache to prevent redundant calculations
+        # Candle analysis cache to prevent redundant calculations
+        # Candle analysis cache to prevent redundant calculations
         self.last_analyzed_candle = None
+        
+        # Debounce for "Position Vanished" check
+        self.missing_pos_counter = 0
+        self.missing_pos_counter = 0 # Debounce for "Position Vanished" check
         
         # Load persisted state
         try:
@@ -435,22 +442,18 @@ class BotContext:
                                     risk_score = ai_data.get("risk_score", "N/A")
                                     reasoning = ai_data.get("reasoning", "AI analysis complete")
                                     
-                                    # Fallback to ATR if AI doesn't provide suggestions
-                                    if not sl or not tp:
-                                        self.add_log("⚠️ AI didn't provide SL/TP, using ATR fallback")
-                                        atr = 0
-                                        if hasattr(self, 'latest_data') and not self.latest_data.empty and 'ATRr_14' in self.latest_data.columns:
-                                            atr = self.latest_data['ATRr_14'].iloc[-1]
-                                        else:
-                                            atr = current_price * 0.01
-                                        
-                                        if side == "BUY":
-                                            sl = sl or (entry_price - (2.0 * atr))
-                                            tp = tp or (entry_price + (3.0 * atr))
-                                        else:
-                                            sl = sl or (entry_price + (2.0 * atr))
-                                            tp = tp or (entry_price - (3.0 * atr))
+                                    # Verify parameters - CLAMP WIDE STOPS
+                                    dist_sl = abs(entry_price - sl) / entry_price
+                                    dist_tp = abs(tp - entry_price) / entry_price
                                     
+                                    # If AI suggests > 10% stop for a scalp, it's hallucinating. Clamp to 5% or ATR.
+                                    if dist_sl > 0.10:
+                                        self.add_log(f"⚠️ AI Suggested SL too wide ({dist_sl*100:.1f}%), clamping to 5%")
+                                        if side == "BUY":
+                                            sl = entry_price * 0.95
+                                        else:
+                                            sl = entry_price * 1.05
+                                            
                                     self.add_log(f"🤖 AI Analysis (Risk: {risk_score}): {reasoning}")
                                     self.add_log(f"   AI Suggested SL: {sl:.8f}, TP: {tp:.8f}")
                                 else:
@@ -500,59 +503,71 @@ class BotContext:
                     else:
                         # Case 3: Bot thinks we have a trade, but no position in HL (Manual Close or Liquidation)
                         if self.active_trade and self.execution_mode == "Auto (Hyperliquid)":
-                             # Check if trade is very recent (Grace period for API latency / fill time)
+                              # Check if trade is very recent (Grace period for API latency / fill time)
                              trade_time = pd.Timestamp(self.active_trade["timestamp"])
                              time_since_entry = (pd.Timestamp.now() - trade_time).total_seconds()
                              
-                             if time_since_entry > 30: # 30 seconds grace period
-                                 self.add_log(f"⚠️ Position vanished on exchange! Closing bot trade.")
+                             if time_since_entry > 30: # 30 seconds initial grace period
+                                 # DEBOUNCE: Require 3 consecutive confirmations (approx 90s) before declaring position closed
+                                 self.missing_pos_counter += 1
+                                 self.add_log(f"⚠️ Position on {self.active_symbol} missing from exchange scan ({self.missing_pos_counter}/3)...")
                                  
-                                 # Calculer PNL final avant de fermer
-                                 try:
-                                     current_price = hyperliquid_service.get_current_price(self.active_symbol)
-                                     entry_price = self.active_trade["entry"]
-                                     side = self.active_trade["side"]
-                                     size = self.active_trade.get("size", 0)
-                                     leverage = self.active_trade.get("leverage", 1)
+                                 if self.missing_pos_counter >= 3:
+                                     self.add_log("⚠️ Position vanished on exchange (CONFIRMED)! Closing bot trade.")
                                      
-                                     # CORRECT PNL CALCULATION
-                                     pnl_per_coin = (current_price - entry_price) if side == "BUY" else (entry_price - current_price)
-                                     pnl_usdc = pnl_per_coin * size * leverage
+                                     # Calculer PNL final avant de fermer
+                                     try:
+                                         current_price = hyperliquid_service.get_current_price(self.active_symbol)
+                                         entry_price = self.active_trade["entry"]
+                                         side = self.active_trade["side"]
+                                         size = self.active_trade.get("size", 0)
+                                         leverage = self.active_trade.get("leverage", 1)
+                                         
+                                         # CORRECT PNL CALCULATION
+                                         pnl_per_coin = (current_price - entry_price) if side == "BUY" else (entry_price - current_price)
+                                         pnl_usdc = pnl_per_coin * size * leverage
+                                         
+                                         self.add_log(f"💰 PNL Final: ${pnl_usdc:.2f} USDC")
+                                         
+                                         # Enregistrer le trade
+                                         self.trade_recorder.add_trade({
+                                             "symbol": self.active_symbol,
+                                             "strategy": self.active_trade.get("strategy", "Unknown"),
+                                             "side": side,
+                                             "entry_price": entry_price,
+                                             "exit_price": current_price,
+                                             "size": size,
+                                             "leverage": leverage,
+                                             "pnl_usdc": pnl_usdc,
+                                             "pnl_percent": (pnl_per_coin / entry_price) * 100,
+                                             "entry_time": self.active_trade.get("timestamp"),
+                                             "exit_time": pd.Timestamp.now().isoformat(),
+                                             "exit_reason": "External Close"
+                                         })
+                                         
+                                         # Notification Discord
+                                         discord_service.send_alert(
+                                             "🔴 POSITION FERMÉE EXTERNELLEMENT",
+                                             f"Symbol: {self.active_symbol}\nPNL: ${pnl_usdc:.2f} USDC\nRaison: Fermée via Hyperliquid UI",
+                                             color="FF6600"
+                                         )
+                                         
+                                         self.risk_manager.record_trade_close(pnl_usdc)
+                                     except Exception as e:
+                                         self.add_log(f"Error calculating final PNL: {e}")
+                                         self.risk_manager.record_trade_close(0)
                                      
-                                     self.add_log(f"💰 PNL Final: ${pnl_usdc:.2f} USDC")
-                                     
-                                     # Enregistrer le trade
-                                     self.trade_recorder.add_trade({
-                                         "symbol": self.active_symbol,
-                                         "strategy": self.active_trade.get("strategy", "Unknown"),
-                                         "side": side,
-                                         "entry_price": entry_price,
-                                         "exit_price": current_price,
-                                         "size": size,
-                                         "leverage": leverage,
-                                         "pnl_usdc": pnl_usdc,
-                                         "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                                         "entry_time": self.active_trade.get("timestamp"),
-                                         "exit_time": pd.Timestamp.now().isoformat(),
-                                         "exit_reason": "External Close"
-                                     })
-                                     
-                                     # Notification Discord
-                                     discord_service.send_alert(
-                                         "🔴 POSITION FERMÉE EXTERNELLEMENT",
-                                         f"Symbol: {self.active_symbol}\nPNL: ${pnl_usdc:.2f} USDC\nRaison: Fermée via Hyperliquid UI",
-                                         color="FF6600"
-                                     )
-                                     
-                                     self.risk_manager.record_trade_close(pnl_usdc)
-                                 except Exception as e:
-                                     self.add_log(f"Error calculating final PNL: {e}")
-                                     self.risk_manager.record_trade_close(0)
-                                 
-                                 self.active_trade = None
-                                 StateManager.save_state(self)
+                                     self.active_trade = None
+                                     StateManager.save_state(self)
+                                     self.missing_pos_counter = 0 # Reset
+                                 else:
+                                     pass # Wait for next confirmation
                              else:
                                  self.add_log(f"⏳ Position pending verification ({time_since_entry:.1f}s ago)...")
+                    
+                    # Position FOUND! Reset counter
+                    else:
+                        self.missing_pos_counter = 0
                 
                 except Exception as e:
                     self.add_log(f"⚠️ Error checking positions: {e}")
@@ -561,7 +576,7 @@ class BotContext:
                 # Force sync avec Hyperliquid (source de vérité)
                 try:
                     sync_result = self.risk_manager.sync_with_hyperliquid(hyperliquid_service)
-                    if sync_result.get("synced"):
+                    if sync_result.get("synced") and sync_result['old_count'] != sync_result['new_count']:
                         self.add_log(f"🔄 SYNC: Positions {sync_result['old_count']} → {sync_result['new_count']}")
                 except Exception as e:
                     self.add_log(f"⚠️ Sync error: {e}")
