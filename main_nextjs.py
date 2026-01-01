@@ -354,6 +354,18 @@ class BotContext:
                     self.add_log("⚠️ No 1m data received")
                     time.sleep(30) # Wait 30s instead of 10s to reduce spam
                     continue
+
+                # CRITICAL FIX: Ensure numeric columns are floats to avoid "less_equal" TypeError in numpy/pandas
+                # This fixes the strategy engine crash
+                numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                try:
+                    for df_target in [df_15m, df_1m]:
+                        for col in numeric_cols:
+                            if col in df_target.columns:
+                                df_target[col] = df_target[col].astype(float)
+                except Exception as e:
+                    self.add_log(f"⚠️ Error casting dataframe to float: {e}")
+                    continue
                 
                 self.add_log(f"✅ Received {len(df_15m)} 15m candles and {len(df_1m)} 1m candles")
                 self.latest_data = df_15m  # For UI display
@@ -670,6 +682,7 @@ class BotContext:
                         ai_approved = False
                         ai_reasoning = "No AI validation performed"
                         
+                     # Convert to DataFrame
                         try:
                             from app.services.gemini_service import gemini_service
                             import json

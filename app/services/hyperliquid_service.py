@@ -249,6 +249,21 @@ class HyperliquidService:
                 
                 # Verify order was accepted
                 if result.get("status") == "ok":
+                    # Check for inner error status (CRITICAL FIX)
+                    # Hyperliquid returns "status": "ok" even if execution failed
+                    # Structure: {'status': 'ok', 'response': {'type': 'order', 'data': {'statuses': [{'error': 'Order has invalid size.'}]}}}
+                    response_data = result.get("response", {}).get("data", {})
+                    statuses = response_data.get("statuses", [])
+                    
+                    if statuses and statuses[0].get("error"):
+                         error_msg = statuses[0].get("error")
+                         print(f"❌ Order Rejected by Engine: {error_msg}")
+                         if attempt < max_retries - 1:
+                            time.sleep(retry_delay * (2 ** attempt))
+                            continue
+                         else:
+                            return {"status": "error", "message": f"Order rejected: {error_msg}"}
+
                     # Wait a moment for order to fill
                     time.sleep(2)
                     
@@ -269,14 +284,13 @@ class HyperliquidService:
                         else:
                             return {"status": "error", "message": "Order accepted but position not found after retries"}
                 else:
-                    # Order rejected, retry
-                    error_msg = result.get("response", {}).get("data", {}).get("error", "Unknown error")
-                    print(f"❌ Order rejected: {error_msg}")
+                    # Request failed (HTML error etc)
+                    print(f"❌ Order Request Failed: {result}")
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay * (2 ** attempt))
                         continue
                     else:
-                        return {"status": "error", "message": f"Order rejected after {max_retries} attempts: {error_msg}"}
+                        return {"status": "error", "message": f"Order request failed: {result}"}
                         
             except Exception as e:
                 print(f"❌ Order execution failed (Attempt {attempt + 1}/{max_retries}): {e}")
@@ -367,6 +381,7 @@ class HyperliquidService:
             print(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
+    @standard_operation
     def get_account_balance(self, force_refresh=False):
         """Fetch account balance and margin information from Hyperliquid (Cached)"""
         if not config.HL_ACCOUNT_ADDRESS:
