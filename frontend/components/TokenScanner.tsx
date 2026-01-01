@@ -135,12 +135,21 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
+                                            {/* Token Icon */}
+                                            <img
+                                                src={`https://oss.now.github.io/cryptocurrency-icons/32/color/${opp.symbol.toLowerCase()}.png`}
+                                                alt={opp.symbol}
+                                                className="w-8 h-8 rounded-full bg-white/10"
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${opp.symbol}&background=random&color=fff&size=32`;
+                                                }}
+                                            />
                                             <h3 className="text-xl font-bold text-white">
                                                 {opp.symbol}
                                             </h3>
                                             <span className="text-2xl">{getStars(opp.score)}</span>
                                         </div>
-                                        <p className="text-sm text-gray-400">
+                                        <p className="text-sm text-gray-400 pl-10">
                                             Score: {opp.score.toFixed(0)}/100
                                         </p>
                                     </div>
