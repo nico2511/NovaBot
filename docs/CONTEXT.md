@@ -90,14 +90,22 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 
 ## 5. Recent Commits (Last 5)
 
-### 1. feat: Strategy Audit Fixes (Lead Quant)
+### 1. feat/fix: Critical Safety & UX Overhaul
+**Commit**: `Jan 1, 2026`
+- **Safety**: Implemented `sync_sl_tp` to force execution of recovered SL/TP orders on Hyperliquid (Hard Stops).
+- **UX**: Added "AI Follow-up" component in Sidebar (restored Position Analysis).
+- **Precision**: Updated frontend to support 8 decimals for low-cap coins (PUMP).
+- **Stability**: Fixed `KeyError: 'tp'` crash and AI Analysis page crash.
+- **Files**: `hyperliquid_service.py`, `main_nextjs.py`, `AICommentary.tsx`, `ActiveTrade.tsx`
+
+### 2. feat: Strategy Audit Fixes (Lead Quant)
 **Commit**: `Jan 1, 2026`
 - **AI Gatekeeper**: Block execution on low confidence/rejection
 - **Anti-Repainting**: Switched to `iloc[-2]` for validation
 - **Standardization**: Enforced consistent AI JSON output
 - **Files**: `main_nextjs.py`, `strategies/definitions.py`, `app/services/gemini_service.py`
 
-### 2. feat: Enhanced Config page, Bot Controls, Hydration fixes
+### 3. feat: Enhanced Config page, Bot Controls, Hydration fixes
 **Commit**: `Jan 1, 2026`
 - Created `/config` page
 - Added Bot Control buttons
@@ -105,25 +113,18 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 - Simplified Execution Mode selector
 - **Files**: `frontend/app/config/page.tsx`, `start_integrated.sh`, `frontend/components/*`
 
-### 2. feat(trading): Add retry logic, timeout, and position verification
+### 4. feat(trading): Add retry logic, timeout, and position verification
 **Commit**: `6370579` | **Date**: 2025-12-31
 - Added retry mechanism (3 attempts)
 - Implemented position verification
 - **Files**: `app/services/hyperliquid_service.py`
 
-### 2. fix(ai): Handle position_data type errors in _prepare_ai_context
+### 5. fix(ai): Handle position_data type errors in _prepare_ai_context
 **Commit**: `f7d5ed8` | **Date**: 2025-12-31
 - Fixed type errors when extracting position data
 - Added robust type checking with try/except blocks
 - Handles both dict and direct value formats
 - **Files**: `main_nextjs.py` (+26, -7 lines)
-
-### 3. fix(ui): Clarify Settings buttons - STOP/START ENGINE vs ENABLE/DISABLE TRADING
-**Commit**: `384aeed` | **Date**: 2025-12-31
-- Renamed buttons for clarity (ENGINE vs TRADING)
-- Separated controls into distinct sections
-- Improved visual hierarchy
-- **Files**: `frontend/components/Settings.tsx` (+32, -33 lines)
 
 ### 4. fix(ui): Hide ActiveTrade component when no trade exists
 **Commit**: `9861f7a` | **Date**: 2025-12-31
