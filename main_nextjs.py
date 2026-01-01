@@ -932,6 +932,18 @@ class BotContext:
                                     "leverage": existing_pos.get("leverage", 1.0)
                                 }
                                 self.risk_manager.record_trade_open()
+                                
+                                # CRITICAL: Ensure SL/TP are placed on exchange
+                                if self.execution_mode == "Auto (Hyperliquid)":
+                                    self.add_log("🔄 Syncing adopted SL/TP to Hyperliquid...")
+                                    hyperliquid_service.sync_sl_tp(
+                                        self.active_symbol,
+                                        existing_pos["side"] == "BUY",
+                                        existing_pos["size"],
+                                        suggested_sl,
+                                        suggested_tp
+                                    )
+                                
                                 continue # Skip alert, we are now managing it
                             
                             msg = f"📝 MANUAL OPPORTUNITY: {action} {self.active_symbol} @ {entry_price} (SL: {sl:.2f}, TP: {tp:.2f}) [{strat_name}]"
@@ -1111,6 +1123,17 @@ class BotContext:
                          self.active_trade["sl"] = sl_price
                          self.active_trade["tp"] = tp_price
                          self.add_log(f"⚠️ Recovered missing SL/TP for active trade: SL={sl_price:.6f}, TP={tp_price:.6f} ({log_ctx})")
+
+                         # CRITICAL: Execute these orders on the exchange!
+                         if self.execution_mode == "Auto (Hyperliquid)":
+                             self.add_log("🔄 Syncing recovered SL/TP to Hyperliquid...")
+                             hyperliquid_service.sync_sl_tp(
+                                 self.active_symbol,
+                                 side == "BUY",
+                                 self.active_trade.get("size", 0),
+                                 sl_price,
+                                 tp_price
+                             )
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:

@@ -398,6 +398,29 @@ class HyperliquidService:
             "tp_price": tp_price
         }
 
+    @standard_operation
+    def sync_sl_tp(self, symbol: str, is_buy: bool, quantity: float, sl_price: float, tp_price: float):
+        """
+        Sync SL/TP orders for an existing position.
+        First cancels ALL open orders for the symbol, then places new SL/TP.
+        """
+        if not self.exchange:
+            return {"status": "error", "message": "No private key configured"}
+            
+        print(f"🔄 SYNCING SL/TP for {symbol} (SL: {sl_price}, TP: {tp_price})...")
+        try:
+            # 1. Cancel existing orders to avoid duplicates/conflicts
+            self.cancel_all_orders(symbol)
+            
+            # 2. Place new protection orders
+            if sl_price or tp_price:
+                self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
+                
+            return {"status": "success"}
+        except Exception as e:
+            print(f"❌ Failed to sync SL/TP: {e}")
+            return {"status": "error", "message": str(e)}
+
     def update_leverage(self, symbol: str, leverage: int, is_cross: bool = True):
         """Update leverage and margin type (Cross/Isolated) for a symbol"""
         if not self.exchange:

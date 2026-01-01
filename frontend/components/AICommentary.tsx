@@ -206,6 +206,8 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
 
                         <div className="space-y-3 max-h-96 overflow-y-auto">
                             {signalHistory.slice().reverse().map((item, idx) => {
+                                if (!item || !item.signal) return null; // Defensive check for empty signal items
+
                                 const analysis = parseAIOutput(item.analysis);
                                 if (!analysis) return null;
 
@@ -247,7 +249,7 @@ export default function AICommentary({ symbol }: AICommentaryProps) {
 
                                         <div className="flex items-center gap-1 mt-2 text-xs text-gray-600">
                                             <Clock className="w-3 h-3" />
-                                            <span suppressHydrationWarning>{new Date(item.timestamp).toLocaleString('fr-FR')}</span>
+                                            <span suppressHydrationWarning>{item.timestamp ? new Date(item.timestamp).toLocaleString('fr-FR') : 'Date inconnue'}</span>
                                         </div>
                                     </div>
                                 );
