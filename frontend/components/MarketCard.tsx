@@ -118,15 +118,19 @@ export default function MarketCard({
                                 {symbol}
                             </h2>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${regime === 'TREND'
-                                    ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                                 }`}>
                                 {regime}
                             </span>
                         </div>
                         <div className="mt-4">
                             <div className="text-3xl font-mono font-bold text-white tracking-tighter">
-                                ${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                ${price < 0.01
+                                    ? price.toFixed(8).replace(/\.?0+$/, '')
+                                    : price < 1
+                                        ? price.toFixed(6).replace(/\.?0+$/, '')
+                                        : price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                         </div>
                     </div>

@@ -79,6 +79,14 @@ export default function Chart({ symbol, strategy }: ChartProps) {
             rightPriceScale: {
                 borderColor: 'rgba(42, 46, 57, 0.4)',
             },
+            localization: {
+                priceFormatter: (p: number) => {
+                    if (p < 0.01) return p.toFixed(8).replace(/\.?0+$/, '')
+                    if (p < 1) return p.toFixed(6).replace(/\.?0+$/, '')
+                    if (p < 10) return p.toFixed(4)
+                    return p.toFixed(2)
+                }
+            },
             crosshair: {
                 mode: 1, // CrosshairMode.Normal
             },

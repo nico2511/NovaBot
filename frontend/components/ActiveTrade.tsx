@@ -139,7 +139,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
 
     if (embedded) {
         return (
-            <div className={`h-full flex flex-col justify-between rounded-xl overflow-hidden relative border ${isProfitable ? 'border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}
+            <div className={`w-full flex flex-col justify-between rounded-xl overflow-hidden relative border ${isProfitable ? 'border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}
                 style={{ background: bgStyle }}>
 
                 {/* Header */}
