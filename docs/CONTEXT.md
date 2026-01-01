@@ -64,43 +64,42 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
   - 💰 **ENABLE/DISABLE TRADING**: Authorizes trade execution
 - **Conditional UI**: ActiveTrade component is hidden when no trade exists, reducing visual clutter.
 
-## 4. Current Status (As of Dec 31, 2025)
+## 4. Current Status (As of Jan 1, 2026)
 
 ### ✅ Completed & Stable
-- **Execution**: Real trading is verified active with precise sizing, leverage enforcement, retry logic, and position verification.
-- **AI Integration**: OpenRouter (Llama 3.1 8B) provides professional analysis with comprehensive market context.
-- **Signal Validation**: AI approves/rejects every signal before execution with detailed reasoning.
-- **Notifications**: "Double Notification" issue resolved via JIT adoption; Scanner silence implemented.
-- **Persistence**: Settings (Symbol, Leverage, Trading Mode) persist across restarts.
-- **Interface**: Full dashboard with Chart, Logs, Manual Controls, and Integrated AI Analysis.
-- **Robustness**: Type-safe AI context preparation, force close on desync, retry logic with backoff.
+- **Execution**: Real trading is verified active with precise sizing, retry logic, and position verification.
+- **AI Integration**: OpenRouter (Llama 3.1 8B) provides professional analysis.
+- **Bot Configuration**: Centralized `/config` page with specific trading controls.
+- **Simulation Mode**: Clearly defined "Phantom" (Paper) vs "Live" trading modes.
+- **Deployment**: `start_integrated.sh` script automates dependency checks and builds.
 
-### 🚧 Recent Major Improvements (Dec 31, 2025)
+### 🚧 Recent Major Improvements (Jan 1, 2026)
 
-#### AI Enhancements
-- **Professional Prompts**: Structured prompts with role definition, comprehensive context sections, and clear output requirements.
-- **Rich Market Data**: AI receives RSI, ATR, EMAs, volume ratios, swing levels, volatility percentiles, PnL, time in trade, R/R ratios.
-- **Signal Validation**: Pre-execution AI validation with approval/rejection logic and suggested adjustments.
-- **Position Analysis**: Professional risk assessment with technical level-based SL/TP suggestions.
+#### Bot Configuration & Control
+- **Dedicated Config Page**: Created `/config` to centralize all settings (Size, Leverage, Max Positions).
+- **Control Buttons**: Added clearer "Start/Stop Engine" and "Enable/Disable Trading" buttons on the config page.
+- **Trading Modes**: Simplified selection between "Simulation" (Phantom) and "Live" trading, with clear contextual warnings.
+- **Navigation**: Added "Config" tab to the dashboard header for easy access.
 
-#### Execution Reliability
-- **Retry Mechanism**: 3 attempts with exponential backoff (1s, 2s, 4s).
-- **Position Verification**: 2-second wait + position check after order submission.
-- **Error Handling**: Detailed logging at each step with clear error messages.
-
-#### UI/UX Improvements
-- **Clarified Settings**: Separated engine control from trading execution with clear labels.
-- **Conditional Display**: ActiveTrade hidden when no trade exists.
-- **Force Close**: Manual close clears bot state even on Hyperliquid errors.
+#### Technical Robustness
+- **Hydration Fixes**: Solved Next.js hydration validation errors on timestamps and dynamic components using `suppressHydrationWarning` and `ClientOnly` wrappers.
+- **Deployment Script**: Updated `start_integrated.sh` to include new Python dependencies (`google-generativeai`, `openai`) and robustly build the frontend.
 
 ## 5. Recent Commits (Last 5)
 
-### 1. feat(trading): Add retry logic, timeout, and position verification to order execution
+### 1. feat: Enhanced Config page, Bot Controls, Hydration fixes
+**Commit**: `Jan 1, 2026`
+- Created `/config` page
+- Added Bot Control buttons
+- Fixed hydration errors
+- Simplified Execution Mode selector
+- **Files**: `frontend/app/config/page.tsx`, `start_integrated.sh`, `frontend/components/*`
+
+### 2. feat(trading): Add retry logic, timeout, and position verification
 **Commit**: `6370579` | **Date**: 2025-12-31
-- Added retry mechanism (3 attempts) with exponential backoff
-- Implemented position verification after order submission
-- Enhanced error handling with detailed logging
-- **Files**: `app/services/hyperliquid_service.py` (+65, -27 lines)
+- Added retry mechanism (3 attempts)
+- Implemented position verification
+- **Files**: `app/services/hyperliquid_service.py`
 
 ### 2. fix(ai): Handle position_data type errors in _prepare_ai_context
 **Commit**: `f7d5ed8` | **Date**: 2025-12-31
