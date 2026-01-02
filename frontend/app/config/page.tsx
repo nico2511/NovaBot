@@ -22,6 +22,7 @@ interface Settings {
         interval: number
         min_score: number
         auto_switch: boolean
+        gamification_enabled?: boolean
     }
 }
 
@@ -292,6 +293,49 @@ export default function ConfigPage() {
                                             className="w-6 h-6 accent-purple-500 rounded cursor-pointer"
                                         />
                                     </div>
+
+                                    <div className="flex items-center justify-between bg-black/30 p-4 rounded-xl border-2 border-yellow-500/30">
+                                        <div>
+                                            <span className="font-semibold block flex items-center gap-2">
+                                                🎮 Gamification
+                                                <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">NEW</span>
+                                            </span>
+                                            <span className="text-xs text-gray-500">
+                                                {settings.scanner?.gamification_enabled !== false
+                                                    ? "Limit tokens by account level (Goblin/Mercenary/Whale)"
+                                                    : "Trade any token regardless of level"}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={settings.scanner?.gamification_enabled !== false}
+                                            onChange={async (e) => {
+                                                const enabled = e.target.checked
+                                                setSettings({
+                                                    ...settings,
+                                                    scanner: { ...settings.scanner!, gamification_enabled: enabled }
+                                                })
+
+                                                // Save immediately via API
+                                                try {
+                                                    await axios.post(`${API_URL}/api/toggle_gamification`, { enabled })
+                                                } catch (error) {
+                                                    console.error('Failed to toggle gamification:', error)
+                                                }
+                                            }}
+                                            className="w-6 h-6 accent-yellow-500 rounded cursor-pointer"
+                                        />
+                                    </div>
+
+                                    {settings.scanner?.gamification_enabled !== false ? (
+                                        <div className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                                            🎮 <strong>Gamification ON:</strong> Scanner limited to your allowed tokens (Goblin = Memecoins, Mercenary = +Altcoins, Whale = +BTC/ETH)
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                                            🌍 <strong>Gamification OFF:</strong> Full market access - Trade any token
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

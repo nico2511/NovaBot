@@ -1118,6 +1118,64 @@ async def toggle_gamification(data: dict):
     }
 
 
+@app.get("/api/market_metrics")
+async def get_market_metrics(symbol: str = "BTC"):
+    """Get comprehensive market metrics including Scanner V2 data"""
+    try:
+        # Get candles
+        df = hyperliquid_service.get_candles(symbol, "15m", 100)
+        
+        if df.empty:
+            return {"error": "No data"}
+        
+        # Calculate Scanner V2 metrics
+        current_price = df['close'].iloc[-1]
+        volume_24h = df['volume'].iloc[-96:].sum() * current_price  # 96 candles = 24h
+        avg_volume = df['volume'].iloc[-192:-96].sum() * df['close'].iloc[-96] if len(df) >= 192 else volume_24h
+        
+        rvol = volume_24h / avg_volume if avg_volume > 0 else 1.0
+        
+        # EMAs
+        ema_9 = df['close'].ewm(span=9).mean().iloc[-1]
+        ema_20 = df['close'].ewm(span=20).mean().iloc[-1]
+        ema_50 = df['close'].ewm(span=50).mean().iloc[-1]
+        
+        # Trend Alignment
+        trend_aligned = (current_price > ema_9 > ema_20 > ema_50) or \
+                       (current_price < ema_9 < ema_20 < ema_50)
+        
+        # Distance from EMA20
+        dist_from_ema20 = abs(current_price - ema_20) / ema_20 * 100
+        
+        # ADX Components
+        import pandas_ta as ta
+        adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
+        adx = adx_res['ADX_14'].iloc[-1]
+        dmp = adx_res['DMP_14'].iloc[-1]
+        dmn = adx_res['DMN_14'].iloc[-1]
+        
+        adx_quality = 'STRONG_UP' if (adx > 30 and dmp > dmn) else \
+                     'STRONG_DOWN' if (adx > 30 and dmn > dmp) else \
+                     'WEAK'
+        
+        # RSI
+        rsi = ta.rsi(df['close'], length=14).iloc[-1]
+        
+        return {
+            "symbol": symbol,
+            "current_price": current_price,
+            "rsi": rsi,
+            "adx": adx,
+            "volume_24h": volume_24h,
+            "rvol": rvol,
+            "trend_aligned": trend_aligned,
+            "dist_from_ema20": dist_from_ema20,
+            "adx_quality": adx_quality
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/api/ai_analysis")
 async def get_ai_analysis(data: dict = {}):
     """Get AI analysis for a symbol"""
