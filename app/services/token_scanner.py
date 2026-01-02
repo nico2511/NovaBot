@@ -145,34 +145,53 @@ class HyperliquidScanner:
             # Calculate momentum (24h change)
             momentum_pct = ((close.iloc[-1] - close.iloc[0]) / close.iloc[0]) * 100
             
-            # Determine trend
+            # Calculate RVol (Relative Volume)
+            # Vol / sma(Vol, 20)
+            vol_sma_20 = df['volume'].rolling(20).mean()
+            current_vol = df['volume'].iloc[-1]
+            rvol = current_vol / vol_sma_20.iloc[-1] if vol_sma_20.iloc[-1] > 0 else 0
+            
+            # Calculate EMAs for Trend Alignment
+            ema_9 = ta.ema(close, length=9)
             ema_20 = ta.ema(close, length=20)
             ema_50 = ta.ema(close, length=50)
             
-            if not ema_20.empty and not ema_50.empty:
-                trend = 'UP' if ema_20.iloc[-1] > ema_50.iloc[-1] else 'DOWN'
+            current_ema_9 = ema_9.iloc[-1] if not ema_9.empty else 0
+            current_ema_20 = ema_20.iloc[-1] if not ema_20.empty else 0
+            current_ema_50 = ema_50.iloc[-1] if not ema_50.empty else 0
+            
+            # Trend Alignment (Perfect Bullish)
+            trend_aligned = (current_ema_9 > current_ema_20 > current_ema_50)
+            
+            # Mean Reversion Risk (% distance from EMA 20)
+            # If current price is way above EMA 20, risky long
+            if current_ema_20 > 0:
+                dist_ema_20_pct = ((close.iloc[-1] - current_ema_20) / current_ema_20) * 100
             else:
-                trend = 'NEUTRAL'
+                dist_ema_20_pct = 0
 
-            # Calculate ADX (trend strength)
+            # Calculate ADX with directional components
             try:
                 adx_df = ta.adx(high, low, close, length=14)
-                # pandas_ta returns ADX_14, DMP_14, DMN_14
+                # pandas_ta columns: ADX_14, DMP_14, DMN_14
                 current_adx = adx_df['ADX_14'].iloc[-1] if not adx_df.empty else 0
+                current_dmp = adx_df['DMP_14'].iloc[-1] if not adx_df.empty else 0
+                current_dmn = adx_df['DMN_14'].iloc[-1] if not adx_df.empty else 0
             except:
                 current_adx = 0
-            
-            # Calculate volume trend
-            volume_sma = df['volume'].rolling(20).mean()
-            volume_trend = 'INCREASING' if df['volume'].iloc[-1] > volume_sma.iloc[-1] else 'DECREASING'
+                current_dmp = 0
+                current_dmn = 0
             
             return {
                 'atr_pct': atr_pct,
                 'momentum_pct': momentum_pct,
                 'rsi': current_rsi,
                 'adx': current_adx,
-                'trend': trend,
-                'volume_trend': volume_trend,
+                'adx_dmp': current_dmp,
+                'adx_dmn': current_dmn,
+                'trend_aligned': trend_aligned,
+                'rvol': rvol,
+                'dist_ema_20_pct': dist_ema_20_pct,
                 'current_price': close.iloc[-1]
             }
             
@@ -181,78 +200,119 @@ class HyperliquidScanner:
             return None
     
     def calculate_opportunity_score(self, token_data: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate opportunity score (0-100)"""
+        """
+        Calculate opportunity score (0-100) - V2 (Dynamic Weights & Veto)
+        """
         score = 0
         reasons = []
+        details = {}
         
-        # 1. Volume Score (0-20 points)
-        volume_millions = token_data['volume_24h'] / 1_000_000
-        volume_score = min(20, volume_millions * 0.4)  # 1 point per $2.5M
-        score += volume_score
+        # --- KILL SWITCHES (Veto) ---
         
-        if volume_score >= 15:
-            reasons.append(f"🔥 High Volume: ${volume_millions:.1f}M")
+        # 1. RSI Extreme (Overbought)
+        # Sauf si "Parabolic" (pas implémenté), on tue si RSI > 75
+        if analysis['rsi'] > 75:
+            return {
+                'score': 0, 
+                'reasons': [f"⛔ Kill Switch: RSI Overheat ({analysis['rsi']:.0f} > 75)"],
+                'max_score': 100
+            }
             
-        # 2. Open Interest Score (0-15 points) - NEW
-        oi_millions = token_data['open_interest'] / 1_000_000
-        oi_score = min(15, oi_millions * 0.5) # 1 point per $2M
-        score += oi_score
+        # 2. Low Liquidity
+        volume_millions = token_data['volume_24h'] / 1_000_000
+        if volume_millions < 5.0:
+             return {
+                'score': 0, 
+                'reasons': [f"⛔ Kill Switch: Low Volume (${volume_millions:.1f}M < $5M)"],
+                'max_score': 100
+            }
+
+        # --- SCORING FACTORS ---
+
+        # 1. Relative Volume (RVol) - Supply/Demand Imbalance
+        # Si RVol < 1.0 -> Malus (-20 pts). Si RVol > 2.5 -> Bonus (+20 pts).
+        rvol = analysis.get('rvol', 0)
+        if rvol > 2.5:
+            score += 20
+            reasons.append(f"🔥 High RVol ({rvol:.1f}x) [+20]")
+            details['RVol_Bonus'] = 20
+        elif rvol < 1.0:
+            score -= 20
+            reasons.append(f"❄️ Low RVol ({rvol:.1f}x) [-20]")
+            details['RVol_Penalty'] = -20
+        else:
+            # Neutral RVol (1.0 - 2.5) -> Small bonus proportional
+            rvol_points = (rvol - 1.0) * 5 # Max ~7.5 pts
+            score += rvol_points
         
-        if oi_score >= 10:
-            reasons.append(f"🏛️ Big Open Interest: ${oi_millions:.1f}M")
+        # 2. Trend Alignment (Multi-MA)
+        # Perfect Bullish (EMA 9 > 20 > 50) -> +30 pts
+        if analysis.get('trend_aligned', False):
+            score += 30
+            reasons.append("📈 Perfect Trend Alignment (EMA 9>20>50) [+30]")
+            details['Trend_Bonus'] = 30
+            
+        # 3. Mean Reversion Risk (Extension)
+        # Malus if price is too far from EMA 20 (> 3%)
+        dist_ema = analysis.get('dist_ema_20_pct', 0)
+        if dist_ema > 3.0:
+            # Malus progressif: -10 pts par % au-dessus de 3%
+            # Ex: 4% -> -10, 5% -> -20, 8% -> -50
+            extension_malus = (dist_ema - 3.0) * 10
+            score -= extension_malus
+            reasons.append(f"⚠️ Overextended (+{dist_ema:.1f}% vs EMA20) [-{extension_malus:.0f}]")
+            details['Extension_Penalty'] = -extension_malus
         
-        # 3. Volatility Score (0-20 points)
+        # 4. ADX Quality (Directional Strength)
+        # ADX > 25 ET DMP > DMN -> Trend Saine
+        adx = analysis.get('adx', 0)
+        dmp = analysis.get('adx_dmp', 0)
+        dmn = analysis.get('adx_dmn', 0)
+        
+        if adx > 25 and dmp > dmn:
+            score += 15 # +15 pour une trend saine confirmée
+            reasons.append(f"💪 Strong Trend (ADX {adx:.0f}) [+15]")
+            details['ADX_Bonus'] = 15
+        elif adx > 25 and dmn > dmp:
+            score -= 10 # Trend forte mais BAISSIERE (puisque DMN > DMP) -> on cherche des longs
+            reasons.append(f"📉 Strong Bear Trend (ADX {adx:.0f}) [-10]")
+            details['ADX_Bear_Penalty'] = -10
+            
+        # 5. Base Volatility (ATR)
         atr = analysis['atr_pct']
-        if self.min_atr_pct <= atr <= self.max_atr_pct:
-            vol_score = 20
-            reasons.append(f"⚡ Optimal Volatility: {atr:.2f}%")
-        elif atr > self.max_atr_pct:
-            # Too volatile, penalize slightly
-            vol_score = max(5, 20 - (atr - self.max_atr_pct) * 1.5)
-            reasons.append(f"⚠️ High Volatility: {atr:.2f}%")
-        else:
-            # Too low volatility
-            vol_score = atr * 4
-        
-        score += vol_score
-        
-        # 4. Momentum Score (0-20 points)
-        momentum = abs(analysis['momentum_pct'])
-        if momentum >= self.min_momentum_pct:
-            mom_score = min(20, momentum * 1.5)
-            score += mom_score
-            reasons.append(f"🚀 Strong Momentum: {analysis['momentum_pct']:+.2f}%")
-        else:
-            mom_score = momentum * 1.5
-            score += mom_score
-        
-        # 5. RSI Score (0-15 points) - Favor extremes for mean reversion OR trend
-        rsi = analysis['rsi']
-        if rsi < 30:
-            rsi_score = 15
-            reasons.append(f"💎 Oversold (RSI {rsi:.0f})")
-        elif rsi > 70:
-            rsi_score = 15
-            reasons.append(f"🔥 Overbought (RSI {rsi:.0f})")
-        elif 45 <= rsi <= 55:
-            rsi_score = 5 # Boring
-        else:
-            rsi_score = 10
-        
-        score += rsi_score
-        
-        # 6. Trend bonus (0-10 points)
-        if analysis['trend'] != 'NEUTRAL':
+        if 3.0 <= atr <= 10.0:
             score += 10
-            reasons.append(f"{'📈' if analysis['trend']=='UP' else '📉'} Clear Trend")
+            # reasons.append(f"⚡ Good Volatility ({atr:.1f}%) [+10]")
+        elif atr < 2.0:
+            score -= 10
+            reasons.append(f"💤 Low Volatility ({atr:.1f}%) [-10]")
+            
+        # 6. RSI (Fine Tuning)
+        # On a déjà kill > 75.
+        # Idéal : 50-65 (Momentum haussier mais pas suracheté)
+        if 50 <= analysis['rsi'] <= 65:
+            score += 10
+            # reasons.append("✅ RSI Sweet Spot")
+        elif analysis['rsi'] < 40:
+             # Cheap but weak momentum?
+             pass
+
+        # 7. Open Interest (Liquidity Health) - Small Weight
+        oi_millions = token_data['open_interest'] / 1_000_000
+        if oi_millions > 10:
+            score += 5
+        
+        # --- FINAL CLAMP ---
+        score = max(0, min(100, score))
         
         return {
             'score': round(score, 2),
             'reasons': reasons,
+            'details': details,
             'max_score': 100
         }
     
-    def scan(self, top_n: int = 10) -> List[Dict[str, Any]]:
+    def scan(self, top_n: int = 10, whitelist: List[str] = None) -> List[Dict[str, Any]]:
         """
         Main scanning function
         Returns top N opportunities sorted by score
@@ -265,7 +325,7 @@ class HyperliquidScanner:
             return self._cache.get('results', [])[:top_n]
         
         print("\n" + "="*60)
-        print("🔍 HYPERLIQUID TOKEN SCANNER")
+        print("🔍 HYPERLIQUID TOKEN SCANNER (Scoring V2)")
         print("="*60)
         
         # Step 1: Get all tokens
@@ -286,43 +346,13 @@ class HyperliquidScanner:
             print(f"⚠️ Limiting scan to {self.MAX_TOKENS_TO_SCAN} tokens (rate limit protection)")
             candidates = candidates[:self.MAX_TOKENS_TO_SCAN]
         
-        # GAMIFICATION FILTER: Only scan allowed tokens for current level
-        try:
-            from app.core.asset_gamification import AssetGamification
-            
-            # Get latest balance to determine level
-            balance_data = self.hl_service.get_account_balance()
-            equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-            
-            gamification = AssetGamification(equity)
-            allowed_assets = gamification.get_allowed_assets()
-            
-            print(f"🎮 Gamification Level: {gamification.level.value} (${equity:.2f})")
-            print(f"🔒 Allowed Assets: {len(allowed_assets)} (Tier: {gamification.get_status_summary()['allowed_tiers']})")
-            
-            # Filter candidates
-            # Normalize symbols (Hyperliquid usually formatted as 'PEPE' or 'kPEPE')
-            candidates = [c for c in candidates if c['symbol'] in allowed_assets]
-            
-        except Exception as e:
-            print(f"⚠️ Gamification filter error: {e}")
-            print("🔒 Safety Fallback: Defaulting to GOBLIN tier (Safe Mode)")
-            
-            # Fallback: Default to Goblin (Safe) - prevent leaking high tier assets
-            try:
-                # Re-import to be safe
-                from app.core.asset_gamification import AssetGamification 
-                # Initialize as 0 balance -> Goblin Tier
-                gamification = AssetGamification(0)
-                allowed_assets = gamification.get_allowed_assets()
-                candidates = [c for c in candidates if c['symbol'] in allowed_assets]
-            except:
-                print("❌ Critical: Could not apply safety fallback. Returning empty list.")
-                return []
+        # EXTERNAL WHITELIST FILTER (Context Injection)
+        if whitelist is not None:
+            print(f"🔒 Applying Context Filter: Only {len(whitelist)} assets allowed")
+            candidates = [c for c in candidates if c['symbol'] in whitelist]
         
         if not candidates:
-            print("❌ No allowed tokens meet liquidity criteria for your level")
-            print(f"💡 Tip: Increase your balance to unlock more tokens!")
+            print("❌ No allowed tokens meet liquidity criteria (Context Restriction)")
             return []
         
         # Step 4: Analyze each candidate

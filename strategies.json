@@ -85,11 +85,6 @@
             "type": "trend",
             "params": {}
         },
-        "test_trigger": {
-            "enabled": false,
-            "type": "sniper",
-            "params": {}
-        },
         "macd_crossover": {
             "enabled": false,
             "type": "trend",

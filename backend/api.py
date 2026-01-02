@@ -274,7 +274,7 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
 
                 from strategies.definitions import (
                     ScalpEmaRsi, InstitutionalScalp, SwingTrendPullback, 
-                    MeanReversion, SMCFVG, TestTriggerStrategy
+                    MeanReversion, SMCFVG
                 )
                 
                 # Config loading...
@@ -299,8 +299,7 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
                     strat_instance = MeanReversion(strat_config)
                 elif strategy == "SMCFVG":
                     strat_instance = SMCFVG(strat_config)
-                elif strategy == "TestTriggerStrategy":
-                    strat_instance = TestTriggerStrategy(strat_config)
+
                 
                 if strat_instance:
                     strat_instance.add_indicators(df)

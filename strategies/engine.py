@@ -19,7 +19,6 @@ from strategies.rsi_bollinger_bands import RBIReversion
 from strategies.golden_cross import StrategyGoldenCross
 from strategies.rsi_reversal import StrategyRSIReversal
 from strategies.bollinger_breakout import StrategyBollingerBreakout
-from strategies.definitions import TestTriggerStrategy
 import json
 
 class StrategyEngine:
@@ -36,13 +35,11 @@ class StrategyEngine:
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
-            "triangle_breakout": TestTriggerStrategy(strats_config.get("triangle_breakout")), # Placeholder/ToDo
-            "head_shoulders": TestTriggerStrategy(strats_config.get("head_shoulders")), # Placeholder/ToDo
+            "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
             "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
             "triple_ema": TripleEMA(strats_config.get("triple_ema")),
             
             # RANGE strategies
-            "double_top_bottom": TestTriggerStrategy(strats_config.get("double_top_bottom")), # Placeholder/ToDo
             "rsi_reversal": StrategyRSIReversal(strats_config.get("rsi_reversal")),
             "bollinger_breakout": StrategyBollingerBreakout(strats_config.get("bollinger_breakout")),
             "rsi_bb": RBIReversion(strats_config.get("rsi_bb")),
@@ -50,7 +47,6 @@ class StrategyEngine:
             # SCALP/MOMENTUM
             "ema_bounce": EMABounce(strats_config.get("ema_bounce")),
             "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout")),
-            "test_trigger": TestTriggerStrategy(strats_config.get("test_trigger")),
 
             # MEAN REVERSION
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion"))
