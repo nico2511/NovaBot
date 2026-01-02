@@ -35,7 +35,8 @@ class StrategyEngine:
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
-            "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
+            # "triangle_breakout": None, # Placeholder/ToDo
+            # "head_shoulders": None, # Placeholder/ToDo
             "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
             "triple_ema": TripleEMA(strats_config.get("triple_ema")),
             

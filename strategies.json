@@ -159,7 +159,7 @@
             }
         },
         "double_top_bottom": {
-            "enabled": true,
+            "enabled": false,
             "type": "range",
             "params": {
                 "execution_type": "manual",
@@ -169,7 +169,7 @@
             }
         },
         "triangle_breakout": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
                 "execution_type": "manual",
@@ -179,7 +179,7 @@
             }
         },
         "head_shoulders": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
                 "execution_type": "manual",
