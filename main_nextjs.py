@@ -507,6 +507,10 @@ class BotContext:
             self.add_log("✅ STARTUP SYNC: Complete")
         
         while self.is_running:
+            # Initialize loop-scope variables to prevent UnboundLocalError
+            ai_approved = False
+            ai_reasoning = "Loop Start Default"
+            
             self.add_log("🔄 Entering loop iteration...")
             try:
                 self.add_log("📡 Fetching candles...")
