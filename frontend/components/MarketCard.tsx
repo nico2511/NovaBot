@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import axios from 'axios'
-import { TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 
 interface MarketCardProps {
     symbol?: string
@@ -14,6 +14,8 @@ interface MarketCardProps {
     atr?: number
     volume_24h?: number
     open_interest?: number
+    rvol?: number
+    trend_aligned?: boolean
     trends?: {
         [key: string]: {
             adx: number
@@ -62,6 +64,8 @@ export default function MarketCard({
     atr = 0,
     volume_24h = 0,
     open_interest = 0,
+    rvol = 0,
+    trend_aligned = false,
     trends = {
         "15m": { trend: "NEUTRAL", adx: 0 },
         "1h": { trend: "NEUTRAL", adx: 0 },
@@ -105,8 +109,8 @@ export default function MarketCard({
     return (
         <>
             <div className="bg-black/40 backdrop-blur border border-white/5 rounded-xl overflow-hidden shadow-2xl p-6 relative group">
-                {/* Background Glow */}
-                <div className={`absolute -top-20 -right-20 w-40 h-40 rounded-full blur-[80px] opacity-20 transition-colors duration-1000 ${regime === 'TREND' ? 'bg-green-500' : 'bg-blue-500'
+                {/* Background Glow based on Regime AND Alignment */}
+                <div className={`absolute -top-20 -right-20 w-40 h-40 rounded-full blur-[80px] opacity-20 transition-colors duration-1000 ${trend_aligned ? 'bg-purple-500' : regime === 'TREND' ? 'bg-green-500' : 'bg-blue-500'
                     }`}></div>
 
                 <div className="flex flex-col md:flex-row items-stretch justify-between gap-6 relative z-10">
@@ -117,12 +121,19 @@ export default function MarketCard({
                             <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400">
                                 {symbol}
                             </h2>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${regime === 'TREND'
-                                ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                                }`}>
-                                {regime}
-                            </span>
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${regime === 'TREND'
+                                    ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                    }`}>
+                                    {regime}
+                                </span>
+                                {trend_aligned && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                                        <Zap size={8} /> ALIGNED
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <div className="mt-4">
                             <div className="text-3xl font-mono font-bold text-white tracking-tighter">
@@ -167,10 +178,11 @@ export default function MarketCard({
                                     {formatNumber(volume_24h)}
                                 </div>
                             </div>
+                            {/* RVOL: Replaces Open Interest */}
                             <div className="bg-white/[0.02] p-2 rounded-lg border border-white/5">
-                                <div className="text-gray-500 mb-1">Open Int.</div>
-                                <div className="font-mono font-bold text-gray-300">
-                                    {formatNumber(open_interest)}
+                                <div className="text-gray-500 mb-1">RVol</div>
+                                <div className={`font-mono font-bold ${rvol > 1.5 ? 'text-yellow-400' : 'text-gray-300'}`}>
+                                    {rvol > 0 ? rvol.toFixed(1) + 'x' : '--'}
                                 </div>
                             </div>
                         </div>

@@ -53,6 +53,12 @@ class StrategyEngine:
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion"))
         }
 
+        # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
+        # This prevents mismatches between "ScalpEmaRsi" (Class) and "scalp_ema_rsi" (Config)
+        for key, strategy in self.strategies.items():
+            if strategy:
+                strategy.name = key
+
     def load_config(self):
         try:
             with open("strategies.json", "r") as f:

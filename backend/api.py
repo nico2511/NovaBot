@@ -462,6 +462,38 @@ async def get_market_data():
         if not active_strategies:
             active_strategies = []
             strategy_progress = {}
+        # Calculate V2 Metrics (RVol & Trend Alignment)
+        try:
+            # 1. Relative Volume (RVol)
+            if base_df is not None and len(base_df) >= 96:
+                # Approximation: Current 24h vol vs Previous 24h vol
+                vol_24h_current = base_df['volume'].iloc[-96:].sum()
+                
+                if len(base_df) >= 192:
+                    vol_24h_prev = base_df['volume'].iloc[-192:-96].sum()
+                else:
+                    vol_24h_prev = vol_24h_current # Fallback
+                
+                rvol = vol_24h_current / vol_24h_prev if vol_24h_prev > 0 else 1.0
+            else:
+                rvol = 1.0
+            
+            # 2. Trend Alignment (Strict V2 Definition)
+            # Requires EMA 9, 20, 50
+            if base_df is not None and not base_df.empty:
+                ema_9 = base_df['close'].ewm(span=9).mean().iloc[-1]
+                # ema_20 and ema_50 are already calculated above
+                
+                trend_aligned = (price > ema_9 > ema_20 > ema_50) or \
+                               (price < ema_9 < ema_20 < ema_50)
+            else:
+                trend_aligned = False
+                
+        except Exception as e:
+            print(f"Error calculating V2 metrics: {e}")
+            rvol = 1.0
+            trend_aligned = False
+
     except Exception as e:
         print(f"Error getting active strategies: {e}")
         active_strategies = []
@@ -480,6 +512,8 @@ async def get_market_data():
         "bb": bb,
         "volume_24h": volume_24h,
         "open_interest": open_interest,
+        "rvol": float(rvol),
+        "trend_aligned": bool(trend_aligned),
         "trends": trends,
         "active_strategies": active_strategies,
         "strategy_progress": strategy_progress,

@@ -1,12 +1,12 @@
 {
-  "total_trades": 100,
-  "winning_trades": 42,
-  "losing_trades": 58,
-  "win_rate": 42.0,
-  "total_pnl": 12.992861903804826,
-  "total_fees": 50.352337794568214,
-  "avg_win": 6.458627121544481,
-  "avg_loss": -4.452922020707992,
-  "final_balance": 987.8177587895517,
-  "roi_pct": -1.2182241210448297
+  "total_trades": 118,
+  "winning_trades": 49,
+  "losing_trades": 69,
+  "win_rate": 41.52542372881356,
+  "total_pnl": -40.565894867284804,
+  "total_fees": 56.82106257022206,
+  "avg_win": 5.438303233599638,
+  "avg_loss": -4.449894975560391,
+  "final_balance": 931.0201450640487,
+  "roi_pct": -6.897985493595127
 }

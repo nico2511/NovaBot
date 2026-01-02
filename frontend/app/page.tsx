@@ -193,6 +193,8 @@ export default function Home() {
                                                 atr={marketData?.atr}
                                                 volume_24h={marketData?.volume_24h}
                                                 open_interest={marketData?.open_interest}
+                                                rvol={marketData?.rvol}
+                                                trend_aligned={marketData?.trend_aligned}
                                                 trends={marketData?.trends}
                                             />
                                         </div>
