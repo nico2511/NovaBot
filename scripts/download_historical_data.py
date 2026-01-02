@@ -40,6 +40,28 @@ def download_historical_data(symbol: str = "BTC", interval: str = "15m", days: i
         print("❌ No data received")
         return False
     
+    # Reset index to make timestamp a column if it's in index
+    if 'timestamp' not in df.columns and df.index.name == 'timestamp':
+        df = df.reset_index()
+    
+    # Rename columns to standard format (t → timestamp, etc.)
+    column_mapping = {
+        't': 'timestamp',
+        'T': 'close_time',
+        's': 'symbol',
+        'i': 'interval'
+    }
+    df = df.rename(columns=column_mapping)
+    
+    # Ensure timestamp is datetime
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    
+    # Select only required columns for backtest
+    required_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    available_cols = [col for col in required_cols if col in df.columns]
+    df = df[available_cols]
+    
     # Sauvegarder
     output_dir = "data/historical"
     os.makedirs(output_dir, exist_ok=True)
