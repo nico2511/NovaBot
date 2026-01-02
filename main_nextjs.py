@@ -871,12 +871,12 @@ class BotContext:
                             market_regime = result.get("regime", "UNKNOWN")
                             
                             # 1. RSI Guardrails
-                            if action == "SELL" and current_rsi is not None and current_rsi < 25:
+                            if action == "SELL" and current_rsi is not None and current_rsi < RSI_HARD_SELL_THRESHOLD:
                                 self.add_log(f"⛔ HARD RULE BLOCK: Cannot SELL when RSI < {RSI_HARD_SELL_THRESHOLD} (RSI={current_rsi:.2f})")
                                 continue
                             
-                            if action == "BUY" and current_rsi is not None and current_rsi > {RSI_HARD_BUY_THRESHOLD}:
-                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot BUY when RSI > {RSI_HARD_BUY_THRESHOLD} (RSI={current_rsi:.2f})")
+                            if action == "BUY" and current_rsi is not None and current_rsi > RSI_HARD_BUY_THRESHOLD:
+                                self.add_log(f"⛔ HARD Rule BLOCK: Cannot BUY when RSI > {RSI_HARD_BUY_THRESHOLD} (RSI={current_rsi:.2f})")
                                 continue
                                 
                             # 2. Crash Protection (Waterfall)
