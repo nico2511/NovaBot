@@ -25,7 +25,7 @@
         },
         "elastic_reversion": {
             "enabled": true,
-            "type": "reversion",
+            "type": "range",
             "params": {
                 "rsi_period": 14,
                 "ema_period": 20,
