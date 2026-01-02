@@ -863,6 +863,11 @@ class BotContext:
                             sl = sig_data.get("sl", entry_price * 0.95)
                             tp = sig_data.get("tp", entry_price * 1.05)
                             
+                            # Initialize variables to prevent UnboundLocalError
+                            ai_approved = False
+                            ai_reasoning = "Initialization default"
+                            risk_factors = []
+                            
 
                             # === HARD RULES (VALIDATION HYBRIDE PHASE A) ===
                             # Validation stricte AVANT appel IA pour économiser du temps et des tokens
