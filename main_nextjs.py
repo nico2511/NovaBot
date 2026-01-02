@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.config import config
 from app.core.risk_manager import RiskManager
+from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
@@ -34,6 +35,7 @@ class BotContext:
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
         )
+        self.max_positions = 1 # GLOBAL QUOTA - Hardcoded for Focus Mode
         self.strategy_engine = StrategyEngine(self.risk_manager)
         self.is_running = False
         self.trading_enabled = False
@@ -232,6 +234,166 @@ class BotContext:
         }
     
     
+    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown"):
+        """
+        ATOMIC ENTRY FLOW
+        1. Check Quota
+        2. Clean Old Orders
+        3. Execute (Bulk/Atomic)
+        4. Verify Fill
+        5. Sync State
+        """
+        try:
+            # 1. FINAL QUOTA CHECK
+            real_positions = hyperliquid_service.get_positions()
+            active_count = len([p for p in real_positions if float(p["size"]) > 0])
+            
+            if active_count >= self.max_positions:
+                self.add_log(f"⛔ QUOTA EXCEEDED ({active_count}/{self.max_positions}). Entry aborted.")
+                return False
+
+            self.add_log(f"🔒 ATOMIC ENTRY START: {side} {symbol} ({size}) via {strategy}")
+
+            # 2. SANITIZE (Cancel any old pending orders for this symbol)
+            self.add_log(f"🧹 Cleaning pre-trade orphans on {symbol}...")
+            hyperliquid_service.cancel_all_orders(symbol)
+
+            # 3. EXECUTE (Atomic Bulk)
+            is_buy = (side == "BUY")
+            result = hyperliquid_service.execute_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                quantity=size,
+                price=price, # If None, will likely be treated as Market/Aggressive Limit inside execute_order
+                sl_price=sl,
+                tp_price=tp
+            )
+            
+            if result.get("status") != "success":
+                self.add_log(f"❌ Entry Failed: {result.get('message')}")
+                return False
+                
+            # 4. VERIFY (Loop 5s)
+            self.add_log("⏳ Verifying Fill...")
+            filled = False
+            for i in range(5):
+                time.sleep(1)
+                positions = hyperliquid_service.get_positions()
+                pos = next((p for p in positions if p["symbol"] == symbol and float(p['size']) > 0), None)
+                if pos:
+                    filled = True
+                    self.add_log(f"✅ ENTRY CONFIRMED: {symbol} Size: {pos['size']} Entry: {pos['entry_price']}")
+                    
+                    # 5. SYNC STATE
+                    self.active_trade = {
+                        "symbol": symbol,
+                        "side": side,
+                        "entry": float(pos['entry_price']),
+                        "sl": sl,
+                        "tp": tp,
+                        "strategy": strategy,
+                        "timestamp": pd.Timestamp.now().isoformat(),
+                        "size": float(pos['size']),
+                        "leverage": float(pos.get("leverage", 1.0))
+                    }
+                    self.risk_manager.record_trade_open()
+                    StateManager.save_state(self)
+                    
+                    # Discord Alert
+                    discord_service.send_alert(
+                        f"🚀 ENTERED {side} {symbol}",
+                        f"Strategy: {strategy}\nEntry: {pos['entry_price']}\nSize: {pos['size']}\nSL: {sl}\nTP: {tp}",
+                        color="00FF00" if side == "BUY" else "FF0000"
+                    )
+                    break
+            
+            if not filled:
+                self.add_log("⚠️ Order sent but position NOT confirmed after 5s.")
+                return False
+                
+            return True
+
+        except Exception as e:
+            self.add_log(f"❌ ATOMIC ENTRY ERROR: {e}")
+            return False
+
+    def execute_exit_atomically(self, symbol: str, reason: str = "SIGNAL"):
+        """
+        ATOMIC EXIT FLOW (THE KILL SWITCH)
+        1. Market Close (ReduceOnly)
+        2. Verify Size == 0
+        3. Clean Orphans
+        4. Release State
+        """
+        self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
+        
+        try:
+            # 1. KILL SWITCH (Market Close)
+            # hyperliquid_service.close_position handles retries and verification internally
+            # It returns success only if position is closed or dust remains
+            result = hyperliquid_service.close_position(symbol)
+            
+            if result.get("status") == "success":
+                # 2. VERIFY (Double Check)
+                final_positions = hyperliquid_service.get_positions()
+                remaining = next((p for p in final_positions if p["symbol"] == symbol), None)
+                
+                if not remaining or float(remaining["size"]) == 0:
+                     self.add_log(f"✅ POSITION CLOSED: {symbol}")
+                     
+                     # 3. CLEANUP ORPHANS (Crucial)
+                     self.add_log(f"🧹 Cleaning post-trade orphans on {symbol}...")
+                     hyperliquid_service.cancel_all_orders(symbol)
+                     
+                     # 4. RELEASE STATE
+                     # PnL Calculation for logs/discord (Approximate based on known entry)
+                     pnl_usdc = 0
+                     if self.active_trade:
+                         entry = self.active_trade.get("entry", 0)
+                         active_side = self.active_trade.get("side", "BUY")
+                         # Close price from result?? hyperliquid_service.close_position doesn't return price
+                         # Get approximate market price
+                         exit_px = hyperliquid_service.get_current_price(symbol)
+                         size = self.active_trade.get("size", 0)
+                         
+                         if active_side == "BUY":
+                             pnl_usdc = (exit_px - entry) * size
+                         else:
+                             pnl_usdc = (entry - exit_px) * size
+                             
+                         self.trade_recorder.add_trade({
+                             "symbol": symbol,
+                             "strategy": self.active_trade.get("strategy", "Unknown"),
+                             "side": active_side,
+                             "entry_price": entry,
+                             "exit_price": exit_px,
+                             "size": size,
+                             "pnl_usdc": pnl_usdc,
+                             "exit_reason": reason,
+                             "exit_time": pd.Timestamp.now().isoformat()
+                         })
+                         
+                         discord_service.send_alert(
+                             f"🏁 TRADE CLOSED: {symbol}",
+                             f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
+                             color="FFFF00"
+                         )
+                         self.risk_manager.record_trade_close(pnl_usdc)
+
+                     self.active_trade = None
+                     StateManager.save_state(self)
+                     return True
+                else:
+                    self.add_log(f"⚠️ Close appeared successful but position remains: {remaining['size']}")
+                    return False
+            else:
+                self.add_log(f"❌ Exit Failed: {result.get('message')}")
+                return False
+
+        except Exception as e:
+            self.add_log(f"❌ ATOMIC EXIT ERROR: {e}")
+            return False
+
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
@@ -618,148 +780,205 @@ class BotContext:
                     pass # Don't spam logs with gamification errors
                     
                 
-                # Only analyze on new 1m candle
-                if self.last_candle_time != current_candle_time:
-                    self.last_candle_time = current_candle_time
-                    
-                    self.add_log(f"🔍 Analyzing new 1m candle at {current_candle_time}")
-                    # Analyze strategies with MTF data
-                    result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
-                    self.latest_strategy_result = result
-                    
-                    # Update active strategies list for UI
-                    self.active_strategies = result.get('strategies', [])
-                    if self.active_strategies:
-                         self.active_strategy_name = self.active_strategies[0] # Primary
-                    
-                    self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
-                    
-                    # AI: Analyse périodique du marché (toutes les 15 minutes)
-                    try:
-                        from app.services.gemini_service import gemini_service
-                        from datetime import datetime, timedelta
+                
+                # ============================================
+                # FOCUS MODE vs SCANNING MODE
+                # ============================================
+                real_positions = hyperliquid_service.get_positions()
+                active_count = len([p for p in real_positions if float(p["size"]) > 0])
+                
+                is_focus_mode = (active_count >= self.max_positions)
+                
+                if is_focus_mode:
+                    if self.missing_pos_counter == 0: # Only log nominally
+                         # Use modulo to reduce log spam if needed, or just suppress
+                         pass
+                    # self.add_log(f"🔒 FOCUS MODE ACTIVE ({active_count}/{self.max_positions} pos). Scanning paused.")
+                else:
+                    # Only analyze on new 1m candle
+                    if self.last_candle_time != current_candle_time:
+                        self.last_candle_time = current_candle_time
                         
-                        now = datetime.now()
-                        last_analysis_time = self.ai_cache.get("last_market_analysis_time")
+                        self.add_log(f"🔍 Analyzing new 1m candle at {current_candle_time}")
+                        # Analyze strategies with MTF data
+                        result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
+                        self.latest_strategy_result = result
                         
-                        # Analyser toutes les 15 minutes
-                        if not last_analysis_time or (now - last_analysis_time) > timedelta(minutes=15):
-                            # Préparer le snapshot actuel
-                            current_snapshot = {
-                                "symbol": self.active_symbol,
-                                "price": float(df_15m['close'].iloc[-1]),
-                                "regime": result.get('regime', 'UNKNOWN'),
-                                "timestamp": now.isoformat()
-                            }
-                            
-                            # Récupérer le snapshot précédent
-                            previous_snapshot = self.ai_cache["market_snapshots"][-1] if self.ai_cache["market_snapshots"] else None
-                            
-                            # Analyser l'évolution
-                            evolution_analysis = gemini_service.analyze_market_evolution(current_snapshot, previous_snapshot)
-                            
-                            self.ai_cache["last_market_analysis"] = evolution_analysis
-                            self.ai_cache["last_market_analysis_time"] = now
-                            self.ai_cache["market_snapshots"].append(current_snapshot)
-                            
-                            # Logger les changements importants
-                            if evolution_analysis.get("raw_output"):
-                                try:
-                                    import json
-                                    analysis_data = json.loads(evolution_analysis["raw_output"])
-                                    if analysis_data.get("alert_level") in ["HIGH", "CRITICAL"]:
-                                        self.add_log(f"🤖 IA: {analysis_data.get('summary', 'Changement détecté')}")
-                                except:
-                                    pass
-                    except Exception as e:
-                        print(f"Error in AI market analysis: {e}")
-                    
-                    # CRITICAL: Check if this is a NEW candle before analyzing
-                    last_candle_time = df_1m.index[-1]
-                    if last_candle_time == self.last_analyzed_candle:
-                        self.add_log(f"⏸️ Same candle {last_candle_time}, waiting for next 1m candle...")
-                        time.sleep(30)  # Wait for next candle
-                        continue
-                    
-                    # NEW CANDLE - Run analysis
-                    self.add_log(f"🔍 Analyzing new 1m candle at {last_candle_time}")
-                    self.last_analyzed_candle = last_candle_time
-                    
-                    # Process signals (Only if NO active trade)
-                    if result.get("signals") and not self.active_trade:
-                        sig_data = result["signals"][0]
-                        strat_name = sig_data.get("strategy", "Unknown")
-                        action = sig_data.get("signal")
-                        entry_price = sig_data.get("price")
-                        sl = sig_data.get("sl", entry_price * 0.95)
-                        tp = sig_data.get("tp", entry_price * 1.05)
+                        # Update active strategies list for UI
+                        self.active_strategies = result.get('strategies', [])
+                        if self.active_strategies:
+                             self.active_strategy_name = self.active_strategies[0] # Primary
                         
-                        # AI: Validate signal before execution
-                        ai_approved = False
-                        ai_reasoning = "No AI validation performed"
+                        self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
                         
-                     # Convert to DataFrame
+                        # AI: Analyse périodique du marché (toutes les 15 minutes)
                         try:
                             from app.services.gemini_service import gemini_service
-                            import json
+                            from datetime import datetime, timedelta
                             
-                            self.add_log("🤖 Validating signal with AI...")
+                            now = datetime.now()
+                            last_analysis_time = self.ai_cache.get("last_market_analysis_time")
                             
-                            # Prepare market context for validation
-                            market_context = self._prepare_ai_context()
-                            
-                            # Prepare signal data
-                            signal_for_validation = {
-                                "symbol": self.active_symbol,
-                                "signal": action,
-                                "strategy": strat_name,
-                                "price": entry_price,
-                                "sl": sl,
-                                "tp": tp
-                            }
-                            
-                            # Call AI validation
-                            validation_result = gemini_service.validate_signal(
-                                signal_data=signal_for_validation,
-                                market_context=market_context
-                            )
-                            
-                            # Parse AI response
-                            # Parse AI response
-                            if validation_result.get("raw_output"):
-                                try:
-                                    ai_data = json.loads(gemini_service.extract_json(validation_result["raw_output"]))
-                                    ai_approved = ai_data.get("approved", False)
-                                    ai_confidence = ai_data.get("confidence", 0)
-                                    ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
-                                    risk_factors = ai_data.get("risk_factors", [])
-                                    
-                                    # Check for suggested adjustments
-                                    adjustments = ai_data.get("suggested_adjustments", {})
-                                    if adjustments.get("sl"):
-                                        sl = adjustments["sl"]
-                                        self.add_log(f"   AI adjusted SL to: {sl:.2f}")
-                                    if adjustments.get("tp"):
-                                        tp = adjustments["tp"]
-                                        self.add_log(f"   AI adjusted TP to: {tp:.2f}")
-                                    
-                                    if ai_approved:
-                                        self.add_log(f"✅ AI APPROVED (Confidence: {ai_confidence}%): {ai_reasoning}")
-                                    else:
-                                        self.add_log(f"❌ AI REJECTED (Confidence: {ai_confidence}%): {ai_reasoning}")
-                                        if risk_factors:
-                                            self.add_log(f"   Risk Factors: {', '.join(risk_factors)}")
-                                except json.JSONDecodeError as e:
-                                    self.add_log(f"⚠️ AI JSON Parse Error: {e}")
-                                    ai_approved = True # Fallback allowed if AI is incoherent
-                            else:
-                                # AI failed, use conservative approach
-                                self.add_log("⚠️ AI validation failed, proceeding with caution")
-                                ai_approved = True  # Allow trade but log the failure
+                            # Analyser toutes les 15 minutes
+                            if not last_analysis_time or (now - last_analysis_time) > timedelta(minutes=AI_MARKET_ANALYSIS_INTERVAL_MIN):
+                                # Préparer le snapshot actuel
+                                current_snapshot = {
+                                    "symbol": self.active_symbol,
+                                    "price": float(df_15m['close'].iloc[-1]),
+                                    "regime": result.get('regime', 'UNKNOWN'),
+                                    "timestamp": now.isoformat()
+                                }
                                 
+                                # Récupérer le snapshot précédent
+                                previous_snapshot = self.ai_cache["market_snapshots"][-1] if self.ai_cache["market_snapshots"] else None
+                                
+                                # Analyser l'évolution
+                                evolution_analysis = gemini_service.analyze_market_evolution(current_snapshot, previous_snapshot)
+                                
+                                self.ai_cache["last_market_analysis"] = evolution_analysis
+                                self.ai_cache["last_market_analysis_time"] = now
+                                self.ai_cache["market_snapshots"].append(current_snapshot)
+                                
+                                # Logger les changements importants
+                                if evolution_analysis.get("raw_output"):
+                                    try:
+                                        import json
+                                        analysis_data = json.loads(evolution_analysis["raw_output"])
+                                        if analysis_data.get("alert_level") in ["HIGH", "CRITICAL"]:
+                                            self.add_log(f"🤖 IA: {analysis_data.get('summary', 'Changement détecté')}")
+                                    except:
+                                        pass
                         except Exception as e:
-                            self.add_log(f"⚠️ AI validation error: {e}, proceeding with trade")
-                            ai_approved = True  # Fallback to allowing trade
+                            print(f"Error in AI market analysis: {e}")
+                        
+                        # CRITICAL: Check if this is a NEW candle before analyzing
+                        # Already checked above `if self.last_candle_time != current_candle_time`
+                        
+                        # Process signals (Only if NO active trade)
+                        if result.get("signals") and not self.active_trade:
+                            sig_data = result["signals"][0]
+                            strat_name = sig_data.get("strategy", "Unknown")
+                            action = sig_data.get("signal")
+                            entry_price = sig_data.get("price")
+                            sl = sig_data.get("sl", entry_price * 0.95)
+                            tp = sig_data.get("tp", entry_price * 1.05)
+                            
+
+                            # === HARD RULES (VALIDATION HYBRIDE PHASE A) ===
+                            # Validation stricte AVANT appel IA pour économiser du temps et des tokens
+                            
+                            current_rsi = result.get("rsi")
+                            market_regime = result.get("regime", "UNKNOWN")
+                            
+                            # 1. RSI Guardrails
+                            if action == "SELL" and current_rsi is not None and current_rsi < 25:
+                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot SELL when RSI < {RSI_HARD_SELL_THRESHOLD} (RSI={current_rsi:.2f})")
+                                continue
+                            
+                            if action == "BUY" and current_rsi is not None and current_rsi > {RSI_HARD_BUY_THRESHOLD}:
+                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot BUY when RSI > {RSI_HARD_BUY_THRESHOLD} (RSI={current_rsi:.2f})")
+                                continue
+                                
+                            # 2. Crash Protection (Waterfall)
+                            if action == "BUY" and market_regime == "TREND_BEAR_STRONG":
+                                self.add_log(f"⛔ HARD RULE BLOCK: Buying disabled in TREND_BEAR_STRONG regime.")
+                                continue
+
+                            # AI: Validate signal before execution
+                            ai_approved = False
+                            ai_reasoning = "No AI validation performed"
+
+                            
+                            # Convert to DataFrame
+                            try:
+                                from app.services.gemini_service import gemini_service
+                                import json
+                                
+                                self.add_log("🤖 Validating signal with AI...")
+                                
+                                # Prepare market context for validation
+                                market_context = self._prepare_ai_context()
+                                
+                                # Prepare signal data
+                                signal_for_validation = {
+                                    "symbol": self.active_symbol,
+                                    "signal": action,
+                                    "strategy": strat_name,
+                                    "price": entry_price,
+                                    "sl": sl,
+                                    "tp": tp
+                                }
+                                
+                                # Call AI validation
+                                validation_result = gemini_service.validate_signal(
+                                    signal_data=signal_for_validation,
+                                    market_context=market_context
+                                )
+                                
+                                # Parse AI response
+                                risk_factors = []
+                                if validation_result.get("raw_output"):
+                                    try:
+                                        ai_data = json.loads(gemini_service.extract_json(validation_result["raw_output"]))
+                                        ai_approved = ai_data.get("approved", False)
+                                        ai_confidence = ai_data.get("confidence", 0)
+                                        ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
+                                        risk_factors = ai_data.get("risk_factors", [])
+                                        
+                                        # Check for suggested adjustments
+                                        adjustments = ai_data.get("suggested_adjustments", {})
+                                        if adjustments.get("sl"):
+                                            sl = adjustments["sl"]
+                                            self.add_log(f"   AI adjusted SL to: {sl:.2f}")
+                                        if adjustments.get("tp"):
+                                            tp = adjustments["tp"]
+                                            self.add_log(f"   AI adjusted TP to: {tp:.2f}")
+                                        
+                                        if ai_approved:
+                                            self.add_log(f"✅ AI APPROVED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                        else:
+                                            self.add_log(f"❌ AI REJECTED (Confidence: {ai_confidence}%): {ai_reasoning}")
+                                            if risk_factors:
+                                                self.add_log(f"   Risks: {', '.join(risk_factors[:2])}")
+                                    except Exception as e:
+                                        print(f"Error parsing AI validation: {e}")
+                                        ai_approved = True # Fallback if AI fails parsing but returned result? No, safefail to False usually better.
+                                        # But let's assume if parsing fails we trust Strategy.
+                                        
+                                else:
+                                    ai_approved = True
+                                    
+                            except Exception as e:
+                                self.add_log(f"⚠️ AI Validation error: {e}")
+                                ai_approved = True # Fail open or closed? Fail open for now.
+                            
+                            if self.execution_mode == "Auto (Hyperliquid)" and ai_approved:
+                                # EXECUTE ATOMICALLY
+                                size = self.risk_manager.calculate_position_size(entry_price, sl, current_equity)
+                                if size > 0:
+                                    self.execute_entry_atomically(
+                                        symbol=self.active_symbol,
+                                        side=action,
+                                        size=size,
+                                        price=None, # Market/Aggressive
+                                        sl=sl,
+                                        tp=tp,
+                                        strategy=strat_name
+                                    )
+                                else:
+                                    self.add_log("⚠️ Size calculation returned 0")
+
+                            elif self.execution_mode == "Manual (Phantom)":
+                                self.add_log(f"👻 Phantom Signal: {action} on {self.active_symbol} @ {entry_price} (AI: {ai_approved})")
+                                self.add_log(f"   Risk Factors: {', '.join(risk_factors)}")
+
+                            # CRITICAL: Prevent double execution if trade was just opened
+                            if self.active_trade:
+                                self.add_log("🛑 Strategy Cycle Complete (Trade Opened). Skipping redundant Phase B.")
+                                continue
+
+
+
                         
                         # Only execute if AI approved OR if user wants manual approval
                         if not ai_approved:
@@ -796,25 +1015,9 @@ class BotContext:
                                 "price": entry_price
                             }
                             
-                            # === HARD RULES (VALIDATION HYBRIDE PHASE A) ===
-                            # Validation stricte AVANT appel IA pour économiser du temps et des tokens
                             
-                            current_rsi = result.get("rsi")
-                            market_regime = result.get("regime", "UNKNOWN")
-                            
-                            # 1. RSI Guardrails
-                            if action == "SELL" and current_rsi is not None and current_rsi < 25:
-                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot SELL when RSI < 25 (RSI={current_rsi:.2f})")
-                                continue
-                            
-                            if action == "BUY" and current_rsi is not None and current_rsi > 75:
-                                self.add_log(f"⛔ HARD RULE BLOCK: Cannot BUY when RSI > 75 (RSI={current_rsi:.2f})")
-                                continue
-                                
-                            # 2. Crash Protection (Waterfall)
-                            if action == "BUY" and market_regime == "TREND_BEAR_STRONG":
-                                self.add_log(f"⛔ HARD RULE BLOCK: Buying disabled in TREND_BEAR_STRONG regime.")
-                                continue
+                            # CRITICAL: Déduplication - créer hash unique du signal
+
 
                             # 3. Regime Compatibility (Optional, but safe)
                             # if action == "BUY" and "BEAR" in market_regime: ... (Let AI decide on weak bear)
@@ -865,8 +1068,8 @@ class BotContext:
                                             self.add_log(f"⛔ TRADE BLOCKED BY AI: {ai_data.get('reasoning', 'Reason unavailable')}")
                                             continue  # SKIP EXECUTION
                                             
-                                        if confidence < 75:
-                                            self.add_log(f"⛔ TRADE BLOCKED BY AI: Confidence too low ({confidence}% < 75%)")
+                                        if confidence < AI_CONFIDENCE_THRESHOLD:
+                                            self.add_log(f"⛔ TRADE BLOCKED BY AI: Confidence too low ({confidence}% < {AI_CONFIDENCE_THRESHOLD}%)")
                                             continue # SKIP EXECUTION
                                             
                                     except Exception as e:
@@ -1091,13 +1294,13 @@ class BotContext:
                             else:
                                 # LOG THE REASON FOR REJECTION
                                 self.add_log(f"⚠️ Trade rejected by Risk Manager: {reason}")
-                else:
-                    # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
-                    if not hasattr(self, '_skip_counter'):
-                        self._skip_counter = 0
-                    self._skip_counter += 1
-                    if self._skip_counter % 12 == 0:
-                        self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 1m candle...")
+                    else:
+                        # Log why we're skipping (only every 12th iteration to avoid spam = once per minute)
+                        if not hasattr(self, '_skip_counter'):
+                            self._skip_counter = 0
+                        self._skip_counter += 1
+                        if self._skip_counter % 12 == 0:
+                            self.add_log(f"⏸️ Same candle {current_candle_time}, waiting for next 1m candle...")
                 
                 # --- Position Sync moved to start of loop ---
 
@@ -1160,7 +1363,7 @@ class BotContext:
                         last_pos_analysis_time = self.ai_cache.get("last_position_analysis_time")
                         
                         # Analyser toutes les 5 minutes
-                        if not last_pos_analysis_time or (now - last_pos_analysis_time) > timedelta(minutes=5):
+                        if not last_pos_analysis_time or (now - last_pos_analysis_time) > timedelta(minutes=AI_POSITION_ANALYSIS_INTERVAL_MIN):
                             market_context = {
                                 "price": float(current_price),
                                 "symbol": self.active_symbol
@@ -1220,198 +1423,30 @@ class BotContext:
                         except: pass
 
                     # Check SL/TP (Updated with new SL)
+                    # Check SL/TP (Updated with new SL)
                     if side == "BUY":
                         if current_price <= self.active_trade["sl"]:
                             self.add_log(f"🛑 SL HIT @ {current_price}")
+                            self.execute_exit_atomically(self.active_symbol, reason="STOP_LOSS")
                             
-                            # Execute Close
-                            if self.execution_mode == "Auto (Hyperliquid)":
-                                try:
-                                    self.add_log(f"📉 CLOSING LONG {self.active_trade['symbol']} (SL)")
-                                    hyperliquid_service.execute_order(
-                                        self.active_trade['symbol'], 
-                                        False, # SELL
-                                        self.active_trade['size']
-                                    )
-                                except Exception as e:
-                                    self.add_log(f"❌ Failed to execution SL close: {e}")
-
-                            try:
-                                # CORRECT PNL CALCULATION
-                                size = self.active_trade.get("size", 0)
-                                leverage = self.active_trade.get("leverage", 1)
-                                pnl_per_coin = current_price - entry_price  # Long PnL
-                                pnl_usdc = pnl_per_coin * size * leverage
-                                
-                                discord_service.send_alert(
-                                    "🛑 STOP LOSS HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
-                                    color="ff0000" if pnl_usdc < 0 else "ffff00"
-                                )
-                                # Record Trade
-                                self.trade_recorder.add_trade({
-                                    "symbol": self.active_symbol,
-                                    "strategy": self.active_trade.get("strategy", "Unknown"),
-                                    "side": "BUY",
-                                    "entry_price": entry_price,
-                                    "exit_price": current_price,
-                                    "size": size,
-                                    "leverage": leverage,
-                                    "pnl_usdc": pnl_usdc,
-                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                                    "entry_time": self.active_trade.get("timestamp"),
-                                    "exit_time": pd.Timestamp.now().isoformat(),
-                                    "exit_reason": "SL"
-                                })
-                            except Exception as e:
-                                print(f"Error recording trade: {e}")
-                            
-                            self.active_trade = None
                         elif current_price >= self.active_trade["tp"]:
                             self.add_log(f"✅ TP HIT @ {current_price}")
-                            
-                            # Execute Close
-                            if self.execution_mode == "Auto (Hyperliquid)":
-                                try:
-                                    self.add_log(f"📈 CLOSING LONG {self.active_trade['symbol']} (TP)")
-                                    hyperliquid_service.execute_order(
-                                        self.active_trade['symbol'], 
-                                        False, # SELL
-                                        self.active_trade['size']
-                                    )
-                                except Exception as e:
-                                    self.add_log(f"❌ Failed to execute TP close: {e}")
+                            self.execute_exit_atomically(self.active_symbol, reason="TAKE_PROFIT")
 
-                            try:
-                                # CORRECT PNL CALCULATION
-                                size = self.active_trade.get("size", 0)
-                                leverage = self.active_trade.get("leverage", 1)
-                                pnl_per_coin = current_price - entry_price  # Long PnL
-                                pnl_usdc = pnl_per_coin * size * leverage
-                                
-                                discord_service.send_alert(
-                                    "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
-                                    color="00ff00"
-                                )
-                                # Record Trade
-                                self.trade_recorder.add_trade({
-                                    "symbol": self.active_symbol,
-                                    "strategy": self.active_trade.get("strategy", "Unknown"),
-                                    "side": "BUY",
-                                    "entry_price": entry_price,
-                                    "exit_price": current_price,
-                                    "size": size,
-                                    "leverage": leverage,
-                                    "pnl_usdc": pnl_usdc,
-                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                                    "entry_time": self.active_trade.get("timestamp"),
-                                    "exit_time": pd.Timestamp.now().isoformat(),
-                                    "exit_reason": "TP"
-                                })
-                            except Exception as e:
-                                print(f"Error recording trade: {e}")
-                            
-                            self.active_trade = None
-                    else:  # SELL
+                    else: # SELL
                         if current_price >= self.active_trade["sl"]:
                             self.add_log(f"🛑 SL HIT @ {current_price}")
+                            self.execute_exit_atomically(self.active_symbol, reason="STOP_LOSS")
                             
-                            # Execute Close
-                            if self.execution_mode == "Auto (Hyperliquid)":
-                                try:
-                                    self.add_log(f"📈 CLOSING SHORT {self.active_trade['symbol']} (SL)")
-                                    hyperliquid_service.execute_order(
-                                        self.active_trade['symbol'], 
-                                        True, # BUY
-                                        self.active_trade['size']
-                                    )
-                                except Exception as e:
-                                    self.add_log(f"❌ Failed to execute SL close: {e}")
-
-                            try:
-                                # CORRECT PNL CALCULATION
-                                size = self.active_trade.get("size", 0)
-                                leverage = self.active_trade.get("leverage", 1)
-                                pnl_per_coin = entry_price - current_price  # Short PnL
-                                pnl_usdc = pnl_per_coin * size * leverage
-                                
-                                discord_service.send_alert(
-                                    "🛑 STOP LOSS HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
-                                    color="ff0000" if pnl_usdc < 0 else "ffff00"
-                                )
-                                # Record Trade
-                                self.trade_recorder.add_trade({
-                                    "symbol": self.active_symbol,
-                                    "strategy": self.active_trade.get("strategy", "Unknown"),
-                                    "side": "SELL",
-                                    "entry_price": entry_price,
-                                    "exit_price": current_price,
-                                    "size": size,
-                                    "leverage": leverage,
-                                    "pnl_usdc": pnl_usdc,
-                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                                    "entry_time": self.active_trade.get("timestamp"),
-                                    "exit_time": pd.Timestamp.now().isoformat(),
-                                    "exit_reason": "SL"
-                                })
-                            except Exception as e:
-                                print(f"Error recording trade: {e}")
-                                
-                            self.active_trade = None
                         elif current_price <= self.active_trade["tp"]:
                             self.add_log(f"✅ TP HIT @ {current_price}")
-                            
-                            # Execute Close
-                            if self.execution_mode == "Auto (Hyperliquid)":
-                                try:
-                                    self.add_log(f"📉 CLOSING SHORT {self.active_trade['symbol']} (TP)")
-                                    hyperliquid_service.execute_order(
-                                        self.active_trade['symbol'], 
-                                        True, # BUY
-                                        self.active_trade['size']
-                                    )
-                                except Exception as e:
-                                    self.add_log(f"❌ Failed to execute TP close: {e}")
-
-                            try:
-                                # CORRECT PNL CALCULATION
-                                size = self.active_trade.get("size", 0)
-                                leverage = self.active_trade.get("leverage", 1)
-                                pnl_per_coin = entry_price - current_price  # Short PnL
-                                pnl_usdc = pnl_per_coin * size * leverage
-                                
-                                discord_service.send_alert(
-                                    "✅ TAKE PROFIT HIT",
-                                    f"Symbol: {self.active_symbol}\nPrice: {current_price}\nPnL: ${pnl_usdc:.2f} USDC",
-                                    color="00ff00"
-                                )
-                                # Record Trade
-                                self.trade_recorder.add_trade({
-                                    "symbol": self.active_symbol,
-                                    "strategy": self.active_trade.get("strategy", "Unknown"),
-                                    "side": "SELL",
-                                    "entry_price": entry_price,
-                                    "exit_price": current_price,
-                                    "size": size,
-                                    "leverage": leverage,
-                                    "pnl_usdc": pnl_usdc,
-                                    "pnl_percent": (pnl_per_coin / entry_price) * 100,
-                                    "entry_time": self.active_trade.get("timestamp"),
-                                    "exit_time": pd.Timestamp.now().isoformat(),
-                                    "exit_reason": "TP"
-                                })
-                            except Exception as e:
-                                print(f"Error recording trade: {e}")
-                                
-                            self.active_trade = None
+                            self.execute_exit_atomically(self.active_symbol, reason="TAKE_PROFIT")
                 
-                time.sleep(30)  # Wait 30 seconds before next iteration (reduced API load)
+                time.sleep(TRADING_LOOP_INTERVAL)  # Wait 30 seconds before next iteration (reduced API load)
                 
             except Exception as e:
                 self.add_log(f"❌ Error in trading loop: {e}")
-                time.sleep(10)
+                time.sleep(ERROR_SLEEP_INTERVAL)
         
         self.add_log("⏸️ Trading loop stopped")
     
@@ -1454,73 +1489,144 @@ class BotContext:
             
         try:
             symbol = self.active_trade["symbol"]
-            side = self.active_trade["side"]
-            entry_price = self.active_trade["entry"]
-            size = self.active_trade.get("size", 0)
+            self.add_log(f"📉 MANUAL CLOSE REQUESTED for {symbol} ({reason})")
             
-            # Execute Market Close
-            if self.execution_mode == "Auto (Hyperliquid)":
-                try:
-                    is_buy = side == "BUY"
-                    # To close BUY, we SELL. To close SELL, we BUY.
-                    # hyperliquid_service.execute_order takes is_buy boolean
-                    # So if we are closing a BUY, is_buy for close order is False.
-                    self.add_log(f"📉 CLOSING {side} {symbol} ({reason})")
-                    hyperliquid_service.execute_order(
-                        symbol, 
-                        not is_buy, # Reverse side
-                        size
-                    )
-                except Exception as e:
-                    self.add_log(f"❌ Failed to execute close order: {e}")
-                    # Force close locally anyway logic could go here if critical
+            # Use Atomic Exit Flow
+            success = self.execute_exit_atomically(symbol, reason=reason)
             
-            # Record Close locally
-            current_price = 0
-            try:
-                # Try to get live price, fallback to entry if needed (shouldn't happen in loop)
-                # But here we are outside loop context maybe? 
-                # Ideally we fetch latest price.
-                current_price = hyperliquid_service.get_current_price(symbol)
-            except:
-                current_price = entry_price # Fallback
-                
-            pnl = current_price - entry_price if side == "BUY" else entry_price - current_price
-            
-            self.add_log(f"✅ Trade Closed ({reason}). PnL: {pnl:.2f}")
-            
-            # Discord Alert
-            try:
-                discord_service.send_alert(
-                    f"🛑 TRADE CLOSED ({reason})",
-                    f"Symbol: {symbol}\nExit Price: {current_price}\nPnL: {pnl:.2f}",
-                    color="ff0000" if pnl < 0 else "00ff00"
-                )
-            except: pass
-            
-            # Record outcome
-            self.trade_recorder.add_trade({
-                "symbol": symbol,
-                "strategy": self.active_trade.get("strategy", "Unknown"),
-                "side": side,
-                "entry_price": entry_price,
-                "exit_price": current_price,
-                "pnl": pnl,
-                "pnl_percent": (pnl / entry_price) * 100 if entry_price else 0,
-                "entry_time": self.active_trade.get("timestamp"),
-                "exit_time": pd.Timestamp.now().isoformat(),
-                "exit_reason": reason
-            })
-            
-            self.active_trade = None
-            self.risk_manager.record_trade_close(pnl) # Decrement position count and update daily PnL
-            StateManager.save_state(self)
-            
-            return True, "Trade closed successfully"
+            if success:
+                return True, "Trade closed successfully"
+            else:
+                return False, "Failed to close trade (Check logs)"
             
         except Exception as e:
-            self.add_log(f"❌ Error closing trade: {e}")
+            self.add_log(f"❌ Error in close_active_trade: {e}")
             return False, str(e)
+
+    async def recalibrate_position_stops(self):
+        """
+        Manual override to recalculate and update TP/SL orders based on current market data (ATR).
+        Returns: (status_code, message)
+        """
+        if not self.active_trade:
+             return "ERROR", "No active trade to recalibrate."
+
+        symbol = self.active_trade["symbol"]
+        self.add_log(f"♻️ RECALIBRATE: Auditing stops for {symbol}...")
+
+        # 1. Audit Phase
+        try:
+            # Get real position data
+            positions = hyperliquid_service.get_positions()
+            real_pos = next((p for p in positions if p["symbol"] == symbol and float(p["size"]) != 0), None)
+            
+            if not real_pos:
+                self.add_log(f"⚠️ Recalibration aborted: No position found on exchange for {symbol}")
+                self.active_trade = None # Sync state
+                return "ERROR", "No real position found (Local state cleared)."
+
+            entry_price = float(real_pos["entry_price"])
+            side = real_pos["side"]
+            size = float(real_pos["size"])
+            
+            # 2. Market Data & Ideal Calculation
+            df = self.latest_data
+            
+            # CRITICAL: If cached data is missing or stale, force a fresh fetch
+            if df is None or df.empty:
+                self.add_log("📡 Recalibrate: Cache empty, fetching fresh 15m data...")
+                try:
+                    # We need the market data service, not hyperliquid service directly for candles usually
+                    # But checking imports... let's rely on the internal method if available or import helper
+                    from backend.market_data import get_hyperliquid_candles, calculate_atr
+                    
+                    df = await get_hyperliquid_candles(symbol, "15m", 100)
+                except ImportError:
+                    # Fallback for synchronous/path issues
+                    self.add_log("⚠️ Could not import market_data helpers for fetch.")
+                    pass
+
+                except Exception as e:
+                    self.add_log(f"⚠️ Fresh fetch failed: {e}")
+            
+            # Calculate ATR
+            atr = 0.0
+            try:
+                if df is not None and not df.empty:
+                    # Ensure ATR is calculated
+                    if 'ATRr_14' not in df.columns:
+                         # Quick Calc
+                         high = df['high']
+                         low = df['low']
+                         close = df['close']
+                         # Simple TR
+                         tr1 = high - low
+                         tr2 = (high - close.shift()).abs()
+                         tr3 = (low - close.shift()).abs()
+                         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                         atr = tr.rolling(14).mean().iloc[-1]
+                    else:
+                         atr = df['ATRr_14'].iloc[-1]
+            except Exception as e:
+                self.add_log(f"⚠️ ATR Calc error: {e}")
+                pass
+            
+            if atr == 0:
+                 # Fallback to 1.5% of price
+                 atr = entry_price * 0.015
+                 self.add_log(f"⚠️ Using Fallback ATR (1.5%): {atr:.6f}")
+            
+            # Ideal Logic: 2*ATR SL, 3*ATR TP
+            # ADJUSTMENT: Ensure we don't bring TP closer if it's already "better" (higher for long)?
+            # No, "Recalibrate" implies "Reset to Strategy Standard". Sticking to logic.
+            
+            sl_mult = 2.0
+            tp_mult = 3.0
+            
+            if side == "BUY":
+                ideal_sl = entry_price - (atr * sl_mult)
+                ideal_tp = entry_price + (atr * tp_mult)
+            else:
+                ideal_sl = entry_price + (atr * sl_mult)
+                ideal_tp = entry_price - (atr * tp_mult)
+                
+            current_sl = float(self.active_trade.get("sl", 0))
+            current_tp = float(self.active_trade.get("tp", 0))
+            
+            # 3. Diff Check
+            sl_diff = abs(current_sl - ideal_sl) / current_sl if current_sl else 1.0
+            tp_diff = abs(current_tp - ideal_tp) / current_tp if current_tp else 1.0
+            
+            is_divergent = (sl_diff > TP_SL_RECALIBRATION_THRESHOLD_PCT) or (tp_diff > TP_SL_RECALIBRATION_THRESHOLD_PCT)
+            
+            if not is_divergent:
+                self.add_log(f"✅ Audit: Orders aligned (Diff < {TP_SL_RECALIBRATION_THRESHOLD_PCT*100}%). No update needed.")
+                return "UNCHANGED", "Orders are aligned."
+                
+            # 4. Atomic Update
+            self.add_log(f"⚠️ Audit: Divergence detected (SL diff: {sl_diff:.4f}, TP diff: {tp_diff:.4f}). Updating...")
+            self.add_log(f"   Old SL: {current_sl:.6f} -> New: {ideal_sl:.6f} (ATR: {atr:.6f})")
+            
+            # Cancel All
+
+            hyperliquid_service.cancel_all_orders(symbol)
+            import time
+            time.sleep(1) # Safety wait
+            
+            # Place New
+            hyperliquid_service.sync_sl_tp(symbol, side == "BUY", size, ideal_sl, ideal_tp)
+            
+            # Update Local State
+            self.active_trade["sl"] = ideal_sl
+            self.active_trade["tp"] = ideal_tp
+            StateManager.save_state(self)
+            
+            return "UPDATED", f"Orders recalibrated to SL: {ideal_sl:.2f}, TP: {ideal_tp:.2f}"
+            
+        except Exception as e:
+            self.add_log(f"❌ Recalibrate Error: {e}")
+            return "ERROR", str(e)
+
 
     def stop(self):
         """Stop the bot"""

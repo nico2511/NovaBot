@@ -44,6 +44,8 @@ const formatPrice = (inputPrice: number | string | undefined | null): string => 
 export default function ActiveTrade({ embedded = false }: { embedded?: boolean }) {
     const [trade, setTrade] = useState<Trade | null>(null)
     const [currentPrice, setCurrentPrice] = useState<number>(0)
+    const [recalibrating, setRecalibrating] = useState(false)
+    const [recalibrateMsg, setRecalibrateMsg] = useState("")
 
     useEffect(() => {
         const fetchData = async () => {
@@ -137,6 +139,26 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         ? `linear-gradient(135deg, rgba(6, 95, 70, ${opacity}) 0%, rgba(6, 78, 59, 0.2) 100%)` // Emerald-900ish
         : `linear-gradient(135deg, rgba(127, 29, 29, ${opacity}) 0%, rgba(69, 10, 10, 0.2) 100%)` // Red-900ish
 
+    const recalibrateStops = async () => {
+        setRecalibrating(true)
+        setRecalibrateMsg("Checking...")
+        try {
+            const res = await axios.post(`${API_URL}/api/recalibrate_stops`)
+            const { status, message } = res.data
+
+            if (status === "UNCHANGED") setRecalibrateMsg("✅ Optimized")
+            else if (status === "UPDATED") setRecalibrateMsg("♻️ Updated")
+            else setRecalibrateMsg("❌ Error")
+
+            setTimeout(() => setRecalibrateMsg(""), 3000)
+        } catch (error) {
+            console.error('Failed to recalibrate:', error)
+            setRecalibrateMsg("❌ Failed")
+            setTimeout(() => setRecalibrateMsg(""), 3000)
+        }
+        setRecalibrating(false)
+    }
+
     if (embedded) {
         return (
             <div className={`w-full flex flex-col justify-between rounded-xl overflow-hidden relative border ${isProfitable ? 'border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}
@@ -211,12 +233,21 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                 </div>
 
                 {/* Close Button Area */}
-                <div className="p-3 bg-black/20 border-t border-white/5 mt-auto">
+                <div className="p-3 bg-black/20 border-t border-white/5 mt-auto flex gap-2">
+                    <button
+                        onClick={recalibrateStops}
+                        disabled={recalibrating}
+                        className="w-1/3 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 active:bg-blue-500/30 border border-blue-500/20 rounded-lg text-xs font-bold text-blue-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-2 group"
+                        title="Recalibrate TP/SL based on market volatility"
+                    >
+                        {recalibrateMsg || "♻️ Fix"}
+                    </button>
+
                     <button
                         onClick={closeTrade}
-                        className="w-full py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/10 rounded-lg text-xs font-bold text-gray-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-2 group"
+                        className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/10 rounded-lg text-xs font-bold text-gray-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-2 group"
                     >
-                        <span>Close Position</span>
+                        <span>Close</span>
                         <span className="group-hover:translate-x-1 transition-transform">→</span>
                     </button>
                 </div>
@@ -235,12 +266,21 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                         💼 Active Trade
                         <span className="text-xs font-normal text-gray-500 px-2 py-0.5 bg-white/5 rounded-full">{trade.strategy}</span>
                     </h3>
-                    <button
-                        onClick={closeTrade}
-                        className="px-4 py-2 bg-error/20 hover:bg-error/30 text-error border border-error/30 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-error/20"
-                    >
-                        Close Trade
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={recalibrateStops}
+                            disabled={recalibrating}
+                            className="px-3 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/20 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-blue-500/10"
+                        >
+                            {recalibrateMsg || "♻️ Recalibrate Stops"}
+                        </button>
+                        <button
+                            onClick={closeTrade}
+                            className="px-4 py-2 bg-error/20 hover:bg-error/30 text-error border border-error/30 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-error/20"
+                        >
+                            Close Trade
+                        </button>
+                    </div>
                 </div>
 
                 {/* Main Stats Quest Card */}
@@ -337,3 +377,4 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         </div>
     )
 }
+

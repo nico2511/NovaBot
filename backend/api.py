@@ -659,6 +659,24 @@ async def close_trade():
     
     return {"status": "error", "message": "Bot not connected"}
 
+@app.post("/api/recalibrate_stops")
+async def recalibrate_stops():
+    """Recalibrate TP/SL for active trade"""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        
+        if not hasattr(bot, 'recalibrate_position_stops'): # Safety check during dev
+             return {"status": "ERROR", "message": "Feature not available on bot instance yet"}
+
+        status, message = await bot.recalibrate_position_stops()
+        
+        return {
+            "status": status, # UNCHANGED, UPDATED, ERROR
+            "message": message
+        }
+    
+    return {"status": "ERROR", "message": "Bot not connected"}
+
 @app.get("/api/trades")
 async def get_trades():
     """Get trade history"""

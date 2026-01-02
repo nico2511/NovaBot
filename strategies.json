@@ -23,6 +23,22 @@
                 "liq_grab_lookback": 20
             }
         },
+        "elastic_reversion": {
+            "enabled": true,
+            "type": "reversion",
+            "params": {
+                "rsi_period": 14,
+                "ema_period": 20,
+                "oversold_rsi": 20,
+                "overbought_rsi": 80,
+                "extension_pct": 0.04,
+                "sl_lookback": 5,
+                "sl_margin": 0.005,
+                "risk_reward": 1.5,
+                "bonus_rsi_long": 25,
+                "bonus_rsi_short": 75
+            }
+        },
         "swing_trend_pullback": {
             "enabled": false,
             "type": "trend",
