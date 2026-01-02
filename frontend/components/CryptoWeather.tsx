@@ -44,9 +44,32 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
     const [showModal, setShowModal] = useState(false)
     const [mounted, setMounted] = useState(false)
 
+    // Scanner V2 metrics
+    const [rvol, setRvol] = useState<number | null>(null)
+    const [trendAligned, setTrendAligned] = useState<boolean | null>(null)
+
     useEffect(() => {
         setMounted(true)
-    }, [])
+
+        // Fetch Scanner V2 metrics
+        const fetchMetrics = async () => {
+            try {
+                const res = await axios.get(`/api/market_metrics?symbol=${symbol}`)
+                if (res.data && !res.data.error) {
+                    setRvol(res.data.rvol)
+                    setTrendAligned(res.data.trend_aligned)
+                }
+            } catch (e) {
+                console.error('Failed to fetch market metrics:', e)
+            }
+        }
+
+        fetchMetrics()
+
+        // Refresh every 30 seconds
+        const interval = setInterval(fetchMetrics, 30000)
+        return () => clearInterval(interval)
+    }, [symbol])
 
     const handleAskAi = async () => {
         setIsAnalyzing(true)
@@ -137,17 +160,15 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                         {/* Scanner V2 Metrics - Hidden on small screens */}
                         <div className="hidden md:block text-center border-l border-white/10 pl-3 lg:pl-6 min-w-[60px]">
                             <div className="text-gray-500 mb-0.5 text-[10px]">RVol</div>
-                            <div className="font-mono font-bold text-xs text-yellow-400">
-                                {/* RVol will be fetched from /api/market_metrics */}
-                                --
+                            <div className={`font-mono font-bold text-xs ${rvol && rvol > 1.5 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                {rvol ? rvol.toFixed(1) + 'x' : '--'}
                             </div>
                         </div>
 
                         <div className="hidden lg:block text-center min-w-[70px]">
                             <div className="text-gray-500 mb-0.5 text-[10px]">Trend</div>
-                            <div className="font-mono font-bold text-xs text-green-400">
-                                {/* Trend Alignment will be fetched */}
-                                --
+                            <div className={`font-mono font-bold text-xs ${trendAligned ? 'text-green-400' : 'text-red-400'}`}>
+                                {trendAligned === null ? '--' : trendAligned ? '✓ Aligned' : '✗ Choppy'}
                             </div>
                         </div>
                     </div>
