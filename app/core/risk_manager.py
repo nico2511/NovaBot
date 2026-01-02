@@ -108,4 +108,39 @@ class RiskManager:
             print(f"Error syncing with Hyperliquid: {e}")
             return {"synced": False, "error": str(e)}
 
+    def calculate_position_size(self, price: float, sl_price: float, equity: float, method: str = "fixed", risk_per_trade_pct: float = 0.01) -> float:
+        """
+        Calculate position size (in coins) based on risk management rules.
+        """
+        try:
+            if price <= 0: return 0.0
+            
+            # 1. Risk-Based Sizing (Standard)
+            # Risk Amount = Equity * Risk%
+            # Size = Risk Amount / |Entry - SL|
+            if method == "risk_pct" and sl_price > 0 and price != sl_price:
+                risk_amount = equity * risk_per_trade_pct
+                price_diff = abs(price - sl_price)
+                size_coins = risk_amount / price_diff
+                
+                # Cap max leverage (e.g. 5x)
+                max_position_value = equity * 5
+                if (size_coins * price) > max_position_value:
+                    size_coins = max_position_value / price
+                    
+                return size_coins
+                
+            # 2. Fixed Sizing (Default/Fallback)
+            # Default to $20 margin x 5 leverage = $100 position size
+            else:
+                from app.core.constants import DEFAULT_SIZE_USDC, DEFAULT_LEVERAGE
+                # DEFAULT_SIZE_USDC is usually 20.0 (Margin)
+                position_size_usd = DEFAULT_SIZE_USDC * DEFAULT_LEVERAGE
+                return position_size_usd / price
+                
+        except Exception as e:
+            print(f"Error calculating position size: {e}")
+            # Fallback safe size
+            return (20.0 * 5) / price if price > 0 else 0.0
+
 
