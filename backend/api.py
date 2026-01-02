@@ -1094,6 +1094,30 @@ async def manual_scan():
         
     return bot.scanner_job.manual_scan()
 
+@app.post("/api/toggle_gamification")
+async def toggle_gamification(data: dict):
+    """Toggle Gamification enforcement ON/OFF"""
+    bot = bot_bridge.get_bot_context()
+    if not bot:
+        return {"status": "error", "message": "Bot not initialized"}
+    
+    enabled = data.get("enabled", True)
+    bot.scanner_settings['gamification_enabled'] = enabled
+    
+    # Save state
+    from app.core.state_manager import StateManager
+    StateManager.save_state(bot)
+    
+    status_msg = "enabled" if enabled else "disabled"
+    bot.add_log(f"🎮 Gamification {status_msg} via Config")
+    
+    return {
+        "status": "success",
+        "gamification_enabled": enabled,
+        "message": f"Gamification {status_msg}"
+    }
+
+
 @app.post("/api/ai_analysis")
 async def get_ai_analysis(data: dict = {}):
     """Get AI analysis for a symbol"""

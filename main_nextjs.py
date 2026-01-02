@@ -57,7 +57,8 @@ class BotContext:
             "enabled": False, # Manual only by default
             "interval": 15,
             "min_score": 75,
-            "auto_switch": False
+            "auto_switch": False,
+            "gamification_enabled": True  # NEW: Toggle for Gamification enforcement
         }
         
         # AI Commentary Cache

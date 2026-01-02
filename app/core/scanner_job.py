@@ -59,34 +59,27 @@ class ScannerJob:
                 self.is_scanning = True
                 
                 # --- CONTEXT RESOLVER (Gamification / Auto-Switch Scope) ---
-                from app.core.constants import GAMIFICATION_ENABLED
                 from app.core.config import config
                 
                 whitelist = None
+                gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
                 
-                if GAMIFICATION_ENABLED:
+                if gamification_enabled:
                     try:
                         from app.core.asset_gamification import AssetGamification
                         # Fetch equity to determine tier
-                        # We can use the bot's bridge or scanner's internal service
                         balance_data = self.scanner.hl_service.get_account_balance()
                         equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
                         
                         gamification = AssetGamification(equity)
                         whitelist = gamification.get_allowed_assets()
-                        self.bot.add_log(f"🎮 Context: Gamification Level {gamification.level.value} (${equity:.2f})")
+                        self.bot.add_log(f"🎮 Gamification ON: Level {gamification.level.value} (${equity:.2f})")
                     except Exception as e:
                         self.bot.add_log(f"⚠️ Context Resolver Error: {e}")
-                        # Fallback to safe list? Or keep None (All)? 
-                        # User instruction said "Brider le Scanner". Safe fallback is empty or limited.
                         whitelist = ["BTC", "ETH"] # Panic fallback
                 else:
-                    # If not gamified, check if global whitelist exists
-                    if hasattr(config, 'GLOBAL_WHITELIST') and config.GLOBAL_WHITELIST:
-                        whitelist = config.GLOBAL_WHITELIST
-                        self.bot.add_log(f"🌍 Context: Using Global Whitelist ({len(whitelist)} assets)")
-                    else:
-                        self.bot.add_log("🌍 Context: Full Market Access (No Gamification)")
+                    # Gamification disabled - Full market access
+                    self.bot.add_log("🌍 Gamification OFF: Full Market Access")
 
                 # Pass clean whitelist to scanner
                 opportunities = self.scanner.scan(top_n=10, whitelist=whitelist)
@@ -147,23 +140,28 @@ class ScannerJob:
         if self.is_scanning:
             return {"status": "busy", "message": "Scan already in progress"}
             
-        print("🕵️ Starting Manual Scan...")
+        self.bot.add_log("🕵️ Starting Manual Scan...")
         self.is_scanning = True
         
         try:
             # Context Resolver (Replicated for safety)
-            from app.core.constants import GAMIFICATION_ENABLED
             from app.core.config import config
             
             whitelist = None
-            if GAMIFICATION_ENABLED:
+            gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
+            
+            if gamification_enabled:
                 try:
                     from app.core.asset_gamification import AssetGamification
                     balance_data = self.scanner.hl_service.get_account_balance()
                     equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
                     gamification = AssetGamification(equity)
                     whitelist = gamification.get_allowed_assets()
-                except: whitelist = ["BTC", "ETH"] 
+                    self.bot.add_log(f"🎮 Manual Scan: Gamification ON (Level {gamification.level.value})")
+                except: 
+                    whitelist = ["BTC", "ETH"]
+            else:
+                self.bot.add_log("🌍 Manual Scan: Gamification OFF (Full Access)") 
             
             # 1. Scan
             opportunities = self.scanner.scan(top_n=10, whitelist=whitelist)
