@@ -199,7 +199,7 @@ class ScannerJob:
         
         for i, opp in enumerate(opps[:5]): # Top 5 only
             stars = "⭐⭐⭐" if opp['score'] >= 80 else "⭐⭐" if opp['score'] >= 60 else "⭐"
-            trend_icon = "📈" if opp['trend'] == "UP" else "📉"
+            trend_icon = "📈" if opp.get('trend') == "UP" else "📉" if opp.get('trend') == "DOWN" else "➡️"
             
             # Format price with appropriate decimals
             price_str = format_price_for_notification(opp.get('current_price', 0))
