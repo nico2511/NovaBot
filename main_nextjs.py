@@ -510,6 +510,12 @@ class BotContext:
             # Initialize loop-scope variables to prevent UnboundLocalError
             ai_approved = False
             ai_reasoning = "Loop Start Default"
+            action = None
+            entry_price = 0.0
+            sl = 0.0
+            tp = 0.0
+            strat_name = "Unknown"
+            risk_factors = []
             
             self.add_log("🔄 Entering loop iteration...")
             try:
