@@ -133,6 +133,23 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                                 {atr ? (atr < 1 ? atr.toFixed(4) : atr.toFixed(2)) : '--'}
                             </div>
                         </div>
+
+                        {/* Scanner V2 Metrics - Hidden on small screens */}
+                        <div className="hidden md:block text-center border-l border-white/10 pl-3 lg:pl-6 min-w-[60px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">RVol</div>
+                            <div className="font-mono font-bold text-xs text-yellow-400">
+                                {/* RVol will be fetched from /api/market_metrics */}
+                                --
+                            </div>
+                        </div>
+
+                        <div className="hidden lg:block text-center min-w-[70px]">
+                            <div className="text-gray-500 mb-0.5 text-[10px]">Trend</div>
+                            <div className="font-mono font-bold text-xs text-green-400">
+                                {/* Trend Alignment will be fetched */}
+                                --
+                            </div>
+                        </div>
                     </div>
 
                     {/* AI Button - Always visible */}
