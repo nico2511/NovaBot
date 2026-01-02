@@ -3,63 +3,64 @@ import pandas as pd
 from strategies.base import BaseStrategy
 
 # ============================================
-# STRATEGY: Golden Cross (Trend Following)
+# STRATEGY: Golden Cross (Trend Following - Adapted for 15m)
 # ============================================
 class StrategyGoldenCross(BaseStrategy):
     """
-    Classic Trend Following strategy using SMA crossovers.
+    Trend Following strategy using EMA crossovers (adapted for 15m timeframe).
     
     Entry:
-    - LONG: SMA 50 crosses above SMA 200 (Golden Cross)
-    - SHORT: SMA 50 crosses below SMA 200 (Death Cross)
+    - LONG: EMA 9 crosses above EMA 21 (Mini Golden Cross)
+    - SHORT: EMA 9 crosses below EMA 21 (Mini Death Cross)
     
     Exit:
-    - Close LONG if price closes below SMA 50
-    - Close SHORT if price closes above SMA 50
+    - Close LONG if price closes below EMA 9
+    - Close SHORT if price closes above EMA 9
     """
     
     def add_indicators(self, df):
-        df['SMA_50'] = ta.sma(df['close'], length=50)
-        df['SMA_200'] = ta.sma(df['close'], length=200)
+        # Use EMA 9/21 instead of SMA 50/200 for 15m timeframe
+        df['EMA_9'] = ta.ema(df['close'], length=9)
+        df['EMA_21'] = ta.ema(df['close'], length=21)
         return df
     
     def generate_signal(self, df, extra_data=None):
         df = self.add_indicators(df)
         
-        if len(df) < 201:  # Need at least 201 candles for SMA 200
+        if len(df) < 22:  # Need at least 22 candles for EMA 21
             return None
         
         # Current and previous values
-        sma_50_curr = df['SMA_50'].iloc[-1]
-        sma_50_prev = df['SMA_50'].iloc[-2]
-        sma_200_curr = df['SMA_200'].iloc[-1]
-        sma_200_prev = df['SMA_200'].iloc[-2]
+        ema_9_curr = df['EMA_9'].iloc[-1]
+        ema_9_prev = df['EMA_9'].iloc[-2]
+        ema_21_curr = df['EMA_21'].iloc[-1]
+        ema_21_prev = df['EMA_21'].iloc[-2]
         close = df['close'].iloc[-1]
         
-        # Golden Cross: SMA 50 crosses above SMA 200
-        if sma_50_prev <= sma_200_prev and sma_50_curr > sma_200_curr:
+        # Mini Golden Cross: EMA 9 crosses above EMA 21
+        if ema_9_prev <= ema_21_prev and ema_9_curr > ema_21_curr:
             return {
                 'signal': 'BUY',
                 'price': close,
-                'sl': sma_50_curr * 0.97,  # 3% below SMA 50
-                'tp': close * 1.10,  # 10% profit target
-                'comment': 'Golden Cross detected - SMA 50 crossed above SMA 200'
+                'sl': ema_9_curr * 0.98,  # 2% below EMA 9
+                'tp': close * 1.05,  # 5% profit target
+                'comment': 'Mini Golden Cross - EMA 9 crossed above EMA 21'
             }
         
-        # Death Cross: SMA 50 crosses below SMA 200
-        if sma_50_prev >= sma_200_prev and sma_50_curr < sma_200_curr:
+        # Mini Death Cross: EMA 9 crosses below EMA 21
+        if ema_9_prev >= ema_21_prev and ema_9_curr < ema_21_curr:
             return {
                 'signal': 'SELL',
                 'price': close,
-                'sl': sma_50_curr * 1.03,  # 3% above SMA 50
-                'tp': close * 0.90,  # 10% profit target
-                'comment': 'Death Cross detected - SMA 50 crossed below SMA 200'
+                'sl': ema_9_curr * 1.02,  # 2% above EMA 9
+                'tp': close * 0.95,  # 5% profit target
+                'comment': 'Mini Death Cross - EMA 9 crossed below EMA 21'
             }
         
         return None
     
     def calculate_progress(self, df, extra_data=None):
-        """Calculate proximity to Golden/Death Cross"""
+        """Calculate proximity to Mini Golden/Death Cross"""
         try:
             df = self.add_indicators(df)
             if len(df) < 201:
