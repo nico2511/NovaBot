@@ -42,13 +42,18 @@ def strategy_wrapper(df_slice, exchange, symbol):
         equity = balance['equity']
         
         # Utiliser le vrai RiskManager
-        size = risk_manager.calculate_position_size(
+        raw_size = risk_manager.calculate_position_size(
             price=signal['price'],
             sl_price=signal['sl'],
             equity=equity,
             method="risk_pct",
             risk_per_trade_pct=0.01  # Risque 1% par trade
         )
+        
+        # 🔧 OPTIMIZATION: Cap position to 50% of equity (prevent margin errors)
+        max_position_value = equity * 0.5  # 50% of balance
+        max_size = max_position_value / signal['price']
+        size = min(raw_size, max_size)
         
         # Retourner signal formaté pour MockExchange
         return {
