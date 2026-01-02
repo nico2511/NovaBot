@@ -17,47 +17,47 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
         const details: { [key: string]: { icon: string; description: string; conditions: string[] } } = {
             'Scalp Ema Rsi': {
                 icon: '⚡',
-                description: 'Fast scalping with EMA crossovers and RSI confirmation',
+                description: 'Trend following momentum scalp. *DISABLED*',
                 conditions: [
-                    `EMA 9/21 crossover`,
-                    `RSI ${rsi > 50 ? 'bullish' : 'bearish'} (${rsi.toFixed(1)})`,
-                    `Trend filter active`
-                ]
-            },
-            'Smcfvg': {
-                icon: '🎯',
-                description: 'Smart Money Concepts - Fair Value Gap detection',
-                conditions: [
-                    'Scanning for FVG zones',
-                    'Institutional order flow analysis',
-                    'Price imbalance detection'
-                ]
-            },
-            'Mean Reversion': {
-                icon: '📊',
-                description: 'Bollinger Bands mean reversion strategy',
-                conditions: [
-                    `RSI ${rsi < 30 ? 'oversold' : rsi > 70 ? 'overbought' : 'neutral'}`,
-                    'BB bands monitoring',
-                    'Reversal signals active'
+                    'EMA Cross (9/21) [Inactive]',
+                    'RSI Momentum Filter',
+                    'High Drawdown Risk'
                 ]
             },
             'Institutional Scalp': {
                 icon: '🏦',
-                description: 'Liquidity grab and stop hunt detection',
+                description: 'Liquidity Grab & Sweep Detection. (Optimized: Long Only)',
                 conditions: [
-                    'Monitoring recent highs/lows',
-                    'Wick analysis active',
-                    'Rejection patterns scanning'
+                    'Sweep of 20-candle High/Low',
+                    'Reclaim confirmation (Wick > 50%)',
+                    'Direction: LONG ONLY active'
                 ]
             },
-            'Swing Trend Pullback': {
-                icon: '📈',
-                description: 'Trend following with pullback entries',
+            'Golden Cross': {
+                icon: '✨',
+                description: 'Major Trend Filter (EMA 50/200)',
                 conditions: [
-                    `Trend: ${regime}`,
-                    'EMA 200 filter active',
-                    'Pullback zones identified'
+                    'Weekly trend alignment',
+                    'Low frequency / High conviction',
+                    'Safety fuse for trending markets'
+                ]
+            },
+            'Elastic Reversion': {
+                icon: '🪀',
+                description: 'Range mean reversion (Oversold bounce)',
+                conditions: [
+                    'RSI Extreme (< 20)',
+                    'Price vs EMA Extension',
+                    'Active in RANGE regime'
+                ]
+            },
+            'Smart Trend': {
+                icon: '🧠',
+                description: 'AI-assisted Micro-Structure Analysis',
+                conditions: [
+                    '1m Micro-BOS detection',
+                    'Volume Profile analysis',
+                    'Live execution only'
                 ]
             }
         }
