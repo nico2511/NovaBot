@@ -338,8 +338,8 @@ class HyperliquidScanner:
                     print(f"  ⚠️ {symbol}: {e}")
                     continue
             
-            # Run momentum ranking
-            result = momentum_scanner.select_top_momentum(data_dict, top_n=top_n, require_ma200=True)
+            # Run momentum ranking (MA200 filter disabled for bearish markets)
+            result = momentum_scanner.select_top_momentum(data_dict, top_n=top_n, require_ma200=False)
             
             print(f"\n🎯 Momentum Ranking Results:")
             print(f"  Selected: {result['selected']}")
