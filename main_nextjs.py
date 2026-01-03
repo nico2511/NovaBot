@@ -488,9 +488,29 @@ class BotContext:
             # --- LEVERAGE SYNC ---
             try:
                 if self.execution_mode == "Auto (Hyperliquid)":
-                    target_leverage = int(self.sidebar_settings.get("leverage", 5))
+                    requested_leverage = int(self.sidebar_settings.get("leverage", 5))
                     margin_type = self.sidebar_settings.get("margin_type", "Cross")
                     is_cross = (margin_type == "Cross")
+                    
+                    # Apply Gamification Leverage Limit
+                    from app.core.asset_gamification import AssetGamification
+                    from app.services.hyperliquid_service import hyperliquid_service as hl_svc
+                    
+                    try:
+                        balance_data = hl_svc.get_account_balance()
+                        current_equity = balance_data.get("equity", 0.0) if balance_data.get("status") == "success" else 0.0
+                        gam = AssetGamification(current_equity)
+                        max_leverage = gam.get_max_leverage()
+                        
+                        # Cap to gamification limit
+                        target_leverage = min(requested_leverage, max_leverage)
+                        
+                        if requested_leverage > max_leverage:
+                            self.add_log(f"🎮 GAMIFICATION: Leverage capped {requested_leverage}x → {target_leverage}x (Level: {gam.level})")
+                    except Exception as gam_err:
+                        # Fallback if gamification check fails
+                        self.add_log(f"⚠️ Gamification check failed: {gam_err}")
+                        target_leverage = requested_leverage
                     
                     self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
                     hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
