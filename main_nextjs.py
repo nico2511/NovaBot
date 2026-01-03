@@ -1534,8 +1534,9 @@ class BotContext:
                         print(f"Error in AI position analysis: {e}")
                     
                     # BREAK EVEN LOGIC
-                    # If price moved 50% towards TP, move SL to Entry
+                    # If price moved 50% towards TP, move SL to Entry + 0.3% (increased from 0.1% to cover slippage)
                     be_triggered = False
+                    BREAKEVEN_BUFFER = 1.003  # 0.3% buffer (was 1.001 = 0.1%)
                     
                     if side == "BUY":
                         dist_to_tp = tp_price - entry_price
@@ -1543,8 +1544,9 @@ class BotContext:
                         
                         # Trigger BE if moved 50% to TP and SL is below Entry
                         if current_dist >= (dist_to_tp * 0.5) and sl_price < entry_price:
-                            self.active_trade["sl"] = entry_price * 1.001 # Variable BE (slight profit)
-                            self.add_log(f"🛡️ SECURED: Moved SL to Break Even @ {self.active_trade['sl']:.2f}")
+                            self.active_trade["sl"] = entry_price * BREAKEVEN_BUFFER
+                            self.active_trade["breakeven_active"] = True  # Flag for AI analysis
+                            self.add_log(f"🛡️ SECURED: Moved SL to Break Even @ {self.active_trade['sl']:.2f} (+0.3% buffer)")
                             be_triggered = True
                             
                     else: # SELL
@@ -1553,8 +1555,9 @@ class BotContext:
                         
                         # Trigger BE if moved 50% to TP and SL is above Entry
                         if current_dist >= (dist_to_tp * 0.5) and sl_price > entry_price:
-                            self.active_trade["sl"] = entry_price * 0.999 # Variable BE
-                            self.add_log(f"🛡️ SECURED: Moved SL to Break Even @ {self.active_trade['sl']:.2f}")
+                            self.active_trade["sl"] = entry_price * (2 - BREAKEVEN_BUFFER)  # For SHORT: Entry * 0.997
+                            self.active_trade["breakeven_active"] = True  # Flag for AI analysis
+                            self.add_log(f"🛡️ SECURED: Moved SL to Break Even @ {self.active_trade['sl']:.2f} (-0.3% buffer)")
                             be_triggered = True
                     
                     if be_triggered:

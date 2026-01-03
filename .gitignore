@@ -23,6 +23,7 @@ dist/
 build/
 .npm/
 
+
 # System
 .DS_Store
 
@@ -33,3 +34,4 @@ token_meta_cache.json
 # Backtest & Analysis (Local Only)
 backtest_archive/
 tradingview/
+data/
