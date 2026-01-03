@@ -92,34 +92,87 @@ class HyperliquidService:
             # Default to 15m if unknown
             return 900
 
-            interval_seconds = self._parse_interval_to_seconds(interval)
-            start_time = end_time - (limit * interval_seconds * 1000)
+
+    def get_candles(self, symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
+        """
+        Fetch OHLCV candles from Hyperliquid with robust data handling.
+        
+        Improvements:
+        - 1.5x time buffer to handle gaps (maintenance/low liquidity)
+        - Explicit chronological sorting
+        - Type coercion for OHLCV columns
+        - Duplicate removal
+        - UTC timezone enforcement
+        
+        Args:
+            symbol: Trading pair (e.g., "BTC")
+            interval: Candle interval ("1m", "15m", "1h", "1d")
+            limit: Number of candles to fetch
             
+        Returns:
+            DataFrame with OHLCV data, chronologically sorted
+        """
+        try:
+            # Calculate end time (UTC)
+            end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
+            
+            # Parse interval and calculate start time with 1.5x buffer
+            interval_seconds = self._parse_interval_to_seconds(interval)
+            time_range = limit * interval_seconds * 1000
+            start_time = end_time - int(time_range * 1.5)  # 1.5x buffer for gaps
+            
+            # Fetch candles from Hyperliquid
             raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
             
             if not raw_candles:
+                print(f"⚠️ No candles returned for {symbol} {interval}")
                 return pd.DataFrame()
-                
-            df = pd.DataFrame(raw_candles)
-            df['time'] = pd.to_datetime(df['t'], unit='ms')
-            df.set_index('time', inplace=True)
-            # Convert numeric columns
-            for col in ['o', 'h', 'l', 'c', 'v']:
-                df[col] = df[col].astype(float)
             
-            # Standardize column names for pandas_ta and UI
+            # Convert to DataFrame
+            df = pd.DataFrame(raw_candles)
+            
+            if df.empty:
+                return df
+            
+            # Convert timestamp to datetime with UTC timezone
+            df['time'] = pd.to_datetime(df['t'], unit='ms', utc=True)
+            df.set_index('time', inplace=True)
+            
+            # Type coercion for OHLCV columns (handle invalid data gracefully)
+            for col in ['o', 'h', 'l', 'c', 'v']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Remove rows with NaN in critical columns
+            df.dropna(subset=['o', 'h', 'l', 'c'], inplace=True)
+            
+            # Remove duplicate timestamps (keep last)
+            df = df[~df.index.duplicated(keep='last')]
+            
+            # Sort chronologically (CRITICAL for indicator calculations)
+            df.sort_index(inplace=True)
+            
+            # Standardize column names
             df.rename(columns={
-                'o': 'open', 
-                'h': 'high', 
-                'l': 'low', 
-                'c': 'close', 
+                'o': 'open',
+                'h': 'high',
+                'l': 'low',
+                'c': 'close',
                 'v': 'volume'
             }, inplace=True)
             
-            return df.tail(limit)
+            # Trim to requested limit (after buffer)
+            if len(df) > limit:
+                df = df.tail(limit)
+            
+            return df
+            
         except Exception as e:
-            print(f"Error fetching candles: {e}")
+            print(f"Error fetching candles for {symbol} {interval}: {e}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
+
 
     
     def _fetch_metadata(self):
