@@ -1229,6 +1229,77 @@ async def momentum_ranking(data: dict = None):
         }
 
 
+@app.post("/api/dev/git_pull")
+async def dev_git_pull():
+    """Pull latest code from git"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", "master"],
+            capture_output=True,
+            text=True,
+            cwd="/var/www/novabot"  # Adjust path for production
+        )
+        return {
+            "status": "success",
+            "output": result.stdout,
+            "error": result.stderr
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/dev/restart_all")
+async def dev_restart_all():
+    """Restart all PM2 processes"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["pm2", "restart", "all"],
+            capture_output=True,
+            text=True
+        )
+        return {
+            "status": "success",
+            "output": result.stdout
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/dev/restart_frontend")
+async def dev_restart_frontend():
+    """Restart frontend (Next.js)"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["pm2", "restart", "hl-bot-frontend"],
+            capture_output=True,
+            text=True
+        )
+        return {
+            "status": "success",
+            "output": result.stdout
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/dev/restart_bot")
+async def dev_restart_bot():
+    """Restart bot engine"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["pm2", "restart", "hl-bot-engine"],
+            capture_output=True,
+            text=True
+        )
+        return {
+            "status": "success",
+            "output": result.stdout
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/api/toggle_gamification")
 async def toggle_gamification(data: dict):
     """Toggle Gamification enforcement ON/OFF"""

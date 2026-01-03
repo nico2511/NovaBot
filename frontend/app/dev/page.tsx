@@ -55,6 +55,101 @@ export default function DevPage() {
                     </button>
                 </div>
 
+                {/* Dev Controls */}
+                <div className="bg-gradient-to-br from-orange-500/10 to-red-500/5 border border-orange-500/30 rounded-xl p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <span className="text-2xl">🛠️</span>
+                        <h2 className="text-xl font-bold text-orange-300">Dev Controls</h2>
+                        <span className="text-xs text-gray-400 ml-auto">⚠️ Production Only</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Pull latest code from master?')) return
+                                const btn = document.getElementById('git-pull-btn') as HTMLButtonElement
+                                if (btn) btn.disabled = true
+                                if (btn) btn.innerText = 'Pulling...'
+                                try {
+                                    const res = await axios.post('/api/dev/git_pull')
+                                    alert(res.data.status === 'success' ? `✅ ${res.data.output}` : `❌ ${res.data.message}`)
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.message}`)
+                                }
+                                if (btn) btn.disabled = false
+                                if (btn) btn.innerText = '📥 Git Pull'
+                            }}
+                            id="git-pull-btn"
+                            className="px-4 py-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg font-bold text-sm transition-all"
+                        >
+                            📥 Git Pull
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Restart ALL PM2 processes?')) return
+                                const btn = document.getElementById('restart-all-btn') as HTMLButtonElement
+                                if (btn) btn.disabled = true
+                                if (btn) btn.innerText = 'Restarting...'
+                                try {
+                                    await axios.post('/api/dev/restart_all')
+                                    alert('✅ All processes restarted!')
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.message}`)
+                                }
+                                if (btn) btn.disabled = false
+                                if (btn) btn.innerText = '🔄 Restart All'
+                            }}
+                            id="restart-all-btn"
+                            className="px-4 py-3 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/50 rounded-lg font-bold text-sm transition-all"
+                        >
+                            🔄 Restart All
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Restart Frontend (Next.js)?')) return
+                                const btn = document.getElementById('restart-front-btn') as HTMLButtonElement
+                                if (btn) btn.disabled = true
+                                if (btn) btn.innerText = 'Restarting...'
+                                try {
+                                    await axios.post('/api/dev/restart_frontend')
+                                    alert('✅ Frontend restarted!')
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.message}`)
+                                }
+                                if (btn) btn.disabled = false
+                                if (btn) btn.innerText = '🎨 Restart Front'
+                            }}
+                            id="restart-front-btn"
+                            className="px-4 py-3 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 rounded-lg font-bold text-sm transition-all"
+                        >
+                            🎨 Restart Front
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Restart Bot Engine?')) return
+                                const btn = document.getElementById('restart-bot-btn') as HTMLButtonElement
+                                if (btn) btn.disabled = true
+                                if (btn) btn.innerText = 'Restarting...'
+                                try {
+                                    await axios.post('/api/dev/restart_bot')
+                                    alert('✅ Bot engine restarted!')
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.message}`)
+                                }
+                                if (btn) btn.disabled = false
+                                if (btn) btn.innerText = '🤖 Restart Bot'
+                            }}
+                            id="restart-bot-btn"
+                            className="px-4 py-3 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 rounded-lg font-bold text-sm transition-all"
+                        >
+                            🤖 Restart Bot
+                        </button>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Account Info */}
                     <div className="bg-black/40 backdrop-blur border border-border/30 rounded-xl p-6">
