@@ -147,6 +147,27 @@ export default function DevPage() {
                         >
                             🤖 Restart Bot
                         </button>
+
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Rebuild Frontend (Next.js)? This may take 1-2 minutes.')) return
+                                const btn = document.getElementById('rebuild-btn') as HTMLButtonElement
+                                if (btn) btn.disabled = true
+                                if (btn) btn.innerText = 'Building...'
+                                try {
+                                    const res = await axios.post('/api/dev/rebuild_frontend')
+                                    alert(res.data.status === 'success' ? '✅ Frontend rebuilt!' : `❌ ${res.data.message}`)
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.message}`)
+                                }
+                                if (btn) btn.disabled = false
+                                if (btn) btn.innerText = '🔨 Rebuild Frontend'
+                            }}
+                            id="rebuild-btn"
+                            className="px-4 py-3 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded-lg font-bold text-sm transition-all"
+                        >
+                            🔨 Rebuild Frontend
+                        </button>
                     </div>
                 </div>
 
