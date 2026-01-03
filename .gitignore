@@ -33,5 +33,10 @@ token_meta_cache.json
 
 # Backtest & Analysis (Local Only)
 backtest_archive/
+backtest/
 tradingview/
 data/
+
+
+fetch_prod_logs.bat
+fetch_prod_logs.sh
