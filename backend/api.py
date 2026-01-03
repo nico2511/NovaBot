@@ -908,7 +908,8 @@ async def execute_manual_trade(request: dict):
                         "size_value": size_value, # Store USDC value too
                         "leverage": bot.sidebar_settings.get("leverage", 1), # Also fix leverage
                         "strategy": strategy,
-                        "timestamp": pd.Timestamp.now().isoformat()
+                        "timestamp": pd.Timestamp.now().isoformat(),
+                        "breakeven_active": False  # Track if BE has been activated
                     }
                     
                     bot.risk_manager.record_trade_open()
@@ -958,6 +959,78 @@ async def execute_manual_trade(request: dict):
         
     except Exception as e:
         print(f"Error executing manual trade: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/force_breakeven")
+async def force_breakeven():
+    """Move Stop Loss to Break Even (Entry + 0.3% buffer for fees/slippage)"""
+    try:
+        if not bot_bridge or not bot_bridge.is_connected():
+            return {"status": "error", "message": "Bot not connected"}
+        
+        bot = bot_bridge.get_bot_context()
+        
+        if not bot.active_trade:
+            return {"status": "error", "message": "No active trade"}
+        
+        trade = bot.active_trade
+        entry_price = float(trade.get("entry", 0))
+        current_sl = float(trade.get("sl", 0))
+        side = trade.get("side", "BUY")
+        symbol = trade.get("symbol", "")
+        
+        if not entry_price or not symbol:
+            return {"status": "error", "message": "Invalid trade data"}
+        
+        # Calculate BreakEven with 0.3% buffer (increased from 0.1% to cover slippage)
+        BREAKEVEN_BUFFER = 0.003  # 0.3%
+        
+        if side == "BUY":
+            # For LONG: BE = Entry + 0.3%
+            breakeven_price = entry_price * (1 + BREAKEVEN_BUFFER)
+            
+            # Only move SL up if new BE is higher than current SL
+            if breakeven_price <= current_sl:
+                return {
+                    "status": "info",
+                    "message": f"SL already at or above BreakEven ({current_sl:.4f} >= {breakeven_price:.4f})"
+                }
+        else:
+            # For SHORT: BE = Entry - 0.3%
+            breakeven_price = entry_price * (1 - BREAKEVEN_BUFFER)
+            
+            # Only move SL down if new BE is lower than current SL
+            if breakeven_price >= current_sl:
+                return {
+                    "status": "info",
+                    "message": f"SL already at or below BreakEven ({current_sl:.4f} <= {breakeven_price:.4f})"
+                }
+        
+        # Update local trade state
+        bot.active_trade["sl"] = breakeven_price
+        bot.active_trade["breakeven_active"] = True  # NEW FLAG for AI analysis
+        
+        bot.add_log(f"🛡️ BREAKEVEN: Moving SL from {current_sl:.4f} to {breakeven_price:.4f} (Entry: {entry_price:.4f})")
+        
+        # Enforce on exchange
+        bot._verify_and_enforce_sl_tp(symbol, bot.active_trade)
+        
+        # Save state
+        from app.core.state_manager import StateManager
+        StateManager.save_state(bot)
+        
+        return {
+            "status": "success",
+            "message": f"SL moved to BreakEven: {breakeven_price:.4f}",
+            "new_sl": breakeven_price,
+            "entry": entry_price,
+            "buffer_pct": BREAKEVEN_BUFFER * 100
+        }
+        
+    except Exception as e:
+        print(f"Error in force_breakeven: {e}")
+        import traceback
+        traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/gamification_status")

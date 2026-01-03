@@ -1,16 +1,35 @@
-import google.generativeai as genai
-from app.core.config import config
-import threading
-import json
+"""
+AI Service for Trading Bot - Production Ready
+Handles all AI-powered market analysis and signal validation using OpenRouter API
+"""
+from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timedelta
+from collections import OrderedDict
+import json
+
+from app.core.config import config
+
 
 class IAService:
+    """
+    AI Service for market analysis and trading signal validation.
+    Uses OpenRouter API with configurable LLM models.
+    """
+    
     def __init__(self):
-        # 1. Init OpenRouter (Unified Provider)
-        self.openrouter_key = config.OPENROUTER_API_KEY
-        self.client = None
-        self.model = config.AI_MODEL_NAME  # Dynamic model from config
-
+        """Initialize AI Service with OpenRouter client"""
+        self.openrouter_key: Optional[str] = config.OPENROUTER_API_KEY
+        self.client: Optional[Any] = None
+        self.model: str = config.AI_MODEL_NAME
+        
+        # Cache with LRU eviction (max 1000 entries)
+        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.MAX_CACHE_SIZE: int = 1000
+        
+        # Circuit Breaker
+        self.circuit_breaker_until: Optional[datetime] = None
+        
+        # Initialize OpenRouter client
         if self.openrouter_key:
             try:
                 from openai import OpenAI
@@ -26,126 +45,229 @@ class IAService:
                 print(f"⚠️ Failed to init AI Service: {e}")
                 self.client = None
         else:
-             print("ℹ️ OpenRouter Key not found. AI Service disabled.")
-
-        # Cache
-        self.last_market_analysis = None
-        self.last_market_analysis_time = None
-        self.cache = {}
-        
-        # Circuit Breaker
-        self.circuit_breaker_until = None
-
+            print("ℹ️ OpenRouter Key not found. AI Service disabled.")
+    
     @staticmethod
     def extract_json(text: str) -> str:
-        """Robustly extract JSON from text even if markdown wrapped"""
+        """
+        Robustly extract JSON from text, handling markdown code blocks.
+        
+        Args:
+            text: Raw text that may contain JSON wrapped in markdown
+            
+        Returns:
+            Cleaned JSON string
+        """
         import re
         try:
-            # 1. Try to find JSON block ```json ... ```
+            # Try to find ```json ... ``` block
             match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
             if match:
                 return match.group(1)
-            # 2. Try to find just outer braces { ... }
-            # Match the first { to the last }
+            
+            # Try to find outer braces { ... }
             match = re.search(r"(\{.*\})", text, re.DOTALL)
             if match:
                 return match.group(1)
+            
             return text.strip()
         except Exception:
             return text.strip()
-
-    def _call_openrouter_api(self, prompt: str) -> dict:
-        """Call OpenRouter API"""
+    
+    def _clean_cache(self) -> None:
+        """
+        Clean expired cache entries and enforce size limit (LRU eviction).
+        Called periodically to prevent memory leaks.
+        """
+        current_time = datetime.now()
+        
+        # Remove expired entries
+        expired_keys = []
+        for key, entry in self.cache.items():
+            ttl_seconds = entry.get("ttl_minutes", 15) * 60
+            if (current_time - entry["time"]).total_seconds() >= ttl_seconds:
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            del self.cache[key]
+        
+        # Enforce max size (LRU: remove oldest entries)
+        while len(self.cache) > self.MAX_CACHE_SIZE:
+            self.cache.popitem(last=False)  # Remove oldest (FIFO)
+    
+    def _call_openrouter_api(self, prompt: str) -> Dict[str, Any]:
+        """
+        Call OpenRouter API with error handling.
+        
+        Args:
+            prompt: The prompt to send to the LLM
+            
+        Returns:
+            Dict with 'raw_output' and 'model' keys
+            
+        Raises:
+            Exception: If API call fails
+        """
         if not self.client:
             raise Exception("AI Client not initialized (Missing Key)")
-            
+        
         try:
             completion = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
             raw_content = completion.choices[0].message.content
             clean_text = self.extract_json(raw_content)
             return {"raw_output": clean_text, "model": f"openrouter:{self.model}"}
         except Exception as e:
             raise Exception(f"OpenRouter failed: {e}")
-
-    def _call_ai_generic(self, prompt: str) -> dict:
-        """Dispatcher: Try provider"""
+    
+    def _call_ai_generic(self, prompt: str) -> Dict[str, Any]:
+        """
+        Generic AI call dispatcher with Circuit Breaker logic.
         
+        Args:
+            prompt: The prompt to send
+            
+        Returns:
+            Dict with AI response or error fallback
+        """
         # Check Circuit Breaker
         if self.circuit_breaker_until:
             if datetime.now() < self.circuit_breaker_until:
                 remaining = int((self.circuit_breaker_until - datetime.now()).total_seconds() / 60)
-                return {"error": "AI Circuit Breaker Active", "raw_output": json.dumps({"explanation": f"IA en pause pour {remaining} min (Quota épuisé)"})}
+                return {
+                    "error": "AI Circuit Breaker Active",
+                    "raw_output": json.dumps({
+                        "explanation": f"IA en pause pour {remaining} min (Quota épuisé)"
+                    })
+                }
             else:
                 self.circuit_breaker_until = None
                 print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
-
+        
         try:
             return self._call_openrouter_api(prompt)
         except Exception as e:
             error_str = str(e).lower()
             print(f"⚠️ AI Call failed: {e}")
             
+            # Trigger Circuit Breaker on quota errors
             if "quota" in error_str or "429" in error_str:
                 self.circuit_breaker_until = datetime.now() + timedelta(minutes=10)
                 print("❄️ AI CIRCUIT BREAKER TRIGGERED: Pausing AI for 10 minutes")
-                
-            return {"raw_output": json.dumps({"error": "AI call failed", "details": str(e)})}
-
+            
+            return {
+                "raw_output": json.dumps({
+                    "error": "AI call failed",
+                    "details": str(e)
+                })
+            }
+    
     def _get_cache_key(self, type_: str, unique_id: str) -> str:
+        """Generate cache key from type and unique ID"""
         return f"{type_}:{unique_id}"
-
-    def _get_cached_response(self, key: str, ttl_minutes: int):
+    
+    def _get_cached_response(self, key: str, ttl_minutes: int) -> Optional[Dict[str, Any]]:
+        """
+        Get cached response if still valid.
+        
+        Args:
+            key: Cache key
+            ttl_minutes: Time-to-live in minutes
+            
+        Returns:
+            Cached data or None if expired/missing
+        """
         if key in self.cache:
             entry = self.cache[key]
             if (datetime.now() - entry["time"]).total_seconds() < (ttl_minutes * 60):
+                # Move to end (LRU: mark as recently used)
+                self.cache.move_to_end(key)
                 return entry["data"]
         return None
-
-    def _set_cache(self, key: str, data: dict):
+    
+    def _set_cache(self, key: str, data: Dict[str, Any], ttl_minutes: int = 15) -> None:
+        """
+        Set cache entry with TTL and trigger cleanup.
+        
+        Args:
+            key: Cache key
+            data: Data to cache
+            ttl_minutes: Time-to-live in minutes
+        """
         self.cache[key] = {
             "time": datetime.now(),
-            "data": data
+            "data": data,
+            "ttl_minutes": ttl_minutes
         }
-
-    def analyze_market(self, market_data: dict) -> dict:
-        """Cached market analysis (15 min TTL)"""
+        
+        # Periodic cleanup (every 10 cache sets)
+        if len(self.cache) % 10 == 0:
+            self._clean_cache()
+    
+    def analyze_market(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze market conditions (cached 15 min).
+        
+        Args:
+            market_data: Dict with symbol, price, indicators, etc.
+            
+        Returns:
+            Dict with risk_level, trend, summary (FR), reasoning
+        """
         symbol = market_data.get('symbol', 'UNKNOWN')
-        # Create a rough hash/key based on symbol and price (rounded) to avoid minor fluctuation triggering new analysis
-        # Actually, simpler: just cache by symbol for 15 mins.
         key = self._get_cache_key("market", symbol)
         
         cached = self._get_cached_response(key, 15)
         if cached:
             return cached
-            
-        prompt = f"""
-        Agis comme un expert Quant Trader Crypto. Analyse les indicateurs suivants pour {symbol}:
         
-        Données:
-        {market_data}
-        
-        Réponds UNIQUEMENT avec un objet JSON valide (sans markdown) contenant:
-        - risk_level: (LOW, MEDIUM, HIGH)
-        - trend: (BULLISH, BEARISH, NEUTRAL, RANGE)
-        - summary: Une analyse de 2 phrases en FRANÇAIS.
-        - reasoning: Une liste de 3 facteurs clés.
-        """
+        prompt = f"""You are an expert Quantitative Crypto Trader. Analyze the following market data for {symbol}.
+
+Market Data:
+{json.dumps(market_data, indent=2)}
+
+Respond ONLY with valid JSON (no markdown) containing:
+- risk_level: (LOW, MEDIUM, HIGH)
+- trend: (BULLISH, BEARISH, NEUTRAL, RANGE)
+- summary: A 2-sentence analysis in FRENCH
+- reasoning: A list of 3 key factors (in FRENCH)
+
+Example:
+{{
+  "risk_level": "MEDIUM",
+  "trend": "BULLISH",
+  "summary": "Le marché montre une tendance haussière avec un RSI équilibré. La volatilité reste modérée.",
+  "reasoning": ["RSI à 55 indique un momentum sain", "Prix au-dessus de l'EMA20", "Volume en hausse de 20%"]
+}}
+"""
         result = self._call_ai_generic(prompt)
-        # Only cache if successful
+        
         if "error" not in result and "raw_output" in result and "Error" not in result["raw_output"]:
-             self._set_cache(key, result)
+            self._set_cache(key, result, ttl_minutes=15)
+        
         return result
     
-    def validate_signal(self, signal_data: dict, market_context: dict) -> dict:
-        """Validate a trading signal with AI before execution"""
-        # Cache for 1 min (signals are time-sensitive)
+    def validate_signal(
+        self,
+        signal_data: Dict[str, Any],
+        market_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Validate a trading signal before execution (AI Gatekeeper).
+        Cached for 1 minute (signals are time-sensitive).
+        
+        Args:
+            signal_data: Signal details (symbol, side, price, sl, tp, strategy)
+            market_context: Current market conditions
+            
+        Returns:
+            Dict with approved (bool), confidence (0-100), reasoning (FR), risk_level, suggested_adjustments
+        """
         symbol = signal_data.get('symbol', 'UNKNOWN')
         key = self._get_cache_key("signal_validation", f"{symbol}_{signal_data.get('signal')}")
+        
         cached = self._get_cached_response(key, 1)
         if cached:
             return cached
@@ -193,248 +315,122 @@ Approve the signal ONLY if:
 Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, etc.)
 
 === REQUIRED OUTPUT ===
-Respond ONLY with valid JSON:
+Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
 {{
   "approved": true|false,
   "confidence": <0-100>,
-  "reasoning": "brief 2-3 sentence explanation of decision",
-  "risk_factors": ["factor1", "factor2"],
+  "reasoning": "brief 2-3 sentence explanation in FRENCH",
+  "risk_level": "LOW|MEDIUM|HIGH",
   "suggested_adjustments": {{
-    "entry": <price_or_null>,
-    "sl": <price_or_null>,
-    "tp": <price_or_null>
+    "sl": <price or null>,
+    "tp": <price or null>
   }}
-}}"""
-        
+}}
+"""
         result = self._call_ai_generic(prompt)
+        
         if "error" not in result:
-            self._set_cache(key, result)
+            self._set_cache(key, result, ttl_minutes=1)
+        
         return result
     
-    def analyze_trade_signal(self, signal_data: dict, market_context: dict = None) -> dict:
-        """Cached signal analysis (5 min TTL for same signal/price)"""
-        # Key includes symbol, signal logic, and Price bucket (to avoid re-analyzing same price level)
-        # e.g. "BTC-BUY-ScalpEmaRsi-88000" (rounded price)
-        price = signal_data.get("price", 0)
-        strat = signal_data.get("strategy", "stat")
-        side = signal_data.get("signal", "none")
-        # Round price to nearest 100 to group similar signals
-        price_bucket = round(price / 10.0) * 10
-        
-        key = self._get_cache_key("signal", f"{strat}-{side}-{price_bucket}")
-        
-        cached = self._get_cached_response(key, 10)
-        if cached:
-            return cached
-
-        context_str = f"\nContexte: {json.dumps(market_context)}" if market_context else ""
-        
-        # Extract key data for better analysis
-        entry_price = signal_data.get("price", 0)
-        sl_price = signal_data.get("sl", 0)
-        tp_price = signal_data.get("tp", 0)
-        strategy = signal_data.get("strategy", "Unknown")
-        signal_type = signal_data.get("signal", "UNKNOWN")
-        
-        # Calculate current R:R if SL/TP exist
-        risk_reward = "N/A"
-        if sl_price and tp_price and entry_price:
-            risk = abs(entry_price - sl_price)
-            reward = abs(tp_price - entry_price)
-            if risk > 0:
-                risk_reward = f"{reward/risk:.2f}"
-        
-        prompt = f"""
-        ACT AS A SENIOR QUANT TRADER.
-        Review this trade signal and data.
-        
-        SIGNAL:
-        - Type: {signal_type}
-        - Strategy: {strategy}
-        - Enter: {entry_price}
-        - SL: {sl_price}
-        - TP: {tp_price}
-        
-        MARKET CONTEXT:
-        {context_str}
-        
-        TASK:
-        1. Analyze if this signal matches the current market regime.
-        2. Check for contradictions (e.g. BUY signal but RSI is 80, or huge resistance overhead).
-        3. Make a GO/NO-GO decision.
-        
-        CRITICAL RULES (DO NOT IGNORE):
-        - IF SIGNAL == SELL AND MARKET BIAS == BEARISH -> YOU MUST APPROVE (unless specific reason not to).
-        - IF SIGNAL == BUY AND MARKET BIAS == BULLISH -> YOU MUST APPROVE (unless specific reason not to).
-        - Alignment with trend is POSITIVE. Do NOT reject a SELL signal because the market is BEARISH - that is the POINT.
-        
-        OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
-        {{
-            "decision": "APPROVE" | "REJECT",
-            "confidence_score": (0-100),
-            "reasoning": "Short explanation...",
-            "risk_factors": ["risk1", "risk2"],
-            "suggested_modifications": "None or e.g. lower leverage"
-        }}
+    def analyze_active_position(
+        self,
+        position_data: Dict[str, Any],
+        current_market: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
-        result = self._call_ai_generic(prompt)
-        if "error" not in result:
-            self._set_cache(key, result)
-        return result
-    
-    def analyze_market_evolution(self, current_data: dict, previous_data: dict = None) -> dict:
-        # Evolution is periodic by nature, usually called by main loop with its own timer
-        # But we can cache it too just in case
-        key = self._get_cache_key("evolution", current_data.get("symbol", "Unk"))
-        cached = self._get_cached_response(key, 15)
-        if cached:
-            return cached
-
-        prev_str = f"\nAvant: {json.dumps(previous_data)}" if previous_data else ""
-        prompt = f"""
-        Analyste Crypto. Compare l'état actuel et précédent:
-        Actuel: {json.dumps(current_data)}
-        {prev_str}
+        Analyze an active position for risk management (cached 5 min).
         
-        Réponds UNIQUEMENT avec JSON:
-        - changes: Liste changements (FR)
-        - implications: Impact trading
-        - alert_level: (CRITICAL, HIGH, MEDIUM, LOW, NONE)
+        Args:
+            position_data: Position details (symbol, side, entry, sl, tp, pnl, breakeven_active)
+            current_market: Current market conditions
+            
+        Returns:
+            Dict with risk_level, recommendation, reasoning (FR), suggested_sl, suggested_tp, confidence
         """
-        result = self._call_ai_generic(prompt)
-        if "error" not in result:
-             self._set_cache(key, result)
-        self.last_market_analysis = result
-        self.last_market_analysis_time = datetime.now()
-        return result
-
-    def analyze_active_position(self, position_data: dict, current_market: dict) -> dict:
-        # Cache for 5 mins
-        key = self._get_cache_key("position", position_data.get("symbol", "Unk"))
-        cached = self._get_cached_response(key, 5)
-        if cached:
-            return cached
-
-        prompt = f"""
-        Risk Manager Crypto. Analyse position:
-        Position: {position_data}
-        Marché: {current_market}
+        symbol = position_data.get("symbol", "UNKNOWN")
+        key = self._get_cache_key("position", symbol)
         
-        Réponds UNIQUEMENT avec JSON:
-        - status: (WINNING, LOSING, etc)
-        - recommendations: Conseils (FR)
-        - risk_level: (LOW...CRITICAL)
-        - actions: (HOLD, CLOSE, etc)
-        - reasoning: Pourquoi
-        """
-        result = self._call_ai_generic(prompt)
-        if "error" not in result:
-             self._set_cache(key, result)
-        
-        return result
-
-    def analyze_indicators(self, indicators_dict: dict) -> dict:
-        prompt = f"""
-        Expert Tech Analysis. Explique indicateurs:
-        {json.dumps(indicators_dict)}
-        
-        Réponds UNIQUEMENT avec JSON:
-        - interpretations: Dict explications (FR)
-        - overall_signal: (BULLISH, BEARISH...)
-        - key_points: 3 points clés
-        """
-        return self._call_ai_generic(prompt)
-
-    def generate_market_commentary(self, full_context: dict) -> dict:
-        prompt = f"""
-        Analyste Pro. Rédige commentaire marché:
-        {json.dumps(full_context)}
-        
-        Réponds UNIQUEMENT avec JSON:
-        - commentary: 4-5 phrases narratives (FR)
-        - sentiment: (VERY_BULLISH...)
-        - outlook: Perspective court terme
-        """
-        return self._call_ai_generic(prompt)
-    
-    def analyze_position_risk(self, symbol: str, position_data: dict = None, market_data: dict = None) -> dict:
-        """Analyze risk for a position with comprehensive market context"""
-        # Cache for 5 mins
-        key = self._get_cache_key("position_risk", symbol)
         cached = self._get_cached_response(key, 5)
         if cached:
             return cached
         
-        # Extract market context
-        ctx = market_data or {}
+        ctx = current_market or {}
         
-        # Build professional prompt
+        # Extract position details
+        side = position_data.get("side", "N/A")
+        entry = position_data.get("entry", 0)
+        current_price = ctx.get("current_price", 0)
+        pnl = ((current_price - entry) / entry * 100) if entry > 0 else 0
+        if side == "SELL":
+            pnl = -pnl
+        
+        breakeven_status = "ACTIVE (SL at BreakEven)" if position_data.get("breakeven_active") else "NOT ACTIVE"
+        
         prompt = f"""You are a professional crypto trading risk analyst with expertise in technical analysis and position management.
 
-=== POSITION ANALYSIS REQUEST ===
-
+=== ACTIVE POSITION ===
 Symbol: {symbol}
-Current Price: ${ctx.get('current_price', 'N/A')}
+Side: {side}
+Entry Price: ${entry}
+Current Price: ${current_price}
+Current P&L: {pnl:.2f}%
+BreakEven Status: {breakeven_status}
+
+Current Protection:
+- Stop Loss: ${position_data.get('sl', 'N/A')}
+- Take Profit: ${position_data.get('tp', 'N/A')}
+
+Position Age: {position_data.get('duration', 'N/A')}
+Strategy: {position_data.get('strategy', 'N/A')}
+
+=== CURRENT MARKET CONDITIONS ===
 Market Regime: {ctx.get('regime', 'UNKNOWN')}
 Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
 
-{f'''Position Details:
-- Direction: {position_data.get('side', 'N/A')}
-- Entry Price: ${position_data.get('entry_price', 'N/A')}
-- Unrealized PnL: {ctx.get('pnl_percent', 0):.2f}%
-- Time in Trade: {ctx.get('time_in_trade', 'N/A')}
-- Current SL: ${position_data.get('sl', 'N/A')} ({ctx.get('sl_distance', 'N/A')}% from entry)
-- Current TP: ${position_data.get('tp', 'N/A')} ({ctx.get('tp_distance', 'N/A')}% from entry)
-- Risk/Reward Ratio: {ctx.get('rr_ratio', 'N/A')}
-''' if position_data else 'Analyzing potential entry opportunity'}
-
-=== TECHNICAL INDICATORS ===
+Technical Indicators:
 - RSI(14): {ctx.get('rsi', 'N/A')} {self._get_rsi_label(ctx.get('rsi'))}
-- ATR: {ctx.get('atr', 'N/A')} (Volatility: {ctx.get('volatility_percentile', 'N/A')}th percentile)
+- ATR: {ctx.get('atr', 'N/A')}
 - Price vs EMA20: {ctx.get('ema20_distance', 'N/A')}%
 - Price vs EMA50: {ctx.get('ema50_distance', 'N/A')}%
 
-=== KEY PRICE LEVELS ===
-- Recent Swing High: ${ctx.get('swing_high', 'N/A')}
-- Recent Swing Low: ${ctx.get('swing_low', 'N/A')}
-- EMA20: ${ctx.get('ema_20', 'N/A')}
-- EMA50: ${ctx.get('ema_50', 'N/A')}
-{f"- EMA200: ${ctx.get('ema_200', 'N/A')}" if ctx.get('ema_200') else ''}
+Key Levels:
+- Swing High: ${ctx.get('swing_high', 'N/A')}
+- Swing Low: ${ctx.get('swing_low', 'N/A')}
 
-=== VOLUME ANALYSIS ===
-- Current Volume: {ctx.get('current_volume', 'N/A')}
-- Average Volume (50): {ctx.get('avg_volume', 'N/A')}
-- Volume Ratio: {ctx.get('volume_ratio', 'N/A')}% of average
+Volume:
+- Current: {ctx.get('current_volume', 'N/A')}
+- Ratio vs Avg: {ctx.get('volume_ratio', 'N/A')}%
+
+=== RISK ASSESSMENT TASK ===
+Analyze the position and provide:
+1. Should we move SL to break-even? (if in profit and conditions are right)
+2. Should we tighten SL to lock in profits?
+3. Should we adjust TP based on current momentum?
+4. What is the current risk level?
+
+NOTE: If BreakEven is already ACTIVE, do NOT recommend moving to BreakEven again.
 
 === REQUIRED OUTPUT ===
-Provide a JSON response with:
-1. Risk assessment (0-100 score, where 100 = extremely risky)
-2. Risk level classification
-3. Key risk factors identified
-4. Actionable recommendations
-5. Optimal SL/TP based on technical levels (not arbitrary percentages)
-
-Respond ONLY with valid JSON in this exact format:
+Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
 {{
-  "risk_score": <0-100>,
   "risk_level": "LOW|MEDIUM|HIGH|CRITICAL",
-  "risk_factors": ["factor1", "factor2", "factor3"],
-  "market_bias": "BULLISH|BEARISH|NEUTRAL",
-  "recommendations": ["action1", "action2"],
-  "stop_loss_suggestion": <price_number>,
-  "stop_loss_reasoning": "brief explanation based on technical level",
-  "take_profit_suggestion": <price_number>,
-  "take_profit_reasoning": "brief explanation based on technical level",
-  "confidence": <0-100>,
-  "reasoning": "2-3 sentence summary of analysis"
-}}"""
-        
+  "recommendation": "HOLD|TIGHTEN_SL|MOVE_TO_BREAKEVEN|TAKE_PROFIT|CLOSE_NOW",
+  "reasoning": "2-3 sentence explanation in FRENCH",
+  "suggested_sl": <price or null>,
+  "suggested_tp": <price or null>,
+  "confidence": <0-100>
+}}
+"""
         result = self._call_ai_generic(prompt)
+        
         if "error" not in result:
-            self._set_cache(key, result)
+            self._set_cache(key, result, ttl_minutes=5)
+        
         return result
     
-    def _get_rsi_label(self, rsi):
+    def _get_rsi_label(self, rsi: Optional[float]) -> str:
         """Helper to label RSI values"""
         if rsi is None:
             return ""
@@ -445,4 +441,6 @@ Respond ONLY with valid JSON in this exact format:
         else:
             return "→ NEUTRAL"
 
+
+# Global singleton instance
 ia_service = IAService()
