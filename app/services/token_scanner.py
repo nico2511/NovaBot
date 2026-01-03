@@ -352,7 +352,7 @@ class HyperliquidScanner:
             print(f"❌ Momentum scan error: {e}")
             return {"selected": [], "scores": {}, "weights": {}}
     
-    def scan(self, max_results: int = 5, whitelist: List[str] = None) -> List[Dict[str, Any]]:
+    def scan(self, top_n: int = 10, whitelist: List[str] = None) -> List[Dict[str, Any]]:
         """
         Main scanning function
         Returns top N opportunities sorted by score
