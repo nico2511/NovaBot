@@ -1373,6 +1373,28 @@ async def dev_restart_bot():
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/api/dev/rebuild_frontend")
+async def dev_rebuild_frontend():
+    """Rebuild Next.js frontend (npm run build)"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["bash", "-c", "cd /var/www/novabot/frontend && npm run build"],
+            capture_output=True,
+            text=True,
+            timeout=180  # 3 minutes max
+        )
+        return {
+            "status": "success" if result.returncode == 0 else "error",
+            "output": result.stdout,
+            "error": result.stderr
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "Build timeout (3 min)"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/api/toggle_gamification")
 async def toggle_gamification(data: dict):
     """Toggle Gamification enforcement ON/OFF"""
