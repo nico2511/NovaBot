@@ -1,12 +1,11 @@
 {
-    "active_symbol": "BTC",
     "market_regime": {
         "adx_threshold": 25,
         "timeframe": "15m"
     },
     "strategies": {
         "scalp_ema_rsi": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "params": {
                 "ema_fast": 9,
@@ -17,14 +16,18 @@
             }
         },
         "institutional_scalp": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
-                "liq_grab_lookback": 20
+                "liq_grab_lookback": 30,
+                "allow_longs": true,
+                "allow_shorts": true,
+                "sl_atr_mult": 1.0,
+                "tp_atr_mult": 2.0
             }
         },
         "elastic_reversion": {
-            "enabled": true,
+            "enabled": false,
             "type": "range",
             "params": {
                 "rsi_period": 14,
@@ -123,7 +126,7 @@
             }
         },
         "golden_cross": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "params": {
                 "fast_length": 20,
@@ -187,6 +190,11 @@
                 "min_candles": 60,
                 "volume_confirmation": true
             }
+        },
+        "test_ema": {
+            "enabled": false,
+            "type": "trend",
+            "params": {}
         }
     }
 }

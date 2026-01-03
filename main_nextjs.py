@@ -395,6 +395,26 @@ class BotContext:
             self.add_log(f"❌ ATOMIC EXIT ERROR: {e}")
             return False
 
+    def _check_hard_veto(self, signal: str, market_context: dict):
+        """
+        HARD VETO: Technical guardrails to block bad AI calls.
+        Returns REJECT reason if vetoed, else None.
+        """
+        try:
+            rsi = market_context.get("rsi")
+            if rsi is None: return None
+            
+            # 1. RSI Extremes Veto
+            if signal == "BUY" and rsi > 75:
+                return f"HARD VETO: RSI Overbought ({rsi:.1f} > 75)"
+            
+            if signal == "SELL" and rsi < 25:
+                return f"HARD VETO: RSI Oversold ({rsi:.1f} < 25)"
+                
+            return None
+        except Exception:
+            return None
+
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
@@ -453,7 +473,7 @@ class BotContext:
                     # Now perform AI analysis with the CORRECT symbol
                     if not self._initial_position_analyzed:
                         try:
-                            from app.services.gemini_service import gemini_service
+                            from app.services.ia import ia_service
                             import json
                             self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
                             
@@ -461,7 +481,7 @@ class BotContext:
                             df = hyperliquid_service.get_candles(self.active_symbol, "15m", 50)
                             
                             if not df.empty:
-                                ai_result = gemini_service.analyze_position_risk(
+                                ai_result = ia_service.analyze_position_risk(
                                     symbol=self.active_symbol,
                                     position_data=main_position,  # Fixed: position → position_data
                                     market_data={
@@ -596,15 +616,21 @@ class BotContext:
                             
                             # CRITICAL: ALWAYS use AI to determine SL/TP for manual trades
                             self.add_log("🤖 Calling AI to validate manual trade SL/TP...")
+                            self.add_log("🤖 Calling AI to validate manual trade SL/TP...")
                             try:
-                                from app.services.gemini_service import gemini_service
+                                from app.services.ia import ia_service
                                 import json
                                 
                                 # Prepare comprehensive market context
                                 market_context = self._prepare_ai_context(active_symbol_pos)
                                 
-                                # Call AI for position risk analysis with full context
-                                ai_risk_analysis = gemini_service.analyze_position_risk(
+                                # --- HARD VETO CHECK (Before AI) ---
+                                veto_reason = self._check_hard_veto(action, market_context)
+                                if veto_reason:
+                                    self.add_log(f"🛑 Trade VETOED by Hard Rules: {veto_reason}")
+                                    continue # Skip trade
+
+                                ai_risk_analysis = ia_service.analyze_position_risk(
                                     symbol=self.active_symbol,
                                     position_data=active_symbol_pos,
                                     market_data=market_context
@@ -665,6 +691,22 @@ class BotContext:
                             self.risk_manager.record_trade_open()
                             self.add_log(f"✅ Adopted {side} {self.active_symbol} @ {entry_price} (Lev: {active_symbol_pos.get('leverage', 1.0)}x)")
                             self.add_log(f"   Current Price: {current_price} | SL: {sl:.8f} | TP: {tp:.8f}")
+                            
+                            # CRITICAL: Place SL/TP orders on Hyperliquid (not just software stops)
+                            if self.execution_mode == "Auto (Hyperliquid)":
+                                self.add_log("🔄 Syncing adopted SL/TP to Hyperliquid...")
+                                try:
+                                    hyperliquid_service.sync_sl_tp(
+                                        self.active_symbol,
+                                        side == "BUY",
+                                        active_symbol_pos["size"],
+                                        sl,
+                                        tp
+                                    )
+                                    self.add_log("✅ SL/TP orders placed on Hyperliquid")
+                                except Exception as e:
+                                    self.add_log(f"❌ Failed to sync SL/TP: {e}")
+                            
                             discord_service.send_alert(
                                 "🛡️ MANUAL TRADE ADOPTED (AI-Validated)",
                                 f"Symbol: {self.active_symbol}\nSide: {side}\nEntry: {entry_price}\nCurrent: {current_price}\nAI SL: {sl:.8f}\nAI TP: {tp:.8f}\nSize: {active_symbol_pos['size']}\nLeverage: {active_symbol_pos.get('leverage', 1.0)}x",
@@ -793,19 +835,30 @@ class BotContext:
                 
                 
                 # ============================================
-                # FOCUS MODE vs SCANNING MODE
+                # FOCUS MODE vs SCANNING MODE (API OPTIMIZATION)
                 # ============================================
                 real_positions = hyperliquid_service.get_positions()
                 active_count = len([p for p in real_positions if float(p["size"]) > 0])
                 
-                is_focus_mode = (active_count >= self.max_positions)
+                # Update global state for ScannerJob
+                self.is_focus_mode = (active_count >= self.max_positions)
                 
-                if is_focus_mode:
-                    if self.missing_pos_counter == 0: # Only log nominally
-                         # Use modulo to reduce log spam if needed, or just suppress
-                         pass
-                    # self.add_log(f"🔒 FOCUS MODE ACTIVE ({active_count}/{self.max_positions} pos). Scanning paused.")
+                if self.is_focus_mode:
+                    # CAS A: Position Active (FOCUS MODE)
+                    # 🚫 ACTION : Scanner & Analysis DISABLED
+                    # ✅ ACTION : Monitor Trade Only (handled by consistency checks above)
+                    
+                    # Log every ~5 minutes (10 loops * 30s)
+                    if not hasattr(self, "focus_log_counter"): self.focus_log_counter = 0
+                    self.focus_log_counter += 1
+                    
+                    if self.focus_log_counter % 10 == 1:
+                        self.add_log(f"🔒 Trade in progress on {self.active_symbol}. Scanning PAUSED to save API rates.")
+                        
                 else:
+                    # CAS B: No Position (HUNT MODE)
+                    # ✅ ACTION : Analysis Enabled
+
                     # Only analyze on new 1m candle
                     if self.last_candle_time != current_candle_time:
                         self.last_candle_time = current_candle_time
@@ -824,7 +877,7 @@ class BotContext:
                         
                         # AI: Analyse périodique du marché (toutes les 15 minutes)
                         try:
-                            from app.services.gemini_service import gemini_service
+                            from app.services.ia import ia_service
                             from datetime import datetime, timedelta
                             
                             now = datetime.now()
@@ -844,7 +897,7 @@ class BotContext:
                                 previous_snapshot = self.ai_cache["market_snapshots"][-1] if self.ai_cache["market_snapshots"] else None
                                 
                                 # Analyser l'évolution
-                                evolution_analysis = gemini_service.analyze_market_evolution(current_snapshot, previous_snapshot)
+                                evolution_analysis = ia_service.analyze_market_evolution(current_snapshot, previous_snapshot)
                                 
                                 self.ai_cache["last_market_analysis"] = evolution_analysis
                                 self.ai_cache["last_market_analysis_time"] = now
@@ -874,6 +927,11 @@ class BotContext:
                             sl = sig_data.get("sl", entry_price * 0.95)
                             tp = sig_data.get("tp", entry_price * 1.05)
                             
+                            # CRITICAL FIX: Filter out invalid signals immediately
+                            if not action or not entry_price or float(entry_price) <= 0:
+                                # self.add_log(f"⚠️ Invalid signal received: {action} @ {entry_price}")
+                                continue
+
                             # Initialize variables to prevent UnboundLocalError
                             ai_approved = False
                             ai_reasoning = "Initialization default"
@@ -907,7 +965,7 @@ class BotContext:
                             
                             # Convert to DataFrame
                             try:
-                                from app.services.gemini_service import gemini_service
+                                from app.services.ia import ia_service
                                 import json
                                 
                                 self.add_log("🤖 Validating signal with AI...")
@@ -926,7 +984,7 @@ class BotContext:
                                 }
                                 
                                 # Call AI validation
-                                validation_result = gemini_service.validate_signal(
+                                validation_result = ia_service.validate_signal(
                                     signal_data=signal_for_validation,
                                     market_context=market_context
                                 )
@@ -935,7 +993,7 @@ class BotContext:
                                 risk_factors = []
                                 if validation_result.get("raw_output"):
                                     try:
-                                        ai_data = json.loads(gemini_service.extract_json(validation_result["raw_output"]))
+                                        ai_data = json.loads(ia_service.extract_json(validation_result["raw_output"]))
                                         ai_approved = ai_data.get("approved", False)
                                         ai_confidence = ai_data.get("confidence", 0)
                                         ai_reasoning = ai_data.get("reasoning", "No reasoning provided")
@@ -1014,7 +1072,7 @@ class BotContext:
                         
                         # Signal approved by AI, proceed with execution
                         try:
-                            from app.services.gemini_service import gemini_service
+                            from app.services.ia import ia_service
                             
                             signal_for_ai = {
                                 "signal": action,
@@ -1058,7 +1116,7 @@ class BotContext:
                                 market_context["ema_20"] = result.get("ema_20")
                                 market_context["ema_50"] = result.get("ema_50")
                                 
-                                ai_analysis = gemini_service.analyze_trade_signal(signal_for_ai, market_context)
+                                ai_analysis = ia_service.analyze_trade_signal(signal_for_ai, market_context)
                                 
                                 # Stocker l'analyse avec hash
                                 self.ai_cache["signal_analyses"].append({
@@ -1116,10 +1174,10 @@ class BotContext:
                                 
                                 # CRITICAL FIX: Use AI to suggest appropriate SL/TP instead of hardcoded ±5%
                                 try:
-                                    from app.services.gemini_service import gemini_service
+                                    from app.services.ia import ia_service
                                     
                                     # Get AI suggestion for SL/TP
-                                    ai_risk_analysis = gemini_service.analyze_position_risk(
+                                    ai_risk_analysis = ia_service.analyze_position_risk(
                                         symbol=self.active_symbol,
                                         position_data=existing_pos,
                                         market_data={"price": existing_pos["entry_price"], "regime": result.get("regime", "UNKNOWN")}
@@ -1129,7 +1187,7 @@ class BotContext:
                                     import json
                                     if ai_risk_analysis.get("raw_output"):
                                         try:
-                                            ai_data = json.loads(gemini_service.extract_json(ai_risk_analysis["raw_output"]))
+                                            ai_data = json.loads(ia_service.extract_json(ai_risk_analysis["raw_output"]))
                                             suggested_sl = ai_data.get("stop_loss_suggestion")
                                             suggested_tp = ai_data.get("take_profit_suggestion")
                                             
@@ -1211,27 +1269,35 @@ class BotContext:
                                 # 1. Calculate Position Size
                                 size = 0.0
                                 try:
-                                    size_type = self.sidebar_settings.get("size_type", "Fixed (USDC)")
-                                    size_value = float(self.sidebar_settings.get("size_value", 15.0)) # Default usually 15-20$ min on HL
+                                    settings_size_type = self.sidebar_settings.get("size_type", "Fixed (USDC)")
+                                    size_value = float(self.sidebar_settings.get("size_value", 15.0))
                                     leverage = int(self.sidebar_settings.get("leverage", 5))
                                     
-                                    if size_type == "Fixed (USDC)":
-                                        # Size in coins = (USDC Value * Leverage) / Price
-                                        if entry_price > 0:
-                                            # Example: $100 margin * 5x = $500 position / $50000 BTC = 0.01 BTC
-                                            # Wait, usually "Fixed (USDC)" implies Margin Amount.
-                                            # Let's assume size_value is the MARGIN amount.
-                                            position_value = size_value * leverage
-                                            size = position_value / entry_price
-                                    elif size_type == "% Balance":
-                                         # Balance based calculation (needs balance fetch, skipped for safety/simplicity now, fallback to Fixed)
-                                         # Fallback to $20 margin * leverage
-                                         position_value = 20.0 * leverage
-                                         size = position_value / entry_price
-                                         
+                                    # Map settings to RiskManager types
+                                    rm_method = "fixed"
+                                    rm_size_type = "margin" # Default
+                                    
+                                    if settings_size_type == "Fixed (USDC)":
+                                        rm_method = "fixed"
+                                        rm_size_type = "margin"
+                                    elif settings_size_type == "% Balance":
+                                         rm_method = "risk_pct"
+                                         rm_size_type = "risk_pct"
+                                    
+                                    # Calculate using robust RiskManager logic
+                                    size = self.risk_manager.calculate_position_size(
+                                        price=entry_price,
+                                        sl_price=sl, # Can be 0 if not set, handled by RM
+                                        equity=float(balance_data.get("equity", 1000)), # Best effort equity
+                                        method=rm_method,
+                                        size_value=size_value,
+                                        leverage=leverage,
+                                        size_type=rm_size_type
+                                    )
+
                                 except Exception as e:
                                     self.add_log(f"⚠️ Error calculating size: {e}. Using min default.")
-                                    size = (20.0 * 5) / entry_price if entry_price else 0
+                                    size = (12.0) / entry_price if entry_price else 0
 
                                 self.active_trade = {
                                     "symbol": self.active_symbol,
@@ -1372,7 +1438,7 @@ class BotContext:
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
-                        from app.services.gemini_service import gemini_service
+                        from app.services.ia import ia_service
                         from datetime import datetime, timedelta
                         
                         now = datetime.now()
@@ -1385,7 +1451,7 @@ class BotContext:
                                 "symbol": self.active_symbol
                             }
                             
-                            position_analysis = gemini_service.analyze_active_position(self.active_trade, market_context)
+                            position_analysis = ia_service.analyze_active_position(self.active_trade, market_context)
                             
                             # CRITICAL FIX: Store with specific key for API retrieval
                             self.ai_cache[f"position_analysis_{self.active_symbol}"] = position_analysis

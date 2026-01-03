@@ -169,20 +169,16 @@ class HyperliquidService:
 
     def _get_precision(self, symbol: str):
         """Get precision for size and price from metadata"""
-        meta = self._fetch_metadata()
-        if not meta:
-            return 6, 4 # Safe defaults
-            
-        try:
-            universe = meta.get("universe", [])
-            for asset in universe:
-                if asset["name"] == symbol:
-                    # Use .get() to avoid KeyErrors if API keys change/missing
-                    return asset.get("szDecimals", 6), asset.get("maxPriceDecimals", 4)
-        except Exception as e:
-            print(f"⚠️ Error parsing metadata for {symbol}: {e}")
-            
-        return 6, 4 # Defaults if not found
+        from app.utils.token_metadata import token_metadata
+        
+        # Use centralized helper for sz_decimals
+        sz_decimals = token_metadata.get_sz_decimals(symbol)
+        
+        # Price decimals: use safe default (not in token_meta_cache.json)
+        # Could be enhanced later if needed
+        price_decimals = 4
+        
+        return sz_decimals, price_decimals
 
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
@@ -274,9 +270,12 @@ class HyperliquidService:
         # NORMALIZATION
         symbol = self.get_canonical_symbol(symbol)
         
-        # PRECISION
+        # PRECISION & ROUNDING - Use centralized helper
+        from app.utils.token_metadata import token_metadata
         sz_decimals, price_decimals = self._get_precision(symbol)
-        quantity = float(f"{quantity:.{sz_decimals}f}")
+        quantity = token_metadata.round_size(symbol, quantity)
+        
+        print(f"📏 Order Size: {token_metadata.format_size(symbol, quantity)} {symbol} (sz_decimals={sz_decimals})")
         
         # RETRY CONFIG
         max_retries = 3
@@ -361,6 +360,14 @@ class HyperliquidService:
                 # VERIFICATION LOGIC (Shared)
                 print(f"✅ Exec Result: {result}")
                 
+                # CRITICAL FIX: Handle case where SDK returns a string (error message) instead of dict
+                if not isinstance(result, dict):
+                    print(f"❌ API returned non-dict result: {result}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return {"status": "error", "message": f"API Error: {str(result)}"}
+
                 if result.get("status") == "ok":
                     response = result.get("response", {})
                     data = response.get("data", {})
