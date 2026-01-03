@@ -14,7 +14,7 @@ interface StrategyMonitorProps {
 
 export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
     const getStrategyDetails = (strategy: string) => {
-        const details: { [key: string]: { icon: string; description: string; conditions: string[] } } = {
+        const details: { [key: string]: { icon: string; description: string; conditions: string[]; params?: string[] } } = {
             'Scalp Ema Rsi': {
                 icon: '⚡',
                 description: 'Trend following momentum scalp. *DISABLED*',
@@ -22,7 +22,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     'EMA Cross (9/21) [Inactive]',
                     'RSI Momentum Filter',
                     'High Drawdown Risk'
-                ]
+                ],
+                params: ['EMA: 9/21', 'RSI: 14', 'Threshold: 50-70']
             },
             'Institutional Scalp': {
                 icon: '🏦',
@@ -31,7 +32,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     'Sweep of 20-candle High/Low',
                     'Reclaim confirmation (Wick > 50%)',
                     'Direction: LONG ONLY active'
-                ]
+                ],
+                params: ['Lookback: 20 candles', 'Reclaim: 50%', 'Longs Only']
             },
             'Golden Cross': {
                 icon: '✨',
@@ -40,7 +42,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     'Weekly trend alignment',
                     'Low frequency / High conviction',
                     'Safety fuse for trending markets'
-                ]
+                ],
+                params: ['EMA: 50/200', 'Timeframe: Weekly', 'Type: Trend Filter']
             },
             'Elastic Reversion': {
                 icon: '🪀',
@@ -49,7 +52,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     'RSI Extreme (< 20)',
                     'Price vs EMA Extension',
                     'Active in RANGE regime'
-                ]
+                ],
+                params: ['RSI: < 20', 'Regime: RANGE', 'Target: EMA20']
             },
             'Smart Trend': {
                 icon: '🧠',
@@ -58,7 +62,18 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     '1m Micro-BOS detection',
                     'Volume Profile analysis',
                     'Live execution only'
-                ]
+                ],
+                params: ['Timeframe: 1m', 'AI: Gemini', 'Confidence: >75%']
+            },
+            'Smart Mean Reversion': {
+                icon: '🎣',
+                description: 'Bottom Fishing with Momentum Floor',
+                conditions: [
+                    'RSI < 30 (Oversold)',
+                    'ROC > -15% (Momentum Floor)',
+                    'Price < BB Lower + Stabilization'
+                ],
+                params: ['RSI: < 30', 'ROC: > -15%', 'BB: 20/2.0', 'SL: Low-3 - 0.5%']
             }
         }
 
@@ -123,6 +138,20 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                             </div>
                                         ))}
                                     </div>
+
+                                    {/* Parameters Section */}
+                                    {details.params && (
+                                        <div className="mt-3 pt-3 border-t border-border/20">
+                                            <div className="text-xs text-gray-500 mb-2 font-semibold">Parameters:</div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {details.params.map((param, i) => (
+                                                    <span key={i} className="text-xs bg-primary/10 text-primary-light px-2 py-1 rounded border border-primary/20">
+                                                        {param}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Progress Bar */}
                                     {strategy_progress[strategy] !== undefined && (
