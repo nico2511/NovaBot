@@ -88,6 +88,31 @@
             "type": "trend",
             "params": {}
         },
+        "elastic_reversion": {
+            "enabled": true,
+            "type": "reversion",
+            "params": {
+                "ema_period": 20,
+                "rsi_period": 14,
+                "extension_pct": 0.04,
+                "overbought_rsi": 80,
+                "oversold_rsi": 20,
+                "risk_reward": 1.5,
+                "sl_margin": 0.005
+            }
+        },
+        "smart_mean_reversion": {
+            "enabled": true,
+            "type": "reversion",
+            "params": {
+                "rsi_period": 14,
+                "roc_period": 10,
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "rsi_threshold": 30,
+                "roc_floor": -15.0
+            }
+        },
         "macd_crossover": {
             "enabled": false,
             "type": "trend",

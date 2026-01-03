@@ -159,6 +159,18 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         setRecalibrating(false)
     }
 
+    const forceBreakEven = async () => {
+        try {
+            await axios.post(`${API_URL}/api/force_breakeven`)
+            setRecalibrateMsg("✅ BE Set")
+            setTimeout(() => setRecalibrateMsg(""), 3000)
+        } catch (error) {
+            console.error('Failed to force breakeven:', error)
+            setRecalibrateMsg("❌ Failed")
+            setTimeout(() => setRecalibrateMsg(""), 3000)
+        }
+    }
+
     if (embedded) {
         return (
             <div className={`w-full flex flex-col justify-between rounded-xl overflow-hidden relative border ${isProfitable ? 'border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]'}`}
@@ -235,6 +247,13 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                 {/* Close Button Area */}
                 <div className="p-3 bg-black/20 border-t border-white/5 mt-auto flex gap-2">
                     <button
+                        onClick={forceBreakEven}
+                        className="w-1/3 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 border border-amber-500/20 rounded-lg text-xs font-bold text-amber-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-1"
+                        title="Force SL to Break Even (Entry + Fees)"
+                    >
+                        🛡️ BE
+                    </button>
+                    <button
                         onClick={recalibrateStops}
                         disabled={recalibrating}
                         className="w-1/3 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 active:bg-blue-500/30 border border-blue-500/20 rounded-lg text-xs font-bold text-blue-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-2 group"
@@ -267,6 +286,13 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                         <span className="text-xs font-normal text-gray-500 px-2 py-0.5 bg-white/5 rounded-full">{trade.strategy}</span>
                     </h3>
                     <div className="flex gap-2">
+                        <button
+                            onClick={forceBreakEven}
+                            className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 rounded-lg text-sm font-semibold transition-all shadow-lg hover:shadow-amber-500/10"
+                            title="Force SL to Break Even"
+                        >
+                            🛡️ Break Even
+                        </button>
                         <button
                             onClick={recalibrateStops}
                             disabled={recalibrating}

@@ -1,126 +1,205 @@
 """
-BacktestEngine - Moteur de simulation temporelle
+Professional Backtest Engine
+Simulates trading strategies on historical data with zero lookahead bias
 """
-
 import pandas as pd
+import json
+from typing import Dict, List, Optional
+from datetime import datetime
+import sys
+sys.path.append('.')
+
 from backtest.mock_exchange import MockExchange
+from strategies.engine import StrategyEngine
+from app.core.risk_manager import RiskManager
 
 class BacktestEngine:
-    """Moteur de simulation pour backtest de stratégies"""
+    """
+    Professional backtest engine following industry best practices
+    """
     
-    def __init__(self, initial_balance: float = 1000.0):
-        self.exchange = MockExchange(initial_balance)
-        self.results = []
-        
-    def run(self, data_csv_path: str, strategy_func, symbol: str = "BTC", warmup_candles: int = 50):
+    def __init__(
+        self,
+        initial_balance: float = 1000.0,
+        fee_rate: float = 0.0005,
+        warmup_candles: int = 50
+    ):
         """
-        Exécute le backtest.
+        Initialize backtest engine
         
         Args:
-            data_csv_path: Chemin vers CSV (colonnes: timestamp, open, high, low, close, volume)
-            strategy_func: Fonction qui prend (df_slice, exchange) et retourne un signal ou None
-            symbol: Symbole du token (pour logs)
-            warmup_candles: Nombre de bougies nécessaires pour les indicateurs
-        
-        Returns:
-            dict: Statistiques du backtest
+            initial_balance: Starting capital
+            fee_rate: Trading fee (0.0005 = 0.05%)
+            warmup_candles: Minimum candles before trading starts
         """
-        # Charger données
-        print(f"📂 Loading data from {data_csv_path}...")
-        df = pd.read_csv(data_csv_path)
+        self.initial_balance = initial_balance
+        self.fee_rate = fee_rate
+        self.warmup_candles = warmup_candles
+        self.exchange = MockExchange(initial_balance, fee_rate)
         
-        # Vérifier colonnes requises
-        required_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing columns: {missing_cols}")
+    def run(
+        self,
+        df: pd.DataFrame,
+        symbol: str,
+        strategy_config: Dict,
+        verbose: bool = False
+    ) -> Dict:
+        """
+        Run backtest on historical data
         
-        # Convertir timestamp
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df = df.sort_values('timestamp').reset_index(drop=True)
+        Args:
+            df: Historical OHLCV data with DatetimeIndex
+            symbol: Trading symbol
+            strategy_config: Strategy configuration dict
+            verbose: Print trade execution logs
+            
+        Returns:
+            Backtest results with statistics
+        """
+        # Initialize strategy engine with config
+        strategy_engine = StrategyEngine(config=strategy_config)
         
-        print(f"📊 Backtest: {len(df)} candles loaded")
-        print(f"📅 Period: {df['timestamp'].iloc[0]} → {df['timestamp'].iloc[-1]}")
-        print(f"💰 Initial Balance: ${self.exchange.initial_balance:.2f}")
-        print("="*60)
+        # Reset exchange
+        self.exchange = MockExchange(self.initial_balance, self.fee_rate)
         
-        # Boucle temporelle
-        for i in range(warmup_candles, len(df)):
-            # Contexte: Données disponibles jusqu'à t (ANTI LOOK-AHEAD BIAS)
+        print(f"\n{'='*60}")
+        print(f"🧪 BACKTESTING: {symbol}")
+        print(f"{'='*60}")
+        print(f"📊 Data: {len(df)} candles ({df.index[0]} → {df.index[-1]})")
+        print(f"💰 Initial Balance: ${self.initial_balance:.2f}")
+        print(f"📈 Fee Rate: {self.fee_rate*100:.3f}%")
+        print(f"{'='*60}\n")
+        
+        # Main backtest loop
+        for i in range(self.warmup_candles, len(df)):
+            current_candle = df.iloc[i]
+            
+            # ANTI-LOOKAHEAD: Only use data up to current index
             df_slice = df.iloc[:i+1].copy()
-            current_candle = df.iloc[i].to_dict()
             
-            # Injecter bougie actuelle
-            self.exchange.set_current_candle(current_candle)
+            # Set current candle for exchange
+            self.exchange.set_current_candle({
+                'open': current_candle['open'],
+                'high': current_candle['high'],
+                'low': current_candle['low'],
+                'close': current_candle['close'],
+                'volume': current_candle['volume'],
+                'timestamp': current_candle.name
+            })
             
-            # Vérifier SL/TP (AVANT d'appeler la stratégie)
+            # Check SL/TP first
             self.exchange.check_stops()
             
-            # Appeler stratégie SEULEMENT si pas de position
+            # Generate signals if no position
             if not self.exchange.positions:
                 try:
-                    signal = strategy_func(df_slice, self.exchange, symbol)
+                    result = strategy_engine.analyze(df_slice)
                     
-                    # Exécuter signal
-                    if signal:
-                        result = self.exchange.execute_order(
-                            symbol=signal['symbol'],
-                            is_buy=(signal['side'] == "BUY"),
-                            size=signal['size'],
-                            sl_price=signal.get('sl'),
-                            tp_price=signal.get('tp')
-                        )
+                    if result and result.get('signals'):
+                        signal_data = result['signals'][0]  # Take first signal
+                        signal = signal_data.get('signal')
                         
-                        if result['status'] == 'success':
-                            timestamp = current_candle['timestamp']
-                            print(f"[{timestamp}] 🚀 {signal['side']} {signal['size']:.4f} {symbol} @ ${current_candle['close']:.4f}")
-                        else:
-                            print(f"[{timestamp}] ❌ Order failed: {result['message']}")
+                        if signal and signal != 'HOLD':
+                            # Execute trade
+                            is_buy = (signal == 'BUY')
+                            entry_price = current_candle['close']
                             
+                            # Position sizing (10% of balance)
+                            size = (self.exchange.balance * 0.1) / entry_price
+                            
+                            # Get SL/TP from signal or use defaults
+                            if is_buy:
+                                sl = signal_data.get('sl', entry_price * 0.95)
+                                tp = signal_data.get('tp', entry_price * 1.10)
+                            else:
+                                sl = signal_data.get('sl', entry_price * 1.05)
+                                tp = signal_data.get('tp', entry_price * 0.90)
+                            
+                            # Execute order
+                            order_result = self.exchange.execute_order(
+                                symbol=symbol,
+                                is_buy=is_buy,
+                                size=size,
+                                price=entry_price,
+                                sl_price=sl,
+                                tp_price=tp
+                            )
+                            
+                            if verbose and order_result['status'] == 'success':
+                                strategy_name = signal_data.get('strategy', 'Unknown')
+                                print(f"[{current_candle.name}] 🚀 {signal} @ ${entry_price:.2f} ({strategy_name})")
+                
                 except Exception as e:
-                    print(f"⚠️ Strategy error at candle {i}: {e}")
+                    if verbose:
+                        print(f"⚠️ Error at candle {i}: {e}")
         
-        # Fermer position finale si ouverte
+        # Close any remaining positions
         if self.exchange.positions:
             for symbol in list(self.exchange.positions.keys()):
-                self.exchange.close_position(symbol, reason="END_OF_BACKTEST")
-                print(f"🔚 Closed final position on {symbol}")
+                self.exchange.close_position(symbol, reason="EOD")
         
-        # Rapport final
+        # Generate report
         stats = self.exchange.get_stats()
-        self.print_report(stats)
         
-        return stats
+        # Display results
+        self._display_results(symbol, stats)
         
-    def print_report(self, stats: dict):
-        """Affiche le rapport de performance"""
-        print("\n" + "="*60)
-        print("📈 BACKTEST RESULTS")
-        print("="*60)
-        print(f"Initial Balance: ${self.exchange.initial_balance:.2f}")
+        return {
+            'symbol': symbol,
+            'stats': stats,
+            'trades': self.exchange.history
+        }
+    
+    def _display_results(self, symbol: str, stats: Dict):
+        """Display backtest results"""
+        print(f"\n{'='*60}")
+        print(f"📈 RESULTS: {symbol}")
+        print(f"{'='*60}")
+        print(f"Initial Balance: ${self.initial_balance:.2f}")
         print(f"Final Balance:   ${stats['final_balance']:.2f}")
         print(f"Total PnL:       ${stats['total_pnl']:.2f}")
-        print(f"Total Fees:      ${stats['total_fees']:.2f}")
-        print(f"ROI:             {stats['roi_pct']:+.2f}%")
-        print("-"*60)
+        print(f"ROI:             {stats['roi_pct']:.2f}%")
         print(f"Total Trades:    {stats['total_trades']}")
-        print(f"Winning:         {stats['winning_trades']} ({stats['win_rate']:.1f}%)")
-        print(f"Losing:          {stats['losing_trades']}")
+        print(f"Winning Trades:  {stats['winning_trades']}")
+        print(f"Losing Trades:   {stats['losing_trades']}")
+        print(f"Win Rate:        {stats['win_rate']:.2f}%")
+        print(f"Avg Win:         ${stats['avg_win']:.2f}")
+        print(f"Avg Loss:        ${stats['avg_loss']:.2f}")
+        print(f"Total Fees:      ${stats['total_fees']:.2f}")
+        print(f"{'='*60}\n")
+
+
+if __name__ == "__main__":
+    # Test the engine
+    from app.services.hyperliquid_service import hyperliquid_service
+    
+    # Load config
+    with open("strategies.json", "r") as f:
+        config = json.load(f)
+    
+    # Fetch data
+    print("Fetching BTC data...")
+    df = hyperliquid_service.get_candles("BTC", "15m", limit=2880)  # 30 days
+    
+    if df is not None and not df.empty:
+        # Run backtest
+        engine = BacktestEngine(initial_balance=1000.0)
+        results = engine.run(df, "BTC", config, verbose=True)
         
-        if stats['total_trades'] > 0:
-            print(f"Avg Win:         ${stats['avg_win']:.2f}")
-            print(f"Avg Loss:        ${stats['avg_loss']:.2f}")
-            
-            if stats['avg_loss'] != 0:
-                profit_factor = abs(stats['avg_win'] * stats['winning_trades']) / abs(stats['avg_loss'] * stats['losing_trades'])
-                print(f"Profit Factor:   {profit_factor:.2f}")
+        # Save results
+        with open("backtest_results_professional.json", "w") as f:
+            # Convert trades to serializable format
+            serializable_results = {
+                'symbol': results['symbol'],
+                'stats': results['stats'],
+                'trades': [
+                    {k: str(v) if isinstance(v, (datetime, pd.Timestamp)) else v 
+                     for k, v in trade.items()}
+                    for trade in results['trades']
+                ]
+            }
+            json.dump(serializable_results, f, indent=2)
         
-        print("="*60)
-        
-        # Verdict
-        if stats['roi_pct'] > 10:
-            print("✅ STRATEGY PROFITABLE")
-        elif stats['roi_pct'] > 0:
-            print("⚠️ STRATEGY MARGINALLY PROFITABLE")
-        else:
-            print("❌ STRATEGY LOSING")
+        print("💾 Results saved to: backtest_results_professional.json")
+    else:
+        print("❌ Failed to fetch data")

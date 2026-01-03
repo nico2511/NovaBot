@@ -8,7 +8,8 @@ load_dotenv()
 class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "gemini") # gemini, openrouter, or auto
+    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3.1-8b-instruct")
+    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openrouter") # Force openrouter default
     # Hyperliquid
     HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
     HL_ACCOUNT_ADDRESS: str = os.getenv("HL_ACCOUNT_ADDRESS")

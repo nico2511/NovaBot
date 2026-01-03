@@ -34,6 +34,14 @@ except ImportError:
     print("⚠️ Bot bridge not available - running in standalone mode")
     bot_bridge = None
 
+# Import services
+from app.services.hyperliquid_service import hyperliquid_service
+try:
+    from app.services.ia import ia_service
+    AI_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ AI Service not available: {e}")
+    AI_AVAILABLE = False
 app = FastAPI(title="HyperLiquid Trading Bot API", version="2.0")
 
 # CORS middleware for Next.js frontend
@@ -710,6 +718,43 @@ async def recalibrate_stops():
     
     return {"status": "ERROR", "message": "Bot not connected"}
 
+@app.post("/api/force_breakeven")
+async def force_breakeven():
+    """Force SL to Break Even (Entry + Fees)"""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        
+        if not bot.active_trade:
+            return {"status": "ERROR", "message": "No active trade"}
+        
+        try:
+            # Calculate Break Even price (Entry + 0.1% for fees)
+            entry = bot.active_trade.get("entry", 0)
+            side = bot.active_trade.get("side", "BUY")
+            
+            if side == "BUY":
+                be_price = entry * 1.001  # Entry + 0.1%
+            else:
+                be_price = entry * 0.999  # Entry - 0.1%
+            
+            # Update local state
+            bot.active_trade["sl"] = be_price
+            
+            # Enforce on exchange
+            bot._verify_and_enforce_sl_tp(bot.active_symbol, bot.active_trade)
+            
+            bot.add_log(f"🛡️ FORCED Break Even @ {be_price:.6f}")
+            
+            return {
+                "status": "SUCCESS",
+                "message": f"SL moved to Break Even @ {be_price:.6f}"
+            }
+        except Exception as e:
+            return {"status": "ERROR", "message": str(e)}
+    
+    return {"status": "ERROR", "message": "Bot not connected"}
+
+
 @app.get("/api/trades")
 async def get_trades():
     """Get trade history"""
@@ -1216,7 +1261,7 @@ async def get_ai_analysis(data: dict = {}):
     symbol = data.get("symbol", bot_state.active_symbol)
     
     try:
-        from app.services.gemini_service import gemini_service
+        from app.services.ia import ia_service
         
         # 1. Gather Market Data
         try:
@@ -1250,12 +1295,12 @@ async def get_ai_analysis(data: dict = {}):
             "volatility": "HIGH" if adx > 25 else "LOW"
         }
         
-        # 2. Call Gemini
-        analysis = gemini_service.analyze_market(market_summary)
+        # 2. Call AI Service
+        analysis = ia_service.analyze_market(market_summary)
         return analysis
 
     except ImportError:
-         return {"error": "Gemini Service not found"}
+         return {"error": "AI Service not found"}
     except Exception as e:
         print(f"Error in AI analysis: {e}")
         return {"error": str(e)}
@@ -1458,12 +1503,12 @@ async def switch_symbol(data: dict):
 async def ai_signal_analysis(data: dict):
     """Analyse un signal de trading avec l'IA"""
     try:
-        from app.services.gemini_service import gemini_service
+        from app.services.ia import ia_service
         
         signal_data = data.get("signal", {})
         market_context = data.get("market_context", {})
         
-        analysis = gemini_service.analyze_trade_signal(signal_data, market_context)
+        analysis = ia_service.analyze_trade_signal(signal_data, market_context)
         return analysis
     except Exception as e:
         print(f"Error in AI signal analysis: {e}")
@@ -1488,7 +1533,7 @@ async def ai_market_commentary():
                 }
         
         # Si pas de cache, générer une nouvelle analyse
-        from app.services.gemini_service import gemini_service
+        from app.services.ia import ia_service
         from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_adx
         
         symbol = bot_state.active_symbol if not (bot_bridge and bot_bridge.is_connected()) else bot.active_symbol
@@ -1501,7 +1546,7 @@ async def ai_market_commentary():
                 "timestamp": pd.Timestamp.now().isoformat()
             }
             
-            analysis = gemini_service.analyze_market_evolution(current_data)
+            analysis = ia_service.analyze_market_evolution(current_data)
             return {
                 "analysis": analysis,
                 "timestamp": pd.Timestamp.now().isoformat(),
@@ -1539,7 +1584,7 @@ async def ai_position_analysis():
                     }
             
             # Générer une nouvelle analyse
-            from app.services.gemini_service import gemini_service
+            from app.services.ia import ia_service
             from backend.market_data import get_hyperliquid_candles
             
             df = await get_hyperliquid_candles(bot.active_symbol, "15m", 50)
@@ -1550,7 +1595,7 @@ async def ai_position_analysis():
                     "symbol": bot.active_symbol
                 }
                 
-                analysis = gemini_service.analyze_active_position(bot.active_trade, market_context)
+                analysis = ia_service.analyze_active_position(bot.active_trade, market_context)
                 return {
                     "analysis": analysis,
                     "timestamp": pd.Timestamp.now().isoformat(),

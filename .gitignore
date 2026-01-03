@@ -29,3 +29,7 @@ build/
 # Logs
 *.log
 token_meta_cache.json
+
+# Backtest & Analysis (Local Only)
+backtest_archive/
+tradingview/

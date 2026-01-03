@@ -1,3 +1,4 @@
+
 from app.services.indicators import ta
 import pandas as pd
 from app.core.config import config
@@ -19,12 +20,17 @@ from strategies.rsi_bollinger_bands import RBIReversion
 from strategies.golden_cross import StrategyGoldenCross
 from strategies.rsi_reversal import StrategyRSIReversal
 from strategies.bollinger_breakout import StrategyBollingerBreakout
+from strategies.test_ema import TestEmaStrategy  # TEST
+from strategies.smart_mean_reversion import SmartMeanReversionStrategy # NEW IMPORT
 import json
 
 class StrategyEngine:
-    def __init__(self, risk_manager: RiskManager):
+    def __init__(self, risk_manager=None, config=None):
         self.risk_manager = risk_manager
-        self.load_config()
+        if config:
+            self.config = config
+        else:
+            self.load_config()
         
         # Initialize strategies with their specific config
         strats_config = self.config.get("strategies", {})
@@ -50,7 +56,11 @@ class StrategyEngine:
             "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout")),
 
             # MEAN REVERSION
-            "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion"))
+            "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
+            "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")), # NEW STRATEGY
+            
+            # TEST
+            "test_ema": TestEmaStrategy(strats_config.get("test_ema"))
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
@@ -152,6 +162,8 @@ class StrategyEngine:
                 active_strategies.append(self.strategies[name])
             elif strat_type == "sniper": # FVG always active?
                 active_strategies.append(self.strategies[name])
+            elif strat_type == "reversion": # Reversion always active (Counter-trend or Range)
+                active_strategies.append(self.strategies[name])
 
         # 4. Generate Signals
         signals = []
@@ -179,6 +191,24 @@ class StrategyEngine:
                         "price": df['close'].iloc[-1],
                         "timestamp": df.index[-1]
                     }
+                
+                # --- GLOBAL DIRECTION FILTER ---
+                # This ensures ALL strategies respect allow_longs/allow_shorts from config
+                # even if the strategy code doesn't implement it explicitly.
+                
+                signal_type = signal_data.get("signal", "").upper()
+                allow_longs = params.get("allow_longs", True) 
+                allow_shorts = params.get("allow_shorts", True)
+                
+                direction_allowed = True
+                if signal_type == "BUY" and not allow_longs:
+                    direction_allowed = False
+                    # print(f"🚫 Signal REJECTED: {strat.name} BUY (Longs disabled)")
+                elif signal_type == "SELL" and not allow_shorts:
+                    direction_allowed = False
+                    # print(f"🚫 Signal REJECTED: {strat.name} SELL (Shorts disabled)")
+                    
+                if direction_allowed:
                     if is_manual:
                         signal_data["manual_approval"] = True
                     signals.append(signal_data)

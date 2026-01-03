@@ -191,7 +191,7 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                         <div className="bg-gradient-to-r from-purple-900/50 to-indigo-900/50 p-4 flex items-center justify-between border-b border-white/10">
                             <div className="flex items-center gap-2">
                                 <span className="text-2xl">✨</span>
-                                <h3 className="font-bold text-lg text-white">Gemini Market Analysis</h3>
+                                <h3 className="font-bold text-lg text-white">AI Market Analysis</h3>
                             </div>
                             <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white transition-colors">✕</button>
                         </div>

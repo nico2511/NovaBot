@@ -46,6 +46,14 @@ class ScannerJob:
                     time.sleep(10)
                     continue
 
+                # CIRCUIT BREAKER: Pause Scanner if Bot is in Focus Mode (Trade Active)
+                # To save API rate limits
+                if getattr(self.bot, 'is_focus_mode', False):
+                    # Log only once per pause phase? Or just sleep silently
+                    # self.bot.add_log("🔒 Scanner paused (Focus Mode)") # Optional
+                    time.sleep(10) 
+                    continue
+
                 # Check interval
                 now = time.time()
                 if now - self.last_scan_time < (interval_minutes * 60):

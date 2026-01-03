@@ -312,7 +312,47 @@ class HyperliquidScanner:
             'max_score': 100
         }
     
-    def scan(self, top_n: int = 10, whitelist: List[str] = None) -> List[Dict[str, Any]]:
+    def scan_momentum_ranking(self, top_n: int = 3) -> Dict:
+        """
+        Momentum-based ranking scan (Cross-Sectional Momentum)
+        Returns top N tokens by momentum score with MA200 filter
+        """
+        try:
+            from app.services.momentum_scanner import momentum_scanner
+            
+            # Get all tokens
+            tokens = self.get_all_tokens()
+            if not tokens:
+                return {"selected": [], "scores": {}, "weights": {}}
+            
+            # Fetch daily data for ranking
+            data_dict = {}
+            print(f"📊 Fetching daily data for {len(tokens[:20])} tokens...")  # Limit to avoid rate limits
+            
+            for symbol in tokens[:20]:  # Top 20 by volume to avoid spam
+                try:
+                    df = self.hl_service.get_candles(symbol, "1d", 200)
+                    if not df.empty:
+                        data_dict[symbol] = df
+                except Exception as e:
+                    print(f"  ⚠️ {symbol}: {e}")
+                    continue
+            
+            # Run momentum ranking
+            result = momentum_scanner.select_top_momentum(data_dict, top_n=top_n, require_ma200=True)
+            
+            print(f"\n🎯 Momentum Ranking Results:")
+            print(f"  Selected: {result['selected']}")
+            for sym, score in result['scores'].items():
+                print(f"  {sym}: {score:+.4f}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Momentum scan error: {e}")
+            return {"selected": [], "scores": {}, "weights": {}}
+    
+    def scan(self, max_results: int = 5, whitelist: List[str] = None) -> List[Dict[str, Any]]:
         """
         Main scanning function
         Returns top N opportunities sorted by score
@@ -413,7 +453,7 @@ class HyperliquidScanner:
             
             print(f"\n{i}. {opp['symbol']} (Score: {opp['score']:.0f}/100) {stars}")
             print(f"   💰 Volume: ${opp['volume_24h']/1e6:.1f}M | OI: ${opp['open_interest']/1e6:.1f}M")
-            print(f"   📈 Momentum: {opp['momentum_24h']:+.2f}% ({opp['trend']})")
+            print(f"   📈 Momentum: {opp['momentum_24h']:+.2f}%")
             print(f"   📊 ATR: {opp['atr_pct']:.2f}%")
             print(f"   🎯 RSI: {opp['rsi']:.0f}")
             print(f"   💵 Price: ${opp['current_price']:.4f}")

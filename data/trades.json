@@ -43,5 +43,20 @@
     "exit_time": "2026-01-01T08:48:12.578188",
     "exit_reason": "External Close",
     "id": "trade_1767253692_2"
+  },
+  {
+    "symbol": "DOGE",
+    "strategy": "smart_trend",
+    "side": "BUY",
+    "entry_price": 0.14105,
+    "exit_price": 0.1409,
+    "size": 531.726338177951,
+    "leverage": 5,
+    "pnl_usdc": -0.39879475363349315,
+    "pnl_percent": -0.10634526763559818,
+    "entry_time": "2026-01-03T09:55:40.567477",
+    "exit_time": "2026-01-03T09:57:24.478851",
+    "exit_reason": "External Close",
+    "id": "trade_1767430644_3"
   }
 ]
