@@ -1264,7 +1264,7 @@ async def manual_scan():
     return bot.scanner_job.manual_scan()
 
 @app.post("/api/momentum_ranking")
-async def momentum_ranking(data: dict = None):
+async def momentum_ranking(data: dict = {}):
     """Get momentum-based ranking of tokens (Cross-Sectional Momentum)"""
     print("=" * 60)
     print("🎯 MOMENTUM RANKING REQUEST RECEIVED")
