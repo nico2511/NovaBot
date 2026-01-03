@@ -1173,6 +1173,32 @@ async def manual_scan():
         
     return bot.scanner_job.manual_scan()
 
+@app.post("/api/momentum_ranking")
+async def momentum_ranking(data: dict = None):
+    """Get momentum-based ranking of tokens (Cross-Sectional Momentum)"""
+    try:
+        from app.services.token_scanner import HyperliquidScanner
+        
+        scanner = HyperliquidScanner()
+        top_n = data.get("top_n", 3) if data else 3
+        
+        result = scanner.scan_momentum_ranking(top_n=top_n)
+        
+        return {
+            "status": "success",
+            "ranking": result
+        }
+    except Exception as e:
+        print(f"Error in momentum_ranking: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": str(e),
+            "ranking": {"selected": [], "scores": {}, "weights": {}}
+        }
+
+
 @app.post("/api/toggle_gamification")
 async def toggle_gamification(data: dict):
     """Toggle Gamification enforcement ON/OFF"""

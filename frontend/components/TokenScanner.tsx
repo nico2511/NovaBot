@@ -19,6 +19,8 @@ interface Opportunity {
 
 export default function TokenScanner({ hideHeader = false }: { hideHeader?: boolean }) {
     const [isScanning, setIsScanning] = useState(false)
+    const [isMomentumScanning, setIsMomentumScanning] = useState(false)
+    const [momentumResults, setMomentumResults] = useState<any>(null)
     const [topN, setTopN] = useState(10)
 
     // ... (rest of the state hooks)
@@ -98,6 +100,23 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                     >
                         {isScanning && !data ? '🔄 Scanning...' : '🚀 Scan Now'}
                     </button>
+
+                    <button
+                        onClick={async () => {
+                            setIsMomentumScanning(true)
+                            try {
+                                const res = await axios.post('/api/momentum_ranking', { top_n: 3 })
+                                setMomentumResults(res.data.ranking)
+                            } catch (error) {
+                                console.error('Momentum scan failed:', error)
+                            }
+                            setIsMomentumScanning(false)
+                        }}
+                        disabled={isMomentumScanning}
+                        className="bg-amber-500/20 hover:bg-amber-500/30 disabled:bg-amber-500/10 text-amber-300 border border-amber-500/30 px-4 py-1.5 rounded-lg text-sm font-medium transition-all shadow-lg"
+                    >
+                        {isMomentumScanning ? '🔄 Ranking...' : '🎯 Momentum Ranking'}
+                    </button>
                 </div>
             </div>
 
@@ -113,6 +132,34 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                     <div className="animate-spin text-4xl mb-4">🔄</div>
                     <p className="text-gray-400">Scanning {topN} best opportunities...</p>
                     <p className="text-sm text-gray-500 mt-2">This may take 30-60 seconds</p>
+                </div>
+            )}
+
+            {/* Momentum Ranking Results */}
+            {momentumResults && momentumResults.selected && momentumResults.selected.length > 0 && (
+                <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border border-amber-500/30 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <span className="text-2xl">🎯</span>
+                        <h3 className="text-lg font-bold text-amber-300">Momentum Ranking (Top 3)</h3>
+                        <span className="text-xs text-gray-400 ml-auto">Cross-Sectional • 30d ROC + Regression</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                        {momentumResults.selected.map((symbol: string, idx: number) => (
+                            <div key={symbol} className="bg-black/30 rounded-lg p-4 border border-amber-500/20">
+                                <div className="text-center">
+                                    <div className="text-3xl font-bold text-white mb-1">#{idx + 1}</div>
+                                    <div className="text-xl font-bold text-amber-300 mb-2">{symbol}</div>
+                                    <div className="text-sm text-gray-400 mb-1">Score: {momentumResults.scores[symbol]?.toFixed(4)}</div>
+                                    <div className="text-xs text-gray-500">Weight: {(momentumResults.weights[symbol] * 100).toFixed(0)}%</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-4 text-xs text-gray-400 text-center">
+                        💡 These tokens have the strongest momentum over the last 30 days with confirmed uptrend (MA200 filter)
+                    </div>
                 </div>
             )}
 
