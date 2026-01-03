@@ -1082,21 +1082,35 @@ async def get_dev_diagnostics():
         # Get daily PnL from bot state
         daily_pnl = getattr(bot_state, 'risk_state', {}).get('daily_pnl', 0)
         
-        return {
+        # Convert numpy types to native Python types for JSON serialization
+        def convert_numpy(obj):
+            """Recursively convert numpy types to native Python types"""
+            if isinstance(obj, dict):
+                return {k: convert_numpy(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy(item) for item in obj]
+            elif hasattr(obj, 'item'):  # numpy scalar
+                return obj.item()
+            elif hasattr(obj, 'tolist'):  # numpy array
+                return obj.tolist()
+            else:
+                return obj
+        
+        result = {
             "account": {
-                "balance": account_value,
-                "margin_used": margin_used,
-                "available_margin": available_balance,
-                "margin_ratio": round(margin_ratio, 2),
+                "balance": round(account_value, 2),
+                "margin_used": round(margin_used, 2),
+                "available_margin": round(available_balance, 2),
                 "withdrawable": round(withdrawable, 2),
-                "account_leverage": round(account_leverage, 2)
+                "total_raw_usd": round(total_raw_usd, 2)
             },
             "positions": [
                 {
-                    "symbol": pos.get('symbol'),
-                    "side": pos.get('side'),
-                    "size": pos.get('size'),
-                    "entry_price": pos.get('entry_price'),
+                    "symbol": pos.get('symbol', 'N/A'),
+                    "side": pos.get('side', 'N/A'),
+                    "size": pos.get('size', 0),
+                    "entry_price": pos.get('entry_price', 0),
+                    "mark_price": pos.get('mark_price', 0),
                     "leverage": pos.get('leverage', 1),
                     "pnl": pos.get('pnl', 0)
                 }
@@ -1146,6 +1160,9 @@ async def get_dev_diagnostics():
                  } if bot else {"name": "Unknown", "params": {}}
             ))()
         }
+        
+        # Convert all numpy types to native Python types
+        return convert_numpy(result)
     except Exception as e:
         print(f"Error in dev diagnostics: {e}")
         import traceback
