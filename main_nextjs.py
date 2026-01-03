@@ -24,6 +24,8 @@ from app.core.asset_gamification import AssetGamification # Import Gamification
 from strategies.engine import StrategyEngine
 import pandas as pd
 from collections import deque
+import json
+from app.services.ia import ia_service
 
 # Import bot bridge
 from backend.bot_bridge import bot_bridge
@@ -473,7 +475,7 @@ class BotContext:
                     # Now perform AI analysis with the CORRECT symbol
                     if not self._initial_position_analyzed:
                         try:
-                            from app.services.ia import ia_service
+                            # from app.services.ia import ia_service (Moved to top)
                             import json
                             self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
                             
@@ -618,8 +620,9 @@ class BotContext:
                             self.add_log("🤖 Calling AI to validate manual trade SL/TP...")
                             self.add_log("🤖 Calling AI to validate manual trade SL/TP...")
                             try:
-                                from app.services.ia import ia_service
-                                import json
+                                # Imports moved to top
+                                # from app.services.ia import ia_service
+                                # import json
                                 
                                 # Prepare comprehensive market context
                                 market_context = self._prepare_ai_context(active_symbol_pos)
@@ -1438,7 +1441,7 @@ class BotContext:
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
-                        from app.services.ia import ia_service
+                        # from app.services.ia import ia_service (Moved to top)
                         from datetime import datetime, timedelta
                         
                         now = datetime.now()
