@@ -415,7 +415,64 @@ class BotContext:
                 
             return None
         except Exception:
-            return None
+            return "RANGE"
+
+    def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict):
+        """
+        Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed.
+        """
+        if self.execution_mode != "Auto (Hyperliquid)":
+            return
+
+        try:
+            # 1. Fetch Open Orders from Hyperliquid
+            # Using base info request to ensure we see everything (Limit + Trigger?)
+            # hyperliquid-python-sdk 'open_orders' typically returns standard orders.
+            # Triggers might need a specific check, but sync_sl_tp replaces ALL.
+            # So if we see NOTHING or WRONG PRICES, we sync.
+            
+            open_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
+            symbol_orders = [o for o in open_orders if o["coin"] == symbol]
+            
+            desired_sl = float(trade_data.get("sl", 0))
+            desired_tp = float(trade_data.get("tp", 0))
+            
+            found_sl = False
+            found_tp = False
+            
+            # Tolerance: 0.1%
+            TOLERANCE = 0.001
+            
+            for o in symbol_orders:
+                # Trigger orders usually have 'triggerPx'
+                price = float(o.get("limitPx", o.get("triggerPx", 0)))
+                # Check order type if possible, but price matching is strong enough proxy check
+                
+                if desired_sl > 0 and abs(price - desired_sl) / desired_sl < TOLERANCE:
+                    found_sl = True
+                if desired_tp > 0 and abs(price - desired_tp) / desired_tp < TOLERANCE:
+                     found_tp = True
+            
+            needs_sync = False
+            if desired_sl > 0 and not found_sl:
+                self.add_log(f"⚠️ Audit: SL missing/mismatched on exchange (Target: {desired_sl:.4f}). Enforcing...")
+                needs_sync = True
+            if desired_tp > 0 and not found_tp:
+                self.add_log(f"⚠️ Audit: TP missing/mismatched on exchange (Target: {desired_tp:.4f}). Enforcing...")
+                needs_sync = True
+                
+            if needs_sync:
+                hyperliquid_service.sync_sl_tp(
+                    symbol, 
+                    trade_data.get("side") == "BUY", 
+                    float(trade_data.get("size", 0)), 
+                    desired_sl, 
+                    desired_tp
+                )
+                self.add_log("✅ Audit: SL/TP enforced via Sync.")
+                
+        except Exception as e:
+            self.add_log(f"⚠️ Error in _verify_and_enforce_sl_tp: {e}")
 
     def trading_loop(self):
         """Main trading loop"""
@@ -1438,6 +1495,9 @@ class BotContext:
                                  sl_price,
                                  tp_price
                              )
+                             
+                    # CRITICAL: Verify and Enforce SL/TP (Consolidated Logic)
+                    self._verify_and_enforce_sl_tp(self.active_symbol, self.active_trade)
                     
                     # AI: Analyser la position active (toutes les 5 minutes)
                     try:
@@ -1508,6 +1568,9 @@ class BotContext:
                         except: pass
 
                     # Check SL/TP (Updated with new SL)
+                    if be_triggered:
+                        self._verify_and_enforce_sl_tp(self.active_symbol, self.active_trade)
+                    
                     # Check SL/TP (Updated with new SL)
                     if side == "BUY":
                         if current_price <= self.active_trade["sl"]:
@@ -1694,16 +1757,13 @@ class BotContext:
             
             # Cancel All
 
-            hyperliquid_service.cancel_all_orders(symbol)
-            import time
-            time.sleep(1) # Safety wait
-            
-            # Place New
-            hyperliquid_service.sync_sl_tp(symbol, side == "BUY", size, ideal_sl, ideal_tp)
-            
-            # Update Local State
+            # Update Local State FIRST
             self.active_trade["sl"] = ideal_sl
             self.active_trade["tp"] = ideal_tp
+            
+            # Enforce via consolidated logic
+            self._verify_and_enforce_sl_tp(symbol, self.active_trade)
+            
             StateManager.save_state(self)
             
             return "UPDATED", f"Orders recalibrated to SL: {ideal_sl:.2f}, TP: {ideal_tp:.2f}"
