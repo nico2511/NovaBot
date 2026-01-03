@@ -1176,22 +1176,35 @@ async def manual_scan():
 @app.post("/api/momentum_ranking")
 async def momentum_ranking(data: dict = None):
     """Get momentum-based ranking of tokens (Cross-Sectional Momentum)"""
+    print("=" * 60)
+    print("🎯 MOMENTUM RANKING REQUEST RECEIVED")
+    print(f"   Data: {data}")
+    print("=" * 60)
+    
     try:
         from app.services.token_scanner import HyperliquidScanner
         
         scanner = HyperliquidScanner()
         top_n = data.get("top_n", 3) if data else 3
         
+        print(f"📊 Starting momentum scan for Top {top_n}...")
+        
         result = scanner.scan_momentum_ranking(top_n=top_n)
+        
+        print(f"✅ Momentum scan complete!")
+        print(f"   Selected: {result.get('selected', [])}")
+        print(f"   Scores: {result.get('scores', {})}")
+        print("=" * 60)
         
         return {
             "status": "success",
             "ranking": result
         }
     except Exception as e:
-        print(f"Error in momentum_ranking: {e}")
+        print(f"❌ MOMENTUM RANKING ERROR: {e}")
         import traceback
         traceback.print_exc()
+        print("=" * 60)
         return {
             "status": "error",
             "message": str(e),
