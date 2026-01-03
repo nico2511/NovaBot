@@ -92,12 +92,6 @@ class HyperliquidService:
             # Default to 15m if unknown
             return 900
 
-    def get_candles(self, symbol: str, interval: str = "15m", limit: int = 100) -> pd.DataFrame:
-        try:
-            # CRITICAL: Use UTC time for Hyperliquid API (not local time)
-            end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
-            
-            # Parse interval to calculate start_time correctly
             interval_seconds = self._parse_interval_to_seconds(interval)
             start_time = end_time - (limit * interval_seconds * 1000)
             
