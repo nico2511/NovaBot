@@ -1028,12 +1028,6 @@ class BotContext:
                         # Process signals (Only if NO active trade)
                         if result.get("signals") and not self.active_trade:
                             sig_data = result["signals"][0]
-                            strat_name = sig_data.get("strategy", "Unknown")
-                            action = sig_data.get("signal")
-                            entry_price = sig_data.get("price")
-                            sl = sig_data.get("sl", entry_price * 0.95)
-                            tp = sig_data.get("tp", entry_price * 1.05)
-                            
                             
                             # CRITICAL FIX: Robust null safety - Filter out invalid signals BEFORE AI validation
                             if sig_data is None:
@@ -1043,6 +1037,13 @@ class BotContext:
                             if not isinstance(sig_data, dict):
                                 self.add_log(f"⚠️ NULL SAFETY: Invalid signal type: {type(sig_data)}")
                                 continue
+                            
+                            # Extract variables AFTER null safety checks
+                            strat_name = sig_data.get("strategy", "Unknown")
+                            action = sig_data.get("signal")
+                            entry_price = sig_data.get("price")
+                            sl = sig_data.get("sl", entry_price * 0.95 if entry_price else 0)
+                            tp = sig_data.get("tp", entry_price * 1.05 if entry_price else 0)
                             
                             if not action:
                                 self.add_log(f"⚠️ NULL SAFETY: Signal with None direction from {strat_name}")
