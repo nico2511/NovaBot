@@ -23,6 +23,26 @@ except ImportError:
     ROUTES_AVAILABLE = False
 
 
+
+def sanitize_for_json(obj):
+    """
+    Recursively convert NumPy types to Python native types for JSON serialization.
+    Handles np.bool_, np.integer, np.floating, np.ndarray, and nested dicts/lists.
+    """
+    if isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return sanitize_for_json(obj.tolist())
+    elif isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    return obj
+
 # When running from backend/, we need to go up one level
 BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
 
