@@ -33,6 +33,7 @@ from backend.bot_bridge import bot_bridge
 class BotContext:
     """Main bot context - same as main.py"""
     def __init__(self):
+        print("\n\n🤖 [BOOT] BotContext v1.0.2 (NULL SAFETY + IA FIX)\n")
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
@@ -1003,8 +1004,10 @@ class BotContext:
                                 # Récupérer le snapshot précédent
                                 previous_snapshot = self.ai_cache["market_snapshots"][-1] if self.ai_cache["market_snapshots"] else None
                                 
-                                # Analyser l'évolution
-                                evolution_analysis = ia_service.analyze_market_evolution(current_snapshot, previous_snapshot)
+                                # Analyser l'évolution (Disabled - method missing in ia_service)
+                                # evolution_analysis = ia_service.analyze_market_evolution(current_snapshot, previous_snapshot)
+                                pass
+                                evolution_analysis = {} # Dummy
                                 
                                 self.ai_cache["last_market_analysis"] = evolution_analysis
                                 self.ai_cache["last_market_analysis_time"] = now
@@ -1027,6 +1030,7 @@ class BotContext:
                         
                         # Process signals (Only if NO active trade)
                         if result.get("signals") and not self.active_trade:
+                            self.add_log(f"🐛 DEBUG: Signals received: {result['signals']}")
                             sig_data = result["signals"][0]
                             
                             # CRITICAL FIX: Robust null safety - Filter out invalid signals BEFORE AI validation
@@ -1045,7 +1049,7 @@ class BotContext:
                             sl = sig_data.get("sl", entry_price * 0.95 if entry_price else 0)
                             tp = sig_data.get("tp", entry_price * 1.05 if entry_price else 0)
                             
-                            if not action:
+                            if not action or str(action).upper() == "NONE":
                                 self.add_log(f"⚠️ NULL SAFETY: Signal with None direction from {strat_name}")
                                 continue
                             
