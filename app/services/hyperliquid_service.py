@@ -317,12 +317,16 @@ class HyperliquidService:
         # NORMALIZATION
         symbol = self.get_canonical_symbol(symbol)
         
-        # PRECISION & ROUNDING - Use centralized helper
-        from app.utils.token_metadata import token_metadata
+        # PRECISION & ROUNDING (Use dynamic metadata)
         sz_decimals, price_decimals = self._get_precision(symbol)
-        quantity = token_metadata.round_size(symbol, quantity)
         
-        print(f"📏 Order Size: {token_metadata.format_size(symbol, quantity)} {symbol} (sz_decimals={sz_decimals})")
+        # Round quantity strictly
+        if sz_decimals == 0:
+            quantity = int(quantity) # Force int if decimals is 0
+        else:
+            quantity = round(quantity, sz_decimals)
+            
+        print(f"📏 Rounded Order Size: {quantity} {symbol} (sz_decimals={sz_decimals})")
         
         # RETRY CONFIG
         max_retries = 3
