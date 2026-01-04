@@ -1150,6 +1150,19 @@ class BotContext:
                             
                             if self.execution_mode == "Auto (Hyperliquid)" and ai_approved:
                                 # EXECUTE ATOMICALLY
+                                try:
+                                    # Get fresh equity for accurate sizing
+                                    acc_info = hyperliquid_service.get_account_info()
+                                    current_equity = float(acc_info.get("marginSummary", {}).get("accountValue", 0.0))
+                                    if current_equity <= 0:
+                                        self.add_log(f"⚠️ Warning: Retrieved equity is {current_equity}. Analyzing fallback...")
+                                        # Fallback to a hardcoded logic or previously known equity if available
+                                        # For now, let's assume a minimum safety balance to allow calculation (e.g. $100 for paper trading simulation on failures)
+                                        # But better to log error.
+                                except Exception as e:
+                                    self.add_log(f"⚠️ Failed to get equity: {e}")
+                                    current_equity = 0.0
+
                                 size = self.risk_manager.calculate_position_size(entry_price, sl, current_equity)
                                 if size > 0:
                                     self.execute_entry_atomically(

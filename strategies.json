@@ -109,7 +109,7 @@
                 "ema50_slope_threshold": 0.001,
                 "atr_period": 14,
                 "atr_sl_multiplier": 1.2,
-                "min_rr": 1.5,
+                "min_rr": 1.1,
                 "min_bandwidth_percentile": 20
             }
         },
@@ -133,7 +133,7 @@
             "enabled": true,
             "type": "scalp",
             "params": {
-                "liq_grab_lookback": 20
+                "liq_grab_lookback": 10
             }
         }
     }
