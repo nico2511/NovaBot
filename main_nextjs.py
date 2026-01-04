@@ -953,6 +953,17 @@ class BotContext:
                         
                         
                         signals = result.get('signals', [])
+                        
+                        # Deduplicate signals (Fix double logs)
+                        unique_signals = []
+                        seen_sigs = set()
+                        for s in signals:
+                            sig_id = f"{s.get('strategy')}_{s.get('signal')}_{s.get('timestamp')}"
+                            if sig_id not in seen_sigs:
+                                seen_sigs.add(sig_id)
+                                unique_signals.append(s)
+                        signals = unique_signals
+                        
                         active_strategies = result.get('strategies', [])
                         regime = result.get('regime', 'UNKNOWN')
                         
@@ -1149,16 +1160,15 @@ class BotContext:
                                 ai_approved = True # Fail open or closed? Fail open for now.
                             
                             if self.execution_mode == "Auto (Hyperliquid)" and ai_approved:
-                                # EXECUTE ATOMICALLY
+                                    # EXECUTE ATOMICALLY
                                 try:
                                     # Get fresh equity for accurate sizing
-                                    acc_info = hyperliquid_service.get_account_info()
-                                    current_equity = float(acc_info.get("marginSummary", {}).get("accountValue", 0.0))
+                                    acc_balance = hyperliquid_service.get_account_balance(force_refresh=True)
+                                    current_equity = float(acc_balance.get("total_equity", 0.0))
+                                    
                                     if current_equity <= 0:
                                         self.add_log(f"⚠️ Warning: Retrieved equity is {current_equity}. Analyzing fallback...")
-                                        # Fallback to a hardcoded logic or previously known equity if available
-                                        # For now, let's assume a minimum safety balance to allow calculation (e.g. $100 for paper trading simulation on failures)
-                                        # But better to log error.
+                                    
                                 except Exception as e:
                                     self.add_log(f"⚠️ Failed to get equity: {e}")
                                     current_equity = 0.0
