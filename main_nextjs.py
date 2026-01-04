@@ -953,8 +953,35 @@ class BotContext:
                         if self.active_strategies:
                              self.active_strategy_name = self.active_strategies[0] # Primary
                         
-                        self.add_log(f"📊 Analysis complete: {result.get('regime', 'UNKNOWN')} regime, {len(result.get('signals', []))} signals")
                         
+                        signals = result.get('signals', [])
+                        active_strategies = result.get('strategies', [])
+                        regime = result.get('regime', 'UNKNOWN')
+                        
+                        self.add_log(f"📊 Analysis complete: {regime} regime, {len(active_strategies)} active strategies, {len(signals)} signals")
+                        
+                        # DEBUG: If 0 signals but strategies are active, investigate why
+                        if len(signals) == 0 and len(active_strategies) > 0:
+                            self.add_log(f"⚠️ DEBUG: {len(active_strategies)} active strategies but 0 signals generated")
+                            
+                            # Log current market conditions
+                            current_price = float(df_15m['close'].iloc[-1])
+                            current_rsi = result.get('rsi', 0)
+                            current_adx = result.get('adx', 0)
+                            ema_20 = result.get('ema_20')
+                            ema_50 = result.get('ema_50')
+                            
+                            self.add_log(f"   Market: Price={current_price:.4f}, RSI={current_rsi:.1f}, ADX={current_adx:.1f}")
+                            if ema_20 and ema_50:
+                                self.add_log(f"   EMAs: EMA20={ema_20:.4f}, EMA50={ema_50:.4f}")
+                            
+                            # Log strategy proximity (how close to generating signal)
+                            strategy_progress = result.get('strategy_progress', {})
+                            if strategy_progress:
+                                for strat_name, progress in strategy_progress.items():
+                                    self.add_log(f"   {strat_name}: {progress}% proximity to signal")
+                        
+
                         # AI: Analyse périodique du marché (toutes les 15 minutes)
                         try:
                             from app.services.ia import ia_service
@@ -1007,9 +1034,22 @@ class BotContext:
                             sl = sig_data.get("sl", entry_price * 0.95)
                             tp = sig_data.get("tp", entry_price * 1.05)
                             
-                            # CRITICAL FIX: Filter out invalid signals immediately
-                            if not action or not entry_price or float(entry_price) <= 0:
-                                # self.add_log(f"⚠️ Invalid signal received: {action} @ {entry_price}")
+                            
+                            # CRITICAL FIX: Robust null safety - Filter out invalid signals BEFORE AI validation
+                            if sig_data is None:
+                                self.add_log(f"⚠️ NULL SAFETY: Skipping None signal from strategy")
+                                continue
+                            
+                            if not isinstance(sig_data, dict):
+                                self.add_log(f"⚠️ NULL SAFETY: Invalid signal type: {type(sig_data)}")
+                                continue
+                            
+                            if not action:
+                                self.add_log(f"⚠️ NULL SAFETY: Signal with None direction from {strat_name}")
+                                continue
+                            
+                            if not entry_price or float(entry_price) <= 0:
+                                self.add_log(f"⚠️ NULL SAFETY: Invalid price ({entry_price}) from {strat_name}")
                                 continue
 
                             # Initialize variables to prevent UnboundLocalError
