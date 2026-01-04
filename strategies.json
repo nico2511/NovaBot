@@ -96,6 +96,37 @@
                 "volume_filter": true,
                 "min_rr": 1.5
             }
+        },
+        "bollinger_bounce": {
+            "enabled": false,
+            "type": "range",
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "adx_threshold": 25,
+                "adx_period": 14,
+                "bandwidth_expansion_limit": 1.2,
+                "ema50_slope_threshold": 0.001,
+                "atr_period": 14,
+                "atr_sl_multiplier": 1.0,
+                "min_rr": 1.0
+            }
+        },
+        "rsi_ping_pong": {
+            "enabled": false,
+            "type": "range",
+            "params": {
+                "rsi_period": 7,
+                "rsi_oversold": 30,
+                "rsi_overbought": 70,
+                "adx_threshold": 25,
+                "pivot_order": 5,
+                "pivot_lookback": 20,
+                "pivot_tolerance": 0.02,
+                "atr_period": 14,
+                "atr_sl_multiplier": 1.5,
+                "min_rr": 1.0
+            }
         }
     }
 }

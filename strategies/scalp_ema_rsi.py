@@ -108,3 +108,58 @@ class ScalpEmaRsi(BaseStrategy):
             return total_progress 
         except:
             return 0
+
+    def check_conditions(self, df, extra_data=None):
+        """Detailed conditions for UI"""
+        if df.empty or len(df) < 200: return []
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            ema_fast_len = params.get("ema_fast", 9)
+            ema_slow_len = params.get("ema_slow", 21)
+            rsi_len = params.get("rsi_period", 14)
+            
+            # Get values
+            fast = df[f"EMA_{ema_fast_len}"].iloc[-1]
+            slow = df[f"EMA_{ema_slow_len}"].iloc[-1]
+            close = df['close'].iloc[-1]
+            trend = df['EMA_200'].iloc[-1]
+            rsi = df[f"RSI_{rsi_len}"].iloc[-1]
+            
+            conditions = []
+            
+            # 1. EMA State
+            is_bull_aligned = fast > slow
+            is_bear_aligned = fast < slow
+            ema_state = "Bullish" if is_bull_aligned else "Bearish" if is_bear_aligned else "Neutral"
+            conditions.append({
+                "name": f"EMA {ema_fast_len}/{ema_slow_len} Alignment",
+                "status": True, # Always valid state
+                "value": ema_state
+            })
+            
+            # 2. Trend Filter
+            is_trend_bull = close > trend
+            is_trend_bear = close < trend
+            
+            # Strategy requires trend match
+            trend_ok = (is_bull_aligned and is_trend_bull) or (is_bear_aligned and is_trend_bear)
+            
+            conditions.append({
+                "name": f"Trend Filter (EMA 200)",
+                "status": trend_ok,
+                "value": f"Price {'Above' if is_trend_bull else 'Below'} Trend"
+            })
+            
+            # 3. RSI Filter
+            rsi_ok = (50 < rsi < 70) or (30 < rsi < 50)
+            conditions.append({
+                "name": f"RSI Momentum Zone",
+                "status": rsi_ok, 
+                "value": f"{rsi:.1f}"
+            })
+            
+            return conditions
+        except Exception as e:
+            return [{"name": "Error", "status": False, "value": str(e)}]

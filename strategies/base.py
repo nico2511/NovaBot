@@ -5,6 +5,7 @@ class BaseStrategy(ABC):
     def __init__(self, config=None):
         self.name = self.__class__.__name__
         self.config = config or {}
+        self.params = self.config.get("params", {})
 
     @abstractmethod
     def generate_signal(self, df, extra_data=None):
@@ -33,6 +34,15 @@ class BaseStrategy(ABC):
             int: Progress percentage (0-100)
         """
         return 0  # Default: no progress
+
+    def check_conditions(self, df, extra_data=None):
+        """
+        Check specific conditions for UI display.
+        
+        Returns:
+            list: List of dicts [{"name": str, "status": bool, "value": str}]
+        """
+        return []
 
     # ==========================
     # DYNAMIC ANALYSIS HELPERS

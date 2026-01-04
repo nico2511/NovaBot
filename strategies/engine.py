@@ -12,6 +12,8 @@ from strategies.double_bottom import DoubleBottomStrategy
 from strategies.double_top import DoubleTopStrategy
 from strategies.bull_flag import BullFlagStrategy
 from strategies.head_shoulders import HeadShouldersStrategy
+from strategies.bollinger_bounce import BollingerBounceStrategy
+from strategies.rsi_ping_pong import RSIPingPongStrategy
 import json
 
 class StrategyEngine:
@@ -38,6 +40,10 @@ class StrategyEngine:
             "double_top": DoubleTopStrategy(strats_config.get("double_top")),
             "bull_flag": BullFlagStrategy(strats_config.get("bull_flag")),
             "head_shoulders": HeadShouldersStrategy(strats_config.get("head_shoulders")),
+            
+            # Range trading strategies
+            "bollinger_bounce": BollingerBounceStrategy(strats_config.get("bollinger_bounce")),
+            "rsi_ping_pong": RSIPingPongStrategy(strats_config.get("rsi_ping_pong")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
