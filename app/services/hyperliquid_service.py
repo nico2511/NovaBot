@@ -185,12 +185,17 @@ class HyperliquidService:
         if hasattr(self, "_meta_cache") and self._meta_cache:
             return self._meta_cache
         
-        # 2. Try to load from disk
+        # 2. Try to load from disk IF FRESH (< 24h)
         if os.path.exists(CACHE_FILE):
             try:
-                with open(CACHE_FILE, "r") as f:
-                    self._meta_cache = json.load(f)
-                    print("✅ Metadata loaded from disk cache.")
+                # Check age (24h TTL)
+                last_modified = os.path.getmtime(CACHE_FILE)
+                if time.time() - last_modified < 86400: # 86400s = 24h
+                    with open(CACHE_FILE, "r") as f:
+                        self._meta_cache = json.load(f)
+                        print("✅ Metadata loaded from disk cache (Fresh).")
+                else:
+                    print("⚠️ Metadata cache expired (>24h). Will refresh from API.")
             except Exception as e:
                 print(f"⚠️ Failed to load metadata cache from disk: {e}")
 
