@@ -167,7 +167,14 @@ async def start_engine():
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.start()
-        # Bot saves state internally usually, but we force sync if needed
+        
+        # CRITICAL: Force state persistence immediately
+        try:
+            from app.core.state_manager import StateManager
+            StateManager.save_state(bot)
+        except Exception as e:
+            print(f"Error forcing state save: {e}")
+            
         return {"status": "started", "message": "Real bot started"}
     else:
         bot_state.is_running = True
@@ -181,6 +188,14 @@ async def stop_engine():
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.stop()
+        
+        # CRITICAL: Force state persistence immediately
+        try:
+            from app.core.state_manager import StateManager
+            StateManager.save_state(bot)
+        except Exception as e:
+            print(f"Error forcing state save: {e}")
+
         return {"status": "stopped", "message": "Real bot stopped"}
     else:
         bot_state.is_running = False
