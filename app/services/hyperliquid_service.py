@@ -220,17 +220,19 @@ class HyperliquidService:
         return self._meta_cache
 
     def _get_precision(self, symbol: str):
-        """Get precision for size and price from metadata"""
-        from app.utils.token_metadata import token_metadata
+        """Get precision for size and price from metadata (Live or Cache)"""
+        meta = self._fetch_metadata()
         
-        # Use centralized helper for sz_decimals
-        sz_decimals = token_metadata.get_sz_decimals(symbol)
+        # 1. Try to find in Universe
+        if meta and "universe" in meta:
+            for asset in meta["universe"]:
+                if asset["name"] == symbol:
+                    return asset["szDecimals"], 5 # Default price precision 5
         
-        # Price decimals: use safe default (not in token_meta_cache.json)
-        # Could be enhanced later if needed
-        price_decimals = 4
-        
-        return sz_decimals, price_decimals
+        # 2. Fallback Map for Majors
+        FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1}
+        print(f"⚠️ Metadata lookup failed for {symbol}. Using fallback precision.")
+        return FALLBACK_SZ.get(symbol, 2), 4 # Conservative default: 2 decimals 
 
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
@@ -448,11 +450,19 @@ class HyperliquidService:
                          continue
             
             except Exception as e:
-                print(f"❌ Exception in execute_order: {e}")
+                error_msg = str(e)
+                print(f"❌ Exception in execute_order (Attempt {attempt+1}): {error_msg}")
+                
+                # Smart Backoff for Rate Limits
+                wait_time = retry_delay
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    print("🚫 Rate Limit Hit (429). Cooling down for 10s...")
+                    wait_time = 10
+                
                 if attempt < max_retries - 1:
-                     time.sleep(retry_delay)
+                     time.sleep(wait_time)
                      continue
-                return {"status": "error", "message": str(e)}
+                return {"status": "error", "message": error_msg}
 
         return {"status": "error", "message": "Max retries exceeded"}
     
