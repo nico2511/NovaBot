@@ -708,10 +708,9 @@ class BotContext:
                                     self.add_log(f"🛑 Trade VETOED by Hard Rules: {veto_reason}")
                                     continue # Skip trade
 
-                                ai_risk_analysis = ia_service.analyze_position_risk(
-                                    symbol=self.active_symbol,
+                                ai_risk_analysis = ia_service.analyze_active_position(
                                     position_data=active_symbol_pos,
-                                    market_data=market_context
+                                    current_market=market_context
                                 )
                                 
                                 # Parse AI response
@@ -1276,8 +1275,11 @@ class BotContext:
                         # Analyser toutes les 5 minutes
                         if not last_pos_analysis_time or (now - last_pos_analysis_time) > timedelta(minutes=AI_POSITION_ANALYSIS_INTERVAL_MIN):
                             market_context = {
-                                "price": float(current_price),
-                                "symbol": self.active_symbol
+                                "current_price": float(current_price), # FIXED: Key matches ia.py expectation
+                                "symbol": self.active_symbol,
+                                "regime": self.market_data.get('regime', 'UNKNOWN'),
+                                "rsi": float(self.market_data.get('rsi', 50)),
+                                "atr": float(self.market_data.get('atr', 0))
                             }
                             
                             position_analysis = ia_service.analyze_active_position(self.active_trade, market_context)
