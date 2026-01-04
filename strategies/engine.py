@@ -82,17 +82,18 @@ class StrategyEngine:
         threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
         
         # DYNAMIC REGIME LOGIC
-        # To be in TREND, we need ADX > Threshold AND Slope >= -1 (Not crashing)
-        # Ideally Slope > 0 (Strengthening)
+        # To be in TREND, we need ADX > Threshold AND Slope >= -3 (Not crashing hard)
+        # Allows minor ADX declines (e.g., 41 -> 39) while still detecting strong trends
+        # Only rejects if ADX is dropping rapidly (slope < -3)
         
-        if current_adx > threshold and adx_slope >= -1:
+        if current_adx > threshold and adx_slope >= -3:
             regime = "TREND"
         else:
             regime = "RANGE"
             
         # Log if trend rejected due to slope
-        # if current_adx > threshold and adx_slope < -1:
-        #     print(f"📉 Trend Rejected: ADX {current_adx} but Slope {adx_slope:.2f}")
+        if current_adx > threshold and adx_slope < -3:
+            print(f"📉 Trend Rejected: ADX {current_adx:.1f} but Slope {adx_slope:.2f} (dropping too fast)")
 
         # 2. WATERFALL DETECTION (Anti-Lag / Crash Detection)
         # Priority: IMMÉDIATE. Uses current forming candle (iloc[-1]) to catch crash *during* the fall.
