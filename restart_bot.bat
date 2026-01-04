@@ -13,6 +13,11 @@ echo 🧹 Cleaning up temporary files...
 if exist "dump.rdb" del "dump.rdb"
 
 echo.
+echo Stopping all Python processes...
+taskkill /F /IM python.exe /T 2>nul
+timeout /t 2 /nobreak >nul
+
+echo.
 echo ▶️ Starting Bot and Frontend with PM2...
 call npx pm2 start ecosystem.windows.config.js
 
