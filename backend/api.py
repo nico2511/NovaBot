@@ -536,7 +536,7 @@ async def get_market_data():
         strategy_progress = {}
         strategy_conditions = {}
     
-    return {
+    return sanitize_for_json({
         "symbol": active_symbol,  # CRITICAL: Return the ACTIVE symbol from bot
         "price": float(price),
         "timestamp": datetime.now().isoformat(),
@@ -556,7 +556,7 @@ async def get_market_data():
         "strategy_progress": strategy_progress,
         "strategy_conditions": strategy_conditions,
         "signals": []
-    }
+    })
 
 @app.get("/api/strategies")
 async def get_strategies():
