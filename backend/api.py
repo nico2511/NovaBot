@@ -13,15 +13,15 @@ import os
 import numpy as np
 import pandas as pd
 
-# Import routes (optional - will be added later)
-# Import routes (optional)
+
+# Import optional route modules
 try:
-    # from backend.routes.settings import router as settings_router # CONFLICT: Removing legacy settings router
     from backend.routes.scanner import router as scanner_router
     ROUTES_AVAILABLE = True
 except ImportError:
     print("⚠️ Routes not available - running in basic mode")
     ROUTES_AVAILABLE = False
+
 
 # When running from backend/, we need to go up one level
 BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
@@ -56,8 +56,8 @@ app.add_middleware(
 # Register routers if available
 if ROUTES_AVAILABLE:
     app.include_router(scanner_router, prefix="/api", tags=["scanner"])
-    # app.include_router(settings_router, prefix="/api", tags=["settings"]) # CONFLICT: Using main API logic instead
-    print("✅ Scanner and Settings routes registered")
+    print("✅ Scanner routes registered")
+
 
 
 # Simple bot state
@@ -157,96 +157,105 @@ async def get_status():
         trading_enabled=bot_state.trading_enabled,
         active_symbol=bot_state.active_symbol,
         execution_mode=bot_state.execution_mode,
-        active_trade=bot_state.active_trade
     )
+
+
+# Helper function to eliminate code duplication in endpoints
+def _execute_bot_action(
+    bot_action: callable,
+    standalone_action: callable,
+    status_key: str,
+    success_message: str
+) -> Dict[str, str]:
+    """Execute action on bot or standalone state with automatic persistence.
+    
+    Args:
+        bot_action: Function to call on real bot (receives bot instance)
+        standalone_action: Function to call in standalone mode (no args)
+        status_key: Status value for response
+        success_message: Success message for response
+        
+    Returns:
+        Dict with status and message
+    """
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        bot_action(bot)
+        
+        # Force state persistence
+        try:
+            from app.core.state_manager import StateManager
+            StateManager.save_state(bot)
+        except Exception as e:
+            print(f"⚠️ State save error: {e}")
+        
+        return {"status": status_key, "message": f"Real bot {success_message}"}
+    else:
+        standalone_action()
+        bot_state.save_state()
+        return {"status": status_key, "message": f"Standalone mode - {success_message}"}
 
 
 @app.post("/api/engine/start")
 async def start_engine():
-    """Start the trading engine"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        bot.start()
-        
-        # CRITICAL: Force state persistence immediately
-        try:
-            from app.core.state_manager import StateManager
-            StateManager.save_state(bot)
-        except Exception as e:
-            print(f"Error forcing state save: {e}")
-            
-        return {"status": "started", "message": "Real bot started"}
-    else:
-        bot_state.is_running = True
-        bot_state.add_log(f"🚀 Bot started on {bot_state.active_symbol}")
-        bot_state.save_state()
-        return {"status": "started", "message": "Standalone mode - bot_state updated"}
+    """Start the trading engine."""
+    return _execute_bot_action(
+        bot_action=lambda bot: bot.start(),
+        standalone_action=lambda: (
+            setattr(bot_state, 'is_running', True),
+            bot_state.add_log(f"🚀 Bot started on {bot_state.active_symbol}")
+        ),
+        status_key="started",
+        success_message="started"
+    )
 
 @app.post("/api/engine/stop")
 async def stop_engine():
-    """Stop the trading engine"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        bot.stop()
-        
-        # CRITICAL: Force state persistence immediately
-        try:
-            from app.core.state_manager import StateManager
-            StateManager.save_state(bot)
-        except Exception as e:
-            print(f"Error forcing state save: {e}")
-
-        return {"status": "stopped", "message": "Real bot stopped"}
-    else:
-        bot_state.is_running = False
-        bot_state.add_log("🛑 Bot stopped")
-        bot_state.save_state()
-        return {"status": "stopped", "message": "Standalone mode - bot_state updated"}
+    """Stop the trading engine."""
+    return _execute_bot_action(
+        bot_action=lambda bot: bot.stop(),
+        standalone_action=lambda: (
+            setattr(bot_state, 'is_running', False),
+            bot_state.add_log("🛑 Bot stopped")
+        ),
+        status_key="stopped",
+        success_message="stopped"
+    )
 
 
 @app.post("/api/trading/enable")
 async def enable_trading():
-    """Enable live trading"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        bot.trading_enabled = True
-        bot.execution_mode = "Auto (Hyperliquid)"
-        bot.add_log("🟢 Live trading ENABLED via API")
-        # CRITICAL: Save state to persist the change
-        try:
-            from app.core.state_manager import StateManager
-            StateManager.save_state(bot)
-        except Exception as e:
-            print(f"Error saving state: {e}")
-        return {"status": "enabled", "message": "Live trading enabled on real bot"}
-    else:
-        # Single source of truth: only global trading_enabled
-        bot_state.trading_enabled = True
-        bot_state.execution_mode = "Auto (Hyperliquid)"
-        bot_state.add_log("🟢 Live trading ENABLED")
-        bot_state.save_state()
-        return {"status": "enabled", "message": "Standalone mode - bot_state updated"}
+    """Enable live trading."""
+    return _execute_bot_action(
+        bot_action=lambda bot: (
+            setattr(bot, 'trading_enabled', True),
+            setattr(bot, 'execution_mode', "Auto (Hyperliquid)"),
+            bot.add_log("🟢 Live trading ENABLED via API")
+        ),
+        standalone_action=lambda: (
+            setattr(bot_state, 'trading_enabled', True),
+            setattr(bot_state, 'execution_mode', "Auto (Hyperliquid)"),
+            bot_state.add_log("🟢 Live trading ENABLED")
+        ),
+        status_key="enabled",
+        success_message="enabled"
+    )
 
 @app.post("/api/trading/disable")
 async def disable_trading():
-    """Disable live trading"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        bot.trading_enabled = False
-        bot.add_log("🔴 Live trading DISABLED via API")
-        # CRITICAL: Save state to persist the change
-        try:
-            from app.core.state_manager import StateManager
-            StateManager.save_state(bot)
-        except Exception as e:
-            print(f"Error saving state: {e}")
-        return {"status": "disabled", "message": "Live trading disabled on real bot"}
-    else:
-        # Single source of truth: only global trading_enabled
-        bot_state.trading_enabled = False
-        bot_state.add_log("🔴 Live trading DISABLED")
-        bot_state.save_state()
-        return {"status": "disabled", "message": "Standalone mode - bot_state updated"}
+    """Disable live trading."""
+    return _execute_bot_action(
+        bot_action=lambda bot: (
+            setattr(bot, 'trading_enabled', False),
+            bot.add_log("🔴 Live trading DISABLED via API")
+        ),
+        standalone_action=lambda: (
+            setattr(bot_state, 'trading_enabled', False),
+            bot_state.add_log("🔴 Live trading DISABLED")
+        ),
+        status_key="disabled",
+        success_message="disabled"
+    )
 
 @app.get("/api/candles")
 async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: Optional[str] = None):
@@ -458,6 +467,7 @@ async def get_market_data():
     # Get active strategies and their progress from bot if connected
     active_strategies = []
     strategy_progress = {}
+    strategy_conditions = {}
     
     # Defaults from local calculation
     final_regime = trends["15m"]["trend"]
@@ -471,6 +481,7 @@ async def get_market_data():
                 # Get the list of active strategy names (these are already filtered by regime)
                 strategy_names = result.get('strategies', [])
                 progress_data = result.get('progress', {})
+                conditions_data = result.get('conditions', {})
                 
                 # CRITICAL: Use the Bot's calculated regime and ADX as source of truth
                 if 'regime' in result:
@@ -480,11 +491,13 @@ async def get_market_data():
                 for name in strategy_names:
                     active_strategies.append(name)
                     strategy_progress[name] = progress_data.get(name, 0)
+                    strategy_conditions[name] = conditions_data.get(name, [])
         
         # If bot not connected or no analysis yet, return empty list
         if not active_strategies:
             active_strategies = []
             strategy_progress = {}
+            strategy_conditions = {}
         # Calculate V2 Metrics (RVol & Trend Alignment)
         try:
             # 1. Relative Volume (RVol)
@@ -516,11 +529,12 @@ async def get_market_data():
             print(f"Error calculating V2 metrics: {e}")
             rvol = 1.0
             trend_aligned = False
-
+            
     except Exception as e:
         print(f"Error getting active strategies: {e}")
         active_strategies = []
         strategy_progress = {}
+        strategy_conditions = {}
     
     return {
         "symbol": active_symbol,  # CRITICAL: Return the ACTIVE symbol from bot
@@ -540,6 +554,7 @@ async def get_market_data():
         "trends": trends,
         "active_strategies": active_strategies,
         "strategy_progress": strategy_progress,
+        "strategy_conditions": strategy_conditions,
         "signals": []
     }
 

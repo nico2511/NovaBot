@@ -78,15 +78,12 @@ class BotContext:
         self.startup_sync_done = False
         self._initial_position_analyzed = False
         
-        # Candle analysis cache to prevent redundant calculations
-        # Candle analysis cache to prevent redundant calculations
-        # Candle analysis cache to prevent redundant calculations
+        
         # Candle analysis cache to prevent redundant calculations
         self.last_analyzed_candle = None
         
         # Debounce for "Position Vanished" check
         self.missing_pos_counter = 0
-        self.missing_pos_counter = 0 # Debounce for "Position Vanished" check
         
         # Load persisted state
         try:

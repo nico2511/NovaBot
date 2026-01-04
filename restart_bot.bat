@@ -18,6 +18,12 @@ taskkill /F /IM python.exe /T 2>nul
 timeout /t 2 /nobreak >nul
 
 echo.
+echo 🏗️  Forcing Frontend Recompilation...
+cd frontend
+call npm run build
+cd ..
+
+echo.
 echo ▶️ Starting Bot and Frontend with PM2...
 call npx pm2 start ecosystem.windows.config.js
 

@@ -184,7 +184,7 @@ class ElasticReversionStrategy(BaseStrategy):
                          }
                     else:
                         # Optional: Skip or Log weak momentum
-                        # print(f"⚠️ Elastic Long Wait: RSI Delta {rsi_delta:.1f} (Not bouncing yet)")
+                        # print(f"⚠️ Elastic Long Wait: RSI Delta {rsi_delta:.1f} (Not bouncing yet)\")")
                         pass
                     
         except Exception as e:
@@ -192,3 +192,98 @@ class ElasticReversionStrategy(BaseStrategy):
             return None
         
         return None
+
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate how close we are to triggering a signal (0-100%)."""
+        if df is None or df.empty or len(df) < 50:
+            return 0
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
+            c_close = df['close'].iloc[-1]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-1]
+            ext_pct = params.get("extension_pct", 0.04)
+            
+            progress = 0
+            
+            # 1. RSI Proximity (40 points)
+            # For LONG: RSI < 20 is ideal
+            if p_rsi < 20:
+                progress += 40
+            elif p_rsi < 30:
+                # Linear scale: 30 -> 0%, 20 -> 100%
+                progress += int(40 * (30 - p_rsi) / 10)
+            
+            # 2. Price Extension (30 points)
+            # For LONG: Price < EMA - 4% is ideal
+            price_vs_ema = (c_close - c_ema) / c_ema
+            target_ext = -ext_pct  # -0.04 for long
+            
+            if price_vs_ema <= target_ext:
+                progress += 30
+            elif price_vs_ema < 0:
+                # Approaching: scale from 0% to -4%
+                progress += int(30 * abs(price_vs_ema) / ext_pct)
+            
+            # 3. Momentum (30 points)
+            # Check if RSI is turning up (delta > 0)
+            if len(df) > 3:
+                rsi_delta = self.get_rsi_delta(df)
+                if rsi_delta > 0:
+                    progress += 30
+                elif rsi_delta > -5:
+                    progress += int(30 * (5 + rsi_delta) / 5)
+            
+            return min(100, progress)
+        except:
+            return 0
+
+    def check_conditions(self, df, extra_data=None):
+        """Check detailed conditions for UI display."""
+        if df is None or df.empty or len(df) < 50:
+            return []
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
+            c_close = df['close'].iloc[-1]
+            p_close = df['close'].iloc[-2]
+            p_high = df['high'].iloc[-2]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-1]
+            ext_pct = params.get("extension_pct", 0.04)
+            
+            conditions = []
+            
+            # 1. RSI Oversold
+            rsi_ok = p_rsi < 20
+            conditions.append({
+                "name": "RSI Oversold (< 20)",
+                "status": rsi_ok,
+                "value": f"{p_rsi:.1f}"
+            })
+            
+            # 2. Price Extension
+            price_vs_ema_pct = ((c_close - c_ema) / c_ema) * 100
+            ext_ok = price_vs_ema_pct < -(ext_pct * 100)
+            conditions.append({
+                "name": f"Price Extension (< -{ext_pct*100:.0f}%)",
+                "status": ext_ok,
+                "value": f"{price_vs_ema_pct:.1f}%"
+            })
+            
+            # 3. Trigger (Reversal)
+            trigger_ok = c_close > p_high
+            conditions.append({
+                "name": "Reversal Trigger (Close > Prev High)",
+                "status": trigger_ok,
+                "value": "Yes" if trigger_ok else "No"
+            })
+            
+            return conditions
+        except Exception as e:
+            return [{"name": "Error", "status": False, "value": str(e)}]

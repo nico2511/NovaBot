@@ -124,3 +124,110 @@ class SmartMeanReversionStrategy(BaseStrategy):
         except Exception as e:
             print(f"Error in SmartMeanReversion: {e}")
             return None
+
+    def calculate_progress(self, df, extra_data=None):
+        """Calculate how close we are to triggering a signal (0-100%)."""
+        if df is None or df.empty or len(df) < 30:
+            return 0
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
+            c_close = df['close'].iloc[-1]
+            c_bbl = df['BBL'].iloc[-1]
+            p_close = df['close'].iloc[-2]
+            
+            rsi_threshold = params.get("rsi_threshold", 30)
+            roc_floor = params.get("roc_floor", -15.0)
+            
+            progress = 0
+            
+            # 1. RSI Oversold (30 points)
+            if c_rsi < rsi_threshold:
+                progress += 30
+            elif c_rsi < 40:
+                # Scale: 40 -> 0%, 30 -> 100%
+                progress += int(30 * (40 - c_rsi) / 10)
+            
+            # 2. ROC Safety (25 points)
+            if c_roc > roc_floor:
+                progress += 25
+            elif c_roc > -25:
+                # Scale: -25 -> 0%, -15 -> 100%
+                progress += int(25 * (c_roc + 25) / 10)
+            
+            # 3. BB Position (25 points)
+            if c_close < c_bbl:
+                progress += 25
+            else:
+                # Distance to lower band
+                dist_pct = ((c_close - c_bbl) / c_bbl) * 100
+                if dist_pct < 2:
+                    progress += int(25 * (2 - dist_pct) / 2)
+            
+            # 4. Stabilization (20 points)
+            if c_close > p_close:
+                progress += 20
+            
+            return min(100, progress)
+        except:
+            return 0
+
+    def check_conditions(self, df, extra_data=None):
+        """Check detailed conditions for UI display."""
+        if df is None or df.empty or len(df) < 30:
+            return []
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
+            c_close = df['close'].iloc[-1]
+            c_bbl = df['BBL'].iloc[-1]
+            p_close = df['close'].iloc[-2]
+            
+            rsi_threshold = params.get("rsi_threshold", 30)
+            roc_floor = params.get("roc_floor", -15.0)
+            
+            conditions = []
+            
+            # 1. RSI Oversold
+            rsi_ok = c_rsi < rsi_threshold
+            conditions.append({
+                "name": f"RSI Oversold (< {rsi_threshold})",
+                "status": rsi_ok,
+                "value": f"{c_rsi:.1f}"
+            })
+            
+            # 2. Momentum Floor
+            roc_ok = c_roc > roc_floor
+            conditions.append({
+                "name": f"ROC Safety (> {roc_floor}%)",
+                "status": roc_ok,
+                "value": f"{c_roc:.1f}%"
+            })
+            
+            # 3. Below BB Lower
+            bb_ok = c_close < c_bbl
+            conditions.append({
+                "name": "Price < BB Lower",
+                "status": bb_ok,
+                "value": f"${c_close:.4f} vs ${c_bbl:.4f}"
+            })
+            
+            # 4. Stabilization
+            stab_ok = c_close > p_close
+            conditions.append({
+                "name": "Stabilization (Green Candle)",
+                "status": stab_ok,
+                "value": "Yes" if stab_ok else "No"
+            })
+            
+            return conditions
+        except Exception as e:
+            return [{"name": "Error", "status": False, "value": str(e)}]

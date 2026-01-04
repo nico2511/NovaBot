@@ -15,17 +15,6 @@
                 "rsi_oversold": 30
             }
         },
-        "institutional_scalp": {
-            "enabled": false,
-            "type": "trend",
-            "params": {
-                "liq_grab_lookback": 30,
-                "allow_longs": true,
-                "allow_shorts": true,
-                "sl_atr_mult": 1.0,
-                "tp_atr_mult": 2.0
-            }
-        },
         "elastic_reversion": {
             "enabled": true,
             "type": "range",
@@ -40,47 +29,6 @@
                 "risk_reward": 1.5,
                 "bonus_rsi_long": 25,
                 "bonus_rsi_short": 75
-            }
-        },
-        "swing_trend_pullback": {
-            "enabled": false,
-            "type": "trend",
-            "params": {
-                "ema_trend": 200,
-                "ema_pullback_fast": 21,
-                "ema_pullback_slow": 50,
-                "rsi_min_long": 50,
-                "rsi_max_long": 70,
-                "rsi_min_short": 30,
-                "rsi_max_short": 50,
-                "min_adx": 25,
-                "max_pullback_depth": 0.01
-            }
-        },
-        "day_trading_orb": {
-            "enabled": false,
-            "type": "trend",
-            "params": {
-                "session_start_hour": 9,
-                "session_start_minute": 30,
-                "range_duration_min": 30,
-                "volume_threshold_multiplier": 1.5
-            }
-        },
-        "mean_reversion": {
-            "enabled": false,
-            "type": "range",
-            "params": {
-                "bb_length": 20,
-                "bb_std": 2.0,
-                "rsi_period": 14
-            }
-        },
-        "smc_fvg": {
-            "enabled": false,
-            "type": "sniper",
-            "params": {
-                "fvg_threshold": 0.005
             }
         },
         "smart_trend": {
@@ -100,113 +48,54 @@
                 "roc_floor": -15.0
             }
         },
-        "macd_crossover": {
+        "double_bottom": {
             "enabled": false,
-            "type": "trend",
-            "params": {}
-        },
-        "volume_breakout": {
-            "enabled": false,
-            "type": "momentum",
+            "type": "pattern",
             "params": {
-                "volume_threshold": 1.5,
-                "min_rsi": 50
-            }
-        },
-        "ema_bounce": {
-            "enabled": false,
-            "type": "scalp",
-            "params": {
-                "rsi_min": 40,
-                "rsi_max": 60
-            }
-        },
-        "triple_ema": {
-            "enabled": false,
-            "type": "trend",
-            "params": {
-                "require_volume": true
-            }
-        },
-        "rsi_bb": {
-            "enabled": false,
-            "type": "range",
-            "params": {
-                "rsi_oversold": 30,
-                "rsi_overbought": 70,
-                "require_volume": true
-            }
-        },
-        "golden_cross": {
-            "enabled": false,
-            "type": "trend",
-            "params": {
-                "fast_length": 20,
-                "slow_length": 50,
-                "trend_length": 200,
-                "rsi_length": 14,
-                "sl_pct": 0.015,
-                "tp_pct": 0.030
-            }
-        },
-        "rsi_reversal": {
-            "enabled": false,
-            "type": "range",
-            "params": {
-                "rsi_period": 14,
-                "rsi_oversold": 30,
-                "rsi_overbought": 70,
-                "sl_pct": 0.015,
-                "tp_pct": 0.030,
-                "use_short_filter": true
-            }
-        },
-        "bollinger_breakout": {
-            "enabled": false,
-            "type": "range",
-            "params": {
-                "bb_length": 20,
-                "bb_std": 2.0,
-                "min_body_ratio": 1.5,
-                "sl_pct": 0.02,
-                "tp_pct": 0.03,
-                "use_trend_filter": true
-            }
-        },
-        "double_top_bottom": {
-            "enabled": false,
-            "type": "range",
-            "params": {
-                "execution_type": "manual",
+                "pivot_order": 5,
                 "tolerance": 0.02,
-                "min_candles": 10,
-                "rsi_divergence": true
+                "min_distance": 10,
+                "max_distance": 50,
+                "volume_filter": true,
+                "min_rr": 1.5
             }
         },
-        "triangle_breakout": {
+        "double_top": {
             "enabled": false,
-            "type": "trend",
+            "type": "pattern",
             "params": {
-                "execution_type": "manual",
-                "min_candles": 30,
-                "volatility_threshold": 0.8,
-                "volume_multiplier": 1.5
+                "pivot_order": 5,
+                "tolerance": 0.02,
+                "min_distance": 10,
+                "max_distance": 50,
+                "volume_filter": true,
+                "min_rr": 1.5
+            }
+        },
+        "bull_flag": {
+            "enabled": false,
+            "type": "pattern",
+            "params": {
+                "pivot_order": 5,
+                "min_impulse_pct": 0.05,
+                "max_impulse_candles": 10,
+                "flag_duration_min": 5,
+                "flag_duration_max": 20,
+                "volume_multiplier": 1.5,
+                "volume_filter": true,
+                "min_rr": 1.5
             }
         },
         "head_shoulders": {
             "enabled": false,
-            "type": "trend",
+            "type": "pattern",
             "params": {
-                "execution_type": "manual",
-                "shoulder_tolerance": 0.05,
-                "min_candles": 60,
-                "volume_confirmation": true
+                "pivot_order": 7,
+                "shoulder_tolerance": 0.03,
+                "min_candles": 20,
+                "volume_filter": true,
+                "min_rr": 1.5
             }
-        },
-        "test_ema": {
-            "enabled": false,
-            "type": "trend",
-            "params": {}
         }
     }
 }

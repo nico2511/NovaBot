@@ -6,22 +6,12 @@ from app.core.risk_manager import RiskManager
 from strategies.base import BaseStrategy
 from strategies.elastic_reversion import ElasticReversionStrategy
 from strategies.scalp_ema_rsi import ScalpEmaRsi
-from strategies.institutional_scalp import InstitutionalScalp
-from strategies.swing_trend_pullback import SwingTrendPullback
-from strategies.day_trading_orb import DayTradingORB
-from strategies.mean_reversion import MeanReversion
-from strategies.smc_fvg import SMCFVG
 from strategies.smart_trend import StrategySmartTrend
-from strategies.macd_crossover import MACDCrossover
-from strategies.volume_breakout import VolumeBreakout
-from strategies.ema_bounce import EMABounce
-from strategies.triple_ema import TripleEMA
-from strategies.rsi_bollinger_bands import RBIReversion
-from strategies.golden_cross import StrategyGoldenCross
-from strategies.rsi_reversal import StrategyRSIReversal
-from strategies.bollinger_breakout import StrategyBollingerBreakout
-from strategies.test_ema import TestEmaStrategy  # TEST
-from strategies.smart_mean_reversion import SmartMeanReversionStrategy # NEW IMPORT
+from strategies.smart_mean_reversion import SmartMeanReversionStrategy
+from strategies.double_bottom import DoubleBottomStrategy
+from strategies.double_top import DoubleTopStrategy
+from strategies.bull_flag import BullFlagStrategy
+from strategies.head_shoulders import HeadShouldersStrategy
 import json
 
 class StrategyEngine:
@@ -32,35 +22,22 @@ class StrategyEngine:
         else:
             self.load_config()
         
+        
         # Initialize strategies with their specific config
         strats_config = self.config.get("strategies", {})
         
         self.strategies = {
-            # TREND strategies
+            # Active strategies
             "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
-            "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
-            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
-            "golden_cross": StrategyGoldenCross(strats_config.get("golden_cross")),
-            # "triangle_breakout": None, # Placeholder/ToDo
-            # "head_shoulders": None, # Placeholder/ToDo
-            "macd_crossover": MACDCrossover(strats_config.get("macd_crossover")),
-            "triple_ema": TripleEMA(strats_config.get("triple_ema")),
-            
-            # RANGE strategies
-            "rsi_reversal": StrategyRSIReversal(strats_config.get("rsi_reversal")),
-            "bollinger_breakout": StrategyBollingerBreakout(strats_config.get("bollinger_breakout")),
-            "rsi_bb": RBIReversion(strats_config.get("rsi_bb")),
-            
-            # SCALP/MOMENTUM
-            "ema_bounce": EMABounce(strats_config.get("ema_bounce")),
-            "volume_breakout": VolumeBreakout(strats_config.get("volume_breakout")),
-
-            # MEAN REVERSION
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
-            "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")), # NEW STRATEGY
+            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
+            "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")),
             
-            # TEST
-            "test_ema": TestEmaStrategy(strats_config.get("test_ema"))
+            # Pattern recognition strategies
+            "double_bottom": DoubleBottomStrategy(strats_config.get("double_bottom")),
+            "double_top": DoubleTopStrategy(strats_config.get("double_top")),
+            "bull_flag": BullFlagStrategy(strats_config.get("bull_flag")),
+            "head_shoulders": HeadShouldersStrategy(strats_config.get("head_shoulders")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
@@ -213,17 +190,24 @@ class StrategyEngine:
                         signal_data["manual_approval"] = True
                     signals.append(signal_data)
         
-        # 5. Calculate Progress for each active strategy
+        # 5. Calculate Progress AND Conditions
         progress = {}
+        conditions = {}
         for strat in active_strategies:
             try:
                 progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
+                
+                # Check detailed conditions
+                if hasattr(strat, "check_conditions"):
+                    conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
+                else:
+                    conditions[strat.name] = []
             except Exception as e:
                 print(f"Error calculating progress for {strat.name}: {e}")
                 progress[strat.name] = 0
+                conditions[strat.name] = []
 
         return {
-            "regime": regime,
             "regime": regime,
             "adx": current_adx,
             "rsi": rsi_series.iloc[-1],
@@ -231,5 +215,6 @@ class StrategyEngine:
             "ema_50": ema_50.iloc[-1],
             "strategies": [s.name for s in active_strategies],
             "progress": progress,
+            "conditions": conditions,
             "signals": signals
         }
