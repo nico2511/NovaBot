@@ -114,13 +114,30 @@ class BollingerBounceStrategy(BaseStrategy):
             bb_basis = bb['BBM'].iloc[-1]
             current_atr = atr.iloc[-1]
             
+            # Check Volatility Filter (Bandwidth Percentile)
+            # Avoid trading dead markets
+            min_bandwidth_percentile = self.params.get("min_bandwidth_percentile", 20)
+            if min_bandwidth_percentile > 0:
+                current_bb_width = (bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]) / bb['BBM'].iloc[-1]
+                
+                # Calculate rolling percentile
+                hist_width = (bb['BBU'] - bb['BBL']) / bb['BBM']
+                percentile = hist_width.rolling(100).rank(pct=True).iloc[-1] * 100
+                
+                if percentile < min_bandwidth_percentile:
+                    return None # Market too dead
+            
+            # Dynamic TP Calculation (Push slightly past mean)
+            bb_width = bb_upper - bb_lower
+            tp_push = bb_width * 0.2
+            
             # 3. Check for LONG signal (bounce off lower band)
             touched_lower = current_low <= bb_lower
             bounced_up = current_price > bb_lower
             
             if touched_lower and bounced_up:
                 entry = current_price
-                tp = bb_basis  # Mean reversion target
+                tp = bb_basis + tp_push  # Dynamic TP: Mean + Push
                 sl = bb_lower - (current_atr * self.atr_sl_multiplier)
                 
                 # Check R:R
@@ -133,7 +150,7 @@ class BollingerBounceStrategy(BaseStrategy):
                         "signal": "BUY",
                         "sl": sl,
                         "tp": tp,
-                        "comment": f"Bollinger Bounce Long (R:R {rr_ratio:.2f})"
+                        "comment": f"Bollinger Bounce Long (R:R {rr_ratio:.2f}, Vol {percentile:.0f}%)"
                     }
             
             # 4. Check for SHORT signal (bounce off upper band)
@@ -142,7 +159,7 @@ class BollingerBounceStrategy(BaseStrategy):
             
             if touched_upper and bounced_down:
                 entry = current_price
-                tp = bb_basis  # Mean reversion target
+                tp = bb_basis - tp_push  # Dynamic TP: Mean - Push
                 sl = bb_upper + (current_atr * self.atr_sl_multiplier)
                 
                 # Check R:R
@@ -155,7 +172,7 @@ class BollingerBounceStrategy(BaseStrategy):
                         "signal": "SELL",
                         "sl": sl,
                         "tp": tp,
-                        "comment": f"Bollinger Bounce Short (R:R {rr_ratio:.2f})"
+                        "comment": f"Bollinger Bounce Short (R:R {rr_ratio:.2f}, Vol {percentile:.0f}%)"
                     }
             
             return None
