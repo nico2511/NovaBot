@@ -431,14 +431,35 @@ class HyperliquidService:
                     data = response.get("data", {})
                     statuses = data.get("statuses", [])
                     
-                    # Check for any error in the batch
-                    errors = [s.get("error") for s in statuses if s.get("error")]
+                    # CRITICAL FIX: Parse statuses safely (can be dict or string)
+                    # Hyperliquid returns strings like 'waitingForTrigger' for SL/TP
+                    errors = []
+                    filled_orders = []
+                    
+                    for status in statuses:
+                        if isinstance(status, dict):
+                            # Dict status (filled, error, etc.)
+                            if status.get("error"):
+                                errors.append(status["error"])
+                            elif status.get("filled"):
+                                filled_orders.append(status["filled"])
+                        elif isinstance(status, str):
+                            # String status ('waitingForTrigger', etc.) - this is OK
+                            pass
+                        else:
+                            print(f"⚠️ Unknown status type: {type(status)} = {status}")
+                    
+                    # Check for errors
                     if errors:
                         print(f"❌ Order Rejected: {errors}")
                         if attempt < max_retries - 1:
                             time.sleep(retry_delay)
                             continue
                         return {"status": "error", "message": f"Rejected: {errors}"}
+                    
+                    # Check if entry was filled
+                    if filled_orders:
+                        print(f"✅ Order Filled: {filled_orders[0]}")
                         
                     # Success
                     return {"status": "success", "result": result}

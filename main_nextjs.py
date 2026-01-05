@@ -1412,7 +1412,6 @@ class BotContext:
             self.add_log("🧵 Creating trading thread...")
             self.thread = threading.Thread(target=self.trading_loop, daemon=True)
             self.add_log("🚀 Starting trading thread...")
-            self.add_log("🚀 Starting trading thread...")
             self.thread.start()
             self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
             
@@ -1462,15 +1461,32 @@ class BotContext:
                 data = response.get("data", {})
                 statuses = data.get("statuses", [])
                 
+                # CRITICAL FIX: Parse statuses safely (can be dict or string)
                 oid = None
+                entry_filled = None
+                
                 # Entry is usually the first order in the bulk list
                 if statuses and len(statuses) > 0:
-                     oid = statuses[0].get("oid")
-                     error = statuses[0].get("error")
-                     if error:
-                         self.add_log(f"❌ Entry Order Error in Batch: {error}")
-                         return # Do not save state
-
+                    first_status = statuses[0]
+                    
+                    if isinstance(first_status, dict):
+                        # Dict status - extract oid or error
+                        oid = first_status.get("oid")
+                        error = first_status.get("error")
+                        
+                        if error:
+                            self.add_log(f"❌ Entry Order Error in Batch: {error}")
+                            return  # Do not save state
+                        
+                        # Check if filled
+                        if first_status.get("filled"):
+                            entry_filled = first_status["filled"]
+                            oid = entry_filled.get("oid")
+                            
+                    elif isinstance(first_status, str):
+                        # String status (shouldn't happen for entry, but handle gracefully)
+                        self.add_log(f"⚠️ Unexpected string status for entry: {first_status}")
+                
                 if not oid:
                     self.add_log(f"⚠️ Warning: Order Success but no OID found. Result: {result}")
                     # If strictly atomic, we should perhaps NOT save? 
