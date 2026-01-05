@@ -239,4 +239,77 @@ class StrategySmartTrend(BaseStrategy):
                         proximity = max(0, 1 + (distance_to_trigger * 100))
                         progress += int(40 * proximity)
         
-        return min(100, progress)
+
+    def check_conditions(self, df, extra_data=None):
+        """Detailed conditions for UI"""
+        if df.empty or len(df) < 50: return []
+        
+        try:
+            self.add_indicators(df)
+            
+            # 15m Values
+            close_15m = df['close'].iloc[-1]
+            ema_21 = df['EMA_21'].iloc[-1]
+            ema_50 = df['EMA_50'].iloc[-1]
+            rsi_15m = df['RSI_14'].iloc[-1]
+            low_15m = df['low'].iloc[-1]
+            high_15m = df['high'].iloc[-1]
+            
+            conditions = []
+            
+            # 1. Trend Filter
+            long_trend = close_15m > ema_50 or (close_15m > ema_21 and ema_21 > ema_50)
+            short_trend = close_15m < ema_50 or (close_15m < ema_21 and ema_21 < ema_50)
+            
+            trend_val = "Bullish" if long_trend else "Bearish" if short_trend else "Neutral"
+            trend_ok = long_trend or short_trend
+            
+            conditions.append({
+                "name": "Trend Filter (15m)",
+                "status": trend_ok,
+                "value": trend_val
+            })
+            
+            # 2. Pullback Zone
+            # Check proximity to EMA 21
+            dist_ema21 = abs(close_15m - ema_21) / ema_21
+            in_zone = dist_ema21 <= self.pullback_tolerance
+            
+            conditions.append({
+                "name": f"Pullback Zone (EMA 21 +/- {self.pullback_tolerance*100:.0f}%)",
+                "status": in_zone,
+                "value": f"Dist: {dist_ema21*100:.2f}%"
+            })
+
+            # 3. RSI Filter
+            rsi_ok = 30 < rsi_15m < 70
+            conditions.append({
+                "name": "RSI Filter (30-70)",
+                "status": rsi_ok,
+                "value": f"{rsi_15m:.1f}"
+            })
+            
+            # 4. Trigger (1m)
+            trigger_status = False
+            trigger_val = "Waiting"
+            
+            if extra_data and "1m" in extra_data:
+                df_1m = extra_data["1m"]
+                if not df_1m.empty and len(df_1m) >= (self.bos_lookback + 2):
+                    close_1m = df_1m['close'].iloc[-1]
+                    # Logic simplified for display
+                    trigger_val = f"1m Close: {close_1m}"
+                    # If we were looking for entry, we could show more details
+                    if self.looking_for_entry:
+                        trigger_val = f"Watching {self.entry_direction} BOS"
+                        trigger_status = True # Active monitoring
+            
+            conditions.append({
+                "name": "Trigger Conditions (1m)",
+                "status": trigger_status, # True means we have data and are monitoring
+                "value": trigger_val
+            })
+            
+            return conditions
+        except Exception as e:
+            return [{"name": "Error", "status": False, "value": str(e)}]
