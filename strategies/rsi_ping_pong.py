@@ -131,11 +131,14 @@ class RSIPingPongStrategy(BaseStrategy):
             ema_20 = ta.ema(df['close'], length=20)
             atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_period)
             
-            current_rsi = rsi.iloc[-1]
-            prev_rsi = rsi.iloc[-2]
-            current_price = df['close'].iloc[-1]
-            current_ema20 = ema_20.iloc[-1]
-            current_atr = atr.iloc[-1]
+            # ANTI-REPAINTING: Use completed candles only
+            # Current = iloc[-2] (last completed candle)
+            # Previous = iloc[-3] (candle before that)
+            current_rsi = rsi.iloc[-2]
+            prev_rsi = rsi.iloc[-3]
+            current_price = df['close'].iloc[-2]
+            current_ema20 = ema_20.iloc[-2]
+            current_atr = atr.iloc[-2]
             
             # 3. Find recent pivots
             pivots = self._find_recent_pivots(df)

@@ -64,18 +64,19 @@ class SmartMeanReversionStrategy(BaseStrategy):
         rsi_col = f'RSI_{params.get("rsi_period", 14)}'
         roc_col = f'ROC_{params.get("roc_period", 10)}'
         
-        # Current Candle (C) -> iloc[-1]
-        # Previous Candle (P) -> iloc[-2]
+        # ANTI-REPAINTING: Use completed candles only
+        # Current Candle (C) -> iloc[-2] (last completed)
+        # Previous Candle (P) -> iloc[-3] (before that)
         
         try:
-            c_close = df['close'].iloc[-1]
-            c_open = df['open'].iloc[-1]
-            c_rsi = df[rsi_col].iloc[-1]
-            c_roc = df[roc_col].iloc[-1]
-            c_bbl = df['BBL'].iloc[-1]
-            c_bbm = df['BBM'].iloc[-1]
+            c_close = df['close'].iloc[-2]
+            c_open = df['open'].iloc[-2]
+            c_rsi = df[rsi_col].iloc[-2]
+            c_roc = df[roc_col].iloc[-2]
+            c_bbl = df['BBL'].iloc[-2]
+            c_bbm = df['BBM'].iloc[-2]
             
-            p_close = df['close'].iloc[-2]
+            p_close = df['close'].iloc[-3]
             
             # GUARD CLAUSE: Mean Reversion only in Range (ADX < 25)
             if 'ADX_14' in df.columns:
@@ -103,8 +104,8 @@ class SmartMeanReversionStrategy(BaseStrategy):
             
             # === TRIGGER LONG ===
             
-            # SL: Low of last 3 candles - small margin
-            recent_low = df['low'].iloc[-3:].min()
+            # SL: Low of last 3 completed candles - small margin
+            recent_low = df['low'].iloc[-4:-1].min()  # Last 3 completed candles
             sl = recent_low * 0.995 # 0.5% below recent low
             
             # TP: Revert to Mean (Middle Band)
