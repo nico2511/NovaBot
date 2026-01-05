@@ -718,6 +718,10 @@ class BotContext:
                                     ai_data = json.loads(ai_risk_analysis["raw_output"])
                                     sl = ai_data.get("stop_loss_suggestion")
                                     tp = ai_data.get("take_profit_suggestion")
+                                    
+                                    if sl is None or tp is None:
+                                        raise ValueError("AI missing SL or TP")
+
                                     risk_score = ai_data.get("risk_score", "N/A")
                                     reasoning = ai_data.get("reasoning", "AI analysis complete")
                                     
@@ -1440,6 +1444,11 @@ class BotContext:
                 sl_price=sl,
                 tp_price=tp
             )
+            
+            # CRITICAL FIX: Ensure result is dict
+            if not isinstance(result, dict):
+                self.add_log(f"⚠️ API returned raw type {type(result)}: {result}")
+                result = {"status": "error", "message": f"Raw API response: {str(result)}"}
             
             # 2. Verify Output & Extract OID
             if result.get("status") == "success":
