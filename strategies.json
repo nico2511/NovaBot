@@ -7,6 +7,12 @@
         "scalp_ema_rsi": {
             "enabled": true,
             "type": "trend",
+            "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
+            "display_conditions": [
+                "EMA Cross (9/21)",
+                "RSI Momentum (50-70)",
+                "Trend Alignment"
+            ],
             "params": {
                 "ema_fast": 9,
                 "ema_slow": 21,
@@ -19,6 +25,12 @@
         "elastic_reversion": {
             "enabled": true,
             "type": "range",
+            "description": "Range mean reversion. Oversold bounce in Range regime.",
+            "display_conditions": [
+                "RSI Extreme (<20)",
+                "Price Extension",
+                "Range Regime"
+            ],
             "params": {
                 "rsi_period": 14,
                 "ema_period": 20,
@@ -35,6 +47,12 @@
         "smart_trend": {
             "enabled": true,
             "type": "trend",
+            "description": "AI-assisted Trend Following. Uses Micro-Structure & Momentum.",
+            "display_conditions": [
+                "Trend Alignment",
+                "Micro-Structure (BOS)",
+                "AI Validation"
+            ],
             "params": {
                 "min_rr": 1.5
             }
@@ -42,6 +60,12 @@
         "smart_mean_reversion": {
             "enabled": true,
             "type": "reversion",
+            "description": "Bottom Fishing with Momentum Floor (ROC) logic.",
+            "display_conditions": [
+                "RSI Oversold (<30)",
+                "Momentum Floor (ROC)",
+                "Stabilization"
+            ],
             "params": {
                 "rsi_period": 14,
                 "roc_period": 10,
@@ -55,6 +79,12 @@
         "double_bottom": {
             "enabled": true,
             "type": "pattern",
+            "description": "Pattern Recognition: Double Bottom Reversal.",
+            "display_conditions": [
+                "Pattern Detection",
+                "Neckline Break",
+                "Volume Confirmation"
+            ],
             "params": {
                 "pivot_order": 3,
                 "tolerance": 0.04,
@@ -67,6 +97,12 @@
         "double_top": {
             "enabled": true,
             "type": "pattern",
+            "description": "Pattern Recognition: Double Top Reversal.",
+            "display_conditions": [
+                "Pattern Detection",
+                "Neckline Break",
+                "Volume Confirmation"
+            ],
             "params": {
                 "pivot_order": 3,
                 "tolerance": 0.04,
@@ -79,6 +115,12 @@
         "bull_flag": {
             "enabled": true,
             "type": "pattern",
+            "description": "Pattern Recognition: Bull Flag Continuation.",
+            "display_conditions": [
+                "Impulse Move",
+                "Flag Consolidation",
+                "Breakout"
+            ],
             "params": {
                 "pivot_order": 3,
                 "min_impulse_pct": 0.05,
@@ -93,6 +135,12 @@
         "head_shoulders": {
             "enabled": true,
             "type": "pattern",
+            "description": "Pattern Recognition: Head and Shoulders.",
+            "display_conditions": [
+                "Left/Right Shoulders",
+                "Head Peak",
+                "Neckline Break"
+            ],
             "params": {
                 "pivot_order": 3,
                 "tolerance": 0.04,
@@ -104,6 +152,12 @@
         "bollinger_bounce": {
             "enabled": true,
             "type": "range",
+            "description": "Classic Range Strategy. Buy Lower Band, Sell Upper Band.",
+            "display_conditions": [
+                "Band Interaction",
+                "Bandwidth Expansion",
+                "Slope Check"
+            ],
             "params": {
                 "bb_period": 20,
                 "bb_std": 2.0,
@@ -120,6 +174,11 @@
         "rsi_ping_pong": {
             "enabled": false,
             "type": "range",
+            "description": "RSI Mean Reversion Ping Pong (Disabled).",
+            "display_conditions": [
+                "RSI Extremes",
+                "Pivot Points"
+            ],
             "params": {
                 "rsi_period": 14,
                 "rsi_oversold": 25,
@@ -136,6 +195,12 @@
         "institutional_scalp": {
             "enabled": true,
             "type": "scalp",
+            "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
+            "display_conditions": [
+                "Liquidity Sweep",
+                "Rapid Reclaim",
+                "Structure Shift"
+            ],
             "params": {
                 "liq_grab_lookback": 10,
                 "min_rr": 1.2

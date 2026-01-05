@@ -1,3 +1,6 @@
+import useSWR from 'swr'
+import { useState } from 'react'
+
 interface StrategyMonitorProps {
     strategies: string[]
     regime: string
@@ -13,76 +16,43 @@ interface StrategyMonitorProps {
     embedded?: boolean
 }
 
+const fetcher = (url: string) => fetch(url).then(res => res.json())
+
 export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, strategy_conditions = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
-    const getStrategyDetails = (strategy: string) => {
-        // ... (Keep existing details object)
-        const details: { [key: string]: { icon: string; description: string; conditions: string[]; params?: string[] } } = {
-            'Scalp Ema Rsi': {
-                icon: '⚡',
-                description: 'Trend following momentum scalp. *DISABLED*',
-                conditions: [
-                    'EMA Cross (9/21) [Inactive]',
-                    'RSI Momentum Filter',
-                    'High Drawdown Risk'
-                ],
-                params: ['EMA: 9/21', 'RSI: 14', 'Threshold: 50-70']
-            },
-            'Institutional Scalp': {
-                icon: '🏦',
-                description: 'Liquidity Grab & Sweep Detection. (Optimized: Long Only)',
-                conditions: [
-                    'Sweep of 20-candle High/Low',
-                    'Reclaim confirmation (Wick > 50%)',
-                    'Direction: LONG ONLY active'
-                ],
-                params: ['Lookback: 20 candles', 'Reclaim: 50%', 'Longs Only']
-            },
-            'Golden Cross': {
-                icon: '✨',
-                description: 'Major Trend Filter (EMA 50/200)',
-                conditions: [
-                    'Weekly trend alignment',
-                    'Low frequency / High conviction',
-                    'Safety fuse for trending markets'
-                ],
-                params: ['EMA: 50/200', 'Timeframe: Weekly', 'Type: Trend Filter']
-            },
-            'Elastic Reversion': {
-                icon: '🪀',
-                description: 'Range mean reversion (Oversold bounce)',
-                conditions: [
-                    'RSI Extreme (< 20)',
-                    'Price vs EMA Extension',
-                    'Active in RANGE regime'
-                ],
-                params: ['RSI: < 20', 'Regime: RANGE', 'Target: EMA20']
-            },
-            'Smart Trend': {
-                icon: '🧠',
-                description: 'AI-assisted Micro-Structure Analysis',
-                conditions: [
-                    '1m Micro-BOS detection',
-                    'Volume Profile analysis',
-                    'Live execution only'
-                ],
-                params: ['Timeframe: 1m', 'AI: Gemini', 'Confidence: >75%']
-            },
-            'Smart Mean Reversion': {
-                icon: '🎣',
-                description: 'Bottom Fishing with Momentum Floor',
-                conditions: [
-                    'RSI < 30 (Oversold)',
-                    'ROC > -15% (Momentum Floor)',
-                    'Price < BB Lower + Stabilization'
-                ],
-                params: ['RSI: < 30', 'ROC: > -15%', 'BB: 20/2.0', 'SL: Low-3 - 0.5%']
+
+    // Fetch detailed strategy config from backend
+    const { data: strategiesConfig } = useSWR('http://localhost:8001/api/strategies', fetcher, {
+        refreshInterval: 60000, // Refresh every minute
+        revalidateOnFocus: false
+    })
+
+    const getStrategyDetails = (strategyName: string) => {
+        if (strategiesConfig && strategiesConfig.strategies && strategiesConfig.strategies[strategyName]) {
+            const cfg = strategiesConfig.strategies[strategyName]
+
+            // Map icon based on name/type
+            let icon = '🤖'
+            if (strategyName.includes('Scalp')) icon = '⚡'
+            if (strategyName.includes('Trend') || strategyName.includes('Bull')) icon = '📈'
+            if (strategyName.includes('Reversion') || strategyName.includes('Bounce')) icon = '🎣'
+            if (strategyName.includes('Pattern') || strategyName.includes('Double') || strategyName.includes('Head')) icon = '📐'
+            if (strategyName.includes('Institutional')) icon = '🏦'
+            if (strategyName.includes('Smart Trend')) icon = '🧠'
+
+            return {
+                icon: icon,
+                description: cfg.description || 'Active strategy',
+                conditions: cfg.display_conditions || ['Monitoring market'],
+                params: cfg.params || {}
             }
         }
 
-        return details[strategy] || {
-            icon: '🤖',
-            description: 'Active strategy monitoring market conditions',
-            conditions: ['Analyzing market data', 'Waiting for signals']
+        // Fallback if not loaded yet
+        return {
+            icon: '⏳',
+            description: 'Loading details...',
+            conditions: [],
+            params: {}
         }
     }
 
@@ -127,7 +97,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                     <div className="flex items-start gap-3 mb-3">
                                         <div className="text-2xl">{details.icon}</div>
                                         <div className="flex-1">
-                                            <div className="font-semibold mb-1 text-primary-light">{strategy}</div>
+                                            <div className="font-semibold mb-1 text-primary-light capitalize">{strategy.replace(/_/g, ' ')}</div>
                                             <div className="text-xs text-gray-400">{details.description}</div>
                                         </div>
                                         <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
@@ -149,8 +119,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                                 </div>
                                             ))
                                         ) : (
-                                            // Static Fallback
-                                            details.conditions.map((condition, i) => (
+                                            // Static Display Conditions
+                                            details.conditions.map((condition: string, i: number) => (
                                                 <div key={i} className="flex items-center gap-2 text-sm">
                                                     <div className="w-1 h-1 bg-primary rounded-full"></div>
                                                     <span className="text-gray-300">{condition}</span>
@@ -159,15 +129,16 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                         )}
                                     </div>
 
-                                    {/* Parameters Section */}
-                                    {details.params && (
+                                    {/* Parameters Section (Dynamic/Seuils) */}
+                                    {details.params && Object.keys(details.params).length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/20">
-                                            <div className="text-xs text-gray-500 mb-2 font-semibold">Parameters:</div>
+                                            <div className="text-xs text-gray-500 mb-2 font-semibold">Parameters (Seuils):</div>
                                             <div className="flex flex-wrap gap-2">
-                                                {details.params.map((param, i) => (
-                                                    <span key={i} className="text-xs bg-primary/10 text-primary-light px-2 py-1 rounded border border-primary/20">
-                                                        {param}
-                                                    </span>
+                                                {Object.entries(details.params).map(([key, value], i) => (
+                                                    <div key={i} className="flex flex-col bg-black/30 px-2 py-1 rounded border border-white/5">
+                                                        <span className="text-[10px] text-gray-500 uppercase">{key.replace(/_/g, ' ')}</span>
+                                                        <span className="text-xs text-primary-light font-mono">{String(value)}</span>
+                                                    </div>
                                                 ))}
                                             </div>
                                         </div>
