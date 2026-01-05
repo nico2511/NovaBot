@@ -169,6 +169,18 @@ class HyperliquidScanner:
                 dist_ema_20_pct = ((close.iloc[-1] - current_ema_20) / current_ema_20) * 100
             else:
                 dist_ema_20_pct = 0
+                
+            # Trend Distance (Price vs MA200) - For visual indicator
+            # SMA 200 is sufficient for long-term trend
+            sma_200 = df['close'].rolling(200).mean().iloc[-1] if len(df) >= 200 else 0
+            # If 200 period not available, use EMA 50 as proxy or 0
+            if sma_200 == 0 and not ema_50.empty:
+                sma_200 = current_ema_50 # Fallback
+            
+            if sma_200 > 0:
+                dist_ma200_pct = ((close.iloc[-1] - sma_200) / sma_200) * 100
+            else:
+                dist_ma200_pct = 0
 
             # Calculate ADX with directional components
             try:
@@ -192,6 +204,7 @@ class HyperliquidScanner:
                 'trend_aligned': trend_aligned,
                 'rvol': rvol,
                 'dist_ema_20_pct': dist_ema_20_pct,
+                'dist_ma200_pct': dist_ma200_pct,
                 'current_price': close.iloc[-1]
             }
             

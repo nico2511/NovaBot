@@ -134,7 +134,7 @@ export default function Home() {
                                     { id: 'strategies', label: 'Strategies', icon: TrendingUp },
                                     { id: 'signals', label: 'Signals', icon: Zap },
                                     { id: 'scanner', label: 'Scanner', icon: BarChart2 },
-                                    { id: 'ai', label: 'AI Analysis', icon: Zap },
+                                    // Removed AI Analysis Tab
                                     { id: 'logs', label: 'System Logs', icon: Terminal },
                                     { id: 'config', label: 'Config', icon: SettingsIcon },
                                     { id: 'dev', label: 'Dev Ops', icon: Terminal },
@@ -221,7 +221,7 @@ export default function Home() {
 
                                 {activeTab === 'signals' && <div className="p-6"><RecentSignals hideHeader={true} embedded={true} /></div>}
                                 {activeTab === 'scanner' && <div className="p-6"><TokenScanner hideHeader={true} /></div>}
-                                {activeTab === 'ai' && <div className="p-6"><AICommentary symbol={status?.active_symbol || 'BTC'} /></div>}
+
                                 {activeTab === 'logs' && (
                                     <div className="p-6 h-[600px]">
                                         <LiveLogs embedded={true} hideHeader={true} />
