@@ -205,7 +205,7 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
                 }
             })
         }
-    }, [data, symbol, strategy])
+    }, [candleData, symbol, strategy])
 
     // Manage Active Trade Lines (Entry, SL, TP)
     // Removed nested useRef
