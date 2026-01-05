@@ -542,6 +542,35 @@ class BotContext:
                         
                         self.add_log(f"✅ SYNC: Symbol switched from {old_symbol} to {position_symbol}")
                     
+                    # CRITICAL FIX: Adopt orphan position if active_trade is missing (e.g. after crash)
+                    if not self.active_trade:
+                        self.add_log(f"🕵️ SYNC: Adopting orphan position {position_symbol} into memory")
+                        
+                        # Extract details from position
+                        # API usually returns 'szi' (size with sign) and 'entryPx'
+                        raw_size = float(main_position.get("szi", 0))
+                        side = "BUY" if raw_size > 0 else "SELL"
+                        size = abs(raw_size)
+                        entry_px = float(main_position.get("entryPx", 0))
+                        pnl = float(main_position.get("unrealizedPnl", 0))
+                        
+                        self.active_trade = {
+                            "symbol": position_symbol,
+                            "side": side,
+                            "entry": entry_px,
+                            "size": size,
+                            "sl": 0,  # Unknown, will be handled by strategy or manual
+                            "tp": 0,
+                            "strategy": "Manual (Recovered)",
+                            "entry_time": datetime.now().isoformat(),
+                            "pnl": pnl,
+                            "max_pnl": pnl,
+                            "status": "OPEN"
+                        }
+                        # Save adopted state
+                        StateManager.save_state(self)
+                        self.add_log(f"✅ SYNC: Position adopted as 'Manual (Recovered)'")
+                    
                     # CRITICAL: Wait 10 seconds for full synchronization before AI analysis
                     self.add_log("⏳ SYNC: Waiting 10 seconds for full synchronization...")
                     time.sleep(10)
