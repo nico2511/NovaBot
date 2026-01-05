@@ -1520,7 +1520,7 @@ class BotContext:
                     self.add_log(f"⚠️ Warning: Order Success but no OID found. Result: {result}")
                     # If strictly atomic, we should perhaps NOT save? 
                     # But let's assume if status is success, we are in.
-                    oid = "unknown_oid_" + datetime.now().strftime("%H%M%S")
+                    oid = "unknown_oid_" + pd.Timestamp.now().strftime("%H%M%S")
                 
                 # Fetch fill price if possible, else use triggered price
                 # FIX: Use hyperliquid_service singleton, not self (BotContext has no get_current_price)
