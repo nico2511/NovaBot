@@ -562,7 +562,7 @@ class BotContext:
                             "sl": 0,  # Unknown, will be handled by strategy or manual
                             "tp": 0,
                             "strategy": "Manual (Recovered)",
-                            "entry_time": datetime.now().isoformat(),
+                            "entry_time": pd.Timestamp.now().isoformat(),
                             "pnl": pnl,
                             "max_pnl": pnl,
                             "status": "OPEN"
