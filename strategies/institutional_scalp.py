@@ -47,6 +47,16 @@ class InstitutionalScalp(BaseStrategy):
         if low < recent_low and close > recent_low:
             candle_range = high - low
             if candle_range > 0 and (close - low) / candle_range > 0.5:
+                # PHASE 2: Volume Spike Filter
+                # Liquidity grabs need volume confirmation to avoid fakeouts
+                if 'volume' in df.columns:
+                    current_volume = current['volume']
+                    avg_volume = df['volume'].iloc[-21:-1].mean()  # Last 20 candles (excluding current)
+                    
+                    if current_volume < (avg_volume * 1.5):
+                        # Insufficient volume, likely a fakeout
+                        return None
+                
                 return {
                     "signal": "BUY",
                     "sl": low - (0.5 * atr),
@@ -58,6 +68,16 @@ class InstitutionalScalp(BaseStrategy):
         if high > recent_high and close < recent_high:
             candle_range = high - low
             if candle_range > 0 and (high - close) / candle_range > 0.5:
+                # PHASE 2: Volume Spike Filter
+                # Liquidity grabs need volume confirmation to avoid fakeouts
+                if 'volume' in df.columns:
+                    current_volume = current['volume']
+                    avg_volume = df['volume'].iloc[-21:-1].mean()  # Last 20 candles (excluding current)
+                    
+                    if current_volume < (avg_volume * 1.5):
+                        # Insufficient volume, likely a fakeout
+                        return None
+                
                 return {
                     "signal": "SELL",
                     "sl": high + (0.5 * atr),
