@@ -121,8 +121,35 @@ class HyperliquidService:
             time_range = limit * interval_seconds * 1000
             start_time = end_time - int(time_range * 1.5)  # 1.5x buffer for gaps
             
-            # Fetch candles from Hyperliquid
-            raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
+            # RETRY LOGIC for Rate Limits (429)
+            max_retries = 3
+            retry_delay = 1  # Start with 1 second
+            raw_candles = None
+            
+            for attempt in range(max_retries):
+                try:
+                    # Fetch candles from Hyperliquid
+                    raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    # Check if it's a rate limit error (429)
+                    error_code = None
+                    if hasattr(e, 'args') and len(e.args) > 0:
+                        error_code = e.args[0]
+                    
+                    if error_code == 429:
+                        if attempt < max_retries - 1:
+                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                            print(f"⚠️ Rate limit hit (429), retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            print(f"❌ Rate limit exceeded after {max_retries} attempts")
+                            raise
+                    else:
+                        # Not a rate limit error, re-raise immediately
+                        raise
             
             if not raw_candles:
                 print(f"⚠️ No candles returned for {symbol} {interval}")
