@@ -34,29 +34,7 @@ interface Opportunity {
 }
 
 export default function TokenScanner({ hideHeader = false }: { hideHeader?: boolean }) {
-    // ... (rest of component unchanged until Metrics)
 
-                                <div className="bg-background/50 rounded-lg p-3">
-                                    <div className="text-xs text-gray-400 mb-1">RSI</div>
-                                    <div className="text-sm font-bold text-white">
-                                        {opp.rsi.toFixed(0)}
-                                    </div>
-                                </div>
-
-                                <div className="bg-background/50 rounded-lg p-3">
-                                    <div className="text-xs text-gray-400 mb-1">Trend (vs MA200)</div>
-                                    <div className="flex flex-col">
-                                        <span className={`text-sm font-bold ${getTrendColor(opp.trend)}`}>
-                                            {opp.trend}
-                                        </span>
-                                        {opp.dist_ma200_pct !== undefined && (
-                                            <span className={`text-[10px] ${opp.dist_ma200_pct > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {opp.dist_ma200_pct > 0 ? '+' : ''}{opp.dist_ma200_pct.toFixed(1)}%
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </div >
     const [isScanning, setIsScanning] = useState(false)
     const [isMomentumScanning, setIsMomentumScanning] = useState(false)
     const [momentumResults, setMomentumResults] = useState<any>(null)
@@ -275,9 +253,16 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                                 </div>
 
                                 <div className="bg-background/50 rounded-lg p-3">
-                                    <div className="text-xs text-gray-400 mb-1">Trend</div>
-                                    <div className={`text-sm font-bold ${getTrendColor(opp.trend)}`}>
-                                        {opp.trend}
+                                    <div className="text-xs text-gray-400 mb-1">Trend (vs MA200)</div>
+                                    <div className="flex flex-col">
+                                        <span className={`text-sm font-bold ${getTrendColor(opp.trend)}`}>
+                                            {opp.trend}
+                                        </span>
+                                        {opp.dist_ma200_pct !== undefined && (
+                                            <span className={`text-[10px] ${opp.dist_ma200_pct > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {opp.dist_ma200_pct > 0 ? '+' : ''}{opp.dist_ma200_pct.toFixed(1)}%
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </div>
