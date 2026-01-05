@@ -8,12 +8,14 @@ interface StrategyMonitorProps {
     ema_50?: number
     bb?: { upper: number; middle: number; lower: number }
     strategy_progress?: { [key: string]: number }
+    strategy_conditions?: { [key: string]: Array<{ name: string; status: boolean; value: string }> }
     hideHeader?: boolean
     embedded?: boolean
 }
 
-export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
+export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, strategy_conditions = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
     const getStrategyDetails = (strategy: string) => {
+        // ... (Keep existing details object)
         const details: { [key: string]: { icon: string; description: string; conditions: string[]; params?: string[] } } = {
             'Scalp Ema Rsi': {
                 icon: '⚡',
@@ -101,8 +103,6 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                 </div>
             )}
 
-            {/* Market Overview Moved to Header */}
-
             {/* Active Strategies */}
             {strategies.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -117,6 +117,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {strategies.map((strategy, index) => {
                             const details = getStrategyDetails(strategy)
+                            const dynamicConditions = strategy_conditions[strategy]
+
                             return (
                                 <div
                                     key={index}
@@ -130,13 +132,31 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                         </div>
                                         <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
                                     </div>
+
                                     <div className="space-y-2">
-                                        {details.conditions.map((condition, i) => (
-                                            <div key={i} className="flex items-center gap-2 text-sm">
-                                                <div className="w-1 h-1 bg-primary rounded-full"></div>
-                                                <span className="text-gray-300">{condition}</span>
-                                            </div>
-                                        ))}
+                                        {dynamicConditions && dynamicConditions.length > 0 ? (
+                                            // Dynamic Conditions from Backend
+                                            dynamicConditions.map((cond, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-sm justify-between bg-black/20 p-1 rounded px-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${cond.status ? 'bg-success shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500/50'}`}></div>
+                                                        <span className={cond.status ? 'text-gray-200' : 'text-gray-500'}>{cond.name}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-mono text-gray-400">{cond.value}</span>
+                                                        <span className="text-xs">{cond.status ? '✅' : '❌'}</span>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            // Static Fallback
+                                            details.conditions.map((condition, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-sm">
+                                                    <div className="w-1 h-1 bg-primary rounded-full"></div>
+                                                    <span className="text-gray-300">{condition}</span>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
 
                                     {/* Parameters Section */}

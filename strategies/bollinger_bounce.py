@@ -127,9 +127,9 @@ class BollingerBounceStrategy(BaseStrategy):
                 if percentile < min_bandwidth_percentile:
                     return None # Market too dead
             
-            # Dynamic TP Calculation (Push slightly past mean)
+            # Dynamic TP Calculation (Target Opposite Band + Boost)
             bb_width = bb_upper - bb_lower
-            tp_push = bb_width * 0.2
+            tp_boost = bb_width * 0.2
             
             # 3. Check for LONG signal (bounce off lower band)
             touched_lower = current_low <= bb_lower
@@ -137,7 +137,7 @@ class BollingerBounceStrategy(BaseStrategy):
             
             if touched_lower and bounced_up:
                 entry = current_price
-                tp = bb_basis + tp_push  # Dynamic TP: Mean + Push
+                tp = bb_upper + tp_boost  # Dynamic TP: Upper Band + Boost
                 sl = bb_lower - (current_atr * self.atr_sl_multiplier)
                 
                 # Check R:R
@@ -159,7 +159,7 @@ class BollingerBounceStrategy(BaseStrategy):
             
             if touched_upper and bounced_down:
                 entry = current_price
-                tp = bb_basis - tp_push  # Dynamic TP: Mean - Push
+                tp = bb_lower - tp_boost  # Dynamic TP: Lower Band - Boost
                 sl = bb_upper + (current_atr * self.atr_sl_multiplier)
                 
                 # Check R:R

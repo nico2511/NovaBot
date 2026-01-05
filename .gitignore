@@ -36,7 +36,7 @@ backtest_archive/
 backtest/
 tradingview/
 data/
-utils/
+
 
 fetch_prod_logs.bat
 fetch_prod_logs.sh

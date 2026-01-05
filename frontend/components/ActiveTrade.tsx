@@ -239,7 +239,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                             <span>SL: {formatPrice(trade.sl)}</span>
                         </div>
                         <div className={`flex items-center gap-1 ${isProfitable ? 'text-emerald-400' : 'text-gray-400'}`}>
-                            <span>Target Reward</span>
+                            <span>Target (R: {riskRewardRatio})</span>
                         </div>
                     </div>
                 </div>
@@ -259,7 +259,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                         className="w-1/3 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 active:bg-blue-500/30 border border-blue-500/20 rounded-lg text-xs font-bold text-blue-300 transition-all uppercase tracking-wide hover:shadow-lg flex items-center justify-center gap-2 group"
                         title="Recalibrate TP/SL based on market volatility"
                     >
-                        {recalibrateMsg || "♻️ Fix"}
+                        {recalibrateMsg || "♻️ Fix SL/TP"}
                     </button>
 
                     <button
@@ -363,14 +363,18 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                 </div>
 
                 {/* Secondary Info Grid */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex justify-between items-center">
-                        <span className="text-sm text-gray-400">Stop Loss</span>
-                        <span className="text-sm font-mono text-red-400 border border-red-500/30 bg-red-500/10 px-2 py-0.5 rounded">{formatPrice(trade.sl)}</span>
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                    <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex flex-col justify-center items-center">
+                        <span className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Risk/Reward</span>
+                        <span className="text-lg font-mono text-blue-300 font-bold">{riskRewardRatio}R</span>
                     </div>
-                    <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex justify-between items-center">
-                        <span className="text-sm text-gray-400">Take Profit</span>
-                        <span className="text-sm font-mono text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 rounded">{formatPrice(trade.tp)}</span>
+                    <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex flex-col justify-center items-center">
+                        <span className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Stop Loss</span>
+                        <span className="text-sm font-mono text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{formatPrice(trade.sl)}</span>
+                    </div>
+                    <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex flex-col justify-center items-center">
+                        <span className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Take Profit</span>
+                        <span className="text-sm font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{formatPrice(trade.tp)}</span>
                     </div>
                 </div>
 

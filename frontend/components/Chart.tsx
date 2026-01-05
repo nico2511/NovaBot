@@ -6,11 +6,17 @@ import useSWR from 'swr'
 interface ChartProps {
     symbol: string
     strategy?: string
+    activeTrade?: {
+        entry: number
+        sl: number
+        tp: number
+        side: string
+    } | null
 }
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
-export default function Chart({ symbol, strategy }: ChartProps) {
+export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
@@ -199,18 +205,79 @@ export default function Chart({ symbol, strategy }: ChartProps) {
             })
         }
 
-    }, [candleData])
+        // Manage Active Trade Lines (Entry, SL, TP)
+        const priceLinesRef = useRef<any[]>([])
 
-    return (
-        <div className="w-full relative">
-            <div className="absolute top-6 left-6 z-10 flex gap-2">
-                <div className="bg-surface/80 backdrop-blur px-3 py-1 rounded text-sm border border-border/50 shadow-sm">
-                    <span className="font-bold text-white">{symbol}</span>
-                    <span className="ml-2 text-gray-400">15m</span>
-                    {error && <span className="ml-2 text-red-500">Error loading data</span>}
+        useEffect(() => {
+            if (!seriesRef.current || !activeTrade) {
+                // Clear lines if no trade
+                priceLinesRef.current.forEach(line => seriesRef.current?.removePriceLine(line))
+                priceLinesRef.current = []
+                return
+            }
+
+            const series = seriesRef.current
+
+            // Clear previous lines first
+            priceLinesRef.current.forEach(line => series.removePriceLine(line))
+            priceLinesRef.current = []
+
+            try {
+                // ENTRY LINE
+                if (activeTrade.entry) {
+                    const entryLine = series.createPriceLine({
+                        price: activeTrade.entry,
+                        color: '#3b82f6', // Blue
+                        lineWidth: 2,
+                        lineStyle: 1 as any, // Dotted
+                        axisLabelVisible: true,
+                        title: `ENTRY ${activeTrade.side}`,
+                    })
+                    priceLinesRef.current.push(entryLine)
+                }
+
+                // STOP LOSS LINE
+                if (activeTrade.sl) {
+                    const slLine = series.createPriceLine({
+                        price: activeTrade.sl,
+                        color: '#ef4444', // Red
+                        lineWidth: 2,
+                        lineStyle: 2 as any, // Dashed
+                        axisLabelVisible: true,
+                        title: 'SL',
+                    })
+                    priceLinesRef.current.push(slLine)
+                }
+
+                // TAKE PROFIT LINE
+                if (activeTrade.tp) {
+                    const tpLine = series.createPriceLine({
+                        price: activeTrade.tp,
+                        color: '#10b981', // Emerald
+                        lineWidth: 2,
+                        lineStyle: 2 as any, // Dashed
+                        axisLabelVisible: true,
+                        title: 'TP',
+                    })
+                    priceLinesRef.current.push(tpLine)
+                }
+
+            } catch (e) {
+                console.error("Error drawing trade lines:", e)
+            }
+
+        }, [activeTrade, candleData]) // Re-run if trade or data changes (data ensures series exists)
+
+        return (
+            <div className="w-full relative">
+                <div className="absolute top-6 left-6 z-10 flex gap-2">
+                    <div className="bg-surface/80 backdrop-blur px-3 py-1 rounded text-sm border border-border/50 shadow-sm">
+                        <span className="font-bold text-white">{symbol}</span>
+                        <span className="ml-2 text-gray-400">15m</span>
+                        {error && <span className="ml-2 text-red-500">Error loading data</span>}
+                    </div>
                 </div>
+                <div ref={chartContainerRef} className="w-full h-[400px]" />
             </div>
-            <div ref={chartContainerRef} className="w-full h-[400px]" />
-        </div>
-    )
-}
+        )
+    }

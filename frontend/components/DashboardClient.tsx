@@ -55,6 +55,11 @@ export default function DashboardClient() {
         refreshInterval: 5000  // Less frequent for balance
     })
 
+    // Fetch Active Trade for Chart Lines
+    const { data: activeTradeData } = useSWR(`${API_URL}/api/active_trade`, fetcher, {
+        refreshInterval: 2000
+    })
+
     // Check for manual signals
     const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, {
         ...swrConfig,
@@ -189,6 +194,12 @@ export default function DashboardClient() {
                         <Chart
                             symbol={status?.active_symbol || 'BTC'}
                             strategy={marketData?.active_strategies?.[0]?.replace(/ /g, '') || 'ScalpEmaRsi'}
+                            activeTrade={activeTradeData?.active_trade ? {
+                                entry: activeTradeData.active_trade.entry,
+                                sl: activeTradeData.active_trade.sl,
+                                tp: activeTradeData.active_trade.tp,
+                                side: activeTradeData.active_trade.side
+                            } : null}
                         />
                     )}
 

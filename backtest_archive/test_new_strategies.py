@@ -17,11 +17,11 @@ from app.services.hyperliquid_service import hyperliquid_service
 
 # List of new strategies to test
 NEW_STRATEGIES = [
-    # Pattern Recognition Strategies
-    "double_bottom",
-    "double_top",
-    "bull_flag",
-    "head_shoulders",
+    # Pattern Recognition Strategies (Skipped for speed)
+    # "double_bottom",
+    # "double_top",
+    # "bull_flag",
+    # "head_shoulders",
     
     # Range Trading Strategies
     "bollinger_bounce",
@@ -60,7 +60,7 @@ def main():
     print("="*60 + "\n")
     
     # Fetch historical data (30 days of 15m candles)
-    symbol = "DOGE"
+    symbol = "BTC"
     print(f"📡 Fetching {symbol} data (30 days, 15m)...")
     df = hyperliquid_service.get_candles(symbol, "15m", limit=2880)
     
