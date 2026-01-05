@@ -78,6 +78,14 @@ class StrategySmartTrend(BaseStrategy):
         atr_15m = df['ATRr_14'].iloc[-2]
         rsi_15m = df['RSI_14'].iloc[-2]
         
+        # GUARD CLAUSE: Trend Following only in Trend (ADX > 25)
+        if 'ADX_14' in df.columns:
+            current_adx = df['ADX_14'].iloc[-2]
+            if current_adx < 25:
+                self.looking_for_entry = False
+                self.entry_direction = None
+                return None  # No trend, skip trend following strategy
+        
         # RSI Filter (éviter extrêmes)
         if rsi_15m <= 30 or rsi_15m >= 70:
             self.looking_for_entry = False

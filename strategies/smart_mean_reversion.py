@@ -77,6 +77,12 @@ class SmartMeanReversionStrategy(BaseStrategy):
             
             p_close = df['close'].iloc[-2]
             
+            # GUARD CLAUSE: Mean Reversion only in Range (ADX < 25)
+            if 'ADX_14' in df.columns:
+                current_adx = df['ADX_14'].iloc[-2]
+                if current_adx > 25:
+                    return None  # Trend detected, skip mean reversion
+            
             # --- CONDITION 1: RSI OVERSOLD ---
             if c_rsi >= rsi_threshold:
                 return None

@@ -72,6 +72,12 @@ class ElasticReversionStrategy(BaseStrategy):
             p_ema = df[ema_col].iloc[-2]
             
             if pd.isna(p_ema) or pd.isna(p_rsi): return None
+            
+            # GUARD CLAUSE: Mean Reversion only in Range (ADX < 25)
+            if 'ADX_14' in df.columns:
+                current_adx = df['ADX_14'].iloc[-2]
+                if current_adx > 25:
+                    return None  # Trend detected, skip mean reversion
 
             # ==========================================
             # 1. SETUP LOGIC (Checked on Previous Candle P)

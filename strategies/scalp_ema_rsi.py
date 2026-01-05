@@ -34,6 +34,12 @@ class ScalpEmaRsi(BaseStrategy):
         atr_col = "ATRr_14"
         
         if trend_col not in df.columns or atr_col not in df.columns: return None
+        
+        # GUARD CLAUSE: Trend Following only in Trend (ADX > 25)
+        if 'ADX_14' in df.columns:
+            current_adx = df['ADX_14'].iloc[-2]
+            if current_adx < 25:
+                return None  # No trend, skip trend following strategy
 
         # Values (Use iloc[-2] for signal stability / avoiding repainting)
         # However, checking cross often needs current vs prev.
