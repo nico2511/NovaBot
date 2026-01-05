@@ -586,14 +586,16 @@ async def get_strategies():
         with open(config_file, "r") as f:
             config = json.load(f)
         
-        strategies = []
+        strategies = {}
         for name, strat in config.get("strategies", {}).items():
-            strategies.append({
+            strategies[name] = {
                 "name": name,
                 "enabled": strat.get("enabled", False),
                 "type": strat.get("type", "unknown"),
+                "description": strat.get("description", ""),
+                "display_conditions": strat.get("display_conditions", []),
                 "params": strat.get("params", {})
-            })
+            }
         
         return {"strategies": strategies}
     except Exception as e:

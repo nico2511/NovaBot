@@ -118,7 +118,7 @@ export default function Settings() {
                                 <input
                                     type="text"
                                     value={settings.asset}
-                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
+                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value })}
                                     list="assets"
                                     className="w-full bg-background border border-border/30 rounded-lg px-4 py-2 uppercase"
                                     placeholder="Enter symbol (e.g. BTC, ETH, SOL)"
