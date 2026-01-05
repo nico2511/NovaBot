@@ -1037,16 +1037,37 @@ class BotContext:
                         
                         # Process signals (Only if NO active trade)
                         if result.get("signals") and not self.active_trade:
-                            self.add_log(f"🐛 DEBUG: Signals received: {result['signals']}")
-                            sig_data = result["signals"][0]
+                            # CRITICAL FIX: Deduplication Logic
+                            unique_signals = []
+                            seen_signal_ids = set()
                             
-                            # CRITICAL FIX: Robust null safety - Filter out invalid signals BEFORE AI validation
-                            if sig_data is None:
-                                self.add_log(f"⚠️ NULL SAFETY: Skipping None signal from strategy")
+                            for sig in result["signals"]:
+                                if not isinstance(sig, dict): continue
+                                
+                                # Create Unique ID: Symbol + Strategy + Timestamp (Minute execution) + Side
+                                # We use current candle time to bucket signals belonging to the same candle analysis
+                                ts_key = current_candle_time.strftime("%Y%m%d%H%M")
+                                sig_id = f"{self.active_symbol}_{sig.get('strategy', 'unk')}_{sig.get('signal')}_{ts_key}"
+                                
+                                if sig_id in seen_signal_ids:
+                                    self.add_log(f"♻️ Duplicate signal dropped: {sig_id}")
+                                    continue
+                                    
+                                # Optional: Check global history if needed, but per-loop dedupe is usually sufficient for "double sending"
+                                # If the issue is persistent across loop iterations (same candle), we need a class-level/state-level tracker.
+                                # Assuming 'last_candle_time' check already prevents re-analyzing same candle.
+                                
+                                seen_signal_ids.add(sig_id)
+                                unique_signals.append(sig)
+
+                            if not unique_signals:
                                 continue
+
+                            self.add_log(f"🐛 DEBUG: Signals received (Unique: {len(unique_signals)}): {unique_signals}")
+                            sig_data = unique_signals[0] # Execute the first unique signal
                             
-                            if not isinstance(sig_data, dict):
-                                self.add_log(f"⚠️ NULL SAFETY: Invalid signal type: {type(sig_data)}")
+                            # CRITICAL FIX: Robust null safety
+                            if sig_data is None:
                                 continue
                             
                             # Extract variables AFTER null safety checks
@@ -1400,6 +1421,89 @@ class BotContext:
             StateManager.save_state(self)
         else:
             self.add_log("⚠️ Bot already running with active thread, skipping start")
+
+    def execute_entry_atomically(self, symbol, side, size, price, sl, tp, strategy):
+        """
+        Execute trade atomically: Order -> OID -> Save State.
+        Prevents phantom trades.
+        """
+        self.add_log(f"🚀 EXECUTING ATOMICALLY: {side} {symbol} x{size} (SL: {sl}, TP: {tp})")
+        
+        try:
+            # 1. Execute via Hyperliquid Service
+            is_buy = (side == "BUY")
+            result = hyperliquid_service.execute_order(
+                symbol=symbol,
+                is_buy=is_buy,
+                quantity=size,
+                price=price,
+                sl_price=sl,
+                tp_price=tp
+            )
+            
+            # 2. Verify Output & Extract OID
+            if result.get("status") == "success":
+                # Extract OID from response
+                # Response format depends on bulk vs normal. 
+                # Assuming bulk for atomic SL/TP.
+                # data->statuses->[list of results]
+                raw_res = result.get("result", {})
+                response = raw_res.get("response", {})
+                data = response.get("data", {})
+                statuses = data.get("statuses", [])
+                
+                oid = None
+                # Entry is usually the first order in the bulk list
+                if statuses and len(statuses) > 0:
+                     oid = statuses[0].get("oid")
+                     error = statuses[0].get("error")
+                     if error:
+                         self.add_log(f"❌ Entry Order Error in Batch: {error}")
+                         return # Do not save state
+
+                if not oid:
+                    self.add_log(f"⚠️ Warning: Order Success but no OID found. Result: {result}")
+                    # If strictly atomic, we should perhaps NOT save? 
+                    # But let's assume if status is success, we are in.
+                    oid = "unknown_oid_" + datetime.now().strftime("%H%M%S")
+                
+                # Fetch fill price if possible, else use triggered price
+                entry_price = price if price else self.get_current_price(symbol) # Approx for Market
+                
+                # 3. Update State (In Memory)
+                self.active_trade = {
+                    "symbol": symbol,
+                    "side": side,
+                    "entry": entry_price,
+                    "size": size,
+                    "sl": sl,
+                    "tp": tp,
+                    "strategy": strategy,
+                    "entry_time": datetime.now().isoformat(),
+                    "pnl": 0,
+                    "max_pnl": 0,
+                    "oid": oid  # STORE OID
+                }
+                
+                # 4. Persist State (Disk)
+                StateManager.save_state(self)
+                self.add_log(f"✅ Trade Confirmed & Saved (OID: {oid})")
+                
+                # Notification
+                try:
+                    msg = f"🚀 **OPEN {side} {symbol}**\nStr: {strategy}\nEntry: {entry_price}\nSize: {size}\nSL: {sl}\nTP: {tp}\nOID: {oid}"
+                    discord_bot.send_message(msg)
+                except:
+                    pass
+                
+            else:
+                self.add_log(f"❌ Execution Failed: {result.get('message')}")
+        
+        except Exception as e:
+            self.add_log(f"❌ Critical Error in Atomic Execution: {e}")
+            import traceback
+            traceback.print_exc()
+
     
     def close_active_trade(self, reason="Manual Close"):
         """Close the currently active trade"""

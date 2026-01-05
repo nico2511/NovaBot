@@ -12,7 +12,8 @@
                 "ema_slow": 21,
                 "rsi_period": 14,
                 "rsi_overbought": 70,
-                "rsi_oversold": 30
+                "rsi_oversold": 30,
+                "min_rr": 1.3
             }
         },
         "elastic_reversion": {
@@ -26,7 +27,7 @@
                 "extension_pct": 0.04,
                 "sl_lookback": 5,
                 "sl_margin": 0.005,
-                "risk_reward": 1.5,
+                "min_rr": 1.5,
                 "bonus_rsi_long": 25,
                 "bonus_rsi_short": 75
             }
@@ -34,7 +35,9 @@
         "smart_trend": {
             "enabled": true,
             "type": "trend",
-            "params": {}
+            "params": {
+                "min_rr": 1.5
+            }
         },
         "smart_mean_reversion": {
             "enabled": true,
@@ -45,7 +48,8 @@
                 "bb_period": 20,
                 "bb_std": 2.0,
                 "rsi_threshold": 30,
-                "roc_floor": -15.0
+                "roc_floor": -15.0,
+                "min_rr": 1.3
             }
         },
         "double_bottom": {
@@ -91,7 +95,7 @@
             "type": "pattern",
             "params": {
                 "pivot_order": 3,
-                "shoulder_tolerance": 0.05,
+                "tolerance": 0.04,
                 "min_candles": 15,
                 "volume_filter": false,
                 "min_rr": 1.3
@@ -109,7 +113,7 @@
                 "ema50_slope_threshold": 0.001,
                 "atr_period": 14,
                 "atr_sl_multiplier": 1.2,
-                "min_rr": 1.1,
+                "min_rr": 1.5,
                 "min_bandwidth_percentile": 20
             }
         },
@@ -133,7 +137,8 @@
             "enabled": true,
             "type": "scalp",
             "params": {
-                "liq_grab_lookback": 10
+                "liq_grab_lookback": 10,
+                "min_rr": 1.2
             }
         }
     }

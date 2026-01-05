@@ -57,10 +57,18 @@ class ScalpEmaRsi(BaseStrategy):
         if is_bullish_cross or is_bullish_aligned:
             if close > current_trend:  # Above 200 EMA
                 if 50 < current_rsi < 70:  # RSI in momentum zone
+                # Check RR
+                sl = close - (1.5 * atr)
+                tp = close + (2.5 * atr)
+                
+                risk = abs(close - sl)
+                reward = abs(tp - close)
+                
+                if risk > 0 and (reward / risk) >= params.get("min_rr", 1.3):
                     return {
                         "signal": "BUY",
-                        "sl": close - (1.5 * atr),
-                        "tp": close + (2.5 * atr),
+                        "sl": sl,
+                        "tp": tp,
                         "comment": "EMA Bullish + Trend + RSI" if is_bullish_aligned else "EMA Cross + Trend + RSI"
                     }
                 
@@ -71,10 +79,18 @@ class ScalpEmaRsi(BaseStrategy):
         if is_bearish_cross or is_bearish_aligned:
             if close < current_trend:  # Below 200 EMA
                 if 30 < current_rsi < 50:  # RSI in momentum zone
+                # Check RR
+                sl = close + (1.5 * atr)
+                tp = close - (2.5 * atr)
+                
+                risk = abs(sl - close)
+                reward = abs(close - tp)
+                
+                if risk > 0 and (reward / risk) >= params.get("min_rr", 1.3):
                     return {
                         "signal": "SELL",
-                        "sl": close + (1.5 * atr),
-                        "tp": close - (2.5 * atr),
+                        "sl": sl,
+                        "tp": tp,
                         "comment": "EMA Bearish + Trend + RSI" if is_bearish_aligned else "EMA Cross + Trend + RSI"
                     }
         return None

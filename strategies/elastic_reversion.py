@@ -128,7 +128,7 @@ class ElasticReversionStrategy(BaseStrategy):
                 # RSI Delta Check (momentum filter)
                 rsi_delta = self.get_rsi_delta(df)
                 
-                if rr_ratio >= params.get("risk_reward", 1.5):
+                if rr_ratio >= params.get("min_rr", 1.5):
                     # Soft Entry: Prefer RSI Delta < 0 for Short (Momentum turning down)
                     # But since this is Reversion, simply repassing < 75 is the main trigger.
                     # We can use Delta for commentary.
@@ -172,7 +172,7 @@ class ElasticReversionStrategy(BaseStrategy):
                 # RSI Delta Check
                 rsi_delta = self.get_rsi_delta(df)
                 
-                if rr_ratio >= params.get("risk_reward", 1.5):
+                if rr_ratio >= params.get("min_rr", 1.5):
                     # Soft Entry Filter: Want RSI Delta > 0 (Momentum turning up)
                     if rsi_delta > 0:
                          print(f"⚡ Elastic Long Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
