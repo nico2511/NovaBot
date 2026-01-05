@@ -21,7 +21,7 @@ const fetcher = (url: string) => fetch(url).then(res => res.json())
 export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, strategy_conditions = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
 
     // Fetch detailed strategy config from backend
-    const { data: strategiesConfig } = useSWR('http://localhost:8001/api/strategies', fetcher, {
+    const { data: strategiesConfig } = useSWR('/api/strategies', fetcher, {
         refreshInterval: 60000, // Refresh every minute
         revalidateOnFocus: false
     })
