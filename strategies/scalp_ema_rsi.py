@@ -55,13 +55,19 @@ class ScalpEmaRsi(BaseStrategy):
         close = df['close'].iloc[-2] # Closed price of previous candle
         atr = df[atr_col].iloc[-2]
         
-        # BUY: Bullish setup (EMA alignment + Trend + RSI)
-        # Trigger on: 1) Active crossover OR 2) Already aligned with all conditions met
-        is_bullish_cross = prev_fast <= prev_slow and current_fast > current_slow
-        is_bullish_aligned = current_fast > current_slow  # EMAs already aligned
+        # ============================================
+        # EVENT-BASED LOGIC (Crossover Detection)
+        # ============================================
+        # Signal triggers ONLY on the exact crossover event, not continuous alignment.
+        # This prevents signal spam when EMAs remain aligned.
         
-        if is_bullish_cross or is_bullish_aligned:
-            if close > current_trend:  # Above 200 EMA
+        # BUY: Bullish Crossover (EMA Fast crosses ABOVE EMA Slow)
+        # Condition: prev_fast <= prev_slow AND current_fast > current_slow
+        is_bullish_cross = (prev_fast <= prev_slow) and (current_fast > current_slow)
+        
+        if is_bullish_cross:
+            # Additional Filters (only checked on crossover event)
+            if close > current_trend:  # Above 200 EMA (trend filter)
                 if 50 < current_rsi < 70:  # RSI in momentum zone
                     # Check RR
                     sl = close - (1.5 * atr)
@@ -75,15 +81,15 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bullish + Trend + RSI" if is_bullish_aligned else "EMA Cross + Trend + RSI"
+                            "comment": "EMA Bullish Crossover + Trend + RSI"
                         }
                 
-        # SELL: Bearish setup (EMA alignment + Trend + RSI)
-        is_bearish_cross = prev_fast >= prev_slow and current_fast < current_slow
-        is_bearish_aligned = current_fast < current_slow
+        # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
+        # Condition: prev_fast >= prev_slow AND current_fast < current_slow
+        is_bearish_cross = (prev_fast >= prev_slow) and (current_fast < current_slow)
         
-        if is_bearish_cross or is_bearish_aligned:
-            if close < current_trend:  # Below 200 EMA
+        if is_bearish_cross:
+            if close < current_trend:  # Below 200 EMA (trend filter)
                 if 30 < current_rsi < 50:  # RSI in momentum zone
                     # Check RR
                     sl = close + (1.5 * atr)
@@ -97,8 +103,44 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bearish + Trend + RSI" if is_bearish_aligned else "EMA Cross + Trend + RSI"
+                            "comment": "EMA Bearish Crossover + Trend + RSI"
                         }
+        
+        # ============================================
+        # OPTIONAL: PULLBACK RE-ENTRY LOGIC (Future Enhancement)
+        # ============================================
+        # To add pullback entries WITHOUT spam, use a state machine:
+        # 
+        # 1. Detect Initial Crossover (as above) → Set internal flag: self.pullback_armed = True
+        # 2. Wait for Pullback: Price touches EMA_fast (e.g., close <= ema_fast * 1.005)
+        # 3. Detect Bounce: Price closes above EMA_fast again
+        # 4. Trigger Re-Entry Signal → Reset flag: self.pullback_armed = False
+        # 
+        # Example Code (commented for future use):
+        # 
+        # if hasattr(self, 'pullback_armed') and self.pullback_armed:
+        #     # Check if price touched EMA_fast
+        #     if close <= current_fast * 1.005:  # Within 0.5% of EMA
+        #         self.pullback_touched = True
+        #     
+        #     # Check if price bounced back above EMA
+        #     if self.pullback_touched and close > current_fast:
+        #         # Trigger pullback entry
+        #         self.pullback_armed = False
+        #         self.pullback_touched = False
+        #         return {
+        #             "signal": "BUY",
+        #             "sl": close - (1.5 * atr),
+        #             "tp": close + (2.5 * atr),
+        #             "comment": "Pullback Re-Entry"
+        #         }
+        # 
+        # Note: Requires adding __init__ method to initialize flags:
+        # def __init__(self, config=None):
+        #     super().__init__(config)
+        #     self.pullback_armed = False
+        #     self.pullback_touched = False
+        
         return None
 
     def calculate_progress(self, df, extra_data=None):
