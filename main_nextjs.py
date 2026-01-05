@@ -1299,12 +1299,13 @@ class BotContext:
                         
                         # Analyser toutes les 5 minutes
                         if not last_pos_analysis_time or (now - last_pos_analysis_time) > timedelta(minutes=AI_POSITION_ANALYSIS_INTERVAL_MIN):
+                            safe_market_data = getattr(self, 'market_data', {}) or {}
                             market_context = {
                                 "current_price": float(current_price), # FIXED: Key matches ia.py expectation
                                 "symbol": self.active_symbol,
-                                "regime": self.market_data.get('regime', 'UNKNOWN'),
-                                "rsi": float(self.market_data.get('rsi', 50)),
-                                "atr": float(self.market_data.get('atr', 0))
+                                "regime": safe_market_data.get('regime', 'UNKNOWN'),
+                                "rsi": float(safe_market_data.get('rsi', 50)),
+                                "atr": float(safe_market_data.get('atr', 0))
                             }
                             
                             position_analysis = ia_service.analyze_active_position(self.active_trade, market_context)
