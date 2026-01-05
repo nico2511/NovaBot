@@ -25,8 +25,15 @@ class InstitutionalScalp(BaseStrategy):
 
         if atr_col not in df.columns:
             return None
+        
+        # GUARD CLAUSE: Mean Reversion only in Range (ADX < 25)
+        # Check if ADX is available (added by engine.py)
+        if 'ADX_14' in df.columns:
+            current_adx = df['ADX_14'].iloc[-2]
+            if current_adx > 25:
+                return None  # Trend detected, skip mean reversion
 
-        current = df.iloc[-1]
+        current = df.iloc[-2]  # Use confirmed candle (anti-repainting)
         close = current['close']
         high = current['high']
         low = current['low']
