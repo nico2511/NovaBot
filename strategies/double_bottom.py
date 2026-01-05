@@ -104,6 +104,13 @@ class DoubleBottomStrategy(ChartPatternBase):
             return None
         
         try:
+            # GUARD CLAUSE: Reversal patterns require minimum volatility (ADX > 15)
+            # Avoid trading reversals in dead/zero-volatility markets
+            if 'ADX_14' in df.columns:
+                current_adx = df['ADX_14'].iloc[-2]
+                if current_adx < 15:
+                    return None  # Market too dead, reversal unreliable
+            
             # Add volume indicator
             self.add_indicators(df)
             

@@ -86,6 +86,13 @@ class BullFlagStrategy(ChartPatternBase):
             return None
         
         try:
+            # GUARD CLAUSE: Trend Continuation requires active trend (ADX > 20)
+            # Bull Flag is a continuation pattern - avoid trading in flat/choppy markets
+            if 'ADX_14' in df.columns:
+                current_adx = df['ADX_14'].iloc[-2]
+                if current_adx < 20:
+                    return None  # Market too flat, pattern unreliable
+            
             self.add_indicators(df)
             pattern = self._detect_pattern(df)
             

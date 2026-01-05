@@ -48,10 +48,11 @@ class InstitutionalScalp(BaseStrategy):
             candle_range = high - low
             if candle_range > 0 and (close - low) / candle_range > 0.5:
                 # PHASE 2: Volume Spike Filter
-                # Liquidity grabs need volume confirmation to avoid fakeouts
+                # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
+                # Comparing partial volume to full average is mathematically incorrect
                 if 'volume' in df.columns:
-                    current_volume = current['volume']
-                    avg_volume = df['volume'].iloc[-21:-1].mean()  # Last 20 candles (excluding current)
+                    current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
+                    avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
                     if current_volume < (avg_volume * 1.5):
                         # Insufficient volume, likely a fakeout
@@ -69,10 +70,10 @@ class InstitutionalScalp(BaseStrategy):
             candle_range = high - low
             if candle_range > 0 and (high - close) / candle_range > 0.5:
                 # PHASE 2: Volume Spike Filter
-                # Liquidity grabs need volume confirmation to avoid fakeouts
+                # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
                 if 'volume' in df.columns:
-                    current_volume = current['volume']
-                    avg_volume = df['volume'].iloc[-21:-1].mean()  # Last 20 candles (excluding current)
+                    current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
+                    avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
                     if current_volume < (avg_volume * 1.5):
                         # Insufficient volume, likely a fakeout
