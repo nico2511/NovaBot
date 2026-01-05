@@ -1494,7 +1494,8 @@ class BotContext:
                     oid = "unknown_oid_" + datetime.now().strftime("%H%M%S")
                 
                 # Fetch fill price if possible, else use triggered price
-                entry_price = price if price else self.get_current_price(symbol) # Approx for Market
+                # FIX: Use hyperliquid_service singleton, not self (BotContext has no get_current_price)
+                entry_price = price if price else hyperliquid_service.get_current_price(symbol) # Approx for Market
                 
                 # 3. Update State (In Memory)
                 self.active_trade = {
