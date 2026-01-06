@@ -880,6 +880,9 @@ class BotContext:
                 result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
                 self.active_strategies = result.get('strategies', [])
                 
+                # Store result for API access
+                self.latest_strategy_result = result
+                
                 # Log analysis results
                 regime = result.get('regime', 'UNKNOWN')
                 adx = result.get('adx', 0)
