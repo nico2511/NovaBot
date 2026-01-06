@@ -1,5 +1,1 @@
-import DashboardClient from '@/components/DashboardClient'
-
-export default function Home() {
-    return <DashboardClient />
-}
+export { default } from '../v2/page'
