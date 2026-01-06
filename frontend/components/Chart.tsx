@@ -7,7 +7,9 @@ import {
     ISeriesApi,
     CrosshairMode,
     LineStyle,
-    UTCTimestamp
+    UTCTimestamp,
+    CandlestickSeries,
+    LineSeries
 } from 'lightweight-charts'
 import useSWR from 'swr'
 
@@ -105,7 +107,8 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         })
 
         // Séries Bougies (Couleurs TradingView)
-        const candleSeries = (chart as any).addCandlestickSeries({
+        // Séries Bougies (Couleurs TradingView)
+        const candleSeries = chart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350',
             borderUpColor: '#26a69a', borderDownColor: '#ef5350',
             wickUpColor: '#26a69a', wickDownColor: '#ef5350',
@@ -113,9 +116,9 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         candleSeriesRef.current = candleSeries
 
         // Séries Bollinger (Subtiles)
-        bbUpperRef.current = (chart as any).addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
-        bbLowerRef.current = (chart as any).addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
-        bbBasisRef.current = (chart as any).addLineSeries({ color: 'rgba(251, 146, 60, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false }) // Basis Orange
+        bbUpperRef.current = chart.addSeries(LineSeries, { color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
+        bbLowerRef.current = chart.addSeries(LineSeries, { color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
+        bbBasisRef.current = chart.addSeries(LineSeries, { color: 'rgba(251, 146, 60, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false }) // Basis Orange
 
         chartRef.current = chart
 
