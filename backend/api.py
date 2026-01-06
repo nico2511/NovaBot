@@ -515,7 +515,15 @@ async def get_market_data():
     strategy_conditions = {}
     
     # Defaults from local calculation
-    final_regime = trends["15m"]["trend"]
+    # Normalize trend to regime format (RANGE/TREND) for frontend
+    trend_value = trends["15m"]["trend"]
+    if "RANGING" in trend_value or trend_value == "NEUTRAL":
+        final_regime = "RANGE"
+    elif trend_value in ["BULLISH", "BEARISH"]:
+        final_regime = "TREND"
+    else:
+        final_regime = "UNKNOWN"
+    
     
     try:
         if bot_bridge and bot_bridge.is_connected():
