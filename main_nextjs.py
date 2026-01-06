@@ -880,6 +880,22 @@ class BotContext:
                 result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
                 self.active_strategies = result.get('strategies', [])
                 
+                # Log analysis results
+                regime = result.get('regime', 'UNKNOWN')
+                adx = result.get('adx', 0)
+                rsi = result.get('rsi', 0)
+                ema_20 = result.get('ema_20', 0)
+                ema_50 = result.get('ema_50', 0)
+                
+                self.add_log(f"📊 Regime: {regime} | ADX: {adx:.1f} | RSI: {rsi:.1f}")
+                self.add_log(f"📈 EMA20: {ema_20:.2f} | EMA50: {ema_50:.2f}")
+                
+                if self.active_strategies:
+                    self.add_log(f"✅ Active Strategies: {', '.join(self.active_strategies)}")
+                else:
+                    self.add_log(f"⚠️ No active strategies for regime: {regime}")
+                
+                
                 # 4. PROCESS SIGNALS
                 signals = result.get("signals", [])
                 if signals:
