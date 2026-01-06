@@ -58,6 +58,21 @@ export default function ConfigPage() {
         return res.data
     }, { refreshInterval: 2000 })
 
+    // Fetch available tokens
+    const { data: tokenData } = useSWR(`${API_URL}/api/tokens`, async (url) => {
+        const res = await axios.get(url)
+        return res.data
+    }, {
+        revalidateOnFocus: false,
+        dedupingInterval: 60000 // Cache for 1 minute
+    })
+
+    // Fetch gamification status
+    const { data: gamStatus } = useSWR(`${API_URL}/api/gamification_status`, async (url) => {
+        const res = await axios.get(url)
+        return res.data
+    }, { refreshInterval: 5000 })
+
     useEffect(() => {
         if (serverSettings || statusData) {
             setSettings(prev => ({
@@ -183,20 +198,26 @@ export default function ConfigPage() {
                             {/* Market Selector */}
                             <div>
                                 <label className="block text-sm font-semibold mb-2 text-gray-300">Active Market</label>
-                                <input
-                                    type="text"
-                                    value={settings.asset}
-                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
-                                    list="assets"
-                                    className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 uppercase focus:border-blue-500 transition-colors"
-                                    placeholder="Symbol (e.g. BTC)"
-                                />
-                                <datalist id="assets">
-                                    <option value="BTC">Bitcoin</option>
-                                    <option value="ETH">Ethereum</option>
-                                    <option value="SOL">Solana</option>
-                                    <option value="HYPE">HyperLiquid</option>
-                                </datalist>
+                                {tokenData?.success ? (
+                                    <select
+                                        value={settings.asset}
+                                        onChange={(e) => setSettings({ ...settings, asset: e.target.value })}
+                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 appearance-none focus:border-blue-500 transition-colors"
+                                    >
+                                        {tokenData.tokens.map((token: string) => (
+                                            <option key={token} value={token}>{token}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={settings.asset}
+                                        onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
+                                        list="assets"
+                                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 uppercase focus:border-blue-500 transition-colors"
+                                        placeholder="Symbol (e.g. BTC)"
+                                    />
+                                )}
                             </div>
 
                             {/* Execution Mode */}
@@ -294,48 +315,86 @@ export default function ConfigPage() {
                                         />
                                     </div>
 
-                                    <div className="flex items-center justify-between bg-black/30 p-4 rounded-xl border-2 border-yellow-500/30">
-                                        <div>
-                                            <span className="font-semibold block flex items-center gap-2">
-                                                🎮 Gamification
-                                                <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">NEW</span>
-                                            </span>
-                                            <span className="text-xs text-gray-500">
-                                                {settings.scanner?.gamification_enabled !== false
-                                                    ? "Limit tokens by account level (Goblin/Mercenary/Whale)"
-                                                    : "Trade any token regardless of level"}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="checkbox"
-                                            checked={settings.scanner?.gamification_enabled !== false}
-                                            onChange={async (e) => {
-                                                const enabled = e.target.checked
-                                                setSettings({
-                                                    ...settings,
-                                                    scanner: { ...settings.scanner!, gamification_enabled: enabled }
-                                                })
+                                    <div className="bg-black/30 p-4 rounded-xl border-2 border-yellow-500/30">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div>
+                                                <span className="font-semibold block flex items-center gap-2">
+                                                    🎮 Gamification
+                                                    <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full">NEW</span>
+                                                </span>
+                                                <span className="text-xs text-gray-500">
+                                                    Limit tokens and rules by account level
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={settings.scanner?.gamification_enabled !== false}
+                                                onChange={async (e) => {
+                                                    const enabled = e.target.checked
 
-                                                // Save immediately via API
-                                                try {
-                                                    await axios.post(`${API_URL}/api/toggle_gamification`, { enabled })
-                                                } catch (error) {
-                                                    console.error('Failed to toggle gamification:', error)
-                                                }
-                                            }}
-                                            className="w-6 h-6 accent-yellow-500 rounded cursor-pointer"
-                                        />
+                                                    // Immediately update local state
+                                                    setSettings(prev => ({
+                                                        ...prev,
+                                                        scanner: { ...prev.scanner!, gamification_enabled: enabled }
+                                                    }))
+
+                                                    // Save immediately via API
+                                                    try {
+                                                        await axios.post(`${API_URL}/api/toggle_gamification`, { enabled })
+                                                    } catch (error) {
+                                                        console.error('Failed to toggle gamification:', error)
+                                                        // Revert on error
+                                                        setSettings(prev => ({
+                                                            ...prev,
+                                                            scanner: { ...prev.scanner!, gamification_enabled: !enabled }
+                                                        }))
+                                                    }
+                                                }}
+                                                className="w-6 h-6 accent-yellow-500 rounded cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {settings.scanner?.gamification_enabled !== false ? (
+                                            <div className="space-y-3">
+                                                <div className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                                                    🎮 <strong>Gamification ACTIVE</strong>
+                                                </div>
+
+                                                {gamStatus?.gamification && (
+                                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                                        <div className="bg-white/5 p-2 rounded border border-white/10">
+                                                            <div className="text-gray-400">Your Level</div>
+                                                            <div className="font-bold text-yellow-400">{gamStatus.gamification.level}</div>
+                                                        </div>
+                                                        <div className="bg-white/5 p-2 rounded border border-white/10">
+                                                            <div className="text-gray-400">Max Leverage</div>
+                                                            <div className="font-bold text-white">{gamStatus.gamification.max_leverage}x</div>
+                                                        </div>
+                                                        <div className="bg-white/5 p-2 rounded border border-white/10 col-span-2">
+                                                            <div className="text-gray-400">Allowed Tiers</div>
+                                                            <div className="font-bold text-white flex flex-wrap gap-1 mt-1">
+                                                                {gamStatus.gamification.allowed_tiers.map((t: string) => (
+                                                                    <span key={t} className="px-1.5 py-0.5 bg-white/10 rounded">{t}</span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="bg-white/5 p-2 rounded border border-white/10 col-span-2">
+                                                            <div className="text-gray-400">Position Limit</div>
+                                                            <div className="font-bold text-white">
+                                                                {gamStatus.gamification.max_position_size
+                                                                    ? `$${gamStatus.gamification.max_position_size} USDC`
+                                                                    : 'UNLIMITED'}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                                                🌍 <strong>Gamification OFF:</strong> Full market access (All Tokens, Max Lev 50x)
+                                            </div>
+                                        )}
                                     </div>
-
-                                    {settings.scanner?.gamification_enabled !== false ? (
-                                        <div className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                                            🎮 <strong>Gamification ON:</strong> Scanner limited to your allowed tokens (Goblin = Memecoins, Mercenary = +Altcoins, Whale = +BTC/ETH)
-                                        </div>
-                                    ) : (
-                                        <div className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-                                            🌍 <strong>Gamification OFF:</strong> Full market access - Trade any token
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </div>

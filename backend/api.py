@@ -1400,8 +1400,9 @@ async def dev_restart_frontend():
     """Restart frontend (Next.js)"""
     import subprocess
     try:
+        # Check if PM2 manages 'nextjs' or 'frontend'
         result = subprocess.run(
-            ["pm2", "restart", "hl-bot-frontend"],
+            ["pm2", "restart", "frontend"], 
             capture_output=True,
             text=True
         )
@@ -1411,6 +1412,88 @@ async def dev_restart_frontend():
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+# ==========================================
+# GAMIFICATION ENDPOINTS
+# ==========================================
+
+from app.core.asset_gamification import AssetGamification
+
+@app.get("/api/gamification_status")
+async def get_gamification_status():
+    """Get current gamification status including level, progress, and capabilities"""
+    try:
+        # Get balance from account if possible
+        account_value = 0
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'account_value'):
+                account_value = bot.account_value
+        
+        # If 0, try to get from internal state or return default Goblin
+        gam = AssetGamification(max(account_value, 0))
+        return {
+            "status": "success",
+            "gamification": gam.get_status_summary()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/toggle_gamification")
+async def toggle_gamification(data: dict):
+    """Enable or disable gamification restrictions"""
+    enabled = data.get("enabled", True)
+    
+    try:
+        # Update bot settings via bridge
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Ensure scanner_settings exists
+            if not hasattr(bot, 'scanner_settings'):
+                bot.scanner_settings = {}
+                
+            bot.scanner_settings['gamification_enabled'] = enabled
+            
+            # Persist if possible
+            # (Assuming state manager saves this, or we might need to explicit save)
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+            except:
+                pass
+                
+            return {"status": "success", "gamification_enabled": enabled}
+        else:
+            return {"status": "error", "message": "Bot not connected"}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ==========================================
+# TOKEN & METADATA ENDPOINTS
+# ==========================================
+
+@app.get("/api/tokens")
+async def get_available_tokens():
+    """Get list of available tokens from cache"""
+    try:
+        cache_file = os.path.join(BASE_DIR, "token_meta_cache.json")
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
+                data = json.load(f)
+                # Return list of symbols
+                tokens = list(data.keys())
+                tokens.sort()
+                return {"success": True, "tokens": tokens}
+        else:
+            # Fallback
+            return {"success": True, "tokens": ["BTC", "ETH", "SOL", "HYPE", "AVAX", "ARB", "LINK"]}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 
 @app.post("/api/dev/restart_bot")
 async def dev_restart_bot():

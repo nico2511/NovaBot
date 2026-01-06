@@ -215,8 +215,15 @@ class ScannerJob:
             description += (
                 f"**{i+1}. {opp['symbol']}** {stars}\n"
                 f"Score: **{opp['score']:.0f}** | Trend: {trend_icon} | Vol: ${opp['volume_24h']/1e6:.1f}M\n"
-                f"Price: {price_str} | `Adx: {opp.get('adx', 0):.1f}` | `Rsi: {opp['rsi']:.0f}`\n\n"
+                f"Price: {price_str} | `Adx: {opp.get('adx', 0):.1f}` | `Rsi: {opp['rsi']:.0f}`\n"
             )
+            
+            # Add Reasons if available
+            if opp.get('reasons'):
+                for reason in opp['reasons'][:2]: # Limit to top 2 reasons to save space
+                    description += f"> {reason}\n"
+            
+            description += "\n"
             
         color = "ffa500" if warning else "9b59b6"  # Orange if warning, Purple otherwise
         

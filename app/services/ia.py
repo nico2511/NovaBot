@@ -430,6 +430,38 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
         
         return result
     
+    def analyze_market_evolution(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze market evolution/sentiment (simple version for UI).
+        
+        Args:
+            market_data: Simple dict with symbol, price, etc.
+            
+        Returns:
+            Dict with sentiment, summary (FR), and key_levels
+        """
+        key = self._get_cache_key("evolution", market_data.get('symbol', 'UNKNOWN'))
+        cached = self._get_cached_response(key, 15)
+        if cached:
+            return cached
+
+        prompt = f"""Analyze the market evolution for {market_data.get('symbol')} at price ${market_data.get('price')}.
+        
+        Respond ONLY with valid JSON (no markdown):
+        {{
+            "sentiment": "BULLISH|BEARISH|NEUTRAL",
+            "summary": "Brief 1-sentence market summary in FRENCH",
+            "key_levels": ["support level", "resistance level"]
+        }}
+        """
+        
+        result = self._call_ai_generic(prompt)
+        
+        if "error" not in result:
+            self._set_cache(key, result, ttl_minutes=15)
+            
+        return result
+
     def _get_rsi_label(self, rsi: Optional[float]) -> str:
         """Helper to label RSI values"""
         if rsi is None:
