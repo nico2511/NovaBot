@@ -51,6 +51,74 @@ export default function DevPage() {
                     </button>
                 </div>
 
+                {/* Rapid Actions */}
+                <div className="mb-8 bg-gradient-to-br from-orange-500/10 to-red-500/5 border border-orange-500/30 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Zap className="text-orange-400" size={20} />
+                        <h3 className="text-lg font-bold text-orange-400">Rapid Actions</h3>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Pull latest code from Git?')) return
+                                try {
+                                    await axios.post('/api/dev/git_pull')
+                                    alert('✅ Git pull successful!')
+                                    refresh()
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.response?.data?.message || e.message}`)
+                                }
+                            }}
+                            className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg flex items-center gap-2 transition-colors text-sm font-semibold"
+                        >
+                            📥 Git Pull
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Build frontend? This may take 1-2 minutes.')) return
+                                try {
+                                    await axios.post('/api/dev/build_frontend')
+                                    alert('✅ Frontend build started!')
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.response?.data?.message || e.message}`)
+                                }
+                            }}
+                            className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 rounded-lg flex items-center gap-2 transition-colors text-sm font-semibold"
+                        >
+                            🔨 Build Frontend
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Restart frontend server?')) return
+                                try {
+                                    await axios.post('/api/dev/restart_frontend')
+                                    alert('✅ Frontend restarted!')
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.response?.data?.message || e.message}`)
+                                }
+                            }}
+                            className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 rounded-lg flex items-center gap-2 transition-colors text-sm font-semibold"
+                        >
+                            🔄 Restart Frontend
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (!confirm('Restart bot backend?')) return
+                                try {
+                                    await axios.post('/api/dev/restart_bot')
+                                    alert('✅ Bot restarted!')
+                                    setTimeout(() => refresh(), 2000)
+                                } catch (e: any) {
+                                    alert(`❌ Error: ${e.response?.data?.message || e.message}`)
+                                }
+                            }}
+                            className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded-lg flex items-center gap-2 transition-colors text-sm font-semibold"
+                        >
+                            🔄 Restart Bot
+                        </button>
+                    </div>
+                </div>
+
                 {/* --- SECTIONS --- */}
 
                 {/* 1. Bot State & Systems */}
@@ -159,29 +227,6 @@ export default function DevPage() {
                 )}
 
                 {/* Dev Controls (Keeping strictly necessary) */}
-                <div className="bg-gradient-to-br from-orange-500/10 to-red-500/5 border border-orange-500/30 rounded-xl p-6">
-                    <h3 className="text-orange-400 font-bold mb-4 flex items-center gap-2">
-                        <span>🛠️</span> Rapid Actions
-                    </h3>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={async () => {
-                                if (confirm('Pull latest code?')) await axios.post('/api/dev/git_pull')
-                            }}
-                            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-bold"
-                        >
-                            📥 Git Pull
-                        </button>
-                        <button
-                            onClick={async () => {
-                                if (confirm('Restart Bot Process?')) await axios.post('/api/dev/restart_bot')
-                            }}
-                            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-bold"
-                        >
-                            🤖 Restart Bot
-                        </button>
-                    </div>
-                </div>
 
             </div>
         </div>
