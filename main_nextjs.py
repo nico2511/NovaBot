@@ -1299,6 +1299,13 @@ if __name__ == "__main__":
     print("\n✅ Bot initialized")
     print("📊 Next.js UI: http://localhost:3000")
     print("🔧 API Docs: http://localhost:8001/docs")
+    
+    # Display AI Configuration
+    print("\n🧠 AI Configuration:")
+    print(f"   Persona: {config.BOT_PERSONA}")
+    print(f"   Risk Profile: {config.RISK_PROFILE}")
+    print(f"   Timeframe: {config.TRADING_TIMEFRAME}")
+    
     print("\n💡 The bot is ready. Use the Next.js UI to control it.")
     print("   Or use Streamlit as backup: streamlit run main.py")
     
