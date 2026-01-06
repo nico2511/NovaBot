@@ -406,9 +406,11 @@ async def get_market_data():
             active_symbol = bot_state.active_symbol
         
         try:
-            from backend.market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb, get_open_interest
+            from backend.market_data import get_hyperliquid_candles, get_current_price, get_open_interest
         except ImportError:
-            from market_data import get_hyperliquid_candles, get_current_price, calculate_rsi, calculate_atr, calculate_adx, calculate_ema, calculate_bb, get_open_interest
+            from market_data import get_hyperliquid_candles, get_current_price, get_open_interest
+        
+        from app.services.indicators import Indicators
         
         # MULTI-TIMEFRAME ANALYSIS
         timeframes = ["15m", "1h", "4h", "1d"]
@@ -431,13 +433,19 @@ async def get_market_data():
         if base_df is not None and not base_df.empty:
             price = float(base_df['close'].iloc[-1])
             
-            # Base Layer (15m)
-            rsi = await calculate_rsi(base_df['close'], 14)
-            atr = await calculate_atr(base_df, 14)
-            adx = await calculate_adx(base_df, 14)
-            ema_20 = await calculate_ema(base_df['close'], 20)
-            ema_50 = await calculate_ema(base_df['close'], 50)
-            bb = await calculate_bb(base_df['close'], 20, 2)
+            # Base Layer (15m) - Using Indicators class (Single Source of Truth)
+            rsi = float(Indicators.rsi(base_df['close'], 14).iloc[-1])
+            atr = float(Indicators.atr(base_df['high'], base_df['low'], base_df['close'], 14).iloc[-1])
+            adx_df = Indicators.adx(base_df['high'], base_df['low'], base_df['close'], 14)
+            adx = float(adx_df['ADX'].iloc[-1])
+            ema_20 = float(Indicators.ema(base_df['close'], 20).iloc[-1])
+            ema_50 = float(Indicators.ema(base_df['close'], 50).iloc[-1])
+            bb_df = Indicators.bbands(base_df['close'], 20, 2.0)
+            bb = {
+                "upper": float(bb_df['BBU'].iloc[-1]),
+                "middle": float(bb_df['BBM'].iloc[-1]),
+                "lower": float(bb_df['BBL'].iloc[-1])
+            }
             
             # Volume 24h approximation (sum of last 96 15m candles)
             volume_24h = base_df['volume'].sum() * price
@@ -455,9 +463,10 @@ async def get_market_data():
         for tf in timeframes:
             tf_df = await get_hyperliquid_candles(active_symbol, tf, 50)
             if tf_df is not None and not tf_df.empty:
-                tf_adx = await calculate_adx(tf_df, 14)
-                tf_ema20 = await calculate_ema(tf_df['close'], 20)
-                tf_ema50 = await calculate_ema(tf_df['close'], 50)
+                tf_adx_df = Indicators.adx(tf_df['high'], tf_df['low'], tf_df['close'], 14)
+                tf_adx = float(tf_adx_df['ADX'].iloc[-1])
+                tf_ema20 = float(Indicators.ema(tf_df['close'], 20).iloc[-1])
+                tf_ema50 = float(Indicators.ema(tf_df['close'], 50).iloc[-1])
                 
                 # Simple Trend Logic
                 trend_dir = "NEUTRAL"
@@ -1608,21 +1617,21 @@ async def get_market_metrics(symbol: str = "BTC"):
                        (current_price < ema_9 < ema_20 < ema_50)
         
         # Distance from EMA20
+        ema_20 = float(Indicators.ema(df['close'], 20).iloc[-1])
         dist_from_ema20 = abs(current_price - ema_20) / ema_20 * 100
         
-        # ADX Components
-        import pandas_ta as ta
-        adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
-        adx = adx_res['ADX_14'].iloc[-1]
-        dmp = adx_res['DMP_14'].iloc[-1]
-        dmn = adx_res['DMN_14'].iloc[-1]
+        # ADX Components - Using Indicators class
+        adx_df = Indicators.adx(df['high'], df['low'], df['close'], 14)
+        adx = float(adx_df['ADX'].iloc[-1])
+        dmp = float(adx_df['DMP'].iloc[-1])
+        dmn = float(adx_df['DMN'].iloc[-1])
         
         adx_quality = 'STRONG_UP' if (adx > 30 and dmp > dmn) else \
                      'STRONG_DOWN' if (adx > 30 and dmn > dmp) else \
                      'WEAK'
         
         # RSI
-        rsi = ta.rsi(df['close'], length=14).iloc[-1]
+        rsi = float(Indicators.rsi(df['close'], 14).iloc[-1])
         
         return {
             "symbol": symbol,
@@ -1649,9 +1658,11 @@ async def get_ai_analysis(data: dict = {}):
         
         # 1. Gather Market Data
         try:
-            from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
+            from backend.market_data import get_hyperliquid_candles
         except ImportError:
-            from market_data import get_hyperliquid_candles, calculate_rsi, calculate_atr, calculate_adx, calculate_ema
+            from market_data import get_hyperliquid_candles
+        
+        from app.services.indicators import Indicators
     
         df = await get_hyperliquid_candles(symbol, "15m", 100)
         
@@ -1659,11 +1670,12 @@ async def get_ai_analysis(data: dict = {}):
             return {"error": "No market data available"}
             
         current_price = float(df['close'].iloc[-1])
-        rsi = await calculate_rsi(df['close'])
-        adx = await calculate_adx(df)
-        atr = await calculate_atr(df)
-        ema_20 = await calculate_ema(df['close'], 20)
-        ema_50 = await calculate_ema(df['close'], 50)
+        rsi = float(Indicators.rsi(df['close'], 14).iloc[-1])
+        adx_df = Indicators.adx(df['high'], df['low'], df['close'], 14)
+        adx = float(adx_df['ADX'].iloc[-1])
+        atr = float(Indicators.atr(df['high'], df['low'], df['close'], 14).iloc[-1])
+        ema_20 = float(Indicators.ema(df['close'], 20).iloc[-1])
+        ema_50 = float(Indicators.ema(df['close'], 50).iloc[-1])
         
         # Trend
         trend = "BULLISH" if ema_20 > ema_50 else "BEARISH"
@@ -1889,7 +1901,8 @@ async def ai_market_commentary():
         
         # Si pas de cache, générer une nouvelle analyse
         from app.services.ia import ia_service
-        from backend.market_data import get_hyperliquid_candles, calculate_rsi, calculate_adx
+        from backend.market_data import get_hyperliquid_candles
+        from app.services.indicators import Indicators
         
         symbol = bot_state.active_symbol if not (bot_bridge and bot_bridge.is_connected()) else bot.active_symbol
         df = await get_hyperliquid_candles(symbol, "15m", 100)
