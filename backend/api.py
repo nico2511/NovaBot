@@ -1746,36 +1746,7 @@ async def get_settings():
             "daily_stop_loss": 100.0
         }
 
-@app.get("/api/logs")
-async def get_logs():
-    """Get recent bot logs"""
-    bot = bot_bridge.get_bot_context()
-    if not bot:
-        return {"logs": []}
-    
-    # Parse logs from strings "HH:MM:SS Message" to objects
-    logs = []
-    for log_str in list(bot.logs):
-        try:
-            parts = log_str.split(" ", 1)
-            if len(parts) == 2:
-                logs.append({"time": parts[0], "message": parts[1]})
-            else:
-                logs.append({"time": "", "message": log_str})
-        except:
-            continue
-            
-    # Return reversed to show newest first (frontend expects this? Or frontend handles it?)
-    # Frontend appends? No, frontend sets logs. Backend logs are deque (append). 
-    # Frontend LiveLogs.tsx: 
-    # logs.map(...)
-    # It just displays them. Usually we want newest at top or bottom?
-    # LiveLogs.tsx has `logsEndRef`.
-    # So it scrolls to bottom. So order should be chronological (oldest first).
-    # bot.logs is deque (append). list(bot.logs) is oldest to newest.
-    # So returning list(bot.logs) is correct.
-    
-    return {"logs": list(logs)}
+
 
 @app.post("/api/settings")
 async def save_settings(settings: dict):
