@@ -111,7 +111,6 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         })
 
         // Séries Bougies (Couleurs TradingView)
-        // Séries Bougies (Couleurs TradingView)
         const candleSeries = chart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350',
             borderUpColor: '#26a69a', borderDownColor: '#ef5350',
