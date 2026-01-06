@@ -128,7 +128,7 @@ export default function DevPage() {
                     />
                     <MetricCard
                         label="Leverage"
-                        value={`${data.account?.account_leverage?.toFixed(2)}x`}
+                        value={`${data.portfolio?.account_leverage?.toFixed(2) || '0.00'}x`}
                         statusColor="yellow"
                     />
                 </div>
