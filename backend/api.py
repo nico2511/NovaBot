@@ -217,7 +217,7 @@ def _execute_bot_action(
 
 
 @app.post("/api/engine/start")
-async def start_engine():
+def start_engine():
     """Start the trading engine."""
     return _execute_bot_action(
         bot_action=lambda bot: bot.start(),
@@ -230,7 +230,7 @@ async def start_engine():
     )
 
 @app.post("/api/engine/stop")
-async def stop_engine():
+def stop_engine():
     """Stop the trading engine."""
     return _execute_bot_action(
         bot_action=lambda bot: bot.stop(),
@@ -244,7 +244,7 @@ async def stop_engine():
 
 
 @app.post("/api/trading/enable")
-async def enable_trading():
+def enable_trading():
     """Enable live trading."""
     return _execute_bot_action(
         bot_action=lambda bot: (
@@ -262,7 +262,7 @@ async def enable_trading():
     )
 
 @app.post("/api/trading/disable")
-async def disable_trading():
+def disable_trading():
     """Disable live trading."""
     return _execute_bot_action(
         bot_action=lambda bot: (
@@ -603,7 +603,7 @@ async def get_strategies():
         return {"strategies": []}
 
 @app.get("/api/balance")
-async def get_balance():
+def get_balance():
     """Get account balance from Hyperliquid"""
     try:
         from app.services.hyperliquid_service import hyperliquid_service
@@ -709,7 +709,7 @@ async def get_active_trade():
     return {"active_trade": bot_state.active_trade}
 
 @app.post("/api/close_trade")
-async def close_trade():
+def close_trade():
     """Close active trade - Manual Override"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
@@ -753,7 +753,7 @@ async def close_trade():
     return {"status": "error", "message": "Bot not connected"}
 
 @app.post("/api/recalibrate_stops")
-async def recalibrate_stops():
+def recalibrate_stops():
     """Recalibrate TP/SL for active trade"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
@@ -761,7 +761,7 @@ async def recalibrate_stops():
         if not hasattr(bot, 'recalibrate_position_stops'): # Safety check during dev
              return {"status": "ERROR", "message": "Feature not available on bot instance yet"}
 
-        status, message = await bot.recalibrate_position_stops()
+        status, message = bot.recalibrate_position_stops()
         
         return {
             "status": status, # UNCHANGED, UPDATED, ERROR
@@ -771,7 +771,7 @@ async def recalibrate_stops():
     return {"status": "ERROR", "message": "Bot not connected"}
 
 @app.post("/api/force_breakeven")
-async def force_breakeven():
+def force_breakeven():
     """Force SL to Break Even (Entry + Fees)"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
@@ -783,11 +783,16 @@ async def force_breakeven():
             # Calculate Break Even price (Entry + 0.1% for fees)
             entry = bot.active_trade.get("entry", 0)
             side = bot.active_trade.get("side", "BUY")
+            current_sl = bot.active_trade.get("sl")
             
             if side == "BUY":
                 be_price = entry * 1.001  # Entry + 0.1%
+                if current_sl and current_sl > be_price:
+                    return {"status": "info", "message": f"Existing SL ({current_sl:.2f}) is already better than Break-Even ({be_price:.2f})"}
             else:
                 be_price = entry * 0.999  # Entry - 0.1%
+                if current_sl and current_sl < be_price:
+                     return {"status": "info", "message": f"Existing SL ({current_sl:.2f}) is already better than Break-Even ({be_price:.2f})"}
             
             # Update local state
             bot.active_trade["sl"] = be_price

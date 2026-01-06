@@ -33,13 +33,21 @@ class StateManager:
         if hasattr(context, 'scanner_settings'):
             state["scanner_settings"] = context.scanner_settings
 
-        # Atomic write to prevent corruption
+        # Atomic write with Backup
         temp_file = f"{STATE_FILE}.tmp"
+        backup_file = f"{STATE_FILE}.bak"
+        
         try:
+            # Create backup if exists
+            if os.path.exists(STATE_FILE):
+                import shutil
+                shutil.copy2(STATE_FILE, backup_file)
+
             with open(temp_file, "w") as f:
                 json.dump(state, f, indent=4, default=str)
                 f.flush()
-                # os.fsync(f.fileno()) 
+                os.fsync(f.fileno()) 
+            
             os.replace(temp_file, STATE_FILE)
             print(f"✅ State saved atomically to {STATE_FILE}")
         except Exception as e:

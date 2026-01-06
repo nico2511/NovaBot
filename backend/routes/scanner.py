@@ -20,9 +20,13 @@ async def get_opportunities(top_n: int = 10):
             "opportunities": opportunities
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ API Error in get_opportunities: {e}")
         return {
-            "success": False,
-            "error": str(e),
+            "success": False, 
+            "error": f"{str(e)}", 
+            "trace": traceback.format_exc(),
             "opportunities": []
         }
 

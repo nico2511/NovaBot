@@ -8,7 +8,7 @@ import pandas as pd
 from typing import List, Dict, Any
 from app.services.hyperliquid_service import HyperliquidService
 from hyperliquid.info import Info
-import pandas_ta as ta
+from app.services.indicators import ta
 
 
 class HyperliquidScanner:
@@ -185,10 +185,10 @@ class HyperliquidScanner:
             # Calculate ADX with directional components
             try:
                 adx_df = ta.adx(high, low, close, length=14)
-                # pandas_ta columns: ADX_14, DMP_14, DMN_14
-                current_adx = adx_df['ADX_14'].iloc[-1] if not adx_df.empty else 0
-                current_dmp = adx_df['DMP_14'].iloc[-1] if not adx_df.empty else 0
-                current_dmn = adx_df['DMN_14'].iloc[-1] if not adx_df.empty else 0
+                # TaAdapter format: ADX, DMP, DMN
+                current_adx = adx_df['ADX'].iloc[-1] if not adx_df.empty else 0
+                current_dmp = adx_df['DMP'].iloc[-1] if not adx_df.empty else 0
+                current_dmn = adx_df['DMN'].iloc[-1] if not adx_df.empty else 0
             except:
                 current_adx = 0
                 current_dmp = 0
