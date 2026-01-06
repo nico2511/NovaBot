@@ -382,9 +382,9 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
                 "close": float(row['close']),
             }
             
-            # Add all other columns as indicators (skip ohlc volume)
+            # Add all other columns as indicators (skip ohlc volume and timestamp columns)
             for col in df.columns:
-                if col not in ['open', 'high', 'low', 'close', 'volume', 'time']:
+                if col not in ['open', 'high', 'low', 'close', 'volume', 'time', 't', 'T', 'n']:
                      # Check if it's numeric/float before adding
                      val = row[col]
                      if isinstance(val, (int, float, np.number)):
