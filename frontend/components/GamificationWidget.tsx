@@ -91,7 +91,7 @@ export default function GamificationWidget() {
                             {gamData.level}
                         </span>
                         <span className="text-xs text-gray-500">
-                            • {gamData.allowed_tiers.length} Tiers Unlocked
+                            • {Array.isArray(gamData.allowed_tiers) ? gamData.allowed_tiers.length : 0} Tiers Unlocked
                         </span>
                     </div>
 
@@ -136,7 +136,7 @@ export default function GamificationWidget() {
                             Market Access
                         </div>
                         <div className="flex flex-wrap gap-1">
-                            {gamData.allowed_tiers.map(tier => (
+                            {(Array.isArray(gamData.allowed_tiers) ? gamData.allowed_tiers : []).map(tier => (
                                 <span key={tier} className="px-2 py-0.5 text-[10px] bg-gray-800 border border-gray-700 rounded text-gray-300">
                                     {tier}
                                 </span>
