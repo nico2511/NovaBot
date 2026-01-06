@@ -12,7 +12,7 @@ export default function RecentSignals({ hideHeader = false, embedded = false }: 
         refreshInterval: 3000
     })
 
-    const signals = signalsData?.signals || []
+    const signals = Array.isArray(signalsData?.signals) ? signalsData.signals : []
     const recentSignals = signals.slice(0, 5) // Last 5 signals
 
     const containerClass = embedded

@@ -162,7 +162,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
-                        {momentumResults.selected.map((symbol: string, idx: number) => (
+                        {Array.isArray(momentumResults.selected) && momentumResults.selected.map((symbol: string, idx: number) => (
                             <div key={symbol} className="bg-black/30 rounded-lg p-4 border border-amber-500/20">
                                 <div className="text-center">
                                     <div className="text-3xl font-bold text-white mb-1">#{idx + 1}</div>
@@ -186,7 +186,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                         Found {data.opportunities.length} opportunities
                     </div>
 
-                    {data.opportunities.map((opp, index) => (
+                    {Array.isArray(data.opportunities) && data.opportunities.map((opp, index) => (
                         <div
                             key={opp.symbol}
                             className="bg-gradient-to-br from-surface/80 to-background/40 border border-border/30 rounded-xl p-6 hover:border-primary/50 transition-all"

@@ -85,7 +85,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                         Active Strategies ({strategies.length})
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {strategies.map((strategy, index) => {
+                        {Array.isArray(strategies) && strategies.map((strategy, index) => {
                             const details = getStrategyDetails(strategy)
                             const dynamicConditions = strategy_conditions[strategy]
 
@@ -106,7 +106,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                     <div className="space-y-2">
                                         {dynamicConditions && dynamicConditions.length > 0 ? (
                                             // Dynamic Conditions from Backend
-                                            dynamicConditions.map((cond, i) => (
+                                            Array.isArray(dynamicConditions) && dynamicConditions.map((cond, i) => (
                                                 <div key={i} className="flex items-center gap-2 text-sm justify-between bg-black/20 p-1 rounded px-2">
                                                     <div className="flex items-center gap-2">
                                                         <div className={`w-1.5 h-1.5 rounded-full ${cond.status ? 'bg-success shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-red-500/50'}`}></div>
@@ -120,7 +120,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                             ))
                                         ) : (
                                             // Static Display Conditions
-                                            details.conditions.map((condition: string, i: number) => (
+                                            Array.isArray(details.conditions) && details.conditions.map((condition: string, i: number) => (
                                                 <div key={i} className="flex items-center gap-2 text-sm">
                                                     <div className="w-1 h-1 bg-primary rounded-full"></div>
                                                     <span className="text-gray-300">{condition}</span>

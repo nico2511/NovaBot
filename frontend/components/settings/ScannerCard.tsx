@@ -110,7 +110,7 @@ export default function ScannerCard({ settings, gamStatus, onUpdateScanner, onTo
                                     <div className="bg-white/5 p-2 rounded border border-white/10 col-span-2">
                                         <div className="text-gray-400">Allowed Tiers</div>
                                         <div className="font-bold text-white flex flex-wrap gap-1 mt-1">
-                                            {gamStatus.gamification.allowed_tiers.map((t: string) => (
+                                            {(Array.isArray(gamStatus.gamification.allowed_tiers) ? gamStatus.gamification.allowed_tiers : []).map((t: string) => (
                                                 <span key={t} className="px-1.5 py-0.5 bg-white/10 rounded">{t}</span>
                                             ))}
                                         </div>
