@@ -317,6 +317,7 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
 
         # 3. Add strategy indicators if provided (might overwrite/augment)
         if strategy:
+            try:
                 # Dynamic import to avoid circular dependency
                 # Assuming strategies are in strategies/definitions.py
                 import sys
@@ -353,8 +354,8 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
                 elif strategy == "MeanReversion":
                     strat_instance = MeanReversion(strat_config)
                 elif strategy == "SMCFVG":
-                    strat_instance = SMCFVG(strat_config)
-
+                    # strat_instance = SMCFVG(strat_config)
+                    pass
                 
                 if strat_instance:
                     strat_instance.add_indicators(df)
