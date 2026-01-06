@@ -1,111 +1,157 @@
 # 🧠 Trading Profiles Configuration Guide
 
-This document lists all available **Bot Personas** and **Risk Profiles** that can be configured via the `.env` file to customize the AI's trading behavior.
+Configure your bot's AI behavior via `.env` file using **Bot Personas** and **Risk Profiles**.
 
 ---
 
-## 📋 Available Bot Personas
+## 📋 Bot Personas
 
-Copy one of these values into your `.env` file as `BOT_PERSONA`:
+| Persona | Style | Focus | Best For | Trade Frequency |
+|---------|-------|-------|----------|----------------|
+| **Conservative Scalper** | Quick in-and-out with tight stops | Capital preservation | Stable markets, beginners | High (5-10/day) |
+| **Aggressive Day Trader** | Active trading, larger positions | Maximize daily profits | Volatile markets, experienced | Very High (10-20/day) |
+| **Sniper** | Patient, precision entries | Quality over quantity | Ranging markets, patterns | Low (1-3/day) |
 
-### 1. **Conservative Scalper** (Default)
-```
+### Configuration
+
+```bash
+# In your .env file
 BOT_PERSONA=Conservative Scalper
-```
-- **Style**: Quick in-and-out trades with tight stop losses
-- **Focus**: Capital preservation over aggressive gains
-- **Best For**: Stable markets, risk-averse traders
-- **Characteristics**: 
-  - Prefers high-probability setups
-  - Exits quickly on adverse moves
-  - Targets small, consistent profits
-
-### 2. **Aggressive Day Trader**
-```
-BOT_PERSONA=Aggressive Day Trader
-```
-- **Style**: Active trading with larger position sizes
-- **Focus**: Maximizing daily profit potential
-- **Best For**: Volatile markets, experienced traders
-- **Characteristics**:
-  - Takes more trades per day
-  - Wider stop losses for trend continuation
-  - Seeks larger profit targets
-
-### 3. **Sniper**
-```
-BOT_PERSONA=Sniper
-```
-- **Style**: Patient, precision-based entries
-- **Focus**: Quality over quantity
-- **Best For**: Ranging markets, pattern-based trading
-- **Characteristics**:
-  - Waits for perfect setups
-  - Very selective entry criteria
-  - High win rate, low trade frequency
-
----
-
-## 🎯 Available Risk Profiles
-
-Copy one of these values into your `.env` file as `RISK_PROFILE`:
-
-### 1. **Capital Preservation First** (Default)
-```
-RISK_PROFILE=Capital Preservation First
-```
-- **Risk Tolerance**: Very Low
-- **Max Drawdown Target**: 2-5% per trade
-- **Position Sizing**: Conservative (1-2% of capital)
-- **Stop Loss**: Tight, respects technical levels
-- **Best For**: Accounts under $1000, beginners
-
-### 2. **Balanced Growth**
-```
-RISK_PROFILE=Balanced Growth
-```
-- **Risk Tolerance**: Moderate
-- **Max Drawdown Target**: 5-10% per trade
-- **Position Sizing**: Standard (2-5% of capital)
-- **Stop Loss**: Moderate, allows for volatility
-- **Best For**: Accounts $1000-$10,000, intermediate traders
-
-### 3. **High Volatility Hunter**
-```
-RISK_PROFILE=High Volatility Hunter
-```
-- **Risk Tolerance**: High
-- **Max Drawdown Target**: 10-20% per trade
-- **Position Sizing**: Aggressive (5-10% of capital)
-- **Stop Loss**: Wide, designed for large swings
-- **Best For**: Accounts over $10,000, experienced traders, high-volatility assets
-
----
-
-## ⚙️ Timeframe Configuration
-
-Set the primary analysis timeframe via `.env`:
-
-```
-TRADING_TIMEFRAME=15m
 ```
 
 **Available Options:**
-- `1m` - 1 Minute (Ultra-short scalping)
-- `5m` - 5 Minutes (Short-term scalping)
-- `15m` - 15 Minutes (Default, balanced)
-- `1h` - 1 Hour (Swing trading)
-- `4h` - 4 Hours (Position trading)
-- `1d` - 1 Day (Long-term trends)
+- `Conservative Scalper` (Default)
+- `Aggressive Day Trader`
+- `Sniper`
+
+---
+
+## 🎯 Risk Profiles
+
+| Profile | Risk/Trade | Max Drawdown | Position Size | Stop Loss | Best For |
+|---------|-----------|--------------|---------------|-----------|----------|
+| **Capital Preservation First** | 1-2% | 2-5% | Conservative (1-2%) | Tight | Accounts <$1000, beginners |
+| **Balanced Growth** | 2-5% | 5-10% | Standard (2-5%) | Moderate | Accounts $1000-$10,000 |
+| **High Volatility Hunter** | 5-10% | 10-20% | Aggressive (5-10%) | Wide | Accounts >$10,000, experienced |
+
+### Configuration
+
+```bash
+# In your .env file
+RISK_PROFILE=Capital Preservation First
+```
+
+**Available Options:**
+- `Capital Preservation First` (Default)
+- `Balanced Growth`
+- `High Volatility Hunter`
+
+---
+
+## ⏱️ Trading Timeframes
+
+| Timeframe | Style | Candle Duration | Best For |
+|-----------|-------|-----------------|----------|
+| `1m` | Ultra-short scalping | 1 minute | High-frequency traders |
+| `5m` | Short-term scalping | 5 minutes | Active day traders |
+| `15m` | Balanced (Default) | 15 minutes | Most traders |
+| `1h` | Swing trading | 1 hour | Position traders |
+| `4h` | Position trading | 4 hours | Long-term trends |
+| `1d` | Long-term trends | 1 day | Investors |
+
+### Configuration
+
+```bash
+# In your .env file
+TRADING_TIMEFRAME=15m
+```
+
+---
+
+## 🎨 Recommended Combinations
+
+### 🛡️ Mode Safe (Débutants)
+**Pour:** Comptes <$1000, traders débutants, marchés incertains
+
+```bash
+BOT_PERSONA=Conservative Scalper
+RISK_PROFILE=Capital Preservation First
+TRADING_TIMEFRAME=15m
+```
+
+**Caractéristiques:**
+- ✅ Stops serrés (0.5-1%)
+- ✅ Petits profits (1-2%)
+- ✅ Haute sélectivité
+- ✅ Capital protégé
+
+---
+
+### ⚖️ Mode Équilibré (Intermédiaires)
+**Pour:** Comptes $1000-$10,000, traders intermédiaires
+
+```bash
+BOT_PERSONA=Aggressive Day Trader
+RISK_PROFILE=Balanced Growth
+TRADING_TIMEFRAME=5m
+```
+
+**Caractéristiques:**
+- ⚡ Stops modérés (1-2%)
+- ⚡ Profits moyens (3-5%)
+- ⚡ Fréquence élevée
+- ⚡ Croissance stable
+
+---
+
+### 🚀 Mode Degen (Expérimentés)
+**Pour:** Comptes >$10,000, traders expérimentés, haute volatilité
+
+```bash
+BOT_PERSONA=Sniper
+RISK_PROFILE=High Volatility Hunter
+TRADING_TIMEFRAME=1h
+```
+
+**Caractéristiques:**
+- 🎯 Stops larges (2-5%)
+- 🎯 Gros profits (5-10%)
+- 🎯 Sélectivité extrême
+- 🎯 Haute conviction
+
+---
+
+### 📐 Mode Pattern Trader
+**Pour:** Traders de patterns, marchés ranging
+
+```bash
+BOT_PERSONA=Sniper
+RISK_PROFILE=Capital Preservation First
+TRADING_TIMEFRAME=1h
+```
+
+**Caractéristiques:**
+- 📊 Attente de setups parfaits
+- 📊 Patterns techniques (double bottom, H&S)
+- 📊 Haute précision
+- 📊 Faible fréquence
 
 ---
 
 ## 📝 Example .env Configuration
 
 ```bash
-# AI Configuration
+# ============================================
+# AI MODULAR CONFIGURATION
+# ============================================
+
+# Bot Persona
 BOT_PERSONA=Conservative Scalper
+
+# Risk Profile
 RISK_PROFILE=Capital Preservation First
+
+# Trading Timeframe
 TRADING_TIMEFRAME=15m
 
 # AI Provider
@@ -127,38 +173,41 @@ HL_ACCOUNT_ADDRESS=your_address
    ```bash
    pm2 restart hl-backend
    ```
-3. **Verify** in logs that new persona is loaded
-
----
-
-## 💡 Recommended Combinations
-
-### For Beginners
-```
-BOT_PERSONA=Conservative Scalper
-RISK_PROFILE=Capital Preservation First
-TRADING_TIMEFRAME=15m
-```
-
-### For Experienced Traders
-```
-BOT_PERSONA=Aggressive Day Trader
-RISK_PROFILE=Balanced Growth
-TRADING_TIMEFRAME=5m
-```
-
-### For Pattern Traders
-```
-BOT_PERSONA=Sniper
-RISK_PROFILE=Capital Preservation First
-TRADING_TIMEFRAME=1h
-```
+3. **Verify** in logs that new persona is loaded:
+   ```bash
+   pm2 logs hl-backend --lines 20
+   ```
 
 ---
 
 ## ⚠️ Important Notes
 
-- **Case Sensitive**: Copy the exact values shown above
+- **Case Sensitive**: Copy the exact values shown in tables
 - **Restart Required**: Changes take effect after bot restart
-- **Test First**: Try conservative settings before aggressive ones
+- **Test First**: Start with conservative settings
 - **Monitor Performance**: Track results and adjust as needed
+- **Market Conditions**: Adapt your profile to current market volatility
+
+---
+
+## 💡 Quick Decision Guide
+
+**Choose your persona based on:**
+- **Time available**: More time = Aggressive Day Trader, Less time = Sniper
+- **Experience**: Beginner = Conservative Scalper, Expert = Any
+- **Capital**: Small = Conservative, Large = Aggressive
+
+**Choose your risk profile based on:**
+- **Account size**: <$1000 = Capital Preservation, >$10,000 = High Volatility
+- **Risk tolerance**: Low = Capital Preservation, High = High Volatility
+- **Market conditions**: Stable = Balanced Growth, Volatile = High Volatility Hunter
+
+---
+
+## 🎓 Learning Path
+
+1. **Week 1-2**: Start with **Mode Safe**
+2. **Week 3-4**: Graduate to **Mode Équilibré**
+3. **Month 2+**: Experiment with **Mode Degen** (if profitable)
+
+**Remember**: Consistency beats aggression. Master one mode before switching!
