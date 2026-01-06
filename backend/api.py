@@ -325,7 +325,7 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
                 # Check where we are running from
                 if os.path.basename(os.getcwd()) == "backend":
                     # If running from backend dir, we need to add parent to sys.path
-                     sys.path.append(os.path.dirname(os.getcwd()))
+                    sys.path.append(os.path.dirname(os.getcwd()))
 
                 from strategies.scalp_ema_rsi import ScalpEmaRsi
                 from strategies.institutional_scalp import InstitutionalScalp
