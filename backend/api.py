@@ -403,6 +403,12 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
 @app.get("/api/market/data")
 async def get_market_data():
     """Get current market data from HyperLiquid with real indicators"""
+    
+    # Initialize variables that might not be set in all code paths
+    rvol = 1.0
+    trend_aligned = False
+    active_symbol = "BTC"  # Default fallback
+    
     try:
         # CRITICAL FIX: Use bot_bridge to get active_symbol from real bot
         if bot_bridge and bot_bridge.is_connected():
