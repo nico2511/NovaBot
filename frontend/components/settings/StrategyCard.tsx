@@ -28,7 +28,7 @@ export default function StrategyCard({ settings, statusData, tokenData, onChange
                             onChange={(e) => onChange('asset', e.target.value)}
                             className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 appearance-none focus:border-blue-500 transition-colors"
                         >
-                            {tokenData.tokens.map((token: string) => (
+                            {Array.isArray(tokenData.tokens) && tokenData.tokens.map((token: string) => (
                                 <option key={token} value={token}>{token}</option>
                             ))}
                         </select>
@@ -84,8 +84,8 @@ export default function StrategyCard({ settings, statusData, tokenData, onChange
                         <button
                             onClick={onToggleEngine}
                             className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${statusData?.is_running
-                                    ? 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'
-                                    : 'bg-green-500/20 text-green-500 border border-green-500/50 hover:bg-green-500/30'
+                                ? 'bg-red-500/20 text-red-500 border border-red-500/50 hover:bg-red-500/30'
+                                : 'bg-green-500/20 text-green-500 border border-green-500/50 hover:bg-green-500/30'
                                 }`}
                         >
                             {statusData?.is_running ? '⏸️ STOP' : '▶️ START'}
@@ -101,8 +101,8 @@ export default function StrategyCard({ settings, statusData, tokenData, onChange
                         <button
                             onClick={() => onChange('trading_enabled', !settings.trading_enabled)}
                             className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${settings.trading_enabled
-                                    ? 'bg-green-500/20 text-green-500 border border-green-500/50 hover:bg-green-500/30'
-                                    : 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500/30'
+                                ? 'bg-green-500/20 text-green-500 border border-green-500/50 hover:bg-green-500/30'
+                                : 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500/30'
                                 }`}
                         >
                             {settings.trading_enabled ? '✅ ENABLED' : '🛑 PAUSED'}

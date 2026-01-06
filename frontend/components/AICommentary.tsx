@@ -241,7 +241,7 @@ export default function AICommentary({ symbol, displayMode = 'full' }: AIComment
 
             {/* Signal History */}
             {
-                signalHistory.length > 0 && (
+                Array.isArray(signalHistory) && signalHistory.length > 0 && (
                     <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg p-6 border border-gray-700">
                         <div className="flex items-center gap-2 mb-4">
                             <Sparkles className="w-5 h-5 text-yellow-400" />

@@ -273,7 +273,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                                     {opp.reasons && opp.reasons.length > 0 && (
                                         <>
                                             <div className="text-xs text-gray-400 mb-2">✅ Why this is a good opportunity:</div>
-                                            {opp.reasons.map((reason, i) => (
+                                            {Array.isArray(opp.reasons) && opp.reasons.map((reason, i) => (
                                                 <div key={i} className="text-sm text-gray-300 flex items-start gap-2">
                                                     <span className="text-primary">•</span>
                                                     <span>{reason}</span>

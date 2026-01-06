@@ -235,7 +235,7 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
                                                 <div>
                                                     <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Key Factors</h4>
                                                     <ul className="space-y-2">
-                                                        {aiReport.reasoning.map((r: string, i: number) => (
+                                                        {Array.isArray(aiReport.reasoning) && aiReport.reasoning.map((r: string, i: number) => (
                                                             <li key={i} className="flex gap-2 text-sm text-gray-400">
                                                                 <span className="text-purple-400">•</span>
                                                                 {r}

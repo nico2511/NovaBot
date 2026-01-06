@@ -138,7 +138,7 @@ export default function DevPage() {
                     <div className="mb-8">
                         <h3 className="text-lg font-bold text-gray-400 mb-4 uppercase tracking-widest text-xs">Active Positions</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {data.positions.map((pos: any, i: number) => (
+                            {Array.isArray(data.positions) && data.positions.map((pos: any, i: number) => (
                                 <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4">
                                     <div className="flex justify-between items-center mb-2">
                                         <span className="font-bold text-lg">{pos.symbol}</span>

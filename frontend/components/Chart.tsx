@@ -137,7 +137,8 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         if (!chartRef.current || !candleData || candleData.length === 0) return
 
         // Formatage des données
-        const formattedData = candleData.map((c: any) => ({
+        const rawData = Array.isArray(candleData) ? candleData : []
+        const formattedData = rawData.map((c: any) => ({
             time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close
         }))
         candleSeriesRef.current?.setData(formattedData)
