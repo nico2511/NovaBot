@@ -538,7 +538,14 @@ async def get_market_data():
                 
                 # CRITICAL: Use the Bot's calculated regime and ADX as source of truth
                 if 'regime' in result:
-                    final_regime = result['regime']
+                    bot_regime = result['regime']
+                    # Normalize bot regime to frontend format
+                    if "RANGE" in bot_regime or bot_regime == "NEUTRAL":
+                        final_regime = "RANGE"
+                    elif "TREND" in bot_regime or bot_regime in ["BULLISH", "BEARISH"]:
+                        final_regime = "TREND"
+                    else:
+                        final_regime = bot_regime  # Keep as-is if unknown format
                 
                 # Format for frontend
                 for name in strategy_names:
