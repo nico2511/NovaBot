@@ -44,7 +44,10 @@ def sanitize_for_json(obj):
     return obj
 
 # When running from backend/, we need to go up one level
-BASE_DIR = os.path.dirname(os.getcwd()) if os.path.basename(os.getcwd()) == "backend" else os.getcwd()
+# Robust ROOT location logic
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = ROOT
+print(f"🔧 API Base Dir: {BASE_DIR}")
 
 # Import bot bridge for integration with main bot
 try:
@@ -314,7 +317,6 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
 
         # 3. Add strategy indicators if provided (might overwrite/augment)
         if strategy:
-            try:
                 # Dynamic import to avoid circular dependency
                 # Assuming strategies are in strategies/definitions.py
                 import sys
@@ -324,10 +326,11 @@ async def get_candles(limit: int = 200, strategy: Optional[str] = None, symbol: 
                     # If running from backend dir, we need to add parent to sys.path
                      sys.path.append(os.path.dirname(os.getcwd()))
 
-                from strategies.definitions import (
-                    ScalpEmaRsi, InstitutionalScalp, SwingTrendPullback, 
-                    MeanReversion, SMCFVG
-                )
+                from strategies.scalp_ema_rsi import ScalpEmaRsi
+                from strategies.institutional_scalp import InstitutionalScalp
+                from strategies.smart_mean_reversion import SmartMeanReversionStrategy as MeanReversion
+                from strategies.smart_trend import StrategySmartTrend as SwingTrendPullback
+                # SMCFVG removed as file not found in refactor
                 
                 # Config loading...
                 config_file = os.path.join(BASE_DIR, "strategies.json")

@@ -2,7 +2,11 @@ import json
 import os
 from datetime import datetime
 
-STATE_FILE = "bot_state.json"
+
+# Fix: Use absolute path to ensure both backend and main bot access the same file
+# app/core/state_manager.py -> app/core -> app -> ROOT
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+STATE_FILE = os.path.join(ROOT_DIR, "bot_state.json")
 
 class StateManager:
     @staticmethod

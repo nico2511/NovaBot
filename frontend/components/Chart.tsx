@@ -1,8 +1,17 @@
 'use client'
-import { useEffect, useRef, useState, useMemo } from 'react'
-import { createChart, ColorType, IChartApi, ISeriesApi, Time, CandlestickSeries, LineSeries, LineStyle } from 'lightweight-charts'
+import { useEffect, useRef, useMemo, useState } from 'react'
+import {
+    createChart,
+    ColorType,
+    IChartApi,
+    ISeriesApi,
+    CrosshairMode,
+    LineStyle,
+    UTCTimestamp
+} from 'lightweight-charts'
 import useSWR from 'swr'
 
+// --- TYPES ---
 interface ChartProps {
     symbol: string
     strategy?: string
@@ -14,295 +23,183 @@ interface ChartProps {
     } | null
 }
 
-const fetcher = (url: string) => fetch(url).then(res => res.json())
-
-function calculateBollingerBands(data: any[], period = 20, std = 2) {
-    const upper: any[] = []
-    const basis: any[] = []
-    const lower: any[] = []
+// --- INDICATOR HELPERS (Client Side Calculation) ---
+// Calcule les Bandes de Bollinger (20, 2 std dev) localement pour fluidité maximale
+const calculateBollingerBands = (data: any[], period = 20, multiplier = 2) => {
+    const basis = []
+    const upper = []
+    const lower = []
 
     for (let i = 0; i < data.length; i++) {
         if (i < period - 1) {
+            basis.push({ time: data[i].time, value: NaN })
+            upper.push({ time: data[i].time, value: NaN })
+            lower.push({ time: data[i].time, value: NaN })
             continue
         }
-
         const slice = data.slice(i - period + 1, i + 1)
-        const closes = slice.map(d => d.close)
-        const sum = closes.reduce((a, b) => a + b, 0)
+        const sum = slice.reduce((acc: number, val: any) => acc + val.close, 0)
         const mean = sum / period
-
-        const squaredDiffs = closes.map(c => Math.pow(c - mean, 2))
-        const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period
+        const squaredDiffs = slice.map((val: any) => Math.pow(val.close - mean, 2))
+        const variance = squaredDiffs.reduce((acc: number, val: number) => acc + val, 0) / period
         const stdDev = Math.sqrt(variance)
 
-        const time = data[i].time
-        basis.push({ time, value: mean })
-        upper.push({ time, value: mean + (stdDev * std) })
-        lower.push({ time, value: mean - (stdDev * std) })
+        basis.push({ time: data[i].time, value: mean })
+        upper.push({ time: data[i].time, value: mean + (stdDev * multiplier) })
+        lower.push({ time: data[i].time, value: mean - (stdDev * multiplier) })
     }
-
-    return { upper, basis, lower }
+    return { basis, upper, lower }
 }
+
+const fetcher = (url: string) => fetch(url).then(res => res.json())
 
 export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
+    const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
 
-    // Series Refs
-    const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null)
-    const bbBasisRef = useRef<ISeriesApi<"Line"> | null>(null)
+    // Indicators Refs
     const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null)
     const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null)
+    const bbBasisRef = useRef<ISeriesApi<"Line"> | null>(null)
 
-    const extraSeriesRefs = useRef<Map<string, ISeriesApi<"Line">>>(new Map())
-    const priceLinesRef = useRef<any[]>([])
+    // Trade Lines Refs (pour nettoyage propre)
+    const tradeLinesRef = useRef<any[]>([])
 
-    // OPTIMIZATION: Fetch candles with optimized SWR config
+    // DATA FETCHING (Refresh rapide 5s)
     const { data: candleData, error } = useSWR(
-        symbol ? `/api/candles?limit=200&strategy=${strategy || 'ScalpEmaRsi'}&symbol=${symbol}` : null,
+        symbol ? `/api/candles?limit=300&symbol=${symbol}` : null,
         fetcher,
-        {
-            refreshInterval: 5000,
-            dedupingInterval: 2000,
-            revalidateOnFocus: false,
-            shouldRetryOnError: true
-        }
+        { refreshInterval: 5000, dedupingInterval: 2000 }
     )
 
-    // Resize observer
-    useEffect(() => {
-        if (!chartContainerRef.current) return;
-
-        const handleResize = () => {
-            if (chartContainerRef.current && chartRef.current) {
-                chartRef.current.applyOptions({
-                    width: chartContainerRef.current.clientWidth,
-                    height: 400
-                })
-            }
-        }
-
-        const resizeObserver = new ResizeObserver(() => handleResize())
-        resizeObserver.observe(chartContainerRef.current)
-
-        return () => {
-            resizeObserver.disconnect()
-        }
-    }, [])
-
-    // Initialize Chart
+    // --- 1. INITIALIZATION ---
     useEffect(() => {
         if (!chartContainerRef.current) return
-        if (chartRef.current) return
 
-        console.log("Initializing chart instance...")
-
+        // Configuration Deep Dark Theme Pro
         const chart = createChart(chartContainerRef.current, {
             layout: {
-                background: { type: ColorType.Solid, color: 'transparent' },
-                textColor: '#9CA3AF',
+                background: { type: ColorType.Solid, color: '#0b0e11' }, // Fond très sombre
+                textColor: '#9ca3af', // Gris Tailwind 400
+                fontFamily: "'Inter', sans-serif",
             },
             grid: {
-                vertLines: { color: 'rgba(42, 46, 57, 0.1)' },
-                horzLines: { color: 'rgba(42, 46, 57, 0.1)' },
-            },
-            width: chartContainerRef.current.clientWidth,
-            height: 400,
-            timeScale: {
-                timeVisible: true,
-                secondsVisible: false,
-                borderColor: 'rgba(42, 46, 57, 0.4)',
-            },
-            rightPriceScale: {
-                borderColor: 'rgba(42, 46, 57, 0.4)',
+                vertLines: { color: '#1f2937', style: LineStyle.Dotted }, // Grille subtile
+                horzLines: { color: '#1f2937', style: LineStyle.Dotted },
             },
             crosshair: {
-                mode: 1,
+                mode: CrosshairMode.Normal,
+                vertLine: { width: 1, color: '#6366f1', style: LineStyle.Dashed, labelBackgroundColor: '#6366f1' },
+                horzLine: { width: 1, color: '#6366f1', style: LineStyle.Dashed, labelBackgroundColor: '#6366f1' },
+            },
+            rightPriceScale: {
+                borderColor: '#374151',
+                scaleMargins: { top: 0.1, bottom: 0.1 }, // Marges pour indicateurs
+            },
+            timeScale: {
+                borderColor: '#374151',
+                timeVisible: true,
+                secondsVisible: false,
             },
         })
 
-        // Add candlestick series
-        const series = chart.addSeries(CandlestickSeries, {
-            upColor: '#22c55e',
-            downColor: '#ef4444',
-            borderVisible: false,
-            wickUpColor: '#22c55e',
-            wickDownColor: '#ef4444',
+        // Séries Bougies (Couleurs TradingView)
+        const candleSeries = (chart as any).addCandlestickSeries({
+            upColor: '#26a69a', downColor: '#ef5350',
+            borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+            wickUpColor: '#26a69a', wickDownColor: '#ef5350',
         })
-        seriesRef.current = series
+        candleSeriesRef.current = candleSeries
 
-        // Init BB Series
-        // Basis (Orange/Yellow)
-        const basis = chart.addSeries(LineSeries, {
-            color: '#fbbf24', // Amber-400
-            lineWidth: 1,
-            title: 'BB Basis'
-        })
-        bbBasisRef.current = basis
-
-        // Upper (Blue/Transparent)
-        const upper = chart.addSeries(LineSeries, {
-            color: 'rgba(59, 130, 246, 0.5)', // Blue-500 transparent
-            lineWidth: 1,
-            title: 'BB Upper'
-        })
-        bbUpperRef.current = upper
-
-        // Lower (Blue/Transparent)
-        const lower = chart.addSeries(LineSeries, {
-            color: 'rgba(59, 130, 246, 0.5)',
-            lineWidth: 1,
-            title: 'BB Lower'
-        })
-        bbLowerRef.current = lower
+        // Séries Bollinger (Subtiles)
+        bbUpperRef.current = (chart as any).addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
+        bbLowerRef.current = (chart as any).addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
+        bbBasisRef.current = (chart as any).addLineSeries({ color: 'rgba(251, 146, 60, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false }) // Basis Orange
 
         chartRef.current = chart
 
-        return () => {
-            chart.remove()
-            chartRef.current = null
+        // Resize Observer Responsive
+        const handleResize = () => {
+            if (chartContainerRef.current) {
+                chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight })
+            }
         }
+        window.addEventListener('resize', handleResize)
+        return () => { window.removeEventListener('resize', handleResize); chart.remove() }
     }, [])
 
-    // Update Data & Indicators
+    // --- 2. DATA UPDATES & INDICATORS CALCULATION ---
     useEffect(() => {
-        if (!seriesRef.current || !candleData?.candles || candleData.candles.length === 0) return
+        if (!chartRef.current || !candleData || candleData.length === 0) return
 
-        // Format and Sort
-        const sortedCandles = [...candleData.candles]
-            .sort((a: any, b: any) => a.time - b.time)
-            .filter((v, i, a) => i === a.findIndex((t: any) => t.time === v.time))
+        // Formatage des données
+        const formattedData = candleData.map((c: any) => ({
+            time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close
+        }))
+        candleSeriesRef.current?.setData(formattedData)
 
-        try {
-            // 1. Update Candles
-            seriesRef.current.setData(sortedCandles)
+        // Calcul et mise à jour des Bollinger Bands
+        const bbData = calculateBollingerBands(formattedData)
+        bbBasisRef.current?.setData(bbData.basis.filter(d => !isNaN(d.value)))
+        bbUpperRef.current?.setData(bbData.upper.filter(d => !isNaN(d.value)))
+        bbLowerRef.current?.setData(bbData.lower.filter(d => !isNaN(d.value)))
 
-            // 2. Client-Side Bollinger Bands
-            const { upper, basis, lower } = calculateBollingerBands(sortedCandles)
-            bbBasisRef.current?.setData(basis)
-            bbUpperRef.current?.setData(upper)
-            bbLowerRef.current?.setData(lower)
+    }, [candleData])
 
-            // 3. Handle Other Backend Indicators (EMAs, etc.)
-            if (chartRef.current) {
-                const firstCandle = sortedCandles[0]
-                const backendIndicators = Object.keys(firstCandle).filter(k =>
-                    (k.startsWith('EMA') || k.startsWith('SMA')) &&
-                    !['time', 'open', 'high', 'low', 'close', 'volume'].includes(k)
-                )
-
-                const colorMap: { [key: string]: string } = {
-                    'EMA_9': '#3b82f6',
-                    'EMA_20': '#3b82f6',
-                    'EMA_21': '#f59e0b',
-                    'EMA_50': '#8b5cf6',
-                    'EMA_200': '#ffffff',
-                }
-
-                // Clean old extra series not in current data? 
-                // For simplicity, we just add new ones or update existing
-                backendIndicators.forEach(ind => {
-                    let lineSeries = extraSeriesRefs.current.get(ind)
-
-                    if (!lineSeries) {
-                        const color = colorMap[ind] || '#' + Math.floor(Math.random() * 16777215).toString(16)
-                        const newSeries = chartRef.current!.addSeries(LineSeries, {
-                            color: color,
-                            lineWidth: 1,
-                            title: ind,
-                        })
-                        lineSeries = newSeries
-                        extraSeriesRefs.current.set(ind, newSeries)
-                    }
-
-                    if (lineSeries) {
-                        const lineData = sortedCandles.map((c: any) => ({
-                            time: c.time,
-                            value: c[ind]
-                        })).filter((d: any) => !isNaN(d.value) && d.value !== null)
-                        lineSeries.setData(lineData)
-                    }
-                })
-            }
-        } catch (e) {
-            console.error("Error setting chart data:", e)
-        }
-    }, [candleData, symbol])
-
-    // Manage Active Trade Lines (Robust TP/SL)
+    // --- 3. ACTIVE TRADE LINES MANAGEMENT (TP/SL) ---
     useEffect(() => {
-        if (!seriesRef.current) return
+        if (!candleSeriesRef.current) return
 
-        // 1. Clean up ALL existing price lines
-        const series = seriesRef.current
-        priceLinesRef.current.forEach(line => {
-            try {
-                series.removePriceLine(line)
-            } catch (e) {
-                // Ignore matching errors if series changed
-            }
-        })
-        priceLinesRef.current = []
+        // Nettoyage impératif des anciennes lignes
+        tradeLinesRef.current.forEach(line => candleSeriesRef.current?.removePriceLine(line))
+        tradeLinesRef.current = []
 
-        // If no active trade, we stop here (clean state)
-        if (!activeTrade) return
-
-        try {
-            // 2. Add Entry Line
-            if (activeTrade.entry) {
-                const entryLine = series.createPriceLine({
-                    price: activeTrade.entry,
-                    color: '#3b82f6', // Blue
-                    lineWidth: 2,
-                    lineStyle: LineStyle.Dotted,
-                    axisLabelVisible: true,
-                    title: `ENTRY ${activeTrade.side}`,
-                })
-                priceLinesRef.current.push(entryLine)
-            }
-
-            // 3. Add SL Line (Red, Dashed)
+        if (activeTrade) {
+            // ENTRY LINE (Jaune plein)
+            tradeLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+                price: activeTrade.entry, color: '#fbbf24', lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: `ENTRY ${activeTrade.side}`,
+            }))
+            // SL LINE (Rouge pointillé)
             if (activeTrade.sl) {
-                const slLine = series.createPriceLine({
-                    price: activeTrade.sl,
-                    color: '#ef4444', // Red
-                    lineWidth: 2,
-                    axisLabelVisible: true,
-                    title: 'SL',
-                    lineStyle: LineStyle.Dashed,
-                })
-                priceLinesRef.current.push(slLine)
+                tradeLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+                    price: activeTrade.sl, color: '#ef4444', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `SL`,
+                }))
             }
-
-            // 4. Add TP Line (Green, Dashed)
+            // TP LINE (Vert pointillé)
             if (activeTrade.tp) {
-                const tpLine = series.createPriceLine({
-                    price: activeTrade.tp,
-                    color: '#10b981', // Green
-                    lineWidth: 2,
-                    axisLabelVisible: true,
-                    title: 'TP',
-                    lineStyle: LineStyle.Dashed,
-                })
-                priceLinesRef.current.push(tpLine)
+                tradeLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+                    price: activeTrade.tp, color: '#10b981', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `TP`,
+                }))
             }
-
-        } catch (e) {
-            console.error("Error drawing trade lines:", e)
         }
-
-    }, [activeTrade, candleData])
+    }, [activeTrade])
 
     return (
-        <div className="w-full relative">
-            <div className="absolute top-6 left-6 z-10 flex gap-2">
-                <div className="bg-surface/80 backdrop-blur px-3 py-1 rounded text-sm border border-border/50 shadow-sm flex items-center gap-2">
-                    <span className="font-bold text-white">{symbol}</span>
-                    <span className="text-gray-400">15m</span>
-                    {error && <span className="text-red-500 text-xs ml-2">⚠️ Data Error</span>}
+        <div className="w-full h-full relative group rounded-xl overflow-hidden shadow-2xl border border-gray-800 bg-[#0b0e11]">
+            {/* Header Overlay Flottant */}
+            <div className="absolute top-4 left-4 z-10 flex gap-2 pointer-events-none">
+                <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-3">
+                    <div className="flex flex-col">
+                        <span className="font-bold text-gray-100 text-lg leading-none">{symbol}</span>
+                        <span className="text-[10px] text-gray-400 font-mono mt-0.5">PERP • 15m</span>
+                    </div>
+                    {activeTrade && (
+                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold border ${activeTrade.side === 'BUY' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'
+                            }`}>
+                            {activeTrade.side} OPEN
+                        </div>
+                    )}
                 </div>
             </div>
-            <div ref={chartContainerRef} className="w-full h-[400px]" />
+            {/* Conteneur du Graphique */}
+            <div ref={chartContainerRef} className="w-full h-full" />
+            {/* Loading State */}
+            {!candleData && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 z-0">
+                    <div className="animate-pulse text-indigo-400 font-mono text-sm">LOADING MARKET DATA...</div>
+                </div>
+            )}
         </div>
     )
 }

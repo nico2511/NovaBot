@@ -20,16 +20,7 @@ import RecentSignals from '@/components/RecentSignals'
 // This prevents blocking the main bundle and improves FCP/LCP
 const Chart = dynamic(() => import('@/components/Chart'), {
     ssr: false,
-    loading: () => (
-        <div className="w-full h-[400px] bg-surface/50 border border-border/30 rounded-2xl overflow-hidden p-4 animate-pulse">
-            <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                    <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-400 text-sm">Loading chart...</p>
-                </div>
-            </div>
-        </div>
-    )
+    loading: () => <div className="w-full h-full bg-[#0b0e11] animate-pulse rounded-xl border border-gray-800 flex items-center justify-center text-gray-600 font-mono">INITIALIZING CHART ENGINE...</div>
 })
 
 
