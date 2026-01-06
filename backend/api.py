@@ -27,14 +27,20 @@ except ImportError:
 def sanitize_for_json(obj):
     """
     Recursively convert NumPy types to Python native types for JSON serialization.
-    Handles np.bool_, np.integer, np.floating, np.ndarray, and nested dicts/lists.
+    Handles np.bool_, np.integer, np.floating, np.ndarray, NaN, Inf, and nested dicts/lists.
     """
+    import math
+    
     if isinstance(obj, (np.bool_, bool)):
         return bool(obj)
     elif isinstance(obj, (np.integer, int)):
         return int(obj)
     elif isinstance(obj, (np.floating, float)):
-        return float(obj)
+        val = float(obj)
+        # Convert NaN and Inf to None for JSON compliance
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
     elif isinstance(obj, np.ndarray):
         return sanitize_for_json(obj.tolist())
     elif isinstance(obj, dict):

@@ -26,5 +26,20 @@ class Config:
     
     # Operations
     AUTO_START_TRADING: bool = os.getenv("AUTO_START_TRADING", "false").lower() == "true"
+    
+    # ==============================================================================
+    # 🧠 AI MODULAR CONFIGURATION (Added via Prompt)
+    # ==============================================================================
+    
+    # Timeframe principal pour l'analyse de structure (Défaut: 15m)
+    TRADING_TIMEFRAME: str = os.getenv("TRADING_TIMEFRAME", "15m")
+    
+    # Personnalité du Bot (Défaut: Conservative Scalper)
+    # Voir TRADING_PROFILES.md pour les options
+    BOT_PERSONA: str = os.getenv("BOT_PERSONA", "Conservative Scalper")
+    
+    # Profil de Risque (Défaut: Capital Preservation)
+    # Voir TRADING_PROFILES.md pour les options
+    RISK_PROFILE: str = os.getenv("RISK_PROFILE", "Capital Preservation First")
 
 config = Config()

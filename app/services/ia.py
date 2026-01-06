@@ -8,6 +8,7 @@ from collections import OrderedDict
 import json
 
 from app.core.config import config
+from app.core.prompts import get_system_prompt
 
 
 class IAService:
@@ -46,6 +47,21 @@ class IAService:
                 self.client = None
         else:
             print("ℹ️ OpenRouter Key not found. AI Service disabled.")
+    
+    def get_dynamic_system_prompt(self) -> str:
+        """
+        Get dynamic system prompt based on .env configuration.
+        Uses BOT_PERSONA, RISK_PROFILE, and TRADING_TIMEFRAME from config.
+        
+        Returns:
+            Formatted system prompt string
+        """
+        return get_system_prompt(
+            persona=config.BOT_PERSONA,
+            risk_profile=config.RISK_PROFILE,
+            timeframe=config.TRADING_TIMEFRAME
+        )
+    
     
     @staticmethod
     def extract_json(text: str) -> str:
@@ -95,12 +111,13 @@ class IAService:
         while len(self.cache) > self.MAX_CACHE_SIZE:
             self.cache.popitem(last=False)  # Remove oldest (FIFO)
     
-    def _call_openrouter_api(self, prompt: str) -> Dict[str, Any]:
+    def _call_openrouter_api(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """
         Call OpenRouter API with error handling.
         
         Args:
-            prompt: The prompt to send to the LLM
+            prompt: The user prompt to send to the LLM
+            system_prompt: Optional system prompt to set AI behavior/persona
             
         Returns:
             Dict with 'raw_output' and 'model' keys
@@ -112,9 +129,18 @@ class IAService:
             raise Exception("AI Client not initialized (Missing Key)")
         
         try:
+            messages = []
+            
+            # Add system prompt if provided
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            
+            # Add user prompt
+            messages.append({"role": "user", "content": prompt})
+            
             completion = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}]
+                messages=messages
             )
             raw_content = completion.choices[0].message.content
             clean_text = self.extract_json(raw_content)
