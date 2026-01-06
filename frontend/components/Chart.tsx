@@ -72,7 +72,11 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     const { data: candleData, error } = useSWR(
         symbol ? `/api/candles?limit=300&symbol=${symbol}` : null,
         fetcher,
-        { refreshInterval: 5000, dedupingInterval: 2000 }
+        {
+            refreshInterval: 5000,
+            dedupingInterval: 2000,
+            keepPreviousData: true  // Keep previous data during revalidation
+        }
     )
 
     // --- 1. INITIALIZATION ---
