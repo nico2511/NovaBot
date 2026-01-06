@@ -1,0 +1,30 @@
+{
+    "active_trade": null,
+    "trading_enabled": true,
+    "is_running": true,
+    "active_symbol": "BTC",
+    "last_updated": "2026-01-06 18:48:14.161776",
+    "risk_state": {
+        "daily_pnl": 0.0,
+        "open_positions": 0,
+        "is_stop_mode": false,
+        "stop_reason": ""
+    },
+    "sidebar_settings": {
+        "asset": "BTC",
+        "execution_mode": "Manual (Phantom)",
+        "trading_enabled": true,
+        "size_type": "Fixed (USDC)",
+        "size_value": 100,
+        "leverage": 5,
+        "max_positions": 3,
+        "daily_stop_loss": 100
+    },
+    "scanner_settings": {
+        "enabled": true,
+        "interval": 15,
+        "min_score": 75,
+        "auto_switch": false,
+        "gamification_enabled": true
+    }
+}

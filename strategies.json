@@ -5,7 +5,7 @@
     },
     "strategies": {
         "scalp_ema_rsi": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
             "display_conditions": [

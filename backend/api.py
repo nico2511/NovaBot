@@ -186,6 +186,7 @@ async def get_status():
         trading_enabled=bot_state.trading_enabled,
         active_symbol=bot_state.active_symbol,
         execution_mode=bot_state.execution_mode,
+        active_trade=None
     )
 
 

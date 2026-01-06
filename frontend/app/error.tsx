@@ -14,17 +14,17 @@ export default function Error({
     }, [error])
 
     return (
-        <div className="flex h-screen flex-col items-center justify-center bg-[#0b0e11] text-white">
-            <h2 className="mb-4 text-2xl font-bold text-red-500">Something went wrong!</h2>
-            <p className="mb-4 text-gray-400 font-mono text-sm max-w-md text-center">
-                {error.message || "An unexpected error occurred."}
-            </p>
+        <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
+            <h2 className="text-xl font-bold text-red-500 mb-4">Something went wrong!</h2>
+            <div className="bg-gray-900 p-4 rounded-lg mb-4 max-w-2xl overflow-auto border border-gray-800">
+                <p className="font-mono text-sm text-gray-300">{error.message}</p>
+                {error.digest && (
+                    <p className="font-mono text-xs text-gray-500 mt-2">Digest: {error.digest}</p>
+                )}
+            </div>
             <button
-                className="rounded bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 transition-colors"
-                onClick={
-                    // Attempt to recover by trying to re-render the segment
-                    () => reset()
-                }
+                onClick={() => reset()}
+                className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition-colors"
             >
                 Try again
             </button>

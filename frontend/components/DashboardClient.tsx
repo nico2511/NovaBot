@@ -205,7 +205,6 @@ export default function DashboardClient() {
                             ema_50={marketData?.ema_50}
                             bb={marketData?.bb}
                             strategy_progress={marketData?.strategy_progress || {}}
-                            strategy_conditions={marketData?.strategy_conditions || {}}
                         />
                     )}
 
