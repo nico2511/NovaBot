@@ -27,9 +27,9 @@ interface GamificationData {
 }
 
 export default function SystemStatus() {
-    const { data: status } = useSWR<StatusData>(`${API_URL}/api/status`, fetcher, { refreshInterval: 2000 })
-    const { data: balance } = useSWR<BalanceData>(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000 })
-    const { data: gamStatus } = useSWR<{ gamification: GamificationData }>(`${API_URL}/api/gamification_status`, fetcher, { refreshInterval: 10000 })
+    const { data: status } = useSWR<StatusData>(`${API_URL}/api/status`, fetcher, { refreshInterval: 2000, keepPreviousData: true })
+    const { data: balance } = useSWR<BalanceData>(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000, keepPreviousData: true })
+    const { data: gamStatus } = useSWR<{ gamification: GamificationData }>(`${API_URL}/api/gamification_status`, fetcher, { refreshInterval: 10000, keepPreviousData: true })
 
     const [pnl, setPnl] = useState(0)
     const [pnlPercent, setPnlPercent] = useState(0)

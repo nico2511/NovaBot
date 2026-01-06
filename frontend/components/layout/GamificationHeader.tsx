@@ -15,7 +15,7 @@ interface GamificationStatus {
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
 export default function GamificationHeader() {
-    const { data } = useSWR('/api/gamification_status', fetcher, { refreshInterval: 5000 })
+    const { data } = useSWR('/api/gamification_status', fetcher, { refreshInterval: 5000, keepPreviousData: true })
     const status = data?.gamification as GamificationStatus
 
     // Defaults
