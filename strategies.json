@@ -78,7 +78,7 @@
         },
         "double_bottom": {
             "enabled": true,
-            "type": "pattern",
+            "type": "trend",
             "description": "Pattern Recognition: Double Bottom Reversal.",
             "display_conditions": [
                 "Pattern Detection",
@@ -96,7 +96,7 @@
         },
         "double_top": {
             "enabled": true,
-            "type": "pattern",
+            "type": "trend",
             "description": "Pattern Recognition: Double Top Reversal.",
             "display_conditions": [
                 "Pattern Detection",
@@ -114,7 +114,7 @@
         },
         "bull_flag": {
             "enabled": true,
-            "type": "pattern",
+            "type": "trend",
             "description": "Pattern Recognition: Bull Flag Continuation.",
             "display_conditions": [
                 "Impulse Move",
@@ -134,7 +134,7 @@
         },
         "head_shoulders": {
             "enabled": true,
-            "type": "pattern",
+            "type": "trend",
             "description": "Pattern Recognition: Head and Shoulders.",
             "display_conditions": [
                 "Left/Right Shoulders",
@@ -194,7 +194,7 @@
         },
         "institutional_scalp": {
             "enabled": true,
-            "type": "scalp",
+            "type": "trend",
             "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
             "display_conditions": [
                 "Liquidity Sweep",
