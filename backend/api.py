@@ -1480,16 +1480,34 @@ async def get_available_tokens():
     """Get list of available tokens from cache"""
     try:
         cache_file = os.path.join(BASE_DIR, "token_meta_cache.json")
+        tokens = []
+        
         if os.path.exists(cache_file):
-            with open(cache_file, "r") as f:
-                data = json.load(f)
-                # Return list of symbols
-                tokens = list(data.keys())
-                tokens.sort()
-                return {"success": True, "tokens": tokens}
-        else:
-            # Fallback
-            return {"success": True, "tokens": ["BTC", "ETH", "SOL", "HYPE", "AVAX", "ARB", "LINK"]}
+            try:
+                with open(cache_file, "r") as f:
+                    data = json.load(f)
+                    
+                    # CASE 1: Raw Hyperliquid Meta (has 'universe' key)
+                    if "universe" in data and isinstance(data["universe"], list):
+                        tokens = [asset["name"] for asset in data["universe"] if "name" in asset]
+                        
+                    # CASE 2: Simplified Map (Symbol -> Info)
+                    else:
+                        tokens = list(data.keys())
+                        
+            except Exception as read_err:
+                print(f"Error reading token cache: {read_err}")
+                
+        # Fallback if empty or error
+        if not tokens:
+             tokens = ["BTC", "ETH", "SOL", "HYPE", "AVAX", "ARB", "LINK", "DOGE", "PEPE", "WIF"]
+             
+        # Filter out non-token keys just in case (e.g. 'universe' if it was a key in mapped mode)
+        tokens = [t for t in tokens if isinstance(t, str) and len(t) < 10 and t.isupper()]
+        
+        tokens.sort()
+        return {"success": True, "tokens": tokens}
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
