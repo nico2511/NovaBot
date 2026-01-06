@@ -134,10 +134,13 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
 
     // --- 2. DATA UPDATES & INDICATORS CALCULATION ---
     useEffect(() => {
-        if (!chartRef.current || !candleData || candleData.length === 0) return
+        if (!chartRef.current || !candleData) return
+
+        // Ensure candleData is an array
+        const rawData = Array.isArray(candleData) ? candleData : []
+        if (rawData.length === 0) return
 
         // Formatage des données
-        const rawData = Array.isArray(candleData) ? candleData : []
         const formattedData = rawData.map((c: any) => ({
             time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close
         }))
