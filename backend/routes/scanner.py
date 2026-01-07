@@ -9,10 +9,27 @@ router = APIRouter()
 
 @router.get("/scanner/opportunities")
 async def get_opportunities(top_n: int = 10):
-    """Get top trading opportunities"""
+    """Get top trading opportunities with gamification filtering"""
     try:
+        from app.core.asset_gamification import AssetGamification
+        from app.services.hyperliquid_service import hyperliquid_service
+        
         scanner = HyperliquidScanner()
-        opportunities = scanner.scan(top_n=top_n)
+        
+        # Get gamification whitelist
+        whitelist = None
+        try:
+            balance_data = hyperliquid_service.get_account_balance()
+            equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
+            gamification = AssetGamification(equity)
+            whitelist = gamification.get_allowed_assets()
+            print(f"🎮 Scanner API: Gamification Level {gamification.level.value} (${equity:.2f}) - {len(whitelist)} assets allowed")
+        except Exception as e:
+            print(f"⚠️ Gamification error in scanner API: {e}")
+            whitelist = None  # Full access on error
+        
+        # Scan with whitelist
+        opportunities = scanner.scan(top_n=top_n, whitelist=whitelist)
         
         return {
             "success": True,
