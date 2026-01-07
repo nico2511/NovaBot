@@ -71,7 +71,7 @@ const calculateEMA = (data: any[], period: number) => {
             ema.push({ time: data[i].time, value: sum / period })
         } else {
             // EMA = (Close - EMA_prev) * multiplier + EMA_prev
-            const prevEMA = ema[i - 1].value
+            const prevEMA: number = ema[i - 1].value
             const currentEMA = (data[i].close - prevEMA) * multiplier + prevEMA
             ema.push({ time: data[i].time, value: currentEMA })
         }
