@@ -1,7 +1,8 @@
 """
-Asset Gamification Module
+Asset Gamification Module - REFACTORED
 
 Système de niveaux et tiers d'actifs pour guider les traders selon leur capital.
+Optimisé pour Hyperliquid avec gestion des préfixes (k-assets) et liste mise à jour.
 
 Niveaux:
 - Goblin ($0-100): Débutant, capital limité
@@ -9,15 +10,12 @@ Niveaux:
 - Whale ($500+): Avancé, capital important
 
 Tiers d'Actifs:
-- Casino: Memecoins volatils (PEPE, DOGE, SHIB, WIF, BONK)
+- Casino: Memecoins volatils (PEPE, DOGE, HYPE, TRUMP, etc.)
 - Growth Engines: Altcoins établis (SOL, AVAX, NEAR, SUI, ARB)
 - Kings: Blue chips (BTC, ETH)
 """
-"""
-Système de gamification pour le trading bot
-"""
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set
 from enum import Enum
 
 class AccountLevel(Enum):
@@ -32,19 +30,26 @@ class AssetTier(Enum):
     GROWTH = "Growth Engines"  # Altcoins
     KINGS = "Kings"  # BTC/ETH
 
-# Définition des actifs par tier
+# Définition des actifs par tier (MISE À JOUR 2026)
 ASSET_TIERS = {
     AssetTier.CASINO: [
-        "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI", 
-        "MEME", "PEPE2", "WOJAK", "TURBO", "FARTCOIN", "TRUMP", "MAGA",
-        "PURR", "KHEOWZOO", "PENGU", "SPX", "POPCAT", "MOODENG", "PEOPLE",
-        "MELANIA", "BRETT", "PNUT", "CHILLGUY", "NEIRO", "GOAT", "VINE", "MEW",
-        "YZY", "BOME", "TST"
+        # Memecoins classiques
+        "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI",
+        # Nouveaux memecoins Hyperliquid (2024-2026)
+        "HYPE", "TRUMP", "MELANIA", "FARTCOIN", "MAGA",
+        "VINE", "GOAT", "MOODENG", "SPX", "POPCAT", 
+        "PURR", "KHEOWZOO", "PENGU", "PEOPLE", "BRETT",
+        "PNUT", "CHILLGUY", "NEIRO", "MEW", "YZY",
+        "BOME", "TST", "AIXBT", "MEME", "PEPE2",
+        "WOJAK", "TURBO",
+        # Variantes avec préfixe k (Hyperliquid)
+        "kPEPE", "kBONK", "kSHIB", "kWIF", "kFLOKI"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
         "ATOM", "DOT", "LINK", "UNI", "AAVE", "FTM", "INJ",
-        "HYPE", "VRID", "AIXBT"
+        "HYPE", "VRID", "AIXBT", "BNB", "ADA", "XRP",
+        "ALGO", "SAND", "MANA", "APT", "SEI"
     ],
     AssetTier.KINGS: [
         "BTC", "ETH", "SOL"
@@ -84,12 +89,15 @@ XP_THRESHOLDS = {
 }
 
 class AssetGamification:
-    """Gestionnaire de gamification des actifs"""
+    """Gestionnaire de gamification des actifs - REFACTORÉ"""
     
     def __init__(self, account_balance_usdc: float = 0):
         """Initialize gamification based on account value"""
         self.account_balance = account_balance_usdc
         self.level = self._calculate_level()
+        
+        # Cache pour éviter les recalculs
+        self._all_known_assets_cache: Set[str] = None
     
     def _calculate_level(self) -> AccountLevel:
         """Calcule le niveau basé sur le capital"""
@@ -99,6 +107,39 @@ class AssetGamification:
             return AccountLevel.MERCENARY
         else:
             return AccountLevel.GOBLIN
+    
+    def _get_all_known_assets(self) -> Set[str]:
+        """Retourne tous les assets connus (cache)"""
+        if self._all_known_assets_cache is None:
+            all_assets = []
+            for tier_assets in ASSET_TIERS.values():
+                all_assets.extend(tier_assets)
+            self._all_known_assets_cache = set(all_assets)
+        return self._all_known_assets_cache
+    
+    def _normalize_symbol(self, symbol: str) -> str:
+        """
+        Nettoie et normalise un symbole pour comparaison
+        
+        Gère:
+        - Suffixes -USD, -USDC
+        - Préfixe k (ex: kPEPE -> PEPE pour matching)
+        - Casse (uppercase)
+        
+        Returns:
+            Symbole normalisé (ex: "kPEPE-USD" -> "PEPE")
+        """
+        # Nettoyage de base
+        s = symbol.upper().replace("-USD", "").replace("-USDC", "").strip()
+        
+        # Gestion du préfixe k (Hyperliquid memecoins)
+        # Si c'est un k-asset ET que la version sans k existe dans nos tiers
+        if s.startswith("K") and len(s) > 2:
+            base_symbol = s[1:]  # Retire le 'k'
+            if base_symbol in self._get_all_known_assets():
+                return base_symbol
+        
+        return s
     
     def update_balance(self, new_balance: float):
         """Met à jour le solde et recalcule le niveau"""
@@ -110,44 +151,51 @@ class AssetGamification:
         return self.level != old_level
     
     def get_allowed_assets(self) -> List[str]:
-        """Retourne la liste des actifs autorisés pour le niveau actuel"""
+        """
+        Retourne la liste des actifs autorisés pour le niveau actuel
+        
+        IMPORTANT: Retourne TOUTES les variantes (avec et sans k)
+        pour assurer la compatibilité avec l'API Hyperliquid
+        """
         allowed_tiers = ACCESS_RULES[self.level]["allowed_tiers"]
         assets = []
         for tier in allowed_tiers:
             assets.extend(ASSET_TIERS[tier])
-        return assets
+        
+        # Déduplique (au cas où un asset serait dans plusieurs tiers)
+        return list(set(assets))
     
     def is_asset_allowed(self, symbol: str) -> Tuple[bool, str]:
         """
         Vérifie si un actif est autorisé pour le niveau actuel
         
+        Args:
+            symbol: Symbole brut (peut contenir k-prefix, -USD, etc.)
+        
         Returns:
             (bool, str): (autorisé, raison si refusé)
         """
-        # Nettoyer le symbole (enlever -USD, -USDC, etc.)
-        clean_symbol = symbol.replace("-USD", "").replace("-USDC", "").upper()
+        # Normaliser le symbole
+        normalized = self._normalize_symbol(symbol)
         
         allowed_assets = self.get_allowed_assets()
         
-        if clean_symbol in allowed_assets:
+        # Vérifier avec le symbole normalisé
+        # ET avec le symbole original (pour les k-assets explicites)
+        clean_original = symbol.upper().replace("-USD", "").replace("-USDC", "").strip()
+        
+        if normalized in allowed_assets or clean_original in allowed_assets:
             return True, ""
         
-        # Trouver le tier de l'actif
-        # Handle k-prefix (e.g. kPEPE -> PEPE)
-        check_symbols = [clean_symbol]
-        if clean_symbol.startswith("K") and len(clean_symbol) > 2:
-             check_symbols.append(clean_symbol[1:])
-             
+        # Trouver le tier de l'actif pour message personnalisé
         asset_tier = None
-        for sym in check_symbols:
-            for tier, assets in ASSET_TIERS.items():
-                if sym in assets:
-                    asset_tier = tier
-                    break
-            if asset_tier: break
+        for tier, assets in ASSET_TIERS.items():
+            if normalized in assets or clean_original in assets:
+                asset_tier = tier
+                break
         
         if asset_tier is None:
-            return False, f"Actif {symbol} non reconnu"
+            return False, f"Actif {symbol} non reconnu dans la gamification"
         
         # Message personnalisé selon le tier
         if asset_tier == AssetTier.KINGS:
@@ -161,10 +209,10 @@ class AssetGamification:
     
     def get_asset_tier(self, symbol: str) -> AssetTier:
         """Retourne le tier d'un actif"""
-        clean_symbol = symbol.replace("-USD", "").replace("-USDC", "").upper()
+        normalized = self._normalize_symbol(symbol)
         
         for tier, assets in ASSET_TIERS.items():
-            if clean_symbol in assets:
+            if normalized in assets:
                 return tier
         
         return None
@@ -216,13 +264,14 @@ class AssetGamification:
             AccountLevel.GOBLIN: [
                 "PEPE - Memecoin populaire avec forte volatilité",
                 "DOGE - Classique des memecoins",
-                "WIF - Nouveau memecoin tendance",
-                "BONK - Memecoin Solana avec communauté active"
+                "HYPE - Token natif Hyperliquid, très liquide",
+                "TRUMP - Memecoin politique tendance",
+                "WIF - Nouveau memecoin tendance"
             ],
             AccountLevel.MERCENARY: [
                 "SOL - Blockchain rapide, bon potentiel",
                 "AVAX - Concurrent d'Ethereum",
-                "NEAR - Protocole scalable",
+                "HYPE - Token Hyperliquid avec forte liquidité",
                 "SUI - Nouveau L1 prometteur",
                 "PEPE - Toujours accessible pour du scalping"
             ],
@@ -252,6 +301,36 @@ class AssetGamification:
             "progress": progress,
             "recommendations": self.get_recommendations()
         }
+    
+    def debug_whitelist(self) -> str:
+        """
+        🔍 DEBUG: Affiche les informations de whitelist pour diagnostic
+        
+        Utile pour comprendre pourquoi le scanner ne trouve que certains tokens
+        """
+        allowed = self.get_allowed_assets()
+        
+        debug_info = f"""
+╔══════════════════════════════════════════════════════════════╗
+║              🎮 GAMIFICATION DEBUG WHITELIST                 ║
+╠══════════════════════════════════════════════════════════════╣
+║ Niveau Actuel    : {self.level.value:<40} ║
+║ Capital Détecté  : ${self.account_balance:<38.2f} ║
+║ Tiers Autorisés  : {', '.join([t.value for t in ACCESS_RULES[self.level]['allowed_tiers']]):<38} ║
+║ Nombre d'Assets  : {len(allowed):<40} ║
+╠══════════════════════════════════════════════════════════════╣
+║ 🎯 PREMIERS 10 ASSETS AUTORISÉS:                            ║
+╠══════════════════════════════════════════════════════════════╣
+"""
+        for i, asset in enumerate(allowed[:10], 1):
+            debug_info += f"║ {i:2d}. {asset:<55} ║\n"
+        
+        if len(allowed) > 10:
+            debug_info += f"║ ... et {len(allowed) - 10} autres                                      ║\n"
+        
+        debug_info += "╚══════════════════════════════════════════════════════════════╝"
+        
+        return debug_info
 
 # Fonction helper pour utilisation facile
 def check_asset_access(symbol: str, account_balance: float) -> Tuple[bool, str, Dict]:
