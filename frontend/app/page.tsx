@@ -112,10 +112,12 @@ export default function Home() {
                             <div className="p-0">
                                 {activeTab === 'overview' && (
                                     <div className="p-6 space-y-6">
-                                        <Chart
-                                            symbol={status?.active_symbol || 'BTC'}
-                                            activeTrade={activeTrade}
-                                        />
+                                        <div className="h-[500px] w-full bg-[#0b0e11] rounded-xl border border-gray-800 overflow-hidden relative">
+                                            <Chart
+                                                symbol={status?.active_symbol || 'BTC'}
+                                                activeTrade={activeTrade}
+                                            />
+                                        </div>
                                         {/* We display MarketCard here similar to before, or move it up? 
                                             User requested "MarketCard en haut". 
                                             I'll put it here for now to match structure "Grid". 
