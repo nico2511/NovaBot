@@ -124,23 +124,28 @@ export default function Settings() {
                                 <input
                                     type="text"
                                     value={settings.asset}
-                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
+                                    onChange={(e) => {
+                                        const newValue = e.target.value.toUpperCase()
+                                        setSettings({ ...settings, asset: newValue })
+                                    }}
                                     className="w-full bg-background border border-border/30 rounded-lg px-4 py-2 uppercase"
-                                    placeholder="Enter any symbol (e.g. BTC, kPEPE, DOGE)"
+                                    placeholder="Type any symbol: BTC, kPEPE, DOGE..."
+                                    autoComplete="off"
                                 />
                                 <div className="text-xs text-gray-400 mt-1">
-                                    💡 You can type ANY symbol, including k-prefix tokens (kPEPE, kBONK, etc.)
+                                    💡 Type freely - supports all tokens including k-prefix (kPEPE, kBONK, etc.)
                                 </div>
                                 <details className="mt-2">
                                     <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">
-                                        📋 Show available tokens ({availableTokens?.length || 0})
+                                        📋 Quick select from {availableTokens?.length || 0} available tokens
                                     </summary>
                                     <div className="mt-2 max-h-40 overflow-y-auto bg-background/50 rounded p-2 grid grid-cols-4 gap-1 text-xs">
                                         {availableTokens?.map((token) => (
                                             <button
                                                 key={token}
+                                                type="button"
                                                 onClick={() => setSettings({ ...settings, asset: token })}
-                                                className="text-left hover:bg-primary/20 px-2 py-1 rounded"
+                                                className="text-left hover:bg-primary/20 px-2 py-1 rounded transition-colors"
                                             >
                                                 {token}
                                             </button>
