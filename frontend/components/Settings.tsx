@@ -124,19 +124,29 @@ export default function Settings() {
                                 <input
                                     type="text"
                                     value={settings.asset}
-                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value })}
-                                    list="assets"
+                                    onChange={(e) => setSettings({ ...settings, asset: e.target.value.toUpperCase() })}
                                     className="w-full bg-background border border-border/30 rounded-lg px-4 py-2 uppercase"
-                                    placeholder="Enter symbol (e.g. BTC, ETH, SOL)"
+                                    placeholder="Enter any symbol (e.g. BTC, kPEPE, DOGE)"
                                 />
-                                <datalist id="assets">
-                                    {availableTokens?.map((token) => (
-                                        <option key={token} value={token}>{token}</option>
-                                    ))}
-                                </datalist>
                                 <div className="text-xs text-gray-400 mt-1">
-                                    {availableTokens ? `${availableTokens.length} tokens available` : 'Loading tokens...'}
+                                    💡 You can type ANY symbol, including k-prefix tokens (kPEPE, kBONK, etc.)
                                 </div>
+                                <details className="mt-2">
+                                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300">
+                                        📋 Show available tokens ({availableTokens?.length || 0})
+                                    </summary>
+                                    <div className="mt-2 max-h-40 overflow-y-auto bg-background/50 rounded p-2 grid grid-cols-4 gap-1 text-xs">
+                                        {availableTokens?.map((token) => (
+                                            <button
+                                                key={token}
+                                                onClick={() => setSettings({ ...settings, asset: token })}
+                                                className="text-left hover:bg-primary/20 px-2 py-1 rounded"
+                                            >
+                                                {token}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </details>
                             </div>
 
                             {/* Market Selection */}
