@@ -22,26 +22,20 @@ export default function StrategyCard({ settings, statusData, tokenData, onChange
                 {/* Available Assets */}
                 <div>
                     <label className="block text-sm font-semibold mb-2 text-gray-300">Active Market</label>
-                    {tokenData?.success ? (
-                        <select
-                            value={settings.asset}
-                            onChange={(e) => onChange('asset', e.target.value)}
-                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 appearance-none focus:border-blue-500 transition-colors"
-                        >
-                            {Array.isArray(tokenData.tokens) && tokenData.tokens.map((token: string) => (
-                                <option key={token} value={token}>{token}</option>
-                            ))}
-                        </select>
-                    ) : (
-                        <input
-                            type="text"
-                            value={settings.asset}
-                            onChange={(e) => onChange('asset', e.target.value.toUpperCase())}
-                            list="assets"
-                            className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 uppercase focus:border-blue-500 transition-colors"
-                            placeholder="Symbol (e.g. BTC)"
-                        />
-                    )}
+                    <input
+                        type="text"
+                        value={settings.asset}
+                        onChange={(e) => onChange('asset', e.target.value.toUpperCase())}
+                        className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 uppercase focus:border-blue-500 transition-colors"
+                        placeholder="Type any symbol: BTC, kPEPE, DOGE..."
+                        autoComplete="off"
+                    />
+                    <div className="text-xs text-gray-400 mt-1">
+                        {tokenData?.success && tokenData.tokens?.length > 0
+                            ? `💡 ${tokenData.tokens.length} tokens available - type freely or pick from scanner`
+                            : '💡 Type any symbol including k-prefix tokens (kPEPE, kBONK, etc.)'
+                        }
+                    </div>
                 </div>
 
                 {/* Execution Mode */}
