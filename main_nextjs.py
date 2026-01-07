@@ -585,6 +585,13 @@ class BotContext:
                      "exit_time": pd.Timestamp.now().isoformat()
                 })
                 
+                # 🔔 NOTIFY DISCORD (Fix: Alert on External SL/TP Close)
+                discord_service.send_alert(
+                    f"🏁 TRADE CLOSED (Exchange): {symbol}",
+                    f"Reason: External Close (SL/TP likely)\nPnL: ${pnl_usdc:.2f}",
+                    color="00FF00" if pnl_usdc >= 0 else "FF0000"
+                )
+                
                 self.active_trade = None
                 StateManager.save_state(self)
                 self.missing_pos_counter = 0
