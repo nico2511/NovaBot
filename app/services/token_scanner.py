@@ -65,7 +65,7 @@ class HyperliquidScanner:
         
         Args:
             api_symbol: Symbol from API (may have k-prefix)
-            whitelist: List of allowed symbols
+            whitelist: List of allowed symbols or None
         
         Returns:
             True if symbol or its normalized version is in whitelist
@@ -79,7 +79,10 @@ class HyperliquidScanner:
         # Check both original and normalized
         clean_original = api_symbol.upper().replace("-USD", "").replace("-USDC", "").strip()
         
-        return normalized in whitelist or clean_original in whitelist
+        # Normalize whitelist items for comparison
+        normalized_whitelist = [self._normalize_symbol(w) for w in whitelist]
+        
+        return normalized in normalized_whitelist or clean_original in normalized_whitelist
     
     def get_all_tokens(self) -> List[str]:
         """
