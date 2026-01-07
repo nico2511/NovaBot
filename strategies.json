@@ -205,6 +205,23 @@
                 "liq_grab_lookback": 10,
                 "min_rr": 1.2
             }
+        },
+        "fibo_pullback": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Fibonacci Pullback - Sniper entries on 61.8% retracements in established uptrends.",
+            "display_conditions": [
+                "Price > EMA 200",
+                "ADX >= 20 (Trend)",
+                "Fibo 61.8% Touch",
+                "R:R >= 1.5"
+            ],
+            "params": {
+                "ema_period": 200,
+                "adx_threshold": 20,
+                "swing_lookback": 50,
+                "min_rr": 1.5
+            }
         }
     }
 }
