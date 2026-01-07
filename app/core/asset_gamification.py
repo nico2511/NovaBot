@@ -43,7 +43,8 @@ ASSET_TIERS = {
         "BOME", "TST", "AIXBT", "MEME", "PEPE2",
         "WOJAK", "TURBO",
         # Variantes avec préfixe k (Hyperliquid)
-        "kPEPE", "kBONK", "kSHIB", "kWIF", "kFLOKI"
+        "kPEPE", "kBONK", "kSHIB", "kWIF", "kFLOKI", "kDOGE",
+        "kTRUMP", "kMELANIA", "kBRETT", "kPNUT", "kGOAT"
     ],
     AssetTier.GROWTH: [
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
