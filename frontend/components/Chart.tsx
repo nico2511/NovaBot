@@ -139,8 +139,8 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     useEffect(() => {
         if (!chartRef.current || !candleData) return
 
-        // Ensure candleData is an array
-        const rawData = Array.isArray(candleData) ? candleData : []
+        // Ensure candleData is handled correctly (API returns { candles: [...] })
+        const rawData = candleData?.candles || (Array.isArray(candleData) ? candleData : [])
         if (rawData.length === 0) return
 
         // Formatage des données
