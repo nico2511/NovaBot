@@ -173,7 +173,9 @@ class IAService:
                 print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
         
         try:
-            return self._call_openrouter_api(prompt)
+            # Inject dynamic system prompt
+            system_prompt = self.get_dynamic_system_prompt()
+            return self._call_openrouter_api(prompt, system_prompt=system_prompt)
         except Exception as e:
             error_str = str(e).lower()
             print(f"⚠️ AI Call failed: {e}")
