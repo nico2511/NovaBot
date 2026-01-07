@@ -7,6 +7,12 @@ from app.services.token_scanner import HyperliquidScanner
 
 router = APIRouter()
 
+# Import sanitize helper from main API
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from backend.api import sanitize_for_json
+
 @router.get("/scanner/opportunities")
 async def get_opportunities(top_n: int = 10):
     """Get top trading opportunities with gamification filtering"""
@@ -30,6 +36,9 @@ async def get_opportunities(top_n: int = 10):
         
         # Scan with whitelist
         opportunities = scanner.scan(top_n=top_n, whitelist=whitelist)
+        
+        # CRITICAL: Sanitize numpy types before JSON serialization
+        opportunities = sanitize_for_json(opportunities)
         
         return {
             "success": True,
@@ -56,7 +65,7 @@ async def get_best_asset():
         
         # Get full details
         opportunities = scanner.scan(top_n=1)
-        details = opportunities[0] if opportunities else None
+        details = sanitize_for_json(opportunities[0]) if opportunities else None
         
         return {
             "success": True,
