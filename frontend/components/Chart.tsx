@@ -53,6 +53,33 @@ const calculateBollingerBands = (data: any[], period = 20, multiplier = 2) => {
     return { basis, upper, lower }
 }
 
+// Calcule l'EMA (Exponential Moving Average)
+const calculateEMA = (data: any[], period: number) => {
+    const ema = []
+    const multiplier = 2 / (period + 1)
+
+    for (let i = 0; i < data.length; i++) {
+        if (i < period - 1) {
+            ema.push({ time: data[i].time, value: NaN })
+            continue
+        }
+
+        if (i === period - 1) {
+            // First EMA = SMA
+            const slice = data.slice(0, period)
+            const sum = slice.reduce((acc: number, val: any) => acc + val.close, 0)
+            ema.push({ time: data[i].time, value: sum / period })
+        } else {
+            // EMA = (Close - EMA_prev) * multiplier + EMA_prev
+            const prevEMA = ema[i - 1].value
+            const currentEMA = (data[i].close - prevEMA) * multiplier + prevEMA
+            ema.push({ time: data[i].time, value: currentEMA })
+        }
+    }
+
+    return ema
+}
+
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
 export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
@@ -64,6 +91,7 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null)
     const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null)
     const bbBasisRef = useRef<ISeriesApi<"Line"> | null>(null)
+    const ema200Ref = useRef<ISeriesApi<"Line"> | null>(null)
 
     // Trade Lines Refs (pour nettoyage propre)
     const tradeLinesRef = useRef<any[]>([])
@@ -123,6 +151,9 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         bbLowerRef.current = chart.addSeries(LineSeries, { color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
         bbBasisRef.current = chart.addSeries(LineSeries, { color: 'rgba(251, 146, 60, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false }) // Basis Orange
 
+        // EMA 200 (Purple - Long-term trend)
+        ema200Ref.current = chart.addSeries(LineSeries, { color: 'rgba(168, 85, 247, 0.6)', lineWidth: 2, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false })
+
         chartRef.current = chart
 
         // Resize Observer Responsive
@@ -154,6 +185,10 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         bbBasisRef.current?.setData(bbData.basis.filter(d => !isNaN(d.value)))
         bbUpperRef.current?.setData(bbData.upper.filter(d => !isNaN(d.value)))
         bbLowerRef.current?.setData(bbData.lower.filter(d => !isNaN(d.value)))
+
+        // Calcul et mise à jour de l'EMA 200
+        const ema200Data = calculateEMA(formattedData, 200)
+        ema200Ref.current?.setData(ema200Data.filter(d => !isNaN(d.value)))
 
     }, [candleData])
 
