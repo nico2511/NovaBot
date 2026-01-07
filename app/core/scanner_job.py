@@ -1,19 +1,34 @@
 import threading
 import time
 from datetime import datetime
+from typing import Tuple, List, Optional
 from app.services.token_scanner import HyperliquidScanner
 from app.services.discord_service import discord_service
 from app.core.state_manager import StateManager
+from app.core.config import config
+from app.core.asset_gamification import AssetGamification
 
 class ScannerJob:
+    """
+    Scanner Job - REFACTORED
+    
+    Improvements:
+    - DRY: Extracted _get_scan_context() to avoid code duplication
+    - Thread Safety: Added lock for last_results
+    - Cleaner imports (moved to top)
+    """
+    
     def __init__(self, bot_context):
         self.bot = bot_context
         self.is_running = False
         self.thread = None
         self.last_scan_time = 0
         self.scanner = HyperliquidScanner()
-        self.last_results = [] # Store last scan results for UI
-        self.is_scanning = False # Status flag
+        self.last_results = []  # Store last scan results for UI
+        self.is_scanning = False  # Status flag
+        
+        # Thread safety for last_results
+        self.results_lock = threading.Lock()
         
     def start(self):
         if self.is_running:
@@ -31,6 +46,42 @@ class ScannerJob:
                 self.thread.join(timeout=2)
             except: pass
         print("⏹️ ScannerJob stopped")
+    
+    def _get_scan_context(self) -> Tuple[Optional[List[str]], str]:
+        """
+        Context Resolver - DRY Extraction
+        
+        Handles gamification logic and returns whitelist + log message
+        
+        Returns:
+            (whitelist, log_message): 
+                - whitelist: List of allowed symbols or None (full access)
+                - log_message: String to log about gamification status
+        """
+        whitelist = None
+        log_message = ""
+        
+        gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
+        
+        if gamification_enabled:
+            try:
+                # Fetch equity to determine tier
+                balance_data = self.scanner.hl_service.get_account_balance()
+                equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
+                
+                gamification = AssetGamification(equity)
+                whitelist = gamification.get_allowed_assets()
+                log_message = f"🎮 Gamification ON: Level {gamification.level.value} (${equity:.2f}) - {len(whitelist)} assets allowed"
+                
+            except Exception as e:
+                self.bot.add_log(f"⚠️ Context Resolver Error: {e}")
+                whitelist = ["BTC", "ETH"]  # Panic fallback
+                log_message = "⚠️ Gamification Error - Fallback to BTC/ETH"
+        else:
+            # Gamification disabled - Full market access
+            log_message = "🌍 Gamification OFF: Full Market Access"
+        
+        return whitelist, log_message
 
     def _run_loop(self):
         while self.is_running:
@@ -39,18 +90,15 @@ class ScannerJob:
                 settings = getattr(self.bot, 'scanner_settings', {})
                 enabled = settings.get('enabled', False)
                 interval_minutes = settings.get('interval', 15)
-                min_score = settings.get('min_score', 75)  # Back to 75 (quality over quantity)
+                min_score = settings.get('min_score', 75)
                 auto_switch = settings.get('auto_switch', False)
 
                 if not enabled:
                     time.sleep(10)
                     continue
 
-                # CIRCUIT BREAKER: Pause Scanner if Bot is in Focus Mode (Trade Active)
-                # To save API rate limits
+                # CIRCUIT BREAKER: Pause Scanner if Bot is in Focus Mode
                 if getattr(self.bot, 'is_focus_mode', False):
-                    # Log only once per pause phase? Or just sleep silently
-                    # self.bot.add_log("🔒 Scanner paused (Focus Mode)") # Optional
                     time.sleep(10) 
                     continue
 
@@ -61,37 +109,21 @@ class ScannerJob:
                     continue
 
                 # RUN SCAN
-                # RUN SCAN
                 self.last_scan_time = now
                 self.bot.add_log(f"🕵️ Running periodic scan (Interval: {interval_minutes}m)")
                 self.is_scanning = True
                 
-                # --- CONTEXT RESOLVER (Gamification / Auto-Switch Scope) ---
-                from app.core.config import config
-                
-                whitelist = None
-                gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
-                
-                if gamification_enabled:
-                    try:
-                        from app.core.asset_gamification import AssetGamification
-                        # Fetch equity to determine tier
-                        balance_data = self.scanner.hl_service.get_account_balance()
-                        equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-                        
-                        gamification = AssetGamification(equity)
-                        whitelist = gamification.get_allowed_assets()
-                        self.bot.add_log(f"🎮 Gamification ON: Level {gamification.level.value} (${equity:.2f})")
-                    except Exception as e:
-                        self.bot.add_log(f"⚠️ Context Resolver Error: {e}")
-                        whitelist = ["BTC", "ETH"] # Panic fallback
-                else:
-                    # Gamification disabled - Full market access
-                    self.bot.add_log("🌍 Gamification OFF: Full Market Access")
+                # Get scan context (DRY - using extracted method)
+                whitelist, log_msg = self._get_scan_context()
+                self.bot.add_log(log_msg)
 
-                # Pass clean whitelist to scanner
+                # Pass whitelist to scanner
                 opportunities = self.scanner.scan(top_n=10, whitelist=whitelist)
-                self.last_results = opportunities # Save raw results for UI
+                
+                # Thread-safe write to last_results
+                with self.results_lock:
+                    self.last_results = opportunities
+                
                 self.is_scanning = False
                 
                 # Filter by min_score
@@ -132,14 +164,14 @@ class ScannerJob:
                         self._send_discord_alert(top_3, min_score, warning=True)
                 
                 else:
-                    # No opportunities at all (gamification filtered everything or market issue)
+                    # No opportunities at all
                     self.bot.add_log("Scanner returned no opportunities")
-                    discord_service.send_log(f"🕵️ **Scanner**: No tokens available to scan (Level: Goblin)")
+                    discord_service.send_log(f"🕵️ **Scanner**: No tokens available to scan")
 
 
             except Exception as e:
                 print(f"❌ ScannerJob Error: {e}")
-                time.sleep(60) # Wait a bit on error
+                time.sleep(60)
             
             time.sleep(5)
 
@@ -152,30 +184,18 @@ class ScannerJob:
         self.is_scanning = True
         
         try:
-            # Context Resolver (Replicated for safety)
-            from app.core.config import config
+            # Get scan context (DRY - using extracted method)
+            whitelist, log_msg = self._get_scan_context()
+            self.bot.add_log(log_msg)
             
-            whitelist = None
-            gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
-            
-            if gamification_enabled:
-                try:
-                    from app.core.asset_gamification import AssetGamification
-                    balance_data = self.scanner.hl_service.get_account_balance()
-                    equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-                    gamification = AssetGamification(equity)
-                    whitelist = gamification.get_allowed_assets()
-                    self.bot.add_log(f"🎮 Manual Scan: Gamification ON (Level {gamification.level.value})")
-                except: 
-                    whitelist = ["BTC", "ETH"]
-            else:
-                self.bot.add_log("🌍 Manual Scan: Gamification OFF (Full Access)") 
-            
-            # 1. Scan
+            # Scan
             opportunities = self.scanner.scan(top_n=10, whitelist=whitelist)
-            self.last_results = opportunities
             
-            # 2. Return results (don't auto-act, just return)
+            # Thread-safe write to last_results
+            with self.results_lock:
+                self.last_results = opportunities
+            
+            # Return results
             min_score = getattr(self.bot, 'scanner_settings', {}).get('min_score', 75)
             valid_opps = [o for o in opportunities if o['score'] >= min_score]
             
@@ -205,7 +225,7 @@ class ScannerJob:
             title = f"🔍 SCANNER: {len(opps)} Opportunities Found"
             description = f"Found {len(opps)} assets with Score >= {min_score}\n\n"
         
-        for i, opp in enumerate(opps[:5]): # Top 5 only
+        for i, opp in enumerate(opps[:5]):  # Top 5 only
             stars = "⭐⭐⭐" if opp['score'] >= 80 else "⭐⭐" if opp['score'] >= 60 else "⭐"
             trend_icon = "📈" if opp.get('trend') == "UP" else "📉" if opp.get('trend') == "DOWN" else "➡️"
             
@@ -220,7 +240,7 @@ class ScannerJob:
             
             # Add Reasons if available
             if opp.get('reasons'):
-                for reason in opp['reasons'][:2]: # Limit to top 2 reasons to save space
+                for reason in opp['reasons'][:2]:  # Limit to top 2 reasons
                     description += f"> {reason}\n"
             
             description += "\n"
