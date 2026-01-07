@@ -55,6 +55,12 @@ export default function Settings() {
         return res.data
     }, { refreshInterval: 2000 })
 
+    // Fetch available tokens from cache
+    const { data: availableTokens } = useSWR<string[]>(`${API_URL}/api/available_tokens`, async (url) => {
+        const res = await axios.get(url)
+        return res.data.tokens || []
+    })
+
     // Sync local state when server data changes
     useEffect(() => {
         if (serverSettings || statusData) {
@@ -124,23 +130,13 @@ export default function Settings() {
                                     placeholder="Enter symbol (e.g. BTC, ETH, SOL)"
                                 />
                                 <datalist id="assets">
-                                    <option value="BTC">Bitcoin</option>
-                                    <option value="ETH">Ethereum</option>
-                                    <option value="SOL">Solana</option>
-                                    <option value="BNB">Binance Coin</option>
-                                    <option value="ARB">Arbitrum</option>
-                                    <option value="AVAX">Avalanche</option>
-                                    <option value="MATIC">Polygon</option>
-                                    <option value="LINK">Chainlink</option>
-                                    <option value="UNI">Uniswap</option>
-                                    <option value="ATOM">Cosmos</option>
-                                    <option value="DOT">Polkadot</option>
-                                    <option value="DOGE">Dogecoin</option>
-                                    <option value="XRP">Ripple</option>
-                                    <option value="ADA">Cardano</option>
-                                    <option value="INIT">Initia</option>
-                                    <option value="STABLE">Stable Protocol</option>
+                                    {availableTokens?.map((token) => (
+                                        <option key={token} value={token}>{token}</option>
+                                    ))}
                                 </datalist>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    {availableTokens ? `${availableTokens.length} tokens available` : 'Loading tokens...'}
+                                </div>
                             </div>
 
                             {/* Market Selection */}
