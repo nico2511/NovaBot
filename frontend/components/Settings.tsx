@@ -56,7 +56,7 @@ export default function Settings() {
     }, { refreshInterval: 2000 })
 
     // Fetch available tokens from cache
-    const { data: availableTokens } = useSWR<string[]>(`${API_URL}/api/available_tokens`, async (url) => {
+    const { data: availableTokens } = useSWR<string[]>(`${API_URL}/api/available_tokens`, async (url: string) => {
         const res = await axios.get(url)
         return res.data.tokens || []
     })
