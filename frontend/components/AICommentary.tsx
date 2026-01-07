@@ -49,15 +49,6 @@ export default function AICommentary({ symbol, displayMode = 'full' }: AIComment
                 }
             }
 
-            // Fetch AI history
-            const historyRes = await fetch('/api/ai/history');
-            if (historyRes.ok) {
-                const data = await historyRes.json();
-                if (data.signal_analyses) {
-                    setSignalHistory(data.signal_analyses);
-                }
-            }
-
             setLoading(false);
         } catch (error) {
             console.error('Error fetching AI data:', error);
