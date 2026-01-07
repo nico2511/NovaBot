@@ -1551,8 +1551,8 @@ async def get_available_tokens():
         if not tokens:
              tokens = ["BTC", "ETH", "SOL", "HYPE", "AVAX", "ARB", "LINK", "DOGE", "PEPE", "WIF"]
              
-        # Filter out non-token keys just in case (e.g. 'universe' if it was a key in mapped mode)
-        tokens = [t for t in tokens if isinstance(t, str) and len(t) < 10 and t.isupper()]
+        # Filter out non-token keys (keep strings under 10 chars, allow mixed case for k-prefix)
+        tokens = [t for t in tokens if isinstance(t, str) and len(t) < 10]
         
         tokens.sort()
         return {"success": True, "tokens": tokens}
