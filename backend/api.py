@@ -1377,7 +1377,15 @@ async def momentum_ranking(data: dict = {}):
         
         print(f"📊 Starting momentum scan for Top {top_n}...")
         
-        result = scanner.scan_momentum_ranking(top_n=top_n)
+        # Use standard scan method (scan_momentum_ranking doesn't exist)
+        opportunities = scanner.scan(top_n=top_n)
+        
+        # Format as momentum ranking
+        result = {
+            "selected": [opp["symbol"] for opp in opportunities[:top_n]],
+            "scores": {opp["symbol"]: opp["score"] for opp in opportunities[:top_n]},
+            "details": opportunities[:top_n]
+        }
         
         print(f"✅ Momentum scan complete!")
         print(f"   Selected: {result.get('selected', [])}")
