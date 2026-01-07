@@ -1,8 +1,8 @@
 """
-Asset Gamification Module - REFACTORED
+Asset Gamification Module - CURATED + VALIDATED
 
 Système de niveaux et tiers d'actifs pour guider les traders selon leur capital.
-Optimisé pour Hyperliquid avec gestion des préfixes (k-assets) et liste mise à jour.
+Liste CURATIVE de tokens de qualité, validée contre token_meta_cache.json.
 
 Niveaux:
 - Goblin ($0-100): Débutant, capital limité
@@ -10,13 +10,15 @@ Niveaux:
 - Whale ($500+): Avancé, capital important
 
 Tiers d'Actifs:
-- Casino: Memecoins volatils (PEPE, DOGE, HYPE, TRUMP, etc.)
-- Growth Engines: Altcoins établis (SOL, AVAX, NEAR, SUI, ARB)
-- Kings: Blue chips (BTC, ETH)
+- Casino: Memecoins volatils sélectionnés (haute liquidité)
+- Growth Engines: Altcoins établis de qualité
+- Kings: Blue chips (BTC, ETH, SOL)
 """
 import os
-from typing import Dict, List, Tuple, Set
+import json
+from typing import Dict, List, Tuple, Set, Optional
 from enum import Enum
+from pathlib import Path
 
 class AccountLevel(Enum):
     """Niveaux de compte basés sur le capital"""
@@ -30,27 +32,24 @@ class AssetTier(Enum):
     GROWTH = "Growth Engines"  # Altcoins
     KINGS = "Kings"  # BTC/ETH
 
-# Définition des actifs par tier (MISE À JOUR 2026)
-ASSET_TIERS = {
+# LISTE CURATIVE - Tokens de qualité sélectionnés manuellement
+CURATED_ASSET_TIERS = {
     AssetTier.CASINO: [
-        # Memecoins classiques
-        "PEPE", "DOGE", "SHIB", "WIF", "BONK", "FLOKI",
-        # Nouveaux memecoins Hyperliquid (2024-2026)
+        # Memecoins TOP liquidité (sélection curative)
+        "DOGE", "PEPE", "SHIB", "WIF", "BONK", "FLOKI",
         "HYPE", "TRUMP", "MELANIA", "FARTCOIN", "MAGA",
         "VINE", "GOAT", "MOODENG", "SPX", "POPCAT", 
-        "PURR", "KHEOWZOO", "PENGU", "PEOPLE", "BRETT",
-        "PNUT", "CHILLGUY", "NEIRO", "MEW", "YZY",
-        "BOME", "TST", "AIXBT", "MEME", "PEPE2",
-        "WOJAK", "TURBO",
-        # Variantes avec préfixe k (Hyperliquid)
-        "kPEPE", "kBONK", "kSHIB", "kWIF", "kFLOKI", "kDOGE",
-        "kTRUMP", "kMELANIA", "kBRETT", "kPNUT", "kGOAT"
+        "PURR", "PENGU", "PEOPLE", "BRETT", "PNUT",
+        "CHILLGUY", "NEIRO", "MEW", "YZY", "BOME",
+        "TST", "AIXBT", "MEME", "WOJAK", "TURBO"
     ],
     AssetTier.GROWTH: [
+        # Altcoins établis de qualité
         "SOL", "AVAX", "NEAR", "SUI", "ARB", "OP", "MATIC",
         "ATOM", "DOT", "LINK", "UNI", "AAVE", "FTM", "INJ",
         "HYPE", "VRID", "AIXBT", "BNB", "ADA", "XRP",
-        "ALGO", "SAND", "MANA", "APT", "SEI"
+        "ALGO", "SAND", "MANA", "APT", "SEI", "TIA",
+        "STRK", "JUP", "PYTH", "WLD", "ONDO"
     ],
     AssetTier.KINGS: [
         "BTC", "ETH", "SOL"
@@ -89,8 +88,58 @@ XP_THRESHOLDS = {
     AccountLevel.WHALE: 500  # $500 USDC
 }
 
+def validate_tokens_against_cache() -> Dict[AssetTier, List[str]]:
+    """
+    Valide la liste curative contre token_meta_cache.json
+    Retire les tokens qui n'existent plus sur Hyperliquid
+    
+    Returns:
+        Dict avec les tokens validés par tier
+    """
+    cache_path = Path(__file__).parent.parent.parent / "token_meta_cache.json"
+    
+    # Si pas de cache, retourne la liste curative telle quelle
+    if not cache_path.exists():
+        print(f"⚠️ token_meta_cache.json not found - using curated list as-is")
+        return CURATED_ASSET_TIERS.copy()
+    
+    try:
+        with open(cache_path, 'r') as f:
+            token_meta = json.load(f)
+        
+        available_tokens = set(token_meta.keys())
+        validated_tiers = {}
+        removed_count = 0
+        
+        for tier, curated_tokens in CURATED_ASSET_TIERS.items():
+            # Garde seulement les tokens qui existent dans le cache
+            validated = [t for t in curated_tokens if t in available_tokens]
+            removed = [t for t in curated_tokens if t not in available_tokens]
+            
+            if removed:
+                removed_count += len(removed)
+                print(f"⚠️ {tier.value}: Removed {len(removed)} delisted tokens: {', '.join(removed)}")
+            
+            validated_tiers[tier] = validated
+        
+        print(f"✅ Token validation complete:")
+        print(f"   - KINGS: {len(validated_tiers[AssetTier.KINGS])} tokens")
+        print(f"   - CASINO: {len(validated_tiers[AssetTier.CASINO])} tokens (curated)")
+        print(f"   - GROWTH: {len(validated_tiers[AssetTier.GROWTH])} tokens (curated)")
+        if removed_count > 0:
+            print(f"   - Removed {removed_count} delisted tokens")
+        
+        return validated_tiers
+        
+    except Exception as e:
+        print(f"❌ Error validating against cache: {e}")
+        return CURATED_ASSET_TIERS.copy()
+
+# Validation au démarrage du module
+ASSET_TIERS = validate_tokens_against_cache()
+
 class AssetGamification:
-    """Gestionnaire de gamification des actifs - REFACTORÉ"""
+    """Gestionnaire de gamification des actifs - CURATED"""
     
     def __init__(self, account_balance_usdc: float = 0):
         """Initialize gamification based on account value"""
@@ -98,7 +147,7 @@ class AssetGamification:
         self.level = self._calculate_level()
         
         # Cache pour éviter les recalculs
-        self._all_known_assets_cache: Set[str] = None
+        self._all_known_assets_cache: Optional[Set[str]] = None
     
     def _calculate_level(self) -> AccountLevel:
         """Calcule le niveau basé sur le capital"""
@@ -134,7 +183,6 @@ class AssetGamification:
         s = symbol.upper().replace("-USD", "").replace("-USDC", "").strip()
         
         # Gestion du préfixe k (Hyperliquid memecoins)
-        # Si c'est un k-asset ET que la version sans k existe dans nos tiers
         if s.startswith("K") and len(s) > 2:
             base_symbol = s[1:]  # Retire le 'k'
             if base_symbol in self._get_all_known_assets():
@@ -263,18 +311,16 @@ class AssetGamification:
         """Retourne des recommandations d'actifs pour le niveau actuel"""
         tier_recommendations = {
             AccountLevel.GOBLIN: [
+                "DOGE - Memecoin classique avec forte liquidité",
                 "PEPE - Memecoin populaire avec forte volatilité",
-                "DOGE - Classique des memecoins",
                 "HYPE - Token natif Hyperliquid, très liquide",
-                "TRUMP - Memecoin politique tendance",
-                "WIF - Nouveau memecoin tendance"
+                "TRUMP - Memecoin politique tendance"
             ],
             AccountLevel.MERCENARY: [
                 "SOL - Blockchain rapide, bon potentiel",
                 "AVAX - Concurrent d'Ethereum",
                 "HYPE - Token Hyperliquid avec forte liquidité",
-                "SUI - Nouveau L1 prometteur",
-                "PEPE - Toujours accessible pour du scalping"
+                "SUI - Nouveau L1 prometteur"
             ],
             AccountLevel.WHALE: [
                 "BTC - Roi des cryptos, moins volatil",
