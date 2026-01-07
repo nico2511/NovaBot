@@ -15,6 +15,7 @@ from strategies.head_shoulders import HeadShouldersStrategy
 from strategies.bollinger_bounce import BollingerBounceStrategy
 from strategies.rsi_ping_pong import RSIPingPongStrategy
 from strategies.institutional_scalp import InstitutionalScalp
+from strategies.fibo_pullback import StrategyFiboPullback
 import json
 
 class StrategyEngine:
@@ -46,6 +47,7 @@ class StrategyEngine:
             "bollinger_bounce": BollingerBounceStrategy(strats_config.get("bollinger_bounce")),
             "rsi_ping_pong": RSIPingPongStrategy(strats_config.get("rsi_ping_pong")),
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
+            "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
