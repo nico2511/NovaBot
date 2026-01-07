@@ -852,6 +852,47 @@ class BotContext:
             sl = None
             tp = None
             
+            # 0. CONTINUOUS ADOPTION: Check for manual trades if idle
+            if not self.active_trade:
+                try:
+                    # Check for existing positions on the active symbol
+                    real_positions_manual = hyperliquid_service.get_positions()
+                    if real_positions_manual:
+                        # Filter for current symbol and non-zero size
+                        manual_pos = next((p for p in real_positions_manual if p["symbol"] == self.active_symbol and float(p['size']) != 0), None)
+                        
+                        if manual_pos:
+                            self.add_log(f"🕵️ MANUAL TRADE DETECTED: Adopting {self.active_symbol} position...")
+                            
+                            # Extract details
+                            raw_size_m = float(manual_pos.get("szi", 0))
+                            side_m = "BUY" if raw_size_m > 0 else "SELL"
+                            size_m = abs(raw_size_m)
+                            entry_px_m = float(manual_pos.get("entryPx", 0))
+                            pnl_m = float(manual_pos.get("unrealizedPnl", 0))
+                            
+                            self.active_trade = {
+                                "symbol": self.active_symbol,
+                                "side": side_m,
+                                "entry": entry_px_m,
+                                "size": size_m,
+                                "sl": 0,
+                                "tp": 0,
+                                "strategy": "Manual (Adoption)",
+                                "entry_time": pd.Timestamp.now().isoformat(),
+                                "pnl": pnl_m,
+                                "max_pnl": pnl_m,
+                                "status": "OPEN"
+                            }
+                            StateManager.save_state(self)
+                            self.add_log(f"✅ MANUAL TRADE ADOPTED: {side_m} {size_m} @ {entry_px_m}")
+                            
+                            # Immediate loop continue to manage it
+                            continue
+                except Exception as e_manual:
+                    # Log only debug to avoid spam
+                    pass
+            
             try:
                 # 1. MANAGE ACTIVE TRADE
                 if self.active_trade:
