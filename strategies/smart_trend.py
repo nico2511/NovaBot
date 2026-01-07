@@ -34,11 +34,14 @@ class StrategySmartTrend(BaseStrategy):
         self.looking_for_entry = False
         self.entry_direction = None  # "LONG" or "SHORT"
         
-        # Paramètres V2
-        self.pullback_tolerance = 0.01  # 1% (vs 0.2% en V1)
-        self.bos_lookback = 2  # 2 candles (vs 3 en V1)
-        self.rr_ratio = 2.0  # 1:2.0 (vs 1:2.5 en V1)
-        self.sl_buffer = 0.3  # 0.3 ATR (vs 0.2 en V1)
+        # Paramètres V2 (Configurable)
+        self.pullback_tolerance = self.config.get('pullback_tolerance', 0.01)
+        self.bos_lookback = self.config.get('bos_lookback', 2)
+        self.rr_ratio = self.config.get('min_rr', 2.0)  # Use min_rr key from json
+        self.sl_buffer = self.config.get('sl_buffer', 0.3)
+        self.adx_threshold = self.config.get('adx_threshold', 25)
+        self.rsi_min = self.config.get('rsi_min', 30)
+        self.rsi_max = self.config.get('rsi_max', 70)
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
@@ -81,13 +84,13 @@ class StrategySmartTrend(BaseStrategy):
         # GUARD CLAUSE: Trend Following only in Trend (ADX > 25)
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
-            if current_adx < 25:
+            if current_adx < self.adx_threshold:
                 self.looking_for_entry = False
                 self.entry_direction = None
                 return None  # No trend, skip trend following strategy
         
         # RSI Filter (éviter extrêmes)
-        if rsi_15m <= 30 or rsi_15m >= 70:
+        if rsi_15m <= self.rsi_min or rsi_15m >= self.rsi_max:
             self.looking_for_entry = False
             self.entry_direction = None
             return None

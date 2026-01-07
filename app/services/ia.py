@@ -6,6 +6,7 @@ from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from collections import OrderedDict
 import json
+import re
 
 from app.core.config import config
 from app.core.prompts import get_system_prompt
@@ -67,14 +68,7 @@ class IAService:
     def extract_json(text: str) -> str:
         """
         Robustly extract JSON from text, handling markdown code blocks.
-        
-        Args:
-            text: Raw text that may contain JSON wrapped in markdown
-            
-        Returns:
-            Cleaned JSON string
         """
-        import re
         try:
             # Try to find ```json ... ``` block
             match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -114,16 +108,6 @@ class IAService:
     def _call_openrouter_api(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """
         Call OpenRouter API with error handling.
-        
-        Args:
-            prompt: The user prompt to send to the LLM
-            system_prompt: Optional system prompt to set AI behavior/persona
-            
-        Returns:
-            Dict with 'raw_output' and 'model' keys
-            
-        Raises:
-            Exception: If API call fails
         """
         if not self.client:
             raise Exception("AI Client not initialized (Missing Key)")
@@ -151,12 +135,7 @@ class IAService:
     def _call_ai_generic(self, prompt: str) -> Dict[str, Any]:
         """
         Generic AI call dispatcher with Circuit Breaker logic.
-        
-        Args:
-            prompt: The prompt to send
-            
-        Returns:
-            Dict with AI response or error fallback
+        Injects the Dynamic System Prompt automatically.
         """
         # Check Circuit Breaker
         if self.circuit_breaker_until:
@@ -173,7 +152,7 @@ class IAService:
                 print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
         
         try:
-            # Inject dynamic system prompt
+            # Inject dynamic system prompt here
             system_prompt = self.get_dynamic_system_prompt()
             return self._call_openrouter_api(prompt, system_prompt=system_prompt)
         except Exception as e:
@@ -193,20 +172,9 @@ class IAService:
             }
     
     def _get_cache_key(self, type_: str, unique_id: str) -> str:
-        """Generate cache key from type and unique ID"""
         return f"{type_}:{unique_id}"
     
     def _get_cached_response(self, key: str, ttl_minutes: int) -> Optional[Dict[str, Any]]:
-        """
-        Get cached response if still valid.
-        
-        Args:
-            key: Cache key
-            ttl_minutes: Time-to-live in minutes
-            
-        Returns:
-            Cached data or None if expired/missing
-        """
         if key in self.cache:
             entry = self.cache[key]
             if (datetime.now() - entry["time"]).total_seconds() < (ttl_minutes * 60):
@@ -216,14 +184,6 @@ class IAService:
         return None
     
     def _set_cache(self, key: str, data: Dict[str, Any], ttl_minutes: int = 15) -> None:
-        """
-        Set cache entry with TTL and trigger cleanup.
-        
-        Args:
-            key: Cache key
-            data: Data to cache
-            ttl_minutes: Time-to-live in minutes
-        """
         self.cache[key] = {
             "time": datetime.now(),
             "data": data,
@@ -237,12 +197,7 @@ class IAService:
     def analyze_market(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze market conditions (cached 15 min).
-        
-        Args:
-            market_data: Dict with symbol, price, indicators, etc.
-            
-        Returns:
-            Dict with risk_level, trend, summary (FR), reasoning
+        Refactored to rely on System Prompt for persona.
         """
         symbol = market_data.get('symbol', 'UNKNOWN')
         key = self._get_cache_key("market", symbol)
@@ -251,7 +206,9 @@ class IAService:
         if cached:
             return cached
         
-        prompt = f"""You are an expert Quantitative Crypto Trader. Analyze the following market data for {symbol}.
+        # Prompt simplifié : On donne les données et le format attendu.
+        # L'identité (Expert Trader) est gérée par le System Prompt.
+        prompt = f"""Analyze the provided market data for {symbol} according to your active persona and risk profile.
 
 Market Data:
 {json.dumps(market_data, indent=2)}
@@ -284,14 +241,7 @@ Example:
     ) -> Dict[str, Any]:
         """
         Validate a trading signal before execution (AI Gatekeeper).
-        Cached for 1 minute (signals are time-sensitive).
-        
-        Args:
-            signal_data: Signal details (symbol, side, price, sl, tp, strategy)
-            market_context: Current market conditions
-            
-        Returns:
-            Dict with approved (bool), confidence (0-100), reasoning (FR), risk_level, suggested_adjustments
+        Refactored to rely on System Prompt for persona.
         """
         symbol = signal_data.get('symbol', 'UNKNOWN')
         key = self._get_cache_key("signal_validation", f"{symbol}_{signal_data.get('signal')}")
@@ -302,7 +252,8 @@ Example:
         
         ctx = market_context or {}
         
-        prompt = f"""You are a professional crypto trading signal validator. Your job is to approve or reject trade signals based on technical analysis and market conditions.
+        # Prompt simplifié : Instruction directe de validation.
+        prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
 
 === SIGNAL TO VALIDATE ===
 Symbol: {symbol}
@@ -369,13 +320,7 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
     ) -> Dict[str, Any]:
         """
         Analyze an active position for risk management (cached 5 min).
-        
-        Args:
-            position_data: Position details (symbol, side, entry, sl, tp, pnl, breakeven_active)
-            current_market: Current market conditions
-            
-        Returns:
-            Dict with risk_level, recommendation, reasoning (FR), suggested_sl, suggested_tp, confidence
+        Refactored to rely on System Prompt for persona.
         """
         symbol = position_data.get("symbol", "UNKNOWN")
         key = self._get_cache_key("position", symbol)
@@ -396,7 +341,8 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
         
         breakeven_status = "ACTIVE (SL at BreakEven)" if position_data.get("breakeven_active") else "NOT ACTIVE"
         
-        prompt = f"""You are a professional crypto trading risk analyst with expertise in technical analysis and position management.
+        # Prompt simplifié
+        prompt = f"""Analyze the active position and recommend risk management actions based on your Persona.
 
 === ACTIVE POSITION ===
 Symbol: {symbol}
@@ -461,12 +407,6 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
     def analyze_market_evolution(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze market evolution/sentiment (simple version for UI).
-        
-        Args:
-            market_data: Simple dict with symbol, price, etc.
-            
-        Returns:
-            Dict with sentiment, summary (FR), and key_levels
         """
         key = self._get_cache_key("evolution", market_data.get('symbol', 'UNKNOWN'))
         cached = self._get_cached_response(key, 15)
