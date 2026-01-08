@@ -44,7 +44,8 @@ class StrategyFiboPullback(BaseStrategy):
     def add_indicators(self, df):
         """Add required indicators to dataframe"""
         df['EMA_200'] = ta.ema(df['close'], length=self.ema_period)
-        df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'], length=14)
+        adx_result = ta.adx(df['high'], df['low'], df['close'], length=14)
+        df['ADX_14'] = adx_result['ADX'] if isinstance(adx_result, pd.DataFrame) else adx_result
         
         # Add volume SMA for filter
         if 'volume' in df.columns:

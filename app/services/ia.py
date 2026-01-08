@@ -237,7 +237,8 @@ Example:
     def validate_signal(
         self,
         signal_data: Dict[str, Any],
-        market_context: Dict[str, Any]
+        market_context: Dict[str, Any],
+        strategy_persona: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Validate a trading signal before execution (AI Gatekeeper).
@@ -306,7 +307,14 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
   }}
 }}
 """
-        result = self._call_ai_generic(prompt)
+        if strategy_persona:
+            # Use Strategy Persona directly as System Prompt (Override)
+            # We append the "Output JSON" instruction to ensure format compliance
+            system_prompt_override = strategy_persona + "\n\nIMPORTANT: REPOND TOUJOURS EN JSON VALIDE."
+            result = self._call_openrouter_api(prompt, system_prompt=system_prompt_override)
+        else:
+            # Fallback to Generic Bot Persona
+            result = self._call_ai_generic(prompt)
         
         if "error" not in result:
             self._set_cache(key, result, ttl_minutes=1)

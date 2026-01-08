@@ -968,7 +968,16 @@ class BotContext:
                         market_context = self._prepare_ai_context()
                         
                         self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
-                        val_res = ia_service.validate_signal(sig, market_context)
+                        
+                        # Extract Strategy Persona if available
+                        strat_name = sig.get('strategy')
+                        strat_obj = self.strategy_engine.strategies.get(strat_name)
+                        strategy_persona = getattr(strat_obj, 'AI_PERSONA', None)
+                        
+                        if strategy_persona:
+                            self.add_log(f"🎭 Using Custom Persona for {strat_name}")
+                        
+                        val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
                         
                         approved = False
                         try:
