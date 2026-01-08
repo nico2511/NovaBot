@@ -29,6 +29,7 @@ from app.services.ia import ia_service
 
 # Import bot bridge
 from backend.bot_bridge import bot_bridge
+from app.utils.data_processing import get_dynamic_context
 
 class BotContext:
     """Main bot context - same as main.py"""
@@ -148,6 +149,9 @@ class BotContext:
         regime = "TREND" if ema_20 > ema_50 else "RANGE"
         market_bias = "BULLISH" if ema_20 > ema_50 else "BEARISH"
         
+        # New Dynamic Context
+        dynamic_ctx = get_dynamic_context(df)
+        
         # Position-specific data
         pnl_percent = 0
         time_in_trade = None
@@ -231,7 +235,10 @@ class BotContext:
             "time_in_trade": time_in_trade,
             "sl_distance": round(sl_distance, 2) if sl_distance else None,
             "tp_distance": round(tp_distance, 2) if tp_distance else None,
-            "rr_ratio": rr_ratio
+            "rr_ratio": rr_ratio,
+            
+            # Dynamic Context (Merged)
+            **dynamic_ctx
         }
     
     

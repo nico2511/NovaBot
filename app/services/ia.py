@@ -268,11 +268,11 @@ Current Price: ${ctx.get('current_price', 'N/A')}
 Market Regime: {ctx.get('regime', 'UNKNOWN')}
 Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
 
-Technical Indicators:
-- RSI(14): {ctx.get('rsi', 'N/A')} {self._get_rsi_label(ctx.get('rsi'))}
-- ATR: {ctx.get('atr', 'N/A')} (Volatility: {ctx.get('volatility_percentile', 'N/A')}th percentile)
-- Price vs EMA20: {ctx.get('ema20_distance', 'N/A')}%
-- Price vs EMA50: {ctx.get('ema50_distance', 'N/A')}%
+Technical Indicators (Dynamic):
+- RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] (15m Change: {ctx.get('rsi_slope', 0):+.1f})
+- Volume: {ctx.get('vol_current', 'N/A')} [{ctx.get('vol_trend', '')}] (15m Change: {ctx.get('vol_slope', 0):+.1f}%)
+- ADX: {ctx.get('adx_val', 'N/A')} (Slope: {ctx.get('adx_slope', 0):+.1f})
+- Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}%)
 
 Key Levels:
 - Swing High: ${ctx.get('swing_high', 'N/A')}
