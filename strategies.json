@@ -1,230 +1,230 @@
 {
-  "market_regime": {
-    "adx_threshold": 25,
-    "timeframe": "15m"
-  },
-  "strategies": {
-    "scalp_ema_rsi": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
-      "display_conditions": [
-        "EMA Cross (9/21)",
-        "RSI Momentum (50-70)",
-        "Trend Alignment"
-      ],
-      "params": {
-        "ema_fast": 9,
-        "ema_slow": 21,
-        "rsi_period": 14,
-        "rsi_overbought": 70,
-        "rsi_oversold": 30,
-        "min_rr": 1.3
-      }
+    "market_regime": {
+        "adx_threshold": 25,
+        "timeframe": "15m"
     },
-    "elastic_reversion": {
-      "enabled": true,
-      "type": "range",
-      "description": "Range mean reversion. Oversold bounce in Range regime.",
-      "display_conditions": [
-        "RSI Extreme (<20)",
-        "Price Extension",
-        "Range Regime"
-      ],
-      "params": {
-        "rsi_period": 14,
-        "ema_period": 20,
-        "oversold_rsi": 20,
-        "overbought_rsi": 80,
-        "extension_pct": 0.04,
-        "sl_lookback": 5,
-        "sl_margin": 0.005,
-        "min_rr": 1.5,
-        "bonus_rsi_long": 25,
-        "bonus_rsi_short": 75
-      }
-    },
-    "smart_trend": {
-      "enabled": true,
-      "type": "trend",
-      "description": "AI-assisted Trend Following. Uses Micro-Structure & Momentum.",
-      "display_conditions": [
-        "Trend Alignment",
-        "Micro-Structure (BOS)",
-        "AI Validation"
-      ],
-      "params": {
-        "min_rr": 1.5
-      }
-    },
-    "smart_mean_reversion": {
-      "enabled": true,
-      "type": "reversion",
-      "description": "Bottom Fishing with Momentum Floor (ROC) logic.",
-      "display_conditions": [
-        "RSI Oversold (<30)",
-        "Momentum Floor (ROC)",
-        "Stabilization"
-      ],
-      "params": {
-        "rsi_period": 14,
-        "roc_period": 10,
-        "bb_period": 20,
-        "bb_std": 2.0,
-        "rsi_threshold": 30,
-        "roc_floor": -15.0,
-        "min_rr": 1.3
-      }
-    },
-    "double_bottom": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Pattern Recognition: Double Bottom Reversal.",
-      "display_conditions": [
-        "Pattern Detection",
-        "Neckline Break",
-        "Volume Confirmation"
-      ],
-      "params": {
-        "pivot_order": 3,
-        "tolerance": 0.04,
-        "min_distance": 10,
-        "max_distance": 50,
-        "volume_filter": false,
-        "min_rr": 1.3
-      }
-    },
-    "double_top": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Pattern Recognition: Double Top Reversal.",
-      "display_conditions": [
-        "Pattern Detection",
-        "Neckline Break",
-        "Volume Confirmation"
-      ],
-      "params": {
-        "pivot_order": 3,
-        "tolerance": 0.04,
-        "min_distance": 10,
-        "max_distance": 50,
-        "volume_filter": false,
-        "min_rr": 1.3
-      }
-    },
-    "bull_flag": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Pattern Recognition: Bull Flag Continuation.",
-      "display_conditions": [
-        "Impulse Move",
-        "Flag Consolidation",
-        "Breakout"
-      ],
-      "params": {
-        "pivot_order": 3,
-        "min_impulse_pct": 0.05,
-        "max_impulse_candles": 10,
-        "flag_duration_min": 5,
-        "flag_duration_max": 20,
-        "volume_multiplier": 1.5,
-        "volume_filter": false,
-        "min_rr": 1.3
-      }
-    },
-    "head_shoulders": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Pattern Recognition: Head and Shoulders.",
-      "display_conditions": [
-        "Left/Right Shoulders",
-        "Head Peak",
-        "Neckline Break"
-      ],
-      "params": {
-        "pivot_order": 3,
-        "tolerance": 0.04,
-        "min_candles": 15,
-        "volume_filter": false,
-        "min_rr": 1.3
-      }
-    },
-    "bollinger_bounce": {
-      "enabled": true,
-      "type": "range",
-      "description": "Classic Range Strategy. Buy Lower Band, Sell Upper Band.",
-      "display_conditions": [
-        "Band Interaction",
-        "Bandwidth Expansion",
-        "Slope Check"
-      ],
-      "params": {
-        "bb_period": 20,
-        "bb_std": 2.0,
-        "adx_threshold": 30,
-        "adx_period": 14,
-        "bandwidth_expansion_limit": 1.3,
-        "ema50_slope_threshold": 0.001,
-        "atr_period": 14,
-        "atr_sl_multiplier": 1.2,
-        "min_rr": 1.5,
-        "min_bandwidth_percentile": 20
-      }
-    },
-    "rsi_ping_pong": {
-      "enabled": false,
-      "type": "range",
-      "description": "RSI Mean Reversion Ping Pong (Disabled).",
-      "display_conditions": [
-        "RSI Extremes",
-        "Pivot Points"
-      ],
-      "params": {
-        "rsi_period": 14,
-        "rsi_oversold": 25,
-        "rsi_overbought": 75,
-        "adx_threshold": 20,
-        "pivot_order": 5,
-        "pivot_lookback": 20,
-        "pivot_tolerance": 0.04,
-        "atr_period": 14,
-        "atr_sl_multiplier": 1.5,
-        "min_rr": 1.5
-      }
-    },
-    "institutional_scalp": {
-      "enabled": true,
-      "type": "trend",
-      "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
-      "display_conditions": [
-        "Liquidity Sweep",
-        "Rapid Reclaim",
-        "Structure Shift"
-      ],
-      "params": {
-        "liq_grab_lookback": 10,
-        "min_rr": 1.2
-      }
-    },
-    "fibo_pullback": {
-      "enabled": false,
-      "type": "trend",
-      "description": "Fibonacci Pullback V2 (REFACTORED 2026-01-08) - All 5 bugs fixed. Pending backtest validation.",
-      "display_conditions": [
-        "Price > EMA 200",
-        "ADX >= 20 (Trend)",
-        "Fibo 50-78.6% Zone",
-        "Volume >= 1.5x",
-        "R:R >= 1.5"
-      ],
-      "params": {
-        "ema_period": 200,
-        "adx_threshold": 20,
-        "swing_lookback": 50,
-        "min_rr": 1.5,
-        "swing_confirmation_bars": 10,
-        "volume_multiplier": 1.5
-      }
+    "strategies": {
+        "scalp_ema_rsi": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
+            "display_conditions": [
+                "EMA Cross (9/21)",
+                "RSI Momentum (50-70)",
+                "Trend Alignment"
+            ],
+            "params": {
+                "ema_fast": 9,
+                "ema_slow": 21,
+                "rsi_period": 14,
+                "rsi_overbought": 70,
+                "rsi_oversold": 30,
+                "min_rr": 1.3
+            }
+        },
+        "elastic_reversion": {
+            "enabled": true,
+            "type": "range",
+            "description": "Range mean reversion. Oversold bounce in Range regime.",
+            "display_conditions": [
+                "RSI Extreme (<20)",
+                "Price Extension",
+                "Range Regime"
+            ],
+            "params": {
+                "rsi_period": 14,
+                "ema_period": 20,
+                "oversold_rsi": 20,
+                "overbought_rsi": 80,
+                "extension_pct": 0.04,
+                "sl_lookback": 5,
+                "sl_margin": 0.005,
+                "min_rr": 1.5,
+                "bonus_rsi_long": 25,
+                "bonus_rsi_short": 75
+            }
+        },
+        "smart_trend": {
+            "enabled": true,
+            "type": "trend",
+            "description": "AI-assisted Trend Following. Uses Micro-Structure & Momentum.",
+            "display_conditions": [
+                "Trend Alignment",
+                "Micro-Structure (BOS)",
+                "AI Validation"
+            ],
+            "params": {
+                "min_rr": 1.5
+            }
+        },
+        "smart_mean_reversion": {
+            "enabled": true,
+            "type": "reversion",
+            "description": "Bottom Fishing with Momentum Floor (ROC) logic.",
+            "display_conditions": [
+                "RSI Oversold (<30)",
+                "Momentum Floor (ROC)",
+                "Stabilization"
+            ],
+            "params": {
+                "rsi_period": 14,
+                "roc_period": 10,
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "rsi_threshold": 30,
+                "roc_floor": -15.0,
+                "min_rr": 1.3
+            }
+        },
+        "double_bottom": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Pattern Recognition: Double Bottom Reversal.",
+            "display_conditions": [
+                "Pattern Detection",
+                "Neckline Break",
+                "Volume Confirmation"
+            ],
+            "params": {
+                "pivot_order": 3,
+                "tolerance": 0.04,
+                "min_distance": 10,
+                "max_distance": 50,
+                "volume_filter": false,
+                "min_rr": 1.0
+            }
+        },
+        "double_top": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Pattern Recognition: Double Top Reversal.",
+            "display_conditions": [
+                "Pattern Detection",
+                "Neckline Break",
+                "Volume Confirmation"
+            ],
+            "params": {
+                "pivot_order": 3,
+                "tolerance": 0.04,
+                "min_distance": 10,
+                "max_distance": 50,
+                "volume_filter": false,
+                "min_rr": 1.3
+            }
+        },
+        "bull_flag": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Pattern Recognition: Bull Flag Continuation.",
+            "display_conditions": [
+                "Impulse Move",
+                "Flag Consolidation",
+                "Breakout"
+            ],
+            "params": {
+                "pivot_order": 3,
+                "min_impulse_pct": 0.05,
+                "max_impulse_candles": 10,
+                "flag_duration_min": 5,
+                "flag_duration_max": 20,
+                "volume_multiplier": 1.5,
+                "volume_filter": false,
+                "min_rr": 1.3
+            }
+        },
+        "head_shoulders": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Pattern Recognition: Head and Shoulders.",
+            "display_conditions": [
+                "Left/Right Shoulders",
+                "Head Peak",
+                "Neckline Break"
+            ],
+            "params": {
+                "pivot_order": 3,
+                "tolerance": 0.04,
+                "min_candles": 15,
+                "volume_filter": false,
+                "min_rr": 1.3
+            }
+        },
+        "bollinger_bounce": {
+            "enabled": true,
+            "type": "range",
+            "description": "Classic Range Strategy. Buy Lower Band, Sell Upper Band.",
+            "display_conditions": [
+                "Band Interaction",
+                "Bandwidth Expansion",
+                "Slope Check"
+            ],
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "adx_threshold": 25,
+                "adx_period": 14,
+                "bandwidth_expansion_limit": 1.3,
+                "ema50_slope_threshold": 0.001,
+                "atr_period": 14,
+                "atr_sl_multiplier": 1.2,
+                "min_rr": 2.0,
+                "min_bandwidth_percentile": 20
+            }
+        },
+        "rsi_ping_pong": {
+            "enabled": false,
+            "type": "range",
+            "description": "RSI Mean Reversion Ping Pong (Disabled).",
+            "display_conditions": [
+                "RSI Extremes",
+                "Pivot Points"
+            ],
+            "params": {
+                "rsi_period": 14,
+                "rsi_oversold": 25,
+                "rsi_overbought": 75,
+                "adx_threshold": 20,
+                "pivot_order": 5,
+                "pivot_lookback": 20,
+                "pivot_tolerance": 0.04,
+                "atr_period": 14,
+                "atr_sl_multiplier": 1.5,
+                "min_rr": 1.5
+            }
+        },
+        "institutional_scalp": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
+            "display_conditions": [
+                "Liquidity Sweep",
+                "Rapid Reclaim",
+                "Structure Shift"
+            ],
+            "params": {
+                "liq_grab_lookback": 10,
+                "min_rr": 1.2
+            }
+        },
+        "fibo_pullback": {
+            "enabled": false,
+            "type": "trend",
+            "description": "Fibonacci Pullback V2 (REFACTORED 2026-01-08) - All 5 bugs fixed. Pending backtest validation.",
+            "display_conditions": [
+                "Price > EMA 200",
+                "ADX >= 20 (Trend)",
+                "Fibo 50-78.6% Zone",
+                "Volume >= 1.5x",
+                "R:R >= 1.5"
+            ],
+            "params": {
+                "ema_period": 200,
+                "adx_threshold": 20,
+                "swing_lookback": 50,
+                "min_rr": 1.5,
+                "swing_confirmation_bars": 10,
+                "volume_multiplier": 1.5
+            }
+        }
     }
-  }
 }
