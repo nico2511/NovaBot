@@ -48,7 +48,7 @@ class StrategySmartTrend(BaseStrategy):
         Direct, short, and decisive. 
         If you see a green impulse candle, shout "GO". Do not look for excuses to sit out.
         Only reject if there is a clear REVERSAL signal (e.g., massive engulfing red candle).
-        """
+    """
     
     def __init__(self, config=None):
         super().__init__(config)
