@@ -23,7 +23,7 @@
             }
         },
         "elastic_reversion": {
-            "enabled": false,
+            "enabled": true,
             "type": "range",
             "description": "Range mean reversion. Oversold bounce in Range regime.",
             "display_conditions": [
@@ -45,7 +45,7 @@
             }
         },
         "smart_trend": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "description": "AI-assisted Trend Following. Uses Micro-Structure & Momentum.",
             "display_conditions": [
@@ -58,7 +58,7 @@
             }
         },
         "smart_mean_reversion": {
-            "enabled": false,
+            "enabled": true,
             "type": "reversion",
             "description": "Bottom Fishing with Momentum Floor (ROC) logic.",
             "display_conditions": [
@@ -193,7 +193,7 @@
             }
         },
         "institutional_scalp": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
             "display_conditions": [
