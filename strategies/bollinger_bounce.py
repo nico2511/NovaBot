@@ -57,7 +57,7 @@ class BollingerBounceStrategy(BaseStrategy):
         try:
             # Calculate ADX
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
-            current_adx = adx_res['ADX'].iloc[-1]
+            current_adx = adx_res['ADX'].iloc[-2]
             
             if current_adx >= self.adx_threshold:
                 return False, f"ADX too high ({current_adx:.1f} >= {self.adx_threshold})"
@@ -256,7 +256,7 @@ class BollingerBounceStrategy(BaseStrategy):
             # 1. Range Regime
             is_range, reason = self.is_ranging(df)
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
-            current_adx = adx_res['ADX'].iloc[-1]
+            current_adx = adx_res['ADX'].iloc[-2]
             
             conditions.append({
                 "name": f"Range Regime (ADX < {self.adx_threshold})",

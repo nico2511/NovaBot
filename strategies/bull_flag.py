@@ -114,8 +114,8 @@ class BullFlagStrategy(ChartPatternBase):
             
             # Check volume spike
             if 'volume_sma_20' in df.columns:
-                current_volume = df['volume'].iloc[-1]
-                avg_volume = df['volume_sma_20'].iloc[-1]
+                current_volume = df['volume'].iloc[-2]
+                avg_volume = df['volume_sma_20'].iloc[-2]
                 if current_volume < avg_volume * self.volume_multiplier:
                     return None
             
@@ -159,7 +159,7 @@ class BullFlagStrategy(ChartPatternBase):
             progress = 50  # Pattern detected
             
             # Price proximity to flag high
-            current_price = df['close'].iloc[-1]
+            current_price = df['close'].iloc[-2]
             flag_high = pattern['flag_high']
             
             if current_price >= flag_high:

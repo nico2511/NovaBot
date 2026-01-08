@@ -69,6 +69,13 @@ class ScalpEmaRsi(BaseStrategy):
             # Additional Filters (only checked on crossover event)
             if close > current_trend:  # Above 200 EMA (trend filter)
                 if 50 < current_rsi < 70:  # RSI in momentum zone
+                    # Volume Filter: Crossover without volume = fakeout (crypto 2026)
+                    if 'volume' in df.columns:
+                        current_vol = df['volume'].iloc[-2]
+                        avg_vol = df['volume'].iloc[-22:-2].mean()
+                        if current_vol < avg_vol * 1.3:
+                            return None  # Insufficient volume
+                    
                     # Check RR
                     sl = close - (1.5 * atr)
                     tp = close + (2.5 * atr)
@@ -81,7 +88,7 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bullish Crossover + Trend + RSI"
+                            "comment": "EMA Bullish Crossover + Trend + RSI + Vol"
                         }
                 
         # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
@@ -91,6 +98,13 @@ class ScalpEmaRsi(BaseStrategy):
         if is_bearish_cross:
             if close < current_trend:  # Below 200 EMA (trend filter)
                 if 30 < current_rsi < 50:  # RSI in momentum zone
+                    # Volume Filter: Crossover without volume = fakeout (crypto 2026)
+                    if 'volume' in df.columns:
+                        current_vol = df['volume'].iloc[-2]
+                        avg_vol = df['volume'].iloc[-22:-2].mean()
+                        if current_vol < avg_vol * 1.3:
+                            return None  # Insufficient volume
+                    
                     # Check RR
                     sl = close + (1.5 * atr)
                     tp = close - (2.5 * atr)
@@ -103,7 +117,7 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bearish Crossover + Trend + RSI"
+                            "comment": "EMA Bearish Crossover + Trend + RSI + Vol"
                         }
         
         # ============================================

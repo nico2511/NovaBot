@@ -111,14 +111,16 @@ class SmartMeanReversionStrategy(BaseStrategy):
             # TP: Revert to Mean (Middle Band)
             tp = c_bbm
             
-            # Sanity Check R:R
+            # Sanity Check R:R (crypto 2026: min 1.5:1 obligatoire)
             risk = c_close - sl
             reward = tp - c_close
             
-            if risk <= 0: return None
+            if risk <= 0: 
+                return None
             
-            # If reward is too small (bands compressed), skip
-            if reward < (c_close * 0.005): # Min 0.5% potential
+            # R:R minimum 1.5:1 instead of absolute 0.5%
+            rr_ratio = reward / risk
+            if rr_ratio < 1.5:
                 return None
                 
             return {
@@ -141,11 +143,11 @@ class SmartMeanReversionStrategy(BaseStrategy):
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
-            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
-            c_close = df['close'].iloc[-1]
-            c_bbl = df['BBL'].iloc[-1]
-            p_close = df['close'].iloc[-2]
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-2]
+            c_close = df['close'].iloc[-2]
+            c_bbl = df['BBL'].iloc[-2]
+            p_close = df['close'].iloc[-3]
             
             rsi_threshold = params.get("rsi_threshold", 30)
             roc_floor = params.get("roc_floor", -15.0)
@@ -192,11 +194,11 @@ class SmartMeanReversionStrategy(BaseStrategy):
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
-            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
-            c_close = df['close'].iloc[-1]
-            c_bbl = df['BBL'].iloc[-1]
-            p_close = df['close'].iloc[-2]
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-2]
+            c_close = df['close'].iloc[-2]
+            c_bbl = df['BBL'].iloc[-2]
+            p_close = df['close'].iloc[-3]
             
             rsi_threshold = params.get("rsi_threshold", 30)
             roc_floor = params.get("roc_floor", -15.0)

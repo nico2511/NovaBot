@@ -179,19 +179,13 @@ class ElasticReversionStrategy(BaseStrategy):
                 rsi_delta = self.get_rsi_delta(df)
                 
                 if rr_ratio >= params.get("min_rr", 1.5):
-                    # Soft Entry Filter: Want RSI Delta > 0 (Momentum turning up)
-                    if rsi_delta > 0:
-                         print(f"⚡ Elastic Long Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
-                         return {
-                             "signal": "BUY",
-                             "sl": sl,
-                             "tp": tp,
-                             "comment": f"Elastic Long (RSI {p_rsi:.0f}, Delta +{rsi_delta:.1f})"
-                         }
-                    else:
-                        # Optional: Skip or Log weak momentum
-                        # print(f"⚠️ Elastic Long Wait: RSI Delta {rsi_delta:.1f} (Not bouncing yet)\")")
-                        pass
+                     print(f"⚡ Elastic Long Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
+                     return {
+                         "signal": "BUY",
+                         "sl": sl,
+                         "tp": tp,
+                         "comment": f"Elastic Long (RSI {p_rsi:.0f}, Delta {rsi_delta:+.1f})"
+                     }
                     
         except Exception as e:
             print(f"Error in ElasticReversion logic: {e}")
@@ -208,9 +202,9 @@ class ElasticReversionStrategy(BaseStrategy):
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
-            c_close = df['close'].iloc[-1]
-            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-1]
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-3]
+            c_close = df['close'].iloc[-2]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
             ext_pct = params.get("extension_pct", 0.04)
             
             progress = 0
@@ -256,11 +250,11 @@ class ElasticReversionStrategy(BaseStrategy):
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
-            c_close = df['close'].iloc[-1]
-            p_close = df['close'].iloc[-2]
-            p_high = df['high'].iloc[-2]
-            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-1]
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-3]
+            c_close = df['close'].iloc[-2]
+            p_close = df['close'].iloc[-3]
+            p_high = df['high'].iloc[-3]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
             ext_pct = params.get("extension_pct", 0.04)
             
             conditions = []

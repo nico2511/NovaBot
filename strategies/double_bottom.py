@@ -191,7 +191,7 @@ class DoubleBottomStrategy(ChartPatternBase):
             progress += 40
             
             # 2. Price proximity to neckline (30 points)
-            current_price = df['close'].iloc[-1]
+            current_price = df['close'].iloc[-2]
             neckline = pattern['neckline']
             distance_to_neckline = (neckline - current_price) / current_price
             

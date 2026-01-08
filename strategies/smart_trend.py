@@ -250,6 +250,8 @@ class StrategySmartTrend(BaseStrategy):
                         proximity = max(0, 1 + (distance_to_trigger * 100))
                         progress += int(40 * proximity)
         
+        return min(100, progress)
+
 
     def check_conditions(self, df, extra_data=None):
         """Detailed conditions for UI"""

@@ -5,7 +5,7 @@
     },
     "strategies": {
         "scalp_ema_rsi": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
             "display_conditions": [
@@ -207,7 +207,7 @@
             }
         },
         "fibo_pullback": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Fibonacci Pullback - Sniper entries on 61.8% retracements in established uptrends.",
             "display_conditions": [
