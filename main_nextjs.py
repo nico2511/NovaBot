@@ -493,63 +493,8 @@ class BotContext:
         except Exception as e:
             self.add_log(f"⚠️ Error in _verify_and_enforce_sl_tp: {e}")
 
-    def recalibrate_position_stops(self):
-        """
-        Manually trigger a recalibration of SL/TP using AI/Strategy.
-        Called via API endpoint.
-        """
-        if not self.active_trade:
-            return "ERROR", "No active trade to recalibrate"
-            
-        symbol = self.active_symbol
-        current_sl = self.active_trade.get("sl")
-        current_tp = self.active_trade.get("tp")
-        
-        # 1. Try AI Validation if available
-        try:
-            from app.services.ia import ia_service
-            market_context = self._prepare_ai_context()
-            
-            # Ask AI specifically to review Stops
-            result = ia_service.validate_signal({
-                "symbol": symbol,
-                "signal": self.active_trade.get("side"),
-                "price": self.active_trade.get("entry"),
-                "sl": current_sl,
-                "tp": current_tp,
-                "strategy": "Recalibration"
-            }, market_context)
-            
-            import json
-            if result.get("raw_output"):
-                ai_data = json.loads(ia_service.extract_json(result["raw_output"]))
-                
-                # Check for adjustments
-                adjustments = ai_data.get("suggested_adjustments", {})
-                new_sl = adjustments.get("sl")
-                new_tp = adjustments.get("tp")
-                
-                changes = []
-                if new_sl and new_sl != current_sl:
-                    self.active_trade["sl"] = new_sl
-                    changes.append(f"SL {current_sl} -> {new_sl}")
-                    
-                if new_tp and new_tp != current_tp:
-                    self.active_trade["tp"] = new_tp
-                    changes.append(f"TP {current_tp} -> {new_tp}")
-                    
-                if changes:
-                    self.add_log(f"🤖 Recalibration: {', '.join(changes)}")
-                    self._verify_and_enforce_sl_tp(symbol, self.active_trade)
-                    StateManager.save_state(self)
-                    return "UPDATED", f"Stops updated: {', '.join(changes)}"
-                else:
-                    return "UNCHANGED", "AI suggests keeping current stops" 
-        except Exception as e:
-            self.add_log(f"⚠️ Recalibration failed: {e}")
-            return "ERROR", str(e)
-            
-        return "UNCHANGED", "No changes made"
+    # [REMOVED DUPLICATE] recalibrate_position_stops was defined twice.
+    # The valid ASYNC version is further down in the file.
 
     def _manage_active_trade(self):
         """

@@ -802,7 +802,8 @@ def recalibrate_stops():
         if not hasattr(bot, 'recalibrate_position_stops'): # Safety check during dev
              return {"status": "ERROR", "message": "Feature not available on bot instance yet"}
 
-        status, message = bot.recalibrate_position_stops()
+        # CRITICAL FIX: The bot function is async, so we must await it
+        status, message = await bot.recalibrate_position_stops()
         
         return {
             "status": status, # UNCHANGED, UPDATED, ERROR
