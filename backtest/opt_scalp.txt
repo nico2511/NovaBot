@@ -1,0 +1,298 @@
+C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\backtesting\backtesting.py:1624: RuntimeWarning: If you want to use multi-process optimization with `multiprocessing.get_start_method() == 'spawn'` (e.g. on Windows),set `backtesting.Pool = multiprocessing.Pool` (or of the desired context) and hide `bt.optimize()` call behind a `if __name__ == '__main__'` guard. Currently using thread-based paralellism, which might be slightly slower for non-numpy / non-GIL-releasing code. See https://github.com/kernc/backtesting.py/issues/1256
+  output = _optimize_grid()
+
+================================================================================
+NOVABOT MULTI-STRATEGY BACKTEST (Native)
+================================================================================
+Symbol: BTC/USDT
+Timeframe: 15m
+Period: 2024-07-01 -> 2025-01-08
+Initial Capital: $1,000,000
+Commission: 0.1%
+Mode: OPTIMIZATION
+================================================================================
+
+[INFO] Loading market data...
+[INFO] Loaded 18341 candles from CSV
+[INFO] Data validation passed
+
+[INFO] Strategies to process: 1
+   [+] scalp_ema_rsi
+
+============================================================
+[>] Optimizing: scalp_ema_rsi
+============================================================
+Optimizing parameters: dict_keys(['rsi_period', 'min_rr'])
+
+Backtest.optimize:   0%|          | 0/30 [00:00<?, ?it/s]
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A
+
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A[A
+
+                                                        [A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A[A[A
+
+
+
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A[A[A[A
+
+
+
+
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A[A[A[A[A
+
+
+                                                        [A[A
+
+
+
+                                                        [A[A[A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A
+
+
+
+
+                                                        [A[A[A[A
+
+
+
+
+
+                                                        [A[A[A[A[A
+
+
+
+
+
+
+                                                        [A[A[A[A[A[A
+
+                                                        [A
+
+
+
+
+
+
+
+                                                        [A[A[A[A[A[A[A
+
+
+
+
+
+
+
+
+                                                        [A[A[A[A[A[A[A[A
+
+
+
+
+
+
+
+
+
+                                                        [A[A[A[A[A[A[A[A[A
+
+
+                                                        [A[A
+
+
+
+                                                        [A[A[A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A
+
+                                                        [A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+                                                        [A[A
+
+
+
+                                                        [A[A[A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+                                                        [A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A
+
+
+                                                        [A[A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A
+
+
+
+
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A[A[A[A[A
+
+                                                        [A
+
+
+
+                                                        [A[A[A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+                                                        [A[A
+
+
+
+
+
+                                                        [A[A[A[A[A
+
+
+
+
+                                                        [A[A[A[A
+
+
+
+
+
+
+                                                        [A[A[A[A[A[A
+Backtest.optimize:   3%|3         | 1/30 [00:07<03:44,  7.75s/it]
+
+                                                        [A
+Backtest.optimize:   7%|6         | 2/30 [00:08<01:36,  3.44s/it]
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+                                                        [A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+                                                        [A[A
+
+                                                        [A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A[A
+
+                                                        [A
+
+
+                                                        [A[A
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s][A
+
+                                                        [A
+Backtest.optimize:  43%|####3     | 13/30 [00:09<00:08,  2.06it/s]
+                                                                  
+
+Backtest.run:   0%|          | 0/18320 [00:00<?, ?bar/s]
+                                                        
+
+[BEST] Best Parameters Found:
+ScalpEmaRsiStrategy(rsi_period=20,min_rr=1.0)
+
+============================================================
+[INFO] SCALP_EMA_RSI
+============================================================
+Return...................                        -18.03%
+Sharpe...................                          -4.83
+Win Rate.................                         40.50%
+# Trades.................                            121
+Max DD...................                        -18.48%
+Profit Factor............                           0.51
+
+[FAIL] NEEDS IMPROVEMENT
+[DISK] scalp_ema_rsi_opt: 121 trades saved
+
+================================================================================
+[SUCCESS] PROCESS COMPLETED
+================================================================================
+Strategies processed: 1
+Results saved in: results/
+================================================================================
+

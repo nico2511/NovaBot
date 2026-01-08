@@ -149,7 +149,7 @@
             ],
             "params": {
                 "pivot_order": 3,
-                "tolerance": 0.04,
+                "shoulder_tolerance": 0.03,
                 "min_candles": 15,
                 "volume_filter": false,
                 "min_rr": 1.3
@@ -209,7 +209,8 @@
             ],
             "params": {
                 "liq_grab_lookback": 10,
-                "min_rr": 1.2
+                "min_rr": 1.2,
+                "volume_multiplier": 1.5
             }
         },
         "fibo_pullback": {

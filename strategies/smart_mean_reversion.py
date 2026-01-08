@@ -138,9 +138,10 @@ class SmartMeanReversionStrategy(BaseStrategy):
             if risk <= 0: 
                 return None
             
-            # R:R minimum 1.5:1 instead of absolute 0.5%
+            # R:R minimum
+            min_rr = params.get("min_rr", 1.5)
             rr_ratio = reward / risk
-            if rr_ratio < 1.5:
+            if rr_ratio < min_rr:
                 return None
                 
             return {

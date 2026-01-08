@@ -1,0 +1,49 @@
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\novabot\backtest\main.py", line 186, in run_optimization
+    stats = bt.optimize(
+            ^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\backtesting\backtesting.py", line 1624, in optimize
+    output = _optimize_grid()
+             ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\backtesting\backtesting.py", line 1507, in _optimize_grid
+    if constraint(params)
+       ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\novabot\backtest\main.py", line 189, in <lambda>
+    constraint=lambda p: p.expr.error == 0, # Ignorer les erreurs
+                         ^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\site-packages\backtesting\backtesting.py", line 1488, in __getattr__
+    return self[item]
+           ~~~~^^^^^^
+KeyError: 'expr'
+
+================================================================================
+NOVABOT MULTI-STRATEGY BACKTEST (Native)
+================================================================================
+Symbol: BTC/USDT
+Timeframe: 15m
+Period: 2024-07-01 -> 2025-01-08
+Initial Capital: $1,000,000
+Commission: 0.1%
+Mode: OPTIMIZATION
+================================================================================
+
+[INFO] Loading market data...
+[INFO] Loaded 18341 candles from CSV
+[INFO] Data validation passed
+
+[INFO] Strategies to process: 1
+   [+] fibo_pullback
+
+============================================================
+[>] Optimizing: fibo_pullback
+============================================================
+Optimizing parameters: dict_keys(['ema_period', 'swing_lookback', 'min_rr'])
+[ERROR] Optimization failed for fibo_pullback: 'expr'
+
+================================================================================
+[SUCCESS] PROCESS COMPLETED
+================================================================================
+Strategies processed: 0
+Results saved in: results/
+================================================================================
+

@@ -50,18 +50,31 @@ class InstitutionalScalp(BaseStrategy):
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
                 # Comparing partial volume to full average is mathematically incorrect
+                vol_mult = params.get("volume_multiplier", 1.5)
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
-                    if current_volume < (avg_volume * 1.5):
+                    if current_volume < (avg_volume * vol_mult):
                         # Insufficient volume, likely a fakeout
+                        return None
+                
+                sl = low - (0.5 * atr)
+                tp = close + (2.0 * atr)
+                
+                # Check Min R:R
+                risk = abs(close - sl)
+                reward = abs(tp - close)
+                if risk > 0:
+                    rr = reward / risk
+                    min_rr = params.get("min_rr", 1.2)
+                    if rr < min_rr:
                         return None
                 
                 return {
                     "signal": "BUY",
-                    "sl": low - (0.5 * atr),
-                    "tp": close + (2.0 * atr),
+                    "sl": sl,
+                    "tp": tp,
                     "comment": "Bullish Liquidity Grab"
                 }
 
@@ -71,18 +84,31 @@ class InstitutionalScalp(BaseStrategy):
             if candle_range > 0 and (high - close) / candle_range > 0.5:
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
+                vol_mult = params.get("volume_multiplier", 1.5)
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
-                    if current_volume < (avg_volume * 1.5):
+                    if current_volume < (avg_volume * vol_mult):
                         # Insufficient volume, likely a fakeout
+                        return None
+                
+                sl = high + (0.5 * atr)
+                tp = close - (2.0 * atr)
+                
+                # Check Min R:R
+                risk = abs(sl - close)
+                reward = abs(close - tp)
+                if risk > 0:
+                    rr = reward / risk
+                    min_rr = params.get("min_rr", 1.2)
+                    if rr < min_rr:
                         return None
                 
                 return {
                     "signal": "SELL",
-                    "sl": high + (0.5 * atr),
-                    "tp": close - (2.0 * atr),
+                    "sl": sl,
+                    "tp": tp,
                     "comment": "Bearish Liquidity Grab"
                 }
         
