@@ -677,15 +677,18 @@ class BotContext:
         exit_triggered = False
         reason = ""
         
+        sl_val = float(self.active_trade.get("sl", 0))
+        tp_val = float(self.active_trade.get("tp", 0))
+
         if side == "BUY":
-            if current_price <= self.active_trade["sl"]:
+            if sl_val > 0 and current_price <= sl_val:
                 exit_triggered = True; reason = "STOP_LOSS"
-            elif current_price >= self.active_trade["tp"]:
+            elif tp_val > 0 and current_price >= tp_val:
                 exit_triggered = True; reason = "TAKE_PROFIT"
         else:
-             if current_price >= self.active_trade["sl"]:
+             if sl_val > 0 and current_price >= sl_val:
                 exit_triggered = True; reason = "STOP_LOSS"
-             elif current_price <= self.active_trade["tp"]:
+             elif tp_val > 0 and current_price <= tp_val:
                 exit_triggered = True; reason = "TAKE_PROFIT"
                 
         if exit_triggered:
