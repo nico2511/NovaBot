@@ -820,12 +820,12 @@ class BotContext:
                         if manual_pos:
                             self.add_log(f"🕵️ MANUAL TRADE DETECTED: Adopting {self.active_symbol} position...")
                             
-                            # Extract details
-                            raw_size_m = float(manual_pos.get("szi", 0))
-                            side_m = "BUY" if raw_size_m > 0 else "SELL"
-                            size_m = abs(raw_size_m)
-                            entry_px_m = float(manual_pos.get("entryPx", 0))
-                            pnl_m = float(manual_pos.get("unrealizedPnl", 0))
+                            # Extract details (Fix: Use corrected keys from service)
+                            # hyperliquid_service returns: size, side, entry_price, pnl
+                            side_m = manual_pos.get("side", "BUY")
+                            size_m = float(manual_pos.get("size", 0))
+                            entry_px_m = float(manual_pos.get("entry_price", 0))
+                            pnl_m = float(manual_pos.get("pnl", 0))
                             
                             self.active_trade = {
                                 "symbol": self.active_symbol,
