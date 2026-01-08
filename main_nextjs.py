@@ -638,6 +638,7 @@ class BotContext:
                 
         if exit_triggered:
             self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}")
+            self.add_log(f"   🕵️ DEBUG: Side={side}, Entry={self.active_trade.get('entry')}, SL={sl_val}, TP={tp_val}")
             self.execute_exit_atomically(symbol, reason)
 
     def trading_loop(self):
@@ -1077,6 +1078,9 @@ class BotContext:
 
                 except Exception as e:
                     self.add_log(f"⚠️ Fresh fetch failed: {e}")
+            
+            # Helper for AI
+            from app.services.ia import ia_service
             
             # Calculate ATR
             atr = 0.0
