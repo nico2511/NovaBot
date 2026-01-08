@@ -54,7 +54,13 @@
                 "AI Validation"
             ],
             "params": {
-                "min_rr": 1.5
+                "min_rr": 1.5,
+                "adx_threshold": 25,
+                "rsi_min": 30,
+                "rsi_max": 70,
+                "pullback_tolerance": 0.01,
+                "bos_lookback": 2,
+                "sl_buffer": 0.3
             }
         },
         "smart_mean_reversion": {
