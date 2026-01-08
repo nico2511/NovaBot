@@ -30,7 +30,7 @@ class BollingerBounceStrategy(BaseStrategy):
     Exits immediately if ADX breaks above threshold (kill switch).
     """
     
-AI_PERSONA = """
+    AI_PERSONA = """
     CODENAME: "APEX RANGER - BOUNDARY GUARDIAN"
     
     ROLE:
