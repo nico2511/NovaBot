@@ -794,7 +794,7 @@ def close_trade():
     return {"status": "error", "message": "Bot not connected"}
 
 @app.post("/api/recalibrate_stops")
-def recalibrate_stops():
+async def recalibrate_stops():
     """Recalibrate TP/SL for active trade"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
