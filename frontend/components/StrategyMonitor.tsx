@@ -131,8 +131,8 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                         )}
                                     </div>
 
-                                    {/* Parameters Section (Dynamic/Seuils) */}
-                                    {details.params && Object.keys(details.params).length > 0 && (
+                                    {/* Parameters Section (Dynamic/Seuils) - Only show if NO dynamic conditions */}
+                                    {!dynamicConditions?.length && details.params && Object.keys(details.params).length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/20">
                                             <div className="text-xs text-gray-500 mb-2 font-semibold">Parameters (Seuils):</div>
                                             <div className="flex flex-wrap gap-2">
