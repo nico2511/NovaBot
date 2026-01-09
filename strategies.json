@@ -244,12 +244,11 @@
             ],
             "params": {
                 "bb_period": 20,
-                "bb_std": 2.0,
-                "adx_threshold": 45,
-                "adx_period": 14,
-                "ema50_slope_threshold": 0.005,
+                "bb_std": 2.1,
+                "adx_threshold": 42,
+                "ema50_slope_threshold": 0.0065,
                 "atr_period": 14,
-                "min_rr": 1.0
+                "min_rr": 0.95
             }
         }
     }
