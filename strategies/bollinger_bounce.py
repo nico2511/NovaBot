@@ -342,12 +342,32 @@ class BollingerBounceStrategy(BaseStrategy):
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
-        if df is None or df.empty:
-            return {}
-        
+        if df is None or df.empty: return {}
         try:
-            # TODO: Implement threshold comparisons based on check_conditions logic
-            return {}
-        except Exception as e:
-            return {"Error": str(e)}
+            self.add_indicators(df)
+            adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
+            current_adx = adx_res['ADX'].iloc[-1]
+            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
+            current_price = df['close'].iloc[-1]
+            bb_upper = bb['BBU'].iloc[-1]
+            bb_lower = bb['BBL'].iloc[-1]
+            width = bb_upper - bb_lower
+            
+            dist_lower = abs(current_price - bb_lower) / width
+            dist_upper = abs(current_price - bb_upper) / width
+            min_dist = min(dist_lower, dist_upper)
+            
+            bb_bm = bb['BBM'].iloc[-1]
+            bb_width = width / bb_bm
+            # Sma width 
+            bb_series = (bb['BBU'] - bb['BBL']) / bb['BBM']
+            bb_width_sma = bb_series.iloc[-20:].mean()
+            expansion = bb_width / bb_width_sma if bb_width_sma > 0 else 1.0
+            
+            return {
+                "Range (ADX)": f"{current_adx:.1f} vs Max: {self.adx_threshold}",
+                "Proximity": f"{min_dist*100:.1f}% vs Req: <5%",
+                "Bandwidth": f"{expansion:.2f}x vs Max: {self.bandwidth_expansion_limit}x"
+            }
+        except Exception as e: return {"Error": str(e)}
 

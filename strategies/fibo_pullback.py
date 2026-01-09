@@ -378,11 +378,42 @@ class StrategyFiboPullback(BaseStrategy):
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
-        if df is None or df.empty:
-            return {}
-        
+        if df is None or df.empty: return {}
         try:
-            # TODO: Extract actual threshold comparisons from check_conditions logic
-            return {}
-        except Exception as e:
-            return {"Error": str(e)}
+            self.add_indicators(df)
+            current_price = df['close'].iloc[-1]
+            ema_200 = df[f'EMA_{self.ema_period}'].iloc[-1]
+            adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.params.get("adx_period", 14))
+            adx = adx_res['ADX'].iloc[-1]
+            
+            # Swing calculation
+            confirmed_end = -self.swing_confirmation_bars
+            confirmed_start = -(self.swing_lookback + self.swing_confirmation_bars)
+            confirmed_df = df.iloc[confirmed_start:confirmed_end]
+            
+            has_swing = False
+            retracement = 0.0
+            
+            if len(confirmed_df) >= 20:
+                swing_high_idx = confirmed_df['high'].idxmax()
+                data_before = confirmed_df.loc[:swing_high_idx]
+                if len(data_before) >= 10:
+                    swing_high = confirmed_df.loc[swing_high_idx, 'high']
+                    swing_low = data_before['low'].min()
+                    if swing_high > swing_low:
+                        has_swing = True
+                        diff = swing_high - swing_low
+                        retracement = (swing_high - current_price) / diff * 100
+            
+            vol_ratio = 0.0
+            if 'volume' in df.columns:
+                current_vol = df['volume'].iloc[-2]
+                avg_vol = df['volume'].iloc[-22:-2].mean()
+                vol_ratio = current_vol / avg_vol if avg_vol > 0 else 0.0
+
+            return {
+                "Trend": f"{'Bullish' if current_price > ema_200 else 'Bearish'} (ADX: {adx:.1f})",
+                "Swing Structure": f"Pullback: {retracement:.1f}% (Req: 50-78.6%)" if has_swing else "No Valid Swing",
+                "Volume": f"{vol_ratio:.2f}x vs Req: {self.volume_multiplier}x"
+            }
+        except Exception as e: return {"Error": str(e)}

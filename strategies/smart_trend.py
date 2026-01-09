@@ -349,9 +349,21 @@ class StrategySmartTrend(BaseStrategy):
         """Get detailed threshold comparisons for Parameters section"""
         if df is None or df.empty:
             return {}
-        
         try:
-            # TODO: Extract actual threshold comparisons from check_conditions logic
-            return {}
+            self.add_indicators(df)
+            trend_data = self.analyze_trend_structure(df)
+            
+            close_15m = df['close'].iloc[-1]
+            params = self.config.get("params", {})
+            ema_21 = df[f'EMA_{params.get("ema_period", 21)}'].iloc[-1]
+            rsi_15m = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            
+            dist_ema21 = abs(close_15m - ema_21) / ema_21
+            
+            return {
+                "Trend": f"{trend_data.get('direction', 'NEUTRAL')} (ADX: {trend_data.get('adx', 0):.1f})",
+                "Pullback (EMA21)": f"Dist: {dist_ema21*100:.2f}% vs Max: {self.pullback_tolerance*100:.1f}%",
+                "RSI": f"{rsi_15m:.1f} (Req: 30-70)"
+            }
         except Exception as e:
             return {"Error": str(e)}

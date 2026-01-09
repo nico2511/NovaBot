@@ -248,12 +248,35 @@ class BullFlagStrategy(ChartPatternBase):
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
-        if df is None or df.empty:
-            return {}
-        
+        if df is None or df.empty: return {}
         try:
-            # TODO: Implement threshold comparisons based on check_conditions logic
-            return {}
-        except Exception as e:
-            return {"Error": str(e)}
+            self.add_indicators(df)
+            pattern = self.analyze_flag_structure(df)
+            
+            adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.params.get("adx_period", 14))
+            adx = adx_res['ADX'].iloc[-1]
+            
+            impulse_str = "No Flag"
+            breakout_str = "No Flag"
+            if pattern:
+                impulse_pct = pattern['impulse']['gain_pct'] * 100
+                impulse_str = f"{impulse_pct:.1f}%"
+                
+                current = df['close'].iloc[-1]
+                flag_high = pattern['flag_high']
+                breakout_str = f"{current:.2f} vs {flag_high:.2f}"
+            
+            vol_ratio = 0
+            if 'volume' in df.columns:
+                curr = df['volume'].iloc[-1]
+                avg = df['volume'].ewm(span=20).mean().iloc[-1]
+                vol_ratio = curr / avg if avg > 0 else 0
+
+            return {
+                "Trend (ADX)": f"{adx:.1f} vs Max: {self.adx_threshold}",
+                "Flagpole": impulse_str,
+                "Breakout": breakout_str,
+                "Volume": f"{vol_ratio:.1f}x vs Req: {self.volume_multiplier}x"
+            }
+        except Exception as e: return {"Error": str(e)}
 

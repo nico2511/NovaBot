@@ -237,9 +237,34 @@ class InstitutionalScalp(BaseStrategy):
         """Get detailed threshold comparisons for Parameters section"""
         if df is None or df.empty:
             return {}
-        
         try:
-            # TODO: Extract actual threshold comparisons from check_conditions logic
-            return {}
+            self.add_indicators(df)
+            current = df.iloc[-1]
+            close = current['close']
+            high = current['high']
+            low = current['low']
+            
+            highs = df['high'].iloc[-50:-1]
+            lows = df['low'].iloc[-50:-1]
+            recent_high = highs.max()
+            recent_low = lows.min()
+            
+            dist_high = abs(close - recent_high) / recent_high * 100
+            dist_low = abs(close - recent_low) / recent_low * 100
+            min_dist = min(dist_high, dist_low)
+            
+            candle_range = high - low
+            upper_wick = (high - max(close, current['open'])) / candle_range if candle_range > 0 else 0
+            lower_wick = (min(close, current['open']) - low) / candle_range if candle_range > 0 else 0
+            max_wick_pct = max(upper_wick, lower_wick) * 100
+            
+            bullish_reversal = low < recent_low and close > recent_low
+            bearish_reversal = high > recent_high and close < recent_high
+            
+            return {
+                "Proximity": f"{min_dist:.2f}% vs Req: <0.5%",
+                "Wick Size": f"{max_wick_pct:.1f}% vs Req: >40%",
+                "Trigger": "Confirming" if (bullish_reversal or bearish_reversal) else "Waiting"
+            }
         except Exception as e:
             return {"Error": str(e)}

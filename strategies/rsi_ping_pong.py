@@ -343,12 +343,28 @@ class RSIPingPongStrategy(BaseStrategy):
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
-        if df is None or df.empty:
-            return {}
-        
+        if df is None or df.empty: return {}
         try:
-            # TODO: Implement threshold comparisons based on check_conditions logic
-            return {}
-        except Exception as e:
-            return {"Error": str(e)}
+            self.add_indicators(df)
+            adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
+            current_adx = adx_res['ADX'].iloc[-1]
+            rsi = ta.rsi(df['close'], length=self.rsi_period)
+            current_rsi = rsi.iloc[-1]
+            pivots = self._find_recent_pivots(df)
+            current_price = df['close'].iloc[-1]
+            
+            p_text = "None"
+            if pivots['pivot_low']:
+                d = abs(current_price - pivots['pivot_low']) / current_price
+                if d < 0.05: p_text = f"Low ({d*100:.2f}%)"
+            if pivots['pivot_high']:
+                d = abs(current_price - pivots['pivot_high']) / current_price
+                if d < 0.05: p_text = f"High ({d*100:.2f}%)"
+            
+            return {
+                "Range (ADX)": f"{current_adx:.1f} vs Max: {self.adx_threshold}",
+                "RSI": f"{current_rsi:.1f} (L: {self.rsi_oversold}, H: {self.rsi_overbought})",
+                "Pivot": p_text
+            }
+        except Exception as e: return {"Error": str(e)}
 

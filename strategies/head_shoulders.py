@@ -252,12 +252,28 @@ class HeadShouldersStrategy(ChartPatternBase):
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
-        if df is None or df.empty:
-            return {}
-        
+        if df is None or df.empty: return {}
         try:
-            # TODO: Implement threshold comparisons based on check_conditions logic
-            return {}
-        except Exception as e:
-            return {"Error": str(e)}
+            self.add_indicators(df)
+            pattern = self._detect_pattern(df)
+            current_price = df['close'].iloc[-1]
+            
+            pat_str = "None"
+            neck_str = "None"
+            if pattern:
+                pat_str = f"L-S:{pattern['left_shoulder']['price']:.2f} H:{pattern['head']['price']:.2f} R-S:{pattern['right_shoulder']['price']:.2f}"
+                neck_str = f"{current_price:.2f} vs {pattern['neckline']:.2f}"
+            
+            vol_ratio = 0
+            if 'volume_sma_20' in df.columns:
+                curr = df['volume'].iloc[-1]
+                avg = df['volume_sma_20'].iloc[-1]
+                vol_ratio = curr / avg if avg > 0 else 0
+
+            return {
+                "Pattern": pat_str,
+                "Breakout": neck_str,
+                "Volume": f"{vol_ratio:.2f}x vs Req: >1.0x"
+            }
+        except Exception as e: return {"Error": str(e)}
 

@@ -272,7 +272,28 @@ class SmartMeanReversionStrategy(BaseStrategy):
             return {}
         
         try:
-            # TODO: Extract actual threshold comparisons from check_conditions logic
-            return {}
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
+            c_close = df['close'].iloc[-1]
+            c_bbl = df['BBL'].iloc[-1]
+            p_close = df['close'].iloc[-2]
+            
+            rsi_threshold = params.get("rsi_threshold", 30)
+            roc_floor = params.get("roc_floor", -15.0)
+            
+            # Distance in %
+            dist_pct = ((c_close - c_bbl) / c_bbl) * 100
+            bb_ok = c_close < c_bbl
+            stab_ok = c_close > p_close
+            
+            return {
+                "RSI": f"{c_rsi:.1f} vs Max: {rsi_threshold}",
+                "ROC": f"{c_roc:.2f}% vs Min: {roc_floor}%",
+                "Price vs Band": f"{'Below' if bb_ok else 'Above'} Band (Dist: {dist_pct:.2f}%)",
+                "Stabilization": "Close > Prev Close" if stab_ok else "Falling"
+            }
         except Exception as e:
             return {"Error": str(e)}

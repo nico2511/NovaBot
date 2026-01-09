@@ -277,9 +277,30 @@ class ScalpEmaRsi(BaseStrategy):
         """Get detailed threshold comparisons for Parameters section"""
         if df is None or df.empty:
             return {}
-        
         try:
-            # TODO: Extract actual threshold comparisons from check_conditions logic
-            return {}
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            ema_fast_len = params.get("ema_fast", 9)
+            ema_slow_len = params.get("ema_slow", 21)
+            rsi_len = params.get("rsi_period", 14)
+            
+            fast = df[f"EMA_{ema_fast_len}"].iloc[-1]
+            slow = df[f"EMA_{ema_slow_len}"].iloc[-1]
+            close = df['close'].iloc[-1]
+            trend = df['EMA_200'].iloc[-1]
+            rsi = df[f"RSI_{rsi_len}"].iloc[-1]
+            
+            is_bull_aligned = fast > slow
+            is_trend_bull = close > trend
+            ema_diff = abs(fast - slow)
+            
+            state_val = "Bullish" if is_bull_aligned else "Bearish"
+            target_range = "50-70" if is_bull_aligned else "30-50"
+            
+            return {
+                "EMA Alignment": f"{state_val} (Diff: {ema_diff:.2f})",
+                "Trend (EMA 200)": f"Price {'Above' if is_trend_bull else 'Below'} Trend",
+                "RSI Momentum": f"{rsi:.1f} (Req: {target_range})"
+            }
         except Exception as e:
             return {"Error": str(e)}
