@@ -191,7 +191,7 @@ class InstitutionalScalp(BaseStrategy):
             conditions.append({
                 "name": "Liquidity Level Proximity",
                 "status": is_near,
-                "value": f"Dist: {dist_val*100:.2f}% vs Max: 1.00%"
+                "value": ""
             })
             
             # 2. Wick Formation
@@ -211,7 +211,7 @@ class InstitutionalScalp(BaseStrategy):
             conditions.append({
                 "name": "Wick Formation (Rejection)",
                 "status": has_wick,
-                "value": f"Up: {upper_wick_pct:.0f}% / Low: {lower_wick_pct:.0f}% vs Req: >40%"
+                "value": ""
             })
             
             # 3. Reversal Candle
@@ -231,3 +231,15 @@ class InstitutionalScalp(BaseStrategy):
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Extract actual threshold comparisons from check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}

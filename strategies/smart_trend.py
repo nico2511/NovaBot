@@ -299,7 +299,7 @@ class StrategySmartTrend(BaseStrategy):
             conditions.append({
                 "name": "Trend Filter (15m)",
                 "status": trend_ok,
-                "value": f"{curr_trend} vs Req: Strong Trend"
+                "value": ""
             })
             
             # 2. Pullback Zone
@@ -310,7 +310,7 @@ class StrategySmartTrend(BaseStrategy):
             conditions.append({
                 "name": "Pullback Zone (EMA 21)",
                 "status": in_zone,
-                "value": f"Dist: {dist_ema21*100:.2f}% vs Tol: {self.pullback_tolerance*100:.1f}%"
+                "value": ""
             })
 
             # 3. RSI Filter
@@ -318,7 +318,7 @@ class StrategySmartTrend(BaseStrategy):
             conditions.append({
                 "name": "RSI Filter",
                 "status": rsi_ok,
-                "value": f"RSI: {rsi_15m:.1f} vs Range: 30-70"
+                "value": ""
             })
             
             # 4. Trigger (1m)
@@ -343,3 +343,15 @@ class StrategySmartTrend(BaseStrategy):
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Extract actual threshold comparisons from check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}

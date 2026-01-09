@@ -263,7 +263,7 @@ class ElasticReversionStrategy(BaseStrategy):
             return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI - Diagnostic Card"""
+        """Check detailed conditions for UI - Simple names only"""
         if df is None or df.empty or len(df) < 50:
             return []
         
@@ -285,7 +285,7 @@ class ElasticReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "RSI Oversold Filter",
                 "status": rsi_ok,
-                "value": f"RSI: {p_rsi:.1f} vs Max: 20"
+                "value": ""
             })
             
             # 2. Price Extension
@@ -294,17 +294,41 @@ class ElasticReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "Price Extension (Dist from EMA)",
                 "status": ext_ok,
-                "value": f"Dist: {price_vs_ema_pct:.1f}% vs Req: -{ext_pct*100:.1f}%"
+                "value": ""
             })
             
             # 3. Trigger (Reversal)
             trigger_ok = c_close > p_high
             conditions.append({
-                "name": "Reversal Trigger (Close > Prev High)",
+                "name": "Reversal Trigger",
                 "status": trigger_ok,
-                "value": "Yes" if trigger_ok else "No"
+                "value": ""
             })
             
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty or len(df) < 50:
+            return {}
+        
+        try:
+            self.add_indicators(df)
+            params = self.config.get("params", {})
+            
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-3]
+            c_close = df['close'].iloc[-2]
+            p_high = df['high'].iloc[-3]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
+            ext_pct = params.get("extension_pct", 0.04)
+            price_vs_ema_pct = ((c_close - c_ema) / c_ema) * 100
+            
+            return {
+                "RSI": f"{p_rsi:.1f} vs Max: 20",
+                "Distance from EMA": f"{price_vs_ema_pct:.1f}% vs Req: -{ext_pct*100:.1f}%",
+                "Close > Prev High": "Yes" if c_close > p_high else "No"
+            }
+        except Exception as e:
+            return {"Error": str(e)}

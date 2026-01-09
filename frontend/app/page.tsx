@@ -190,6 +190,7 @@ function StrategyInfoWrapper() {
             bb={marketData?.bb}
             strategy_progress={marketData?.strategy_progress || {}}
             strategy_conditions={marketData?.strategy_conditions || {}}
+            strategy_thresholds={marketData?.strategy_thresholds || {}}
             hideHeader={true}
             embedded={true}
         />

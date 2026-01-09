@@ -238,7 +238,7 @@ class ScalpEmaRsi(BaseStrategy):
             conditions.append({
                 "name": f"EMA {ema_fast_len}/{ema_slow_len} Alignment",
                 "status": True, 
-                "value": f"{state_val} (Spread: {ema_diff:.4f})"
+                "value": ""
             })
             
             # 2. Trend Filter
@@ -251,7 +251,7 @@ class ScalpEmaRsi(BaseStrategy):
             conditions.append({
                 "name": f"Trend Filter (EMA 200)",
                 "status": trend_ok,
-                "value": f"Price {'Above' if is_trend_bull else 'Below'} Trend"
+                "value": ""
             })
             
             # 3. RSI Filter
@@ -265,9 +265,21 @@ class ScalpEmaRsi(BaseStrategy):
             conditions.append({
                 "name": f"RSI Momentum Zone",
                 "status": rsi_ok, 
-                "value": f"RSI: {rsi:.1f} vs Range: {target_range}"
+                "value": ""
             })
             
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Extract actual threshold comparisons from check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}

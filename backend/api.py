@@ -514,6 +514,7 @@ async def get_market_data():
     active_strategies = []
     strategy_progress = {}
     strategy_conditions = {}
+    strategy_thresholds = {}
     
     # Defaults from local calculation
     # Normalize trend to regime format (RANGE/TREND) for frontend
@@ -536,6 +537,7 @@ async def get_market_data():
                 strategy_names = result.get('strategies', [])
                 progress_data = result.get('progress', {})
                 conditions_data = result.get('conditions', {})
+                thresholds_data = result.get('thresholds', {})
                 
                 # CRITICAL: Use the Bot's calculated regime and ADX as source of truth
                 if 'regime' in result:
@@ -553,6 +555,7 @@ async def get_market_data():
                     active_strategies.append(name)
                     strategy_progress[name] = progress_data.get(name, 0)
                     strategy_conditions[name] = conditions_data.get(name, [])
+                    strategy_thresholds[name] = thresholds_data.get(name, {})
                     print(f"🔍 DEBUG API: Sending {len(strategy_conditions[name])} conditions for {name}")
         
         # If bot not connected or no analysis yet, return empty list
@@ -560,6 +563,7 @@ async def get_market_data():
             active_strategies = []
             strategy_progress = {}
             strategy_conditions = {}
+            strategy_thresholds = {}
         # Calculate V2 Metrics (RVol & Trend Alignment)
         try:
             # 1. Relative Volume (RVol)
@@ -597,6 +601,7 @@ async def get_market_data():
         active_strategies = []
         strategy_progress = {}
         strategy_conditions = {}
+        strategy_thresholds = {}
     
     return sanitize_for_json({
         "symbol": active_symbol,  # CRITICAL: Return the ACTIVE symbol from bot
@@ -617,6 +622,7 @@ async def get_market_data():
         "active_strategies": active_strategies,
         "strategy_progress": strategy_progress,
         "strategy_conditions": strategy_conditions,
+        "strategy_thresholds": strategy_thresholds,
         "signals": []
     })
 

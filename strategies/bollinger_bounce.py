@@ -281,7 +281,7 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": f"Range Regime",
                 "status": is_range,
-                "value": f"ADX: {current_adx:.1f} vs Max: {self.adx_threshold}"
+                "value": ""
             })
             
             # 2. Price at Band
@@ -298,7 +298,7 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Price at Band",
                 "status": at_band,
-                "value": f"{band_name} (${current_price:.2f})"
+                "value": ""
             })
             
             # 3. Bandwidth Stable
@@ -314,7 +314,7 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Bandwidth Stable",
                 "status": bandwidth_ok,
-                "value": f"{bandwidth_ratio:.2f}x avg vs Max: {self.bandwidth_expansion_limit}x"
+                "value": ""
             })
             
             # 4. R:R Ratio
@@ -332,10 +332,22 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Risk:Reward Ratio",
                 "status": rr_ratio >= self.min_rr,
-                "value": f"{rr_ratio:.2f} vs Min: {self.min_rr}"
+                "value": ""
             })
             
             return conditions
         
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Implement threshold comparisons based on check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}
+

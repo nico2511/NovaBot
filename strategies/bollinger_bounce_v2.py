@@ -212,9 +212,9 @@ class BollingerBounceStrategy(BaseStrategy):
             adx = adx_res['ADX'].iloc[-1]
             adx_ok = adx < self.adx_threshold
             conditions.append({
-                "name": f"Régime de Marché (Range)",
+                "name": "Régime de Marché (Range)",
                 "status": adx_ok,
-                "value": f"ADX: {adx:.1f} vs Max: {self.adx_threshold}"
+                "value": ""
             })
             
             # 2. EMA Slope
@@ -225,7 +225,7 @@ class BollingerBounceStrategy(BaseStrategy):
                 conditions.append({
                     "name": "Pente EMA50",
                     "status": slope_ok,
-                    "value": f"{slope:.4f} vs Max: {self.ema50_slope_threshold}"
+                    "value": ""
                 })
             
             # 3. Kill Zone Proximity
@@ -243,7 +243,7 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Proximité Bande (Kill Zone)",
                 "status": in_zone,
-                "value": f"Dist: {min_dist/width*100:.1f}% vs Req: <15%"
+                "value": ""
             })
             
             # 4. Volatility Filter
@@ -252,9 +252,37 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Filtre Volatilité (Spread)",
                 "status": vol_ok,
-                "value": f"{vol_ratio*100:.2f}% vs Min: 0.3%"
+                "value": ""
             })
             
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df: pd.DataFrame, extra_data=None) -> Dict:
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty: return {}
+        try:
+            adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
+            adx = adx_res['ADX'].iloc[-1]
+            
+            ema_50 = ta.ema(df['close'], length=50)
+            slope = abs((ema_50.iloc[-1] - ema_50.iloc[-5]) / ema_50.iloc[-5]) if len(ema_50) >= 6 else 0
+            
+            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
+            price = df['close'].iloc[-1]
+            width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
+            vol_ratio = width / price
+            
+            dist_lower = price - bb['BBL'].iloc[-1]
+            dist_upper = bb['BBU'].iloc[-1] - price
+            min_dist = min(dist_lower, dist_upper)
+            
+            return {
+                "ADX": f"{adx:.1f} vs Max: {self.adx_threshold}",
+                "EMA50 Slope": f"{slope:.4f} vs Max: {self.ema50_slope_threshold}",
+                "Band Proximity": f"{min_dist/width*100:.1f}% vs Req: <15%",
+                "Volatility Spread": f"{vol_ratio*100:.2f}% vs Min: 0.3%"
+            }
+        except Exception as e:
+            return {"Error": str(e)}

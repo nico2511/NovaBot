@@ -303,13 +303,13 @@ class StrategyFiboPullback(BaseStrategy):
             conditions.append({
                 "name": "Trend Filter (EMA 200)",
                 "status": current_price > ema_200,
-                "value": f"Price: {current_price:.2f} vs EMA: {ema_200:.2f}"
+                "value": ""
             })
             
             conditions.append({
                 "name": "Trend Strength (ADX)",
                 "status": adx >= self.adx_threshold,
-                "value": f"ADX: {adx:.1f} vs Min: {self.adx_threshold}"
+                "value": ""
             })
             
             # 2. Swing Structure
@@ -339,7 +339,7 @@ class StrategyFiboPullback(BaseStrategy):
                         conditions.append({
                             "name": "Fibo Zone (50-78.6%)",
                             "status": True,
-                            "value": f"{level_786:.2f} - {level_50:.2f}"
+                            "value": ""
                         })
                         
                         # Distance to entry zone
@@ -349,7 +349,7 @@ class StrategyFiboPullback(BaseStrategy):
                         conditions.append({
                             "name": "In Fibo Zone",
                             "status": in_zone,
-                            "value": f"Retracement: {retracement_pct:.1f}% vs Range: 50-78.6%"
+                            "value": ""
                         })
                         
                         # Volume check
@@ -362,7 +362,7 @@ class StrategyFiboPullback(BaseStrategy):
                             conditions.append({
                                 "name": "Volume Confirmation",
                                 "status": vol_ok,
-                                "value": f"{vol_ratio:.2f}x vs Req: {self.volume_multiplier}x"
+                                "value": ""
                             })
             
             conditions.append({
@@ -374,3 +374,15 @@ class StrategyFiboPullback(BaseStrategy):
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Extract actual threshold comparisons from check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}

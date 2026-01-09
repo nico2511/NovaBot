@@ -12,13 +12,14 @@ interface StrategyMonitorProps {
     bb?: { upper: number; middle: number; lower: number }
     strategy_progress?: { [key: string]: number }
     strategy_conditions?: { [key: string]: Array<{ name: string; status: boolean; value: string }> }
+    strategy_thresholds?: { [key: string]: { [key: string]: string } }
     hideHeader?: boolean
     embedded?: boolean
 }
 
 const fetcher = (url: string) => fetch(url).then(res => res.json())
 
-export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, strategy_conditions = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
+export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema_20, ema_50, bb, strategy_progress = {}, strategy_conditions = {}, strategy_thresholds = {}, hideHeader = false, embedded = false }: StrategyMonitorProps) {
 
     // Fetch detailed strategy config from backend
     const { data: strategiesConfig } = useSWR('/api/strategies', fetcher, {
@@ -88,6 +89,7 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                         {Array.isArray(strategies) && strategies.map((strategy, index) => {
                             const details = getStrategyDetails(strategy)
                             const dynamicConditions = strategy_conditions[strategy]
+                            const thresholds = strategy_thresholds[strategy]
 
                             return (
                                 <div
@@ -131,8 +133,23 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                         )}
                                     </div>
 
-                                    {/* Parameters Section (Dynamic/Seuils) - Only show if NO dynamic conditions */}
-                                    {!dynamicConditions?.length && details.params && Object.keys(details.params).length > 0 && (
+                                    {/* Thresholds Section - Show detailed comparisons when available */}
+                                    {thresholds && Object.keys(thresholds).length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-border/20">
+                                            <div className="text-xs text-gray-500 mb-2 font-semibold">Seuils:</div>
+                                            <div className="space-y-1">
+                                                {Object.entries(thresholds).map(([key, value], i) => (
+                                                    <div key={i} className="flex items-center justify-between text-xs bg-black/20 p-1.5 rounded px-2">
+                                                        <span className="text-gray-400">{key}</span>
+                                                        <span className="text-primary-light font-mono font-medium">{value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Parameters Section (Fallback) - Only show if NO dynamic conditions AND NO thresholds */}
+                                    {!dynamicConditions?.length && !thresholds && details.params && Object.keys(details.params).length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/20">
                                             <div className="text-xs text-gray-500 mb-2 font-semibold">Parameters (Seuils):</div>
                                             <div className="flex flex-wrap gap-2">

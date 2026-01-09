@@ -197,7 +197,7 @@ class BullFlagStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Bull Flag Pattern Detected",
                 "status": pattern_detected,
-                "value": "Yes" if pattern_detected else "No"
+                "value": ""
             })
             
             if not pattern:
@@ -208,7 +208,7 @@ class BullFlagStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Flagpole Strength",
                 "status": True,
-                "value": f"Gain: {impulse_pct:.1f}% vs Req: {self.min_impulse_pct*100:.0f}%"
+                "value": ""
             })
             
             # 3. Breakout
@@ -219,7 +219,7 @@ class BullFlagStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Breakout Above Flag",
                 "status": breakout_ok,
-                "value": f"Price: {current_price:.2f} vs Level: {flag_high:.2f}"
+                "value": ""
             })
             
             # 4. Volume spike
@@ -238,10 +238,22 @@ class BullFlagStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Volume Spike Confirmation",
                 "status": volume_ok,
-                "value": f"{volume_ratio:.2f}x vs Req: {self.volume_multiplier}x"
+                "value": ""
             })
             
             return conditions
         
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Implement threshold comparisons based on check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}
+

@@ -231,7 +231,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "RSI Oversold Filter",
                 "status": rsi_ok,
-                "value": f"RSI: {c_rsi:.1f} vs Max: {rsi_threshold}"
+                "value": ""
             })
             
             # 2. Momentum Floor
@@ -239,7 +239,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "ROC Safety Floor",
                 "status": roc_ok,
-                "value": f"ROC: {c_roc:.2f}% vs Min: {roc_floor}%"
+                "value": ""
             })
             
             # 3. Bollinger Band Position
@@ -250,7 +250,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "Price < BB Lower",
                 "status": bb_ok,
-                "value": f"{'Below' if bb_ok else 'Above'} Band (Dist: {dist_pct:.2f}%)"
+                "value": ""
             })
             
             # 4. Stabilization
@@ -258,9 +258,21 @@ class SmartMeanReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "Stabilization (Green Candle)",
                 "status": stab_ok,
-                "value": "Close > Prev Close" if stab_ok else "Falling"
+                "value": ""
             })
             
             return conditions
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Extract actual threshold comparisons from check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}

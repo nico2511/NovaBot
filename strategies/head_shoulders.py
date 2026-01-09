@@ -204,7 +204,7 @@ class HeadShouldersStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Head & Shoulders Pattern",
                 "status": pattern_detected,
-                "value": "Yes" if pattern_detected else "No"
+                "value": ""
             })
             
             if not pattern:
@@ -218,7 +218,7 @@ class HeadShouldersStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Pattern Structure",
                 "status": True,
-                "value": f"H:{head_price:.2f} S1:{ls_price:.2f} S2:{rs_price:.2f}"
+                "value": ""
             })
             
             # 3. Neckline breakout
@@ -229,7 +229,7 @@ class HeadShouldersStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Breakout Below Neckline",
                 "status": breakout_ok,
-                "value": f"Price: {current_price:.2f} vs Neckline: {neckline:.2f}"
+                "value": ""
             })
             
             # 4. Volume
@@ -242,10 +242,22 @@ class HeadShouldersStrategy(ChartPatternBase):
                 conditions.append({
                     "name": "Volume Confirmation",
                     "status": volume_ok,
-                    "value": f"{vol_ratio:.0f}% vs Req: >100%"
+                    "value": ""
                 })
             
             return conditions
         
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Implement threshold comparisons based on check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}
+

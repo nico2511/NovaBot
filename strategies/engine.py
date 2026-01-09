@@ -237,9 +237,10 @@ class StrategyEngine:
                      pass
                      # print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
         
-        # 5. Calculate Progress AND Conditions
+        # 5. Calculate Progress, Conditions AND Threshold Comparisons
         progress = {}
         conditions = {}
+        thresholds = {}
         for strat in active_strategies:
             try:
                 progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
@@ -252,10 +253,18 @@ class StrategyEngine:
                         print(f"   Sample: {conditions[strat.name][0]}")
                 else:
                     conditions[strat.name] = []
+                
+                # Get threshold comparisons
+                if hasattr(strat, "get_threshold_comparisons"):
+                    thresholds[strat.name] = strat.get_threshold_comparisons(df, extra_data=extra_data)
+                    print(f"🔍 DEBUG: Collected {len(thresholds[strat.name])} thresholds for {strat.name}")
+                else:
+                    thresholds[strat.name] = {}
             except Exception as e:
                 print(f"Error calculating progress for {strat.name}: {e}")
                 progress[strat.name] = 0
                 conditions[strat.name] = []
+                thresholds[strat.name] = {}
 
         return {
             "regime": regime,
@@ -266,5 +275,6 @@ class StrategyEngine:
             "strategies": [s.name for s in active_strategies],
             "progress": progress,
             "conditions": conditions,
+            "thresholds": thresholds,
             "signals": signals
         }

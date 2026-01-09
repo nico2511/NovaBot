@@ -234,7 +234,7 @@ class DoubleBottomStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Double Bottom Pattern Detected",
                 "status": pattern_detected,
-                "value": "Yes" if pattern_detected else "No"
+                "value": ""
             })
             
             if not pattern:
@@ -248,7 +248,7 @@ class DoubleBottomStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Breakout Above Neckline",
                 "status": breakout_ok,
-                "value": f"Price: {current_price:.2f} vs Neckline: {neckline:.2f}"
+                "value": ""
             })
             
             # 3. Volume Confirmation
@@ -261,7 +261,7 @@ class DoubleBottomStrategy(ChartPatternBase):
                 conditions.append({
                     "name": "Volume Confirmation",
                     "status": volume_ok,
-                    "value": f"{vol_ratio:.0f}% vs Req: >100%"
+                    "value": ""
                 })
             
             # 4. R:R Ratio
@@ -280,10 +280,22 @@ class DoubleBottomStrategy(ChartPatternBase):
             conditions.append({
                 "name": "Risk:Reward Ratio",
                 "status": rr_ok,
-                "value": f"{rr_val:.2f} vs Min: {self.min_rr}"
+                "value": ""
             })
             
             return conditions
         
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
+    
+    def get_threshold_comparisons(self, df, extra_data=None):
+        """Get detailed threshold comparisons for Parameters section"""
+        if df is None or df.empty:
+            return {}
+        
+        try:
+            # TODO: Implement threshold comparisons based on check_conditions logic
+            return {}
+        except Exception as e:
+            return {"Error": str(e)}
+
