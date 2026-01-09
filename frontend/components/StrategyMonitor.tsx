@@ -113,7 +113,9 @@ export default function StrategyMonitor({ strategies, regime, rsi, atr, adx, ema
                                                         <span className={cond.status ? 'text-gray-200' : 'text-gray-500'}>{cond.name}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-mono text-gray-400">{cond.value}</span>
+                                                        <span className={`text-xs font-mono font-medium ${cond.status ? 'text-primary-light' : 'text-orange-400'}`}>
+                                                            {cond.value}
+                                                        </span>
                                                         <span className="text-xs">{cond.status ? '✅' : '❌'}</span>
                                                     </div>
                                                 </div>
