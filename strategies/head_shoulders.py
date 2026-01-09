@@ -189,7 +189,7 @@ class HeadShouldersStrategy(ChartPatternBase):
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """Check detailed conditions for UI display."""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 60:
             return []
         
@@ -199,9 +199,10 @@ class HeadShouldersStrategy(ChartPatternBase):
             
             conditions = []
             
+            # 1. Pattern Detection
             pattern_detected = pattern is not None
             conditions.append({
-                "name": "Head & Shoulders Pattern Detected",
+                "name": "Head & Shoulders Pattern",
                 "status": pattern_detected,
                 "value": "Yes" if pattern_detected else "No"
             })
@@ -209,38 +210,39 @@ class HeadShouldersStrategy(ChartPatternBase):
             if not pattern:
                 return conditions
             
-            # Pattern structure
+            # 2. Pattern structure
             head_price = pattern['head']['price']
             ls_price = pattern['left_shoulder']['price']
             rs_price = pattern['right_shoulder']['price']
             
             conditions.append({
-                "name": "Head > Shoulders",
+                "name": "Pattern Structure",
                 "status": True,
-                "value": f"H:${head_price:.4f} LS:${ls_price:.4f} RS:${rs_price:.4f}"
+                "value": f"H:{head_price:.2f} S1:{ls_price:.2f} S2:{rs_price:.2f}"
             })
             
-            # Neckline breakout
+            # 3. Neckline breakout
             current_price = df['close'].iloc[-1]
             neckline = pattern['neckline']
             breakout_ok = current_price < neckline
             
             conditions.append({
-                "name": f"Breakout Below Neckline (${neckline:.4f})",
+                "name": "Breakout Below Neckline",
                 "status": breakout_ok,
-                "value": f"${current_price:.4f}"
+                "value": f"Price: {current_price:.2f} vs Neckline: {neckline:.2f}"
             })
             
-            # Volume
+            # 4. Volume
             if 'volume_sma_20' in df.columns:
                 current_volume = df['volume'].iloc[-1]
                 avg_volume = df['volume_sma_20'].iloc[-1]
                 volume_ok = current_volume > avg_volume
                 
+                vol_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 0
                 conditions.append({
-                    "name": "Volume > Average",
+                    "name": "Volume Confirmation",
                     "status": volume_ok,
-                    "value": f"{(current_volume/avg_volume)*100:.0f}%"
+                    "value": f"{vol_ratio:.0f}% vs Req: >100%"
                 })
             
             return conditions

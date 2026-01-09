@@ -217,12 +217,7 @@ class DoubleBottomStrategy(ChartPatternBase):
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """
-        Check detailed conditions for UI display.
-        
-        Returns:
-            List of condition dicts with name, status, and value
-        """
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -251,9 +246,9 @@ class DoubleBottomStrategy(ChartPatternBase):
             breakout_ok = current_price > neckline
             
             conditions.append({
-                "name": f"Breakout Above Neckline (${neckline:.4f})",
+                "name": "Breakout Above Neckline",
                 "status": breakout_ok,
-                "value": f"${current_price:.4f}"
+                "value": f"Price: {current_price:.2f} vs Neckline: {neckline:.2f}"
             })
             
             # 3. Volume Confirmation
@@ -262,13 +257,15 @@ class DoubleBottomStrategy(ChartPatternBase):
                 avg_volume = df['volume_sma_20'].iloc[-1]
                 volume_ok = current_volume > avg_volume
                 
+                vol_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 0
                 conditions.append({
-                    "name": "Volume > Average",
+                    "name": "Volume Confirmation",
                     "status": volume_ok,
-                    "value": f"{(current_volume/avg_volume)*100:.0f}%"
+                    "value": f"{vol_ratio:.0f}% vs Req: >100%"
                 })
             
             # 4. R:R Ratio
+            rr_val = 0
             if breakout_ok:
                 lowest_low = min(pattern['low1']['price'], pattern['low2']['price'])
                 sl = lowest_low * 0.995
@@ -277,13 +274,14 @@ class DoubleBottomStrategy(ChartPatternBase):
                     sl, 
                     pattern['pattern_height']
                 )
+                rr_val = rr_ratio
                 
-                rr_ok = rr_ratio >= self.min_rr
-                conditions.append({
-                    "name": f"R:R Ratio (Min {self.min_rr})",
-                    "status": rr_ok,
-                    "value": f"{rr_ratio:.2f}"
-                })
+            rr_ok = rr_val >= self.min_rr
+            conditions.append({
+                "name": "Risk:Reward Ratio",
+                "status": rr_ok,
+                "value": f"{rr_val:.2f} vs Min: {self.min_rr}"
+            })
             
             return conditions
         

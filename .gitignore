@@ -33,7 +33,7 @@ token_meta_cache.json
 
 # Backtest & Analysis (Local Only) - TEMPORARILY DISABLED FOR TESTING
 backtest_archive/
-# backtest/
+backtest/
 tradingview/
 data/
 

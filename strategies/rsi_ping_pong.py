@@ -262,7 +262,7 @@ class RSIPingPongStrategy(BaseStrategy):
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
         """
-        Check detailed conditions for UI display.
+        Check detailed conditions for UI - Diagnostic Card
         
         Returns:
             List of condition dicts with name, status, and value
@@ -279,9 +279,9 @@ class RSIPingPongStrategy(BaseStrategy):
             current_adx = adx_res['ADX'].iloc[-1]
             
             conditions.append({
-                "name": f"Range Regime (ADX < {self.adx_threshold})",
+                "name": f"Range Regime",
                 "status": is_range,
-                "value": f"ADX: {current_adx:.1f}"
+                "value": f"ADX: {current_adx:.1f} vs Max: {self.adx_threshold}"
             })
             
             # 2. RSI Extreme
@@ -290,12 +290,11 @@ class RSIPingPongStrategy(BaseStrategy):
             prev_rsi = rsi.iloc[-2]
             
             in_extreme = current_rsi < self.rsi_oversold or current_rsi > self.rsi_overbought
-            zone = "Oversold" if current_rsi < self.rsi_oversold else "Overbought" if current_rsi > self.rsi_overbought else "Neutral"
             
             conditions.append({
-                "name": f"RSI Extreme ({self.rsi_oversold}/{self.rsi_overbought})",
+                "name": "RSI Extreme Zone",
                 "status": in_extreme,
-                "value": f"{zone} ({current_rsi:.1f})"
+                "value": f"RSI: {current_rsi:.1f} vs {self.rsi_oversold}/{self.rsi_overbought}"
             })
             
             # 3. Near Pivot
@@ -304,23 +303,26 @@ class RSIPingPongStrategy(BaseStrategy):
             
             near_pivot = False
             pivot_info = "None"
+            dist_pct = 0.0
             
             if pivots['pivot_low']:
                 distance = abs(current_price - pivots['pivot_low']) / current_price
                 if distance < self.pivot_tolerance:
                     near_pivot = True
-                    pivot_info = f"Low ${pivots['pivot_low']:.4f}"
+                    pivot_info = f"Low ${pivots['pivot_low']:.2f}"
+                    dist_pct = distance * 100
             
             if pivots['pivot_high']:
                 distance = abs(current_price - pivots['pivot_high']) / current_price
                 if distance < self.pivot_tolerance:
                     near_pivot = True
-                    pivot_info = f"High ${pivots['pivot_high']:.4f}"
+                    pivot_info = f"High ${pivots['pivot_high']:.2f}"
+                    dist_pct = distance * 100
             
             conditions.append({
-                "name": "Near Pivot",
+                "name": "Pivot Proximity",
                 "status": near_pivot,
-                "value": pivot_info
+                "value": f"Dist: {dist_pct:.2f}% vs Max: {self.pivot_tolerance*100:.1f}%"
             })
             
             # 4. RSI Reversal
@@ -329,9 +331,9 @@ class RSIPingPongStrategy(BaseStrategy):
                        (current_rsi > self.rsi_overbought and rsi_delta < 0)
             
             conditions.append({
-                "name": "RSI Reversing",
+                "name": "RSI Reversal Momentum",
                 "status": reversing,
-                "value": f"Δ{rsi_delta:+.1f}"
+                "value": f"Delta: {rsi_delta:+.2f}"
             })
             
             return conditions

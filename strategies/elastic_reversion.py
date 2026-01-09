@@ -263,7 +263,7 @@ class ElasticReversionStrategy(BaseStrategy):
             return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI display."""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 50:
             return []
         
@@ -283,18 +283,18 @@ class ElasticReversionStrategy(BaseStrategy):
             # 1. RSI Oversold
             rsi_ok = p_rsi < 20
             conditions.append({
-                "name": "RSI Oversold (< 20)",
+                "name": "RSI Oversold Filter",
                 "status": rsi_ok,
-                "value": f"{p_rsi:.1f}"
+                "value": f"RSI: {p_rsi:.1f} vs Max: 20"
             })
             
             # 2. Price Extension
             price_vs_ema_pct = ((c_close - c_ema) / c_ema) * 100
             ext_ok = price_vs_ema_pct < -(ext_pct * 100)
             conditions.append({
-                "name": f"Price Extension (< -{ext_pct*100:.0f}%)",
+                "name": "Price Extension (Dist from EMA)",
                 "status": ext_ok,
-                "value": f"{price_vs_ema_pct:.1f}%"
+                "value": f"Dist: {price_vs_ema_pct:.1f}% vs Req: -{ext_pct*100:.1f}%"
             })
             
             # 3. Trigger (Reversal)

@@ -207,7 +207,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI display."""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -215,11 +215,11 @@ class SmartMeanReversionStrategy(BaseStrategy):
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
-            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-2]
-            c_close = df['close'].iloc[-2]
-            c_bbl = df['BBL'].iloc[-2]
-            p_close = df['close'].iloc[-3]
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
+            c_close = df['close'].iloc[-1]
+            c_bbl = df['BBL'].iloc[-1]
+            p_close = df['close'].iloc[-2]
             
             rsi_threshold = params.get("rsi_threshold", 30)
             roc_floor = params.get("roc_floor", -15.0)
@@ -229,25 +229,28 @@ class SmartMeanReversionStrategy(BaseStrategy):
             # 1. RSI Oversold
             rsi_ok = c_rsi < rsi_threshold
             conditions.append({
-                "name": f"RSI Oversold (< {rsi_threshold})",
+                "name": "RSI Oversold Filter",
                 "status": rsi_ok,
-                "value": f"{c_rsi:.1f}"
+                "value": f"RSI: {c_rsi:.1f} vs Max: {rsi_threshold}"
             })
             
             # 2. Momentum Floor
             roc_ok = c_roc > roc_floor
             conditions.append({
-                "name": f"ROC Safety (> {roc_floor}%)",
+                "name": "ROC Safety Floor",
                 "status": roc_ok,
-                "value": f"{c_roc:.1f}%"
+                "value": f"ROC: {c_roc:.2f}% vs Min: {roc_floor}%"
             })
             
-            # 3. Below BB Lower
+            # 3. Bollinger Band Position
             bb_ok = c_close < c_bbl
+            # Distance in %
+            dist_pct = ((c_close - c_bbl) / c_bbl) * 100
+            
             conditions.append({
                 "name": "Price < BB Lower",
                 "status": bb_ok,
-                "value": f"${c_close:.4f} vs ${c_bbl:.4f}"
+                "value": f"{'Below' if bb_ok else 'Above'} Band (Dist: {dist_pct:.2f}%)"
             })
             
             # 4. Stabilization
@@ -255,7 +258,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             conditions.append({
                 "name": "Stabilization (Green Candle)",
                 "status": stab_ok,
-                "value": "Yes" if stab_ok else "No"
+                "value": "Close > Prev Close" if stab_ok else "Falling"
             })
             
             return conditions

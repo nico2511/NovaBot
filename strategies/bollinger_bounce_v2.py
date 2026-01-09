@@ -202,28 +202,59 @@ class BollingerBounceStrategy(BaseStrategy):
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """UI Conditions"""
+        """UI Conditions - Standardized Diagnostic Card"""
         if df is None or df.empty: return []
         try:
             conditions = []
             
-            # ADX
+            # 1. ADX Check
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
             adx = adx_res['ADX'].iloc[-1]
-            conditions.append({"name": f"Choppy Market (ADX < {self.adx_threshold})", "status": adx < self.adx_threshold, "value": f"{adx:.1f}"})
+            adx_ok = adx < self.adx_threshold
+            conditions.append({
+                "name": f"Régime de Marché (Range)",
+                "status": adx_ok,
+                "value": f"ADX: {adx:.1f} vs Max: {self.adx_threshold}"
+            })
             
-            # Zone
+            # 2. EMA Slope
+            ema_50 = ta.ema(df['close'], length=50)
+            if len(ema_50) >= 6:
+                slope = abs((ema_50.iloc[-1] - ema_50.iloc[-5]) / ema_50.iloc[-5])
+                slope_ok = slope <= self.ema50_slope_threshold
+                conditions.append({
+                    "name": "Pente EMA50",
+                    "status": slope_ok,
+                    "value": f"{slope:.4f} vs Max: {self.ema50_slope_threshold}"
+                })
+            
+            # 3. Kill Zone Proximity
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
             price = df['close'].iloc[-1]
             width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
-            
             kill_zone = width * 0.15
+            
             dist_lower = price - bb['BBL'].iloc[-1]
             dist_upper = bb['BBU'].iloc[-1] - price
+            min_dist = min(dist_lower, dist_upper)
             
+            # Logic: In zone if close to either band
             in_zone = dist_lower < kill_zone or dist_upper < kill_zone
-            conditions.append({"name": "In Kill Zone (15%)", "status": in_zone, "value": "Yes" if in_zone else "No"})
+            conditions.append({
+                "name": "Proximité Bande (Kill Zone)",
+                "status": in_zone,
+                "value": f"Dist: {min_dist/width*100:.1f}% vs Req: <15%"
+            })
+            
+            # 4. Volatility Filter
+            vol_ratio = width / price
+            vol_ok = vol_ratio >= 0.003
+            conditions.append({
+                "name": "Filtre Volatilité (Spread)",
+                "status": vol_ok,
+                "value": f"{vol_ratio*100:.2f}% vs Min: 0.3%"
+            })
             
             return conditions
-        except:
-            return []
+        except Exception as e:
+            return [{"name": "Error", "status": False, "value": str(e)}]

@@ -282,7 +282,7 @@ class StrategyFiboPullback(BaseStrategy):
     
     def check_conditions(self, df, extra_data=None):
         """
-        Check specific conditions for UI display
+        Check specific conditions for UI - Diagnostic Card
         ✅ FIX #5: Uses iloc[-2] for consistency
         """
         min_bars = self.swing_lookback + self.ema_period + self.swing_confirmation_bars
@@ -299,25 +299,27 @@ class StrategyFiboPullback(BaseStrategy):
             
             conditions = []
             
-            # Trend Filter
+            # 1. Trend Filter
             conditions.append({
-                "name": f"Price > EMA {self.ema_period}",
+                "name": "Trend Filter (EMA 200)",
                 "status": current_price > ema_200,
-                "value": f"${current_price:.2f} vs ${ema_200:.2f}"
+                "value": f"Price: {current_price:.2f} vs EMA: {ema_200:.2f}"
             })
             
             conditions.append({
-                "name": f"ADX >= {self.adx_threshold}",
+                "name": "Trend Strength (ADX)",
                 "status": adx >= self.adx_threshold,
-                "value": f"{adx:.1f}"
+                "value": f"ADX: {adx:.1f} vs Min: {self.adx_threshold}"
             })
             
-            # Swing Structure
+            # 2. Swing Structure
             confirmed_end = -self.swing_confirmation_bars
             confirmed_start = -(self.swing_lookback + self.swing_confirmation_bars)
             confirmed_df = df.iloc[confirmed_start:confirmed_end].copy()
             
             has_valid_swing = False
+            swing_info = "None"
+            
             if len(confirmed_df) >= 20:
                 swing_high_idx = confirmed_df['high'].idxmax()
                 data_before_high = confirmed_df.loc[:swing_high_idx]
@@ -329,13 +331,15 @@ class StrategyFiboPullback(BaseStrategy):
                     
                     if has_valid_swing:
                         diff = swing_high - swing_low
-                        level_618 = swing_high - (diff * 0.618)
+                        swing_info = f"H:{swing_high:.2f} L:{swing_low:.2f}"
+                        
                         level_786 = swing_high - (diff * 0.786)
+                        level_50 = swing_high - (diff * 0.50)
                         
                         conditions.append({
                             "name": "Fibo Zone (50-78.6%)",
                             "status": True,
-                            "value": f"${level_786:.2f} - ${swing_high - (diff * 0.50):.2f}"
+                            "value": f"{level_786:.2f} - {level_50:.2f}"
                         })
                         
                         # Distance to entry zone
@@ -345,7 +349,7 @@ class StrategyFiboPullback(BaseStrategy):
                         conditions.append({
                             "name": "In Fibo Zone",
                             "status": in_zone,
-                            "value": f"{retracement_pct:.1f}% retracement"
+                            "value": f"Retracement: {retracement_pct:.1f}% vs Range: 50-78.6%"
                         })
                         
                         # Volume check
@@ -356,15 +360,15 @@ class StrategyFiboPullback(BaseStrategy):
                             vol_ok = vol_ratio >= self.volume_multiplier
                             
                             conditions.append({
-                                "name": f"Volume >= {self.volume_multiplier}x",
+                                "name": "Volume Confirmation",
                                 "status": vol_ok,
-                                "value": f"{vol_ratio:.2f}x"
+                                "value": f"{vol_ratio:.2f}x vs Req: {self.volume_multiplier}x"
                             })
             
             conditions.append({
                 "name": "Valid Swing Structure",
                 "status": has_valid_swing,
-                "value": "✓" if has_valid_swing else "✗"
+                "value": swing_info
             })
             
             return conditions

@@ -262,7 +262,7 @@ class BollingerBounceStrategy(BaseStrategy):
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
         """
-        Check detailed conditions for UI display.
+        Check detailed conditions for UI - Diagnostic Card
         
         Returns:
             List of condition dicts with name, status, and value
@@ -279,9 +279,9 @@ class BollingerBounceStrategy(BaseStrategy):
             current_adx = adx_res['ADX'].iloc[-2]
             
             conditions.append({
-                "name": f"Range Regime (ADX < {self.adx_threshold})",
+                "name": f"Range Regime",
                 "status": is_range,
-                "value": f"ADX: {current_adx:.1f}"
+                "value": f"ADX: {current_adx:.1f} vs Max: {self.adx_threshold}"
             })
             
             # 2. Price at Band
@@ -298,7 +298,7 @@ class BollingerBounceStrategy(BaseStrategy):
             conditions.append({
                 "name": "Price at Band",
                 "status": at_band,
-                "value": f"{band_name} (${current_price:.4f})"
+                "value": f"{band_name} (${current_price:.2f})"
             })
             
             # 3. Bandwidth Stable
@@ -308,11 +308,13 @@ class BollingerBounceStrategy(BaseStrategy):
                 for i in range(len(bb) - 20, len(bb))
             ]).mean()
             
-            bandwidth_ok = bb_width < bb_width_sma * self.bandwidth_expansion_limit
+            bandwidth_ratio = bb_width / bb_width_sma if bb_width_sma > 0 else 0
+            bandwidth_ok = bandwidth_ratio < self.bandwidth_expansion_limit
+            
             conditions.append({
                 "name": "Bandwidth Stable",
                 "status": bandwidth_ok,
-                "value": f"{(bb_width / bb_width_sma):.2f}x avg"
+                "value": f"{bandwidth_ratio:.2f}x avg vs Max: {self.bandwidth_expansion_limit}x"
             })
             
             # 4. R:R Ratio
@@ -328,9 +330,9 @@ class BollingerBounceStrategy(BaseStrategy):
             rr_ratio = reward / risk if risk > 0 else 0
             
             conditions.append({
-                "name": f"R:R Ratio (Min {self.min_rr})",
+                "name": "Risk:Reward Ratio",
                 "status": rr_ratio >= self.min_rr,
-                "value": f"{rr_ratio:.2f}"
+                "value": f"{rr_ratio:.2f} vs Min: {self.min_rr}"
             })
             
             return conditions

@@ -182,7 +182,7 @@ class BullFlagStrategy(ChartPatternBase):
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """Check detailed conditions for UI display."""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -192,6 +192,7 @@ class BullFlagStrategy(ChartPatternBase):
             
             conditions = []
             
+            # 1. Pattern Detection
             pattern_detected = pattern is not None
             conditions.append({
                 "name": "Bull Flag Pattern Detected",
@@ -202,37 +203,43 @@ class BullFlagStrategy(ChartPatternBase):
             if not pattern:
                 return conditions
             
-            # Impulse strength
+            # 2. Impulse strength
             impulse_pct = pattern['impulse']['gain_pct'] * 100
             conditions.append({
-                "name": f"Flagpole Strength (Min {self.min_impulse_pct*100:.0f}%)",
+                "name": "Flagpole Strength",
                 "status": True,
-                "value": f"+{impulse_pct:.1f}%"
+                "value": f"Gain: {impulse_pct:.1f}% vs Req: {self.min_impulse_pct*100:.0f}%"
             })
             
-            # Breakout
+            # 3. Breakout
             current_price = df['close'].iloc[-1]
             flag_high = pattern['flag_high']
             breakout_ok = current_price > flag_high
             
             conditions.append({
-                "name": f"Breakout Above Flag (${flag_high:.4f})",
+                "name": "Breakout Above Flag",
                 "status": breakout_ok,
-                "value": f"${current_price:.4f}"
+                "value": f"Price: {current_price:.2f} vs Level: {flag_high:.2f}"
             })
             
-            # Volume spike
+            # 4. Volume spike
+            current_volume = 0
+            avg_volume = 0
+            volume_ratio = 0
+            
             if 'volume_sma_20' in df.columns:
                 current_volume = df['volume'].iloc[-1]
                 avg_volume = df['volume_sma_20'].iloc[-1]
-                volume_ratio = current_volume / avg_volume
-                volume_ok = volume_ratio >= self.volume_multiplier
-                
-                conditions.append({
-                    "name": f"Volume Spike (>{self.volume_multiplier}x)",
-                    "status": volume_ok,
-                    "value": f"{volume_ratio:.2f}x"
-                })
+                if avg_volume > 0:
+                    volume_ratio = current_volume / avg_volume
+            
+            volume_ok = volume_ratio >= self.volume_multiplier
+            
+            conditions.append({
+                "name": "Volume Spike Confirmation",
+                "status": volume_ok,
+                "value": f"{volume_ratio:.2f}x vs Req: {self.volume_multiplier}x"
+            })
             
             return conditions
         

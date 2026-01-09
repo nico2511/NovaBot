@@ -158,7 +158,7 @@ class InstitutionalScalp(BaseStrategy):
             return 0
     
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI display"""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -178,37 +178,54 @@ class InstitutionalScalp(BaseStrategy):
             
             conditions = []
             
-            # Liquidity Level Proximity
-            at_high = abs(high - recent_high) / recent_high < 0.01
-            at_low = abs(low - recent_low) / recent_low < 0.01
+            # 1. Liquidity Level Proximity
+            dist_high = abs(high - recent_high) / recent_high
+            dist_low = abs(low - recent_low) / recent_low
+            
+            at_high = dist_high < 0.01
+            at_low = dist_low < 0.01
+            
+            is_near = at_high or at_low
+            dist_val = dist_high if at_high else dist_low if at_low else min(dist_high, dist_low)
             
             conditions.append({
-                "name": "At Liquidity Level",
-                "status": at_high or at_low,
-                "value": f"High: ${recent_high:.4f}, Low: ${recent_low:.4f}"
+                "name": "Liquidity Level Proximity",
+                "status": is_near,
+                "value": f"Dist: {dist_val*100:.2f}% vs Max: 1.00%"
             })
             
-            # Wick Formation
+            # 2. Wick Formation
             candle_range = high - low
+            upper_wick_pct = 0
+            lower_wick_pct = 0
+            has_wick = False
+            
             if candle_range > 0:
                 upper_wick = (high - max(close, current['open'])) / candle_range
                 lower_wick = (min(close, current['open']) - low) / candle_range
                 
                 has_wick = upper_wick > 0.4 or lower_wick > 0.4
-                conditions.append({
-                    "name": "Wick Formation (>40%)",
-                    "status": has_wick,
-                    "value": f"Upper: {upper_wick*100:.0f}%, Lower: {lower_wick*100:.0f}%"
-                })
+                upper_wick_pct = upper_wick * 100
+                lower_wick_pct = lower_wick * 100
+                
+            conditions.append({
+                "name": "Wick Formation (Rejection)",
+                "status": has_wick,
+                "value": f"Up: {upper_wick_pct:.0f}% / Low: {lower_wick_pct:.0f}% vs Req: >40%"
+            })
             
-            # Reversal Candle
+            # 3. Reversal Candle
             bullish_reversal = low < recent_low and close > recent_low
             bearish_reversal = high > recent_high and close < recent_high
             
+            rev_status = "None"
+            if bullish_reversal: rev_status = "Bullish"
+            elif bearish_reversal: rev_status = "Bearish"
+            
             conditions.append({
-                "name": "Reversal Candle",
+                "name": "Liquidity Sweep Trigger",
                 "status": bullish_reversal or bearish_reversal,
-                "value": "Bullish" if bullish_reversal else "Bearish" if bearish_reversal else "None"
+                "value": rev_status
             })
             
             return conditions

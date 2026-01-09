@@ -209,7 +209,7 @@ class ScalpEmaRsi(BaseStrategy):
             return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Detailed conditions for UI"""
+        """Detailed conditions for UI - Diagnostic Card"""
         if df.empty or len(df) < 200: return []
         
         try:
@@ -219,7 +219,7 @@ class ScalpEmaRsi(BaseStrategy):
             ema_slow_len = params.get("ema_slow", 21)
             rsi_len = params.get("rsi_period", 14)
             
-            # Get values
+            # Get values (Use ILOC -1 for UI display - current state)
             fast = df[f"EMA_{ema_fast_len}"].iloc[-1]
             slow = df[f"EMA_{ema_slow_len}"].iloc[-1]
             close = df['close'].iloc[-1]
@@ -231,11 +231,14 @@ class ScalpEmaRsi(BaseStrategy):
             # 1. EMA State
             is_bull_aligned = fast > slow
             is_bear_aligned = fast < slow
-            ema_state = "Bullish" if is_bull_aligned else "Bearish" if is_bear_aligned else "Neutral"
+            ema_diff = abs(fast - slow)
+            
+            state_val = "Bullish" if is_bull_aligned else "Bearish"
+            
             conditions.append({
                 "name": f"EMA {ema_fast_len}/{ema_slow_len} Alignment",
-                "status": True, # Always valid state
-                "value": ema_state
+                "status": True, 
+                "value": f"{state_val} (Spread: {ema_diff:.4f})"
             })
             
             # 2. Trend Filter
@@ -253,10 +256,16 @@ class ScalpEmaRsi(BaseStrategy):
             
             # 3. RSI Filter
             rsi_ok = (50 < rsi < 70) or (30 < rsi < 50)
+            
+            if is_bull_aligned:
+                target_range = "50-70"
+            else:
+                target_range = "30-50"
+                
             conditions.append({
                 "name": f"RSI Momentum Zone",
                 "status": rsi_ok, 
-                "value": f"{rsi:.1f}"
+                "value": f"RSI: {rsi:.1f} vs Range: {target_range}"
             })
             
             return conditions

@@ -176,7 +176,7 @@ class DoubleTopStrategy(ChartPatternBase):
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """Check detailed conditions for UI display."""
+        """Check detailed conditions for UI - Diagnostic Card"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -186,7 +186,7 @@ class DoubleTopStrategy(ChartPatternBase):
             
             conditions = []
             
-            # Pattern Detection
+            # 1. Pattern Detection
             pattern_detected = pattern is not None
             conditions.append({
                 "name": "Double Top Pattern Detected",
@@ -197,30 +197,32 @@ class DoubleTopStrategy(ChartPatternBase):
             if not pattern:
                 return conditions
             
-            # Neckline Breakout
+            # 2. Neckline Breakout
             current_price = df['close'].iloc[-1]
             neckline = pattern['neckline']
             breakout_ok = current_price < neckline
             
             conditions.append({
-                "name": f"Breakout Below Neckline (${neckline:.4f})",
+                "name": "Breakout Below Neckline",
                 "status": breakout_ok,
-                "value": f"${current_price:.4f}"
+                "value": f"Price: {current_price:.2f} vs Neckline: {neckline:.2f}"
             })
             
-            # Volume Confirmation
+            # 3. Volume Confirmation
             if 'volume_sma_20' in df.columns:
                 current_volume = df['volume'].iloc[-1]
                 avg_volume = df['volume_sma_20'].iloc[-1]
                 volume_ok = current_volume > avg_volume
                 
+                vol_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 0
                 conditions.append({
-                    "name": "Volume > Average",
+                    "name": "Volume Confirmation",
                     "status": volume_ok,
-                    "value": f"{(current_volume/avg_volume)*100:.0f}%"
+                    "value": f"{vol_ratio:.0f}% vs Req: >100%"
                 })
             
-            # R:R Ratio
+            # 4. R:R Ratio
+            rr_val = 0
             if breakout_ok:
                 highest_high = max(pattern['high1']['price'], pattern['high2']['price'])
                 sl = highest_high * 1.005
@@ -229,13 +231,14 @@ class DoubleTopStrategy(ChartPatternBase):
                     sl, 
                     pattern['pattern_height']
                 )
+                rr_val = rr_ratio
                 
-                rr_ok = rr_ratio >= self.min_rr
-                conditions.append({
-                    "name": f"R:R Ratio (Min {self.min_rr})",
-                    "status": rr_ok,
-                    "value": f"{rr_ratio:.2f}"
-                })
+            rr_ok = rr_val >= self.min_rr
+            conditions.append({
+                "name": "Risk:Reward Ratio",
+                "status": rr_ok,
+                "value": f"{rr_val:.2f} vs Min: {self.min_rr}"
+            })
             
             return conditions
         
