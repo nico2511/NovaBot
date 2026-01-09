@@ -232,6 +232,25 @@
                 "swing_confirmation_bars": 10,
                 "volume_multiplier": 1.5
             }
+        },
+        "bollinger_bounce_v2": {
+            "enabled": true,
+            "type": "range",
+            "description": "Aggressive Bollinger Bounce (V2) for choppy markets.",
+            "display_conditions": [
+                "Choppy Market (ADX < 45)",
+                "Kill Zone (15%)",
+                "Range Dip/Top"
+            ],
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "adx_threshold": 45,
+                "adx_period": 14,
+                "ema50_slope_threshold": 0.005,
+                "atr_period": 14,
+                "min_rr": 1.0
+            }
         }
     }
 }
