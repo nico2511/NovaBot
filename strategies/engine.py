@@ -247,6 +247,9 @@ class StrategyEngine:
                 # Check detailed conditions
                 if hasattr(strat, "check_conditions"):
                     conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
+                    print(f"🔍 DEBUG: Collected {len(conditions[strat.name])} conditions for {strat.name}")
+                    if conditions[strat.name]:
+                        print(f"   Sample: {conditions[strat.name][0]}")
                 else:
                     conditions[strat.name] = []
             except Exception as e:

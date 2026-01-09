@@ -886,6 +886,9 @@ class BotContext:
                 
                 # Store result for API access
                 self.latest_strategy_result = result
+                print(f"🔍 DEBUG: Stored strategy result with {len(result.get('conditions', {}))} strategy conditions")
+                for name, conds in result.get('conditions', {}).items():
+                    print(f"   {name}: {len(conds)} conditions")
                 
                 # Log analysis results
                 regime = result.get('regime', 'UNKNOWN')

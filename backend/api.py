@@ -553,6 +553,7 @@ async def get_market_data():
                     active_strategies.append(name)
                     strategy_progress[name] = progress_data.get(name, 0)
                     strategy_conditions[name] = conditions_data.get(name, [])
+                    print(f"🔍 DEBUG API: Sending {len(strategy_conditions[name])} conditions for {name}")
         
         # If bot not connected or no analysis yet, return empty list
         if not active_strategies:
