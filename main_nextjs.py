@@ -34,7 +34,7 @@ from app.utils.data_processing import get_dynamic_context
 class BotContext:
     """Main bot context - same as main.py"""
     def __init__(self):
-        print("\n\n🤖 [BOOT] BotContext v1.0.3 (OPTIMIZATIONS PHASE 1)\n")
+        print("\n\n🤖 [BOOT] BotContext v1.0.4 (OPTIMIZATIONS PHASE 2)\n")
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
@@ -98,6 +98,40 @@ class BotContext:
             # Access settings loaded into sidebar_settings if available
             if hasattr(self, "sidebar_settings"):
                 self.execution_mode = self.sidebar_settings.get("execution_mode", "Manual (Phantom)")
+                
+                # Max Positions Configuration (Phase 2 Optimization)
+                # Read from settings with gamification cap
+                requested_max = self.sidebar_settings.get("max_positions", 1)
+                
+                try:
+                    # Apply gamification cap
+                    balance_data = hyperliquid_service.get_account_balance()
+                    equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
+                    gam = AssetGamification(equity)
+                    
+                    # Assuming get_max_positions() exists or use level-based logic
+                    # For now, simple level-based cap:
+                    # Level 1-2: max 1, Level 3-4: max 2, Level 5+: max 3
+                    if gam.level <= 2:
+                        max_allowed = 1
+                    elif gam.level <= 4:
+                        max_allowed = 2
+                    else:
+                        max_allowed = 3
+                    
+                    # Cap to gamification limit
+                    self.max_positions = min(requested_max, max_allowed)
+                    
+                    if requested_max > max_allowed:
+                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level})")
+                    else:
+                        self.add_log(f"⚙️ Max positions: {self.max_positions}")
+                        
+                except Exception as e:
+                    # Fallback to requested or default
+                    self.max_positions = requested_max
+                    print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
+                    
         except Exception as e:
             print(f"Error loading state: {e}")
             self.execution_mode = "Manual (Phantom)"
@@ -1126,7 +1160,17 @@ class BotContext:
                                     sig.get("metadata")
                                 )
                 
-                time.sleep(30) # Wait 30s
+                # Dynamic Sleep (Phase 2 Optimization)
+                # Adjust sleep duration based on bot state for better efficiency
+                if self.active_trade:
+                    sleep_duration = 10  # Active trade - monitor frequently
+                elif signals:
+                    sleep_duration = 15  # Signals detected - check again soon
+                else:
+                    sleep_duration = 60  # Idle - save API calls
+                
+                self.add_log(f"⏸️ Next analysis in {sleep_duration}s...")
+                time.sleep(sleep_duration)
                 
             except Exception as e:
                 self.add_log(f"❌ Error in trading loop: {e}")
