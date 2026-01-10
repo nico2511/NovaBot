@@ -44,6 +44,7 @@ class BotContext:
         self.is_running = False
         self.trading_enabled = False
         self.thread = None
+        self.account_value = 0.0 # NEW: Explicitly track account value
         self.latest_data = pd.DataFrame()
         self.latest_analysis = {}
         self.signals_log = deque(maxlen=200)
@@ -775,6 +776,10 @@ class BotContext:
                         self.add_log(f"⚠️ Gamification check failed: {gam_err}")
                         target_leverage = requested_leverage
                     
+                    # Update internal state (account_value)
+                    if 'current_equity' in locals():
+                        self.account_value = float(current_equity)
+
                     self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
                     hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
             except Exception as e:
@@ -944,6 +949,13 @@ class BotContext:
                 except Exception as e_manual:
                     # Log only debug to avoid spam
                     pass
+            
+            # Update Account Value (Cached)
+            try:
+                acc_data = hyperliquid_service.get_account_balance()
+                if acc_data.get("status") == "success":
+                   self.account_value = float(acc_data.get("total_equity", 0))
+            except: pass
             
             try:
                 # 1. MANAGE ACTIVE TRADE
@@ -1301,7 +1313,9 @@ class BotContext:
             balance = hyperliquid_service.get_account_balance()
             if balance.get("status") == "error":
                 raise Exception(balance.get("message"))
-            print(f"   ✅ Balance Access OK (Equity: ${balance.get('equity', 0)})")
+            
+            self.account_value = float(balance.get('equity', 0))
+            print(f"   ✅ Balance Access OK (Equity: ${self.account_value})")
             
             positions = hyperliquid_service.get_positions()
             active_pos = next((p for p in positions if p["symbol"] == self.active_symbol), None)

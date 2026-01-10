@@ -1531,6 +1531,11 @@ async def get_gamification_status():
             if hasattr(bot, 'account_value'):
                 account_value = bot.account_value
         
+        # Fallback: Get directly from service (Shared Singleton with Cache)
+        if account_value == 0:
+            from app.services.hyperliquid_service import hyperliquid_service
+            account_value = hyperliquid_service.get_account_value()
+
         # If 0, try to get from internal state or return default Goblin
         gam = AssetGamification(max(float(account_value), 0))
         return sanitize_for_json({

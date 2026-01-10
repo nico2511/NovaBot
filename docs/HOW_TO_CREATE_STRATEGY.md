@@ -183,8 +183,6 @@ Allez dans `strategies/engine.py`.
     }
     ```
 
-C'est tout ! Au prochain redémarrage (`pm2 restart all`), votre stratégie sera chargée, visible dans le dashboard, et active.
-
 ---
 
 ## 🤖 Prompt pour générer une stratégie par IA
