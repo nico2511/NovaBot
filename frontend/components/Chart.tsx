@@ -92,6 +92,7 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
     const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null)
     const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null)
     const bbBasisRef = useRef<ISeriesApi<"Line"> | null>(null)
+    const ema21Ref = useRef<ISeriesApi<"Line"> | null>(null)
     const ema200Ref = useRef<ISeriesApi<"Line"> | null>(null)
 
     // Trade Lines Refs (pour nettoyage propre)
@@ -152,6 +153,9 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         bbLowerRef.current = chart.addSeries(LineSeries, { color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, crosshairMarkerVisible: false })
         bbBasisRef.current = chart.addSeries(LineSeries, { color: 'rgba(251, 146, 60, 0.5)', lineWidth: 1, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false }) // Basis Orange
 
+        // EMA 21 (Yellow - Short-term trend)
+        ema21Ref.current = chart.addSeries(LineSeries, { color: 'rgba(234, 179, 8, 0.8)', lineWidth: 2, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false })
+
         // EMA 200 (Purple - Long-term trend)
         ema200Ref.current = chart.addSeries(LineSeries, { color: 'rgba(168, 85, 247, 0.6)', lineWidth: 2, lineStyle: LineStyle.Solid, crosshairMarkerVisible: false })
 
@@ -186,6 +190,10 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
         bbBasisRef.current?.setData(bbData.basis.filter(d => !isNaN(d.value)))
         bbUpperRef.current?.setData(bbData.upper.filter(d => !isNaN(d.value)))
         bbLowerRef.current?.setData(bbData.lower.filter(d => !isNaN(d.value)))
+
+        // Calcul et mise à jour de l'EMA 21
+        const ema21Data = calculateEMA(formattedData, 21)
+        ema21Ref.current?.setData(ema21Data.filter(d => !isNaN(d.value)))
 
         // Calcul et mise à jour de l'EMA 200
         const ema200Data = calculateEMA(formattedData, 200)
