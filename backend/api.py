@@ -755,30 +755,9 @@ async def execute_manual_signal(request: Request):
 async def get_trade_history(limit: int = 50):
     """Get trade history from Hyperliquid"""
     try:
-        # Try bot context first
-        if bot_bridge and bot_bridge.is_connected():
-            bot = bot_bridge.get_bot_context()
-            if hasattr(bot, 'hyperliquid_service') and bot.hyperliquid_service:
-                trades = bot.hyperliquid_service.get_trade_history(limit=limit)
-                return {"trades": trades, "source": "bot_context"}
-        
-        # Fallback: try direct service initialization
-        try:
-            from app.services.hyperliquid_service import HyperliquidService
-            from app.config import config
-            
-            # Check if account address is configured
-            if not config.HL_ACCOUNT_ADDRESS:
-                logger.warning("HL_ACCOUNT_ADDRESS not configured")
-                return {"trades": [], "error": "Account address not configured"}
-            
-            service = HyperliquidService()
-            trades = service.get_trade_history(limit=limit)
-            return {"trades": trades, "source": "direct_service"}
-        except Exception as service_error:
-            logger.error(f"Error initializing Hyperliquid service: {service_error}")
-            return {"trades": [], "error": str(service_error)}
-            
+        from app.services.hyperliquid_service import hyperliquid_service
+        trades = hyperliquid_service.get_trade_history(limit=limit)
+        return {"trades": trades}
     except Exception as e:
         logger.error(f"Error fetching trade history: {e}")
         import traceback
