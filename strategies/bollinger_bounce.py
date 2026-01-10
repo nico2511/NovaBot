@@ -41,13 +41,13 @@ class BollingerBounceStrategy(BaseStrategy):
     def __init__(self, config=None):
         super().__init__(config)
         self.bb_period = self.params.get("bb_period", 20)
-        self.bb_std = self.params.get("bb_std", 2.0)
+        self.bb_std = self.params.get("bb_std", 2.15)  # Match strategies.json
         
         # --- Config Params ---
-        self.adx_threshold = self.params.get("adx_threshold", 45) 
+        self.adx_threshold = self.params.get("adx_threshold", 42)  # Match strategies.json 
         self.adx_period = self.params.get("adx_period", 14)
         
-        self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.005) 
+        self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.008)  # Match strategies.json 
         
         self.atr_period = self.params.get("atr_period", 14)
         self.min_rr = self.params.get("min_rr", 1.0)
