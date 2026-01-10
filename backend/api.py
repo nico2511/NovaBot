@@ -753,8 +753,8 @@ async def get_active_trade():
                     trade = trade.copy()
                     trade["ai_analysis"] = ai_analysis
         
-        return {"active_trade": trade}
-    return {"active_trade": bot_state.active_trade}
+        return sanitize_for_json({"active_trade": trade})
+    return sanitize_for_json({"active_trade": bot_state.active_trade})
 
 @app.post("/api/close_trade")
 def close_trade():
@@ -1211,35 +1211,7 @@ async def force_breakeven():
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/gamification_status")
-async def get_gamification_status():
-    """Get gamification status based on account balance"""
-    try:
-        from app.services.hyperliquid_service import hyperliquid_service
-        from app.core.asset_gamification import AssetGamification
-        
-        # Récupérer le solde du compte (retourne un float directement)
-        balance_usdc = hyperliquid_service.get_account_value()
-        
-        # Créer l'instance de gamification
-        gam = AssetGamification(balance_usdc)
-        status = gam.get_status_summary()
-        
-        return {
-            "status": "success",
-            "gamification": status
-        }
-        
-    except Exception as e:
-        print(f"Error getting gamification status: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "gamification": {
-                "level": "Goblin",
-                "balance": 0
-            }
-        }
+
 
 
 
@@ -1560,11 +1532,11 @@ async def get_gamification_status():
                 account_value = bot.account_value
         
         # If 0, try to get from internal state or return default Goblin
-        gam = AssetGamification(max(account_value, 0))
-        return {
+        gam = AssetGamification(max(float(account_value), 0))
+        return sanitize_for_json({
             "status": "success",
             "gamification": gam.get_status_summary()
-        }
+        })
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
