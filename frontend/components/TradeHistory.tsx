@@ -1,112 +1,105 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import useSWR from 'swr'
+import axios from 'axios'
+import ClientOnly from './ClientOnly'
 
-interface Signal {
-    timestamp: string
-    strategy: string
-    side: 'BUY' | 'SELL'
-    price: number
-    symbol: string
-    manual_approval?: boolean
-}
+const API_URL = ''
+const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 export default function TradeHistory() {
-    const [signals, setSignals] = useState<Signal[]>([])
+    const { data: historyData } = useSWR(`${API_URL}/api/trade_history?limit=50`, fetcher, {
+        refreshInterval: 5000
+    })
 
-    useEffect(() => {
-        const fetchSignals = async () => {
-            try {
-                const response = await fetch('/api/signals')
-                const data = await response.json()
-                setSignals(data.signals || [])
-            } catch (error) {
-                console.error('Failed to fetch signals:', error)
-            }
-        }
+    const { data: positionsData } = useSWR(`${API_URL}/api/positions`, fetcher, {
+        refreshInterval: 3000
+    })
 
-        fetchSignals()
-        const interval = setInterval(fetchSignals, 5000)
+    const trades = historyData?.trades || []
+    const positions = positionsData?.positions || []
 
-        return () => clearInterval(interval)
-    }, [])
-
-    const handleExecute = (signal: Signal) => {
-        // TODO: Call API to execute trade
-        alert(`Executing ${signal.side} ${signal.symbol} @ $${signal.price}\nStrategy: ${signal.strategy}`)
-    }
+    // Calculate PNL
+    const unrealizedPnl = positions.reduce((sum: number, pos: any) => sum + (pos.pnl || 0), 0)
+    const realizedPnl = trades.reduce((sum: number, trade: any) => sum + (trade.closedPnl || 0), 0)
 
     return (
-        <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold">📊 Recent Signals</h3>
-                <div className="text-sm text-gray-400">
-                    {signals.length} signal{signals.length !== 1 ? 's' : ''}
-                </div>
-            </div>
-
-            {signals.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-4xl mb-3">📡</div>
-                    <div className="text-gray-400">No signals yet</div>
-                    <div className="text-sm text-gray-500 mt-2">
-                        Automatic signals will appear here
+        <ClientOnly>
+            <div className="space-y-6">
+                {/* PNL Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-xl p-6">
+                        <div className="text-sm text-gray-400 mb-1">Unrealized PNL</div>
+                        <div className={`text-3xl font-bold ${unrealizedPnl >= 0 ? 'text-success' : 'text-error'}`}>
+                            ${unrealizedPnl.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">From open positions</div>
+                    </div>
+                    <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-xl p-6">
+                        <div className="text-sm text-gray-400 mb-1">Realized PNL</div>
+                        <div className={`text-3xl font-bold ${realizedPnl >= 0 ? 'text-success' : 'text-error'}`}>
+                            ${realizedPnl.toFixed(2)}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">From closed trades</div>
                     </div>
                 </div>
-            ) : (
-                <div className="space-y-3">
-                    {signals.slice(0, 10).map((signal, index) => (
-                        <div
-                            key={index}
-                            className={`rounded-lg p-4 border transition-all ${signal.manual_approval
-                                ? 'bg-orange-500/10 border-orange-500/30 hover:border-orange-500/50'
-                                : 'bg-background/50 border-border/20 hover:border-primary/20'
-                                }`}
-                        >
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${signal.side === 'BUY'
-                                        ? 'bg-success/20 text-success'
-                                        : 'bg-error/20 text-error'
-                                        }`}>
-                                        {signal.side === 'BUY' ? '📈' : '📉'}
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-semibold">
-                                                {signal.side} {signal.symbol}
-                                            </span>
-                                            {signal.manual_approval && (
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                                                    VALIDATION NEEDED
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="text-sm text-gray-400">{signal.strategy}</div>
-                                    </div>
-                                </div>
-                                <div className="text-right flex items-center gap-3">
-                                    <div>
-                                        <div className="font-semibold">${signal.price.toLocaleString()}</div>
-                                        <div className="text-xs text-gray-500" suppressHydrationWarning>
-                                            {new Date(signal.timestamp).toLocaleTimeString('fr-FR')}
-                                        </div>
-                                    </div>
 
-                                    {signal.manual_approval && (
-                                        <button
-                                            onClick={() => handleExecute(signal)}
-                                            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-md text-sm font-semibold transition-colors shadow-lg shadow-orange-500/20"
-                                        >
-                                            EXECUTE
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
+                {/* Trade History Table */}
+                <div className="bg-surface/50 backdrop-blur border border-border/30 rounded-xl overflow-hidden">
+                    <div className="p-4 border-b border-border/30">
+                        <h3 className="text-lg font-semibold">📜 Trade History</h3>
+                    </div>
+
+                    {trades.length === 0 ? (
+                        <div className="p-8 text-center text-gray-400">
+                            No trade history yet
                         </div>
-                    ))}
+                    ) : (
+                        <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                            <table className="w-full">
+                                <thead className="bg-background/50 sticky top-0">
+                                    <tr className="text-left text-xs text-gray-400 uppercase">
+                                        <th className="p-3">Time</th>
+                                        <th className="p-3">Symbol</th>
+                                        <th className="p-3">Side</th>
+                                        <th className="p-3">Entry</th>
+                                        <th className="p-3">Exit</th>
+                                        <th className="p-3">Size</th>
+                                        <th className="p-3">PNL</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/20">
+                                    {trades.map((trade: any, idx: number) => (
+                                        <tr key={idx} className="hover:bg-background/30 transition-colors">
+                                            <td className="p-3 text-sm text-gray-400" suppressHydrationWarning>
+                                                {new Date(trade.time || trade.closedTime).toLocaleString()}
+                                            </td>
+                                            <td className="p-3 text-sm font-medium">{trade.coin || trade.symbol}</td>
+                                            <td className="p-3">
+                                                <span className={`text-xs px-2 py-1 rounded ${trade.side === 'A' || trade.dir === 'Open Long'
+                                                        ? 'bg-success/20 text-success'
+                                                        : 'bg-error/20 text-error'
+                                                    }`}>
+                                                    {trade.side === 'A' ? 'LONG' : trade.side === 'B' ? 'SHORT' : trade.dir}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-sm font-mono">${trade.px?.toFixed(4) || trade.entryPx?.toFixed(4) || '-'}</td>
+                                            <td className="p-3 text-sm font-mono">${trade.closedPx?.toFixed(4) || '-'}</td>
+                                            <td className="p-3 text-sm">{trade.sz || trade.szi || '-'}</td>
+                                            <td className="p-3">
+                                                <span className={`text-sm font-bold ${(trade.closedPnl || 0) >= 0 ? 'text-success' : 'text-error'
+                                                    }`}>
+                                                    {trade.closedPnl ? `$${trade.closedPnl.toFixed(2)}` : '-'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
-            )}
-        </div>
+            </div>
+        </ClientOnly>
     )
 }

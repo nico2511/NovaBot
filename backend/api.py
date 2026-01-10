@@ -693,12 +693,63 @@ async def get_signals():
             signals.append({
                 "timestamp": sig.get("time", "").isoformat() if hasattr(sig.get("time", ""), "isoformat") else str(sig.get("time", "")),
                 "strategy": sig.get("strategy", "Unknown"),
+                "signal": sig.get("type", "BUY"),
                 "side": sig.get("type", "BUY"),
                 "price": sig.get("price", 0),
-                "symbol": sig.get("symbol", "BTC")
+                "symbol": sig.get("symbol", "BTC"),
+                "sl": sig.get("sl"),
+                "tp": sig.get("tp"),
+                "manual_approval": sig.get("manual_approval", False)
             })
         return {"signals": signals}
     return {"signals": bot_state.signals_log[-50:]}
+
+@app.post("/api/execute_manual_signal")
+async def execute_manual_signal(request: Request):
+    """Execute a manually approved signal"""
+    try:
+        data = await request.json()
+        
+        if not bot_bridge or not bot_bridge.is_connected():
+            raise HTTPException(status_code=503, detail="Bot not connected")
+        
+        bot = bot_bridge.get_bot_context()
+        
+        # Extract signal data
+        signal = data.get("signal", "BUY")
+        symbol = data.get("symbol", "BTC")
+        price = data.get("price")
+        strategy = data.get("strategy", "Manual")
+        sl = data.get("sl")
+        tp = data.get("tp")
+        
+        # Calculate position size
+        size = bot.risk_manager.calculate_position_size(
+            account_value=bot.account_value or 1000,
+            entry_price=price,
+            stop_loss=sl
+        )
+        
+        # Execute trade
+        side_str = "long" if signal == "BUY" else "short"
+        result = bot.execute_entry_atomically(
+            symbol=symbol,
+            side=side_str,
+            size=size,
+            price=price,
+            sl=sl,
+            tp=tp,
+            strategy=strategy
+        )
+        
+        if result:
+            return {"success": True, "message": f"Executed {signal} {symbol} @ ${price}"}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to execute trade")
+            
+    except Exception as e:
+        logger.error(f"Error executing manual signal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/logs")
 async def get_logs():

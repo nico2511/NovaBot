@@ -11,6 +11,7 @@ import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
 import TokenScanner from '@/components/TokenScanner'
 import AICommentary from '@/components/AICommentary'
+import TradeHistory from '@/components/TradeHistory'
 
 import CryptoWeather from '@/components/CryptoWeather'
 import GamificationWidget from '@/components/GamificationWidget'
@@ -177,6 +178,15 @@ export default function DashboardClient() {
                         >
                             🤖 AI Analysis
                         </button>
+                        <button
+                            onClick={() => setActiveTab('history')}
+                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'history'
+                                ? 'bg-primary text-white'
+                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
+                                }`}
+                        >
+                            📜 History
+                        </button>
                     </div>
 
 
@@ -219,6 +229,10 @@ export default function DashboardClient() {
 
                     {activeTab === 'ai' && (
                         <AICommentary symbol={status?.active_symbol || 'BTC'} />
+                    )}
+
+                    {activeTab === 'history' && (
+                        <TradeHistory />
                     )}
                 </div>
 
