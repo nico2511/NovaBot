@@ -267,7 +267,7 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
             <div ref={chartContainerRef} className="w-full h-full" />
 
             {/* Chart Legend */}
-            <div className="absolute bottom-4 left-4 z-10 flex flex-wrap gap-3 pointer-events-none">
+            <div className="absolute bottom-12 left-4 z-10 flex flex-wrap gap-3 pointer-events-none">
                 <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
                     <div className="w-3 h-0.5 bg-[#eab308]"></div>
                     <span className="text-[10px] text-gray-300 font-medium">EMA 21</span>

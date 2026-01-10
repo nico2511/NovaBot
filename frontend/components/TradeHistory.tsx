@@ -8,8 +8,9 @@ const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 export default function TradeHistory() {
-    const { data: historyData } = useSWR(`${API_URL}/api/trade_history?limit=50`, fetcher, {
-        refreshInterval: 5000
+    const { data: historyData, error: historyError } = useSWR(`${API_URL}/api/trade_history?limit=50`, fetcher, {
+        refreshInterval: 5000,
+        onError: (err) => console.error('Trade history fetch error:', err)
     })
 
     const { data: positionsData } = useSWR(`${API_URL}/api/positions`, fetcher, {
@@ -19,9 +20,11 @@ export default function TradeHistory() {
     const trades = historyData?.trades || []
     const positions = positionsData?.positions || []
 
-    // Calculate PNL
+    // Calculate PNL - handle both formats
     const unrealizedPnl = positions.reduce((sum: number, pos: any) => sum + (pos.pnl || 0), 0)
-    const realizedPnl = trades.reduce((sum: number, trade: any) => sum + (trade.closedPnl || 0), 0)
+    const realizedPnl = trades.reduce((sum: number, trade: any) => sum + (trade.pnl || trade.closedPnl || 0), 0)
+
+    console.log('TradeHistory - trades:', trades.length, 'positions:', positions.length, 'realizedPnl:', realizedPnl)
 
     return (
         <ClientOnly>
@@ -87,8 +90,8 @@ export default function TradeHistory() {
                                                 <td className="p-3 text-sm font-medium">{symbol}</td>
                                                 <td className="p-3">
                                                     <span className={`text-xs px-2 py-1 rounded ${side === 'LONG'
-                                                            ? 'bg-success/20 text-success'
-                                                            : 'bg-error/20 text-error'
+                                                        ? 'bg-success/20 text-success'
+                                                        : 'bg-error/20 text-error'
                                                         }`}>
                                                         {side}
                                                     </span>
