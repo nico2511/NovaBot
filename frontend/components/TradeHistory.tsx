@@ -69,31 +69,42 @@ export default function TradeHistory() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border/20">
-                                    {trades.map((trade: any, idx: number) => (
-                                        <tr key={idx} className="hover:bg-background/30 transition-colors">
-                                            <td className="p-3 text-sm text-gray-400" suppressHydrationWarning>
-                                                {new Date(trade.time || trade.closedTime).toLocaleString()}
-                                            </td>
-                                            <td className="p-3 text-sm font-medium">{trade.coin || trade.symbol}</td>
-                                            <td className="p-3">
-                                                <span className={`text-xs px-2 py-1 rounded ${trade.side === 'A' || trade.dir === 'Open Long'
-                                                        ? 'bg-success/20 text-success'
-                                                        : 'bg-error/20 text-error'
-                                                    }`}>
-                                                    {trade.side === 'A' ? 'LONG' : trade.side === 'B' ? 'SHORT' : trade.dir}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-sm font-mono">${trade.px?.toFixed(4) || trade.entryPx?.toFixed(4) || '-'}</td>
-                                            <td className="p-3 text-sm font-mono">${trade.closedPx?.toFixed(4) || '-'}</td>
-                                            <td className="p-3 text-sm">{trade.sz || trade.szi || '-'}</td>
-                                            <td className="p-3">
-                                                <span className={`text-sm font-bold ${(trade.closedPnl || 0) >= 0 ? 'text-success' : 'text-error'
-                                                    }`}>
-                                                    {trade.closedPnl ? `$${trade.closedPnl.toFixed(2)}` : '-'}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {trades.map((trade: any, idx: number) => {
+                                        // Handle both API formats
+                                        const symbol = trade.coin || trade.symbol || '-'
+                                        const side = trade.side === 'A' || trade.side === 'BUY' || trade.dir === 'Open Long' ? 'LONG' : 'SHORT'
+                                        const entryPrice = trade.px || trade.entry_price || trade.entryPx || 0
+                                        const exitPrice = trade.closedPx || trade.exit_price || 0
+                                        const size = trade.sz || trade.szi || trade.size || 0
+                                        const pnl = trade.closedPnl || trade.pnl || 0
+                                        const timestamp = trade.time || trade.closedTime || trade.timestamp || trade.entry_time
+
+                                        return (
+                                            <tr key={idx} className="hover:bg-background/30 transition-colors">
+                                                <td className="p-3 text-sm text-gray-400" suppressHydrationWarning>
+                                                    {new Date(timestamp).toLocaleString()}
+                                                </td>
+                                                <td className="p-3 text-sm font-medium">{symbol}</td>
+                                                <td className="p-3">
+                                                    <span className={`text-xs px-2 py-1 rounded ${side === 'LONG'
+                                                            ? 'bg-success/20 text-success'
+                                                            : 'bg-error/20 text-error'
+                                                        }`}>
+                                                        {side}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-sm font-mono">${entryPrice.toFixed(4)}</td>
+                                                <td className="p-3 text-sm font-mono">{exitPrice > 0 ? `$${exitPrice.toFixed(4)}` : '-'}</td>
+                                                <td className="p-3 text-sm">{size}</td>
+                                                <td className="p-3">
+                                                    <span className={`text-sm font-bold ${pnl >= 0 ? 'text-success' : 'text-error'
+                                                        }`}>
+                                                        ${pnl.toFixed(2)}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
                                 </tbody>
                             </table>
                         </div>
