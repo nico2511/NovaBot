@@ -47,20 +47,20 @@
         "smart_trend": {
             "enabled": true,
             "type": "trend",
-            "description": "AI-assisted Trend Following. Uses Micro-Structure & Momentum.",
+            "description": "Smart Trend V3 - Plus stricte sur vrai trend, moins de faux en range",
             "display_conditions": [
                 "Trend Alignment",
                 "Micro-Structure (BOS)",
                 "AI Validation"
             ],
             "params": {
-                "min_rr": 1.6,
-                "adx_threshold": 20,
-                "rsi_min": 32,
-                "rsi_max": 75,
-                "pullback_tolerance": 0.015,
-                "bos_lookback": 2,
-                "sl_buffer": 0.22
+                "min_rr": 1.7,
+                "adx_threshold": 28,
+                "rsi_min": 38,
+                "rsi_max": 70,
+                "pullback_tolerance": 0.008,
+                "bos_lookback": 3,
+                "sl_buffer": 0.35
             }
         },
         "smart_mean_reversion": {
