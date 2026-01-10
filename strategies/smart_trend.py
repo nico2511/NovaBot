@@ -55,14 +55,15 @@ class StrategySmartTrend(BaseStrategy):
         self.looking_for_entry = False
         self.entry_direction = None  # "LONG" or "SHORT"
         
-        # Paramètres V2 (Configurable)
-        self.pullback_tolerance = self.config.get('pullback_tolerance', 0.01)
-        self.bos_lookback = self.config.get('bos_lookback', 2)
-        self.rr_ratio = self.config.get('min_rr', 2.0)  # Use min_rr key from json
-        self.sl_buffer = self.config.get('sl_buffer', 0.3)
-        self.adx_threshold = self.config.get('adx_threshold', 25)
-        self.rsi_min = self.config.get('rsi_min', 30)
-        self.rsi_max = self.config.get('rsi_max', 70)
+        # Params from config (with defaults)
+        params = self.config.get("params", {})
+        self.rr_ratio = params.get("min_rr", 1.7) # Renamed from min_rr to rr_ratio for consistency
+        self.adx_threshold = params.get("adx_threshold", 28)
+        self.rsi_min = params.get("rsi_min", 38)
+        self.rsi_max = params.get("rsi_max", 70)
+        self.pullback_tolerance = params.get("pullback_tolerance", 0.008)  # Fixed: 0.8% to match strategies.json
+        self.bos_lookback = params.get("bos_lookback", 3)
+        self.sl_buffer = params.get("sl_buffer", 0.35)
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
