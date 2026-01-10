@@ -207,9 +207,9 @@
                 "Structure Shift"
             ],
             "params": {
-                "liq_grab_lookback": 10,
+                "liq_grab_lookback": 7,
                 "min_rr": 1.2,
-                "volume_multiplier": 1.5
+                "volume_multiplier": 1.3
             }
         },
         "fibo_pullback": {

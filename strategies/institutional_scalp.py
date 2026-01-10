@@ -93,8 +93,8 @@ class InstitutionalScalp(BaseStrategy):
                         # Insufficient volume, likely a fakeout
                         return None
                 
-                sl = high + (0.5 * atr)
-                tp = close - (2.0 * atr)
+                sl = high + (0.6 * atr)
+                tp = close - (1.8 * atr)
                 
                 # Check Min R:R
                 risk = abs(sl - close)
