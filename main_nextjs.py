@@ -1091,7 +1091,6 @@ class BotContext:
                     if sig.get("signal") and sig.get("price"):
                         # AI Validate with Cooldown (Phase 1 Optimization)
                         from app.services.ia import ia_service
-                        import time
                         market_context = self._prepare_ai_context()
                         
                         # Extract Strategy Persona if available
