@@ -280,29 +280,34 @@ class ElasticReversionStrategy(BaseStrategy):
             
             conditions = []
             
-            # 1. RSI Oversold
+            # 1. Setup (RSI + Extension)
+            # RSI Oversold Check
             rsi_ok = p_rsi < 20
-            conditions.append({
-                "name": "RSI Oversold Filter",
-                "status": rsi_ok,
-                "value": ""
-            })
-            
-            # 2. Price Extension
+            # Price Extension Check (Dist from EMA)
             price_vs_ema_pct = ((c_close - c_ema) / c_ema) * 100
             ext_ok = price_vs_ema_pct < -(ext_pct * 100)
+            
+            setup_ok = rsi_ok and ext_ok
+            
             conditions.append({
-                "name": "Price Extension (Dist from EMA)",
-                "status": ext_ok,
-                "value": ""
+                "name": "1. Setup (RSI<20 + Ext)",
+                "status": setup_ok,
+                "value": f"RSI:{p_rsi:.1f}, Ext:{price_vs_ema_pct:.1f}%"
             })
             
-            # 3. Trigger (Reversal)
+            # 2. Trigger (Reversal)
             trigger_ok = c_close > p_high
+            trigger_val = "Waiting for Reversal..."
+            
+            if trigger_ok:
+                trigger_val = "Close > Prev High"
+            elif setup_ok:
+                trigger_val = f"Need > {p_high:.2f}"
+                
             conditions.append({
-                "name": "Reversal Trigger",
+                "name": "2. Trigger (Reversal)",
                 "status": trigger_ok,
-                "value": ""
+                "value": trigger_val
             })
             
             return conditions

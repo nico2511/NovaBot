@@ -216,17 +216,18 @@ class BollingerBounceStrategy(BaseStrategy):
         try:
             conditions = []
             
-            # 1. ADX Check
+            # 1. Regime (Range)
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
             adx = adx_res['ADX'].iloc[-1]
             adx_ok = adx < self.adx_threshold
+            
             conditions.append({
-                "name": "Régime de Marché (Range)",
+                "name": "1. Regime (Range)",
                 "status": adx_ok,
-                "value": ""
+                "value": f"ADX: {adx:.1f}"
             })
             
-            # 2. Kill Zone Proximity
+            # 2. Zone (Kill Zone)
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
             price = df['close'].iloc[-1]
             width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
@@ -237,19 +238,21 @@ class BollingerBounceStrategy(BaseStrategy):
             
             # Logic: In zone if close to either band
             in_zone = dist_lower < kill_zone or dist_upper < kill_zone
+            
             conditions.append({
-                "name": f"Proximité Bande (Kill Zone {self.kill_zone_percent*100:.0f}%)",
+                "name": f"2. Location (Kill Zone)",
                 "status": in_zone,
-                "value": ""
+                "value": "Near Band" if in_zone else "Mid-Range"
             })
             
-            # 3. Candle Size
+            # 3. Trigger (Candle)
             atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_period)
             current_atr = atr.iloc[-1]
             current_range = df['high'].iloc[-1] - df['low'].iloc[-1]
             size_ok = current_range >= (current_atr * self.min_candle_atr_multiple)
+            
             conditions.append({
-                "name": f"Candle Size (>{self.min_candle_atr_multiple}x ATR)",
+                "name": f"3. Trigger (Vol > {self.min_candle_atr_multiple}x ATR)",
                 "status": size_ok,
                 "value": f"{current_range/current_atr:.1f}x"
             })

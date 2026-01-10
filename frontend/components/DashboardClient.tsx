@@ -189,7 +189,8 @@ export default function DashboardClient() {
                                 entry: activeTradeData.active_trade.entry,
                                 sl: activeTradeData.active_trade.sl,
                                 tp: activeTradeData.active_trade.tp,
-                                side: activeTradeData.active_trade.side
+                                side: activeTradeData.active_trade.side,
+                                metadata: activeTradeData.active_trade.metadata
                             } : null}
                         />
                     )}

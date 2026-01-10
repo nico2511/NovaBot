@@ -289,7 +289,7 @@ class StrategySmartTrend(BaseStrategy):
             
             conditions = []
             
-            # 1. Trend Filter
+            # 1. Trend Filter (Setup)
             long_trend = close_15m > ema_50 or (close_15m > ema_21 and ema_21 > ema_50)
             short_trend = close_15m < ema_50 or (close_15m < ema_21 and ema_21 < ema_50)
             trend_ok = long_trend or short_trend
@@ -297,45 +297,47 @@ class StrategySmartTrend(BaseStrategy):
             curr_trend = "Bullish" if long_trend else "Bearish" if short_trend else "Flat/Mixed"
             
             conditions.append({
-                "name": "Trend Filter (15m)",
+                "name": f"1. Trend ({curr_trend})",
                 "status": trend_ok,
-                "value": ""
+                "value": "Price vs EMA 21/50"
             })
             
-            # 2. Pullback Zone
+            # 2. Pullback Zone (Location)
             # Check proximity to EMA 21
             dist_ema21 = abs(close_15m - ema_21) / ema_21
             in_zone = dist_ema21 <= self.pullback_tolerance
             
             conditions.append({
-                "name": "Pullback Zone (EMA 21)",
+                "name": "2. Pullback Zone (EMA 21)",
                 "status": in_zone,
-                "value": ""
+                "value": f"Dist: {dist_ema21*100:.2f}%"
             })
 
-            # 3. RSI Filter
+            # 3. RSI Filter (Filter)
             rsi_ok = 30 < rsi_15m < 70
             conditions.append({
-                "name": "RSI Filter",
+                "name": "3. RSI Filter (30-70)",
                 "status": rsi_ok,
-                "value": ""
+                "value": f"{rsi_15m:.1f}"
             })
             
-            # 4. Trigger (1m)
+            # 4. Trigger (1m BOS)
             trigger_status = False
-            trigger_val = "Waiting..."
+            trigger_val = "Waiting for Zone..."
             
             if extra_data and "1m" in extra_data:
                 df_1m = extra_data["1m"]
                 if not df_1m.empty and len(df_1m) >= (self.bos_lookback + 2):
                     close_1m = df_1m['close'].iloc[-1]
-                    trigger_val = f"Last Close: {close_1m:.2f}"
+                    trigger_val = "Scanning 1m..."
                     if self.looking_for_entry:
-                        trigger_status = True
-                        trigger_val = f"Moniotoring {self.entry_direction} BOS"
+                        trigger_status = False # Waiting for breakout
+                        trigger_val = f"Monitoring {self.entry_direction} BOS"
+                    elif trend_ok and in_zone:
+                         trigger_val = "Ready for Setup"
             
             conditions.append({
-                "name": "Trigger (1m)",
+                "name": "4. Trigger (1m BOS)",
                 "status": trigger_status, 
                 "value": trigger_val
             })

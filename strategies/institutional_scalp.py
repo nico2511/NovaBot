@@ -178,7 +178,7 @@ class InstitutionalScalp(BaseStrategy):
             
             conditions = []
             
-            # 1. Liquidity Level Proximity
+            # 1. Proximity (Level)
             dist_high = abs(high - recent_high) / recent_high
             dist_low = abs(low - recent_low) / recent_low
             
@@ -186,44 +186,42 @@ class InstitutionalScalp(BaseStrategy):
             at_low = dist_low < 0.01
             
             is_near = at_high or at_low
-            dist_val = dist_high if at_high else dist_low if at_low else min(dist_high, dist_low)
             
             conditions.append({
-                "name": "Liquidity Level Proximity",
+                "name": "1. Proximity (Liquidity Level)",
                 "status": is_near,
-                "value": ""
+                "value": "Near High" if at_high else "Near Low" if at_low else "Mid-Range"
             })
             
-            # 2. Wick Formation
+            # 2. Wick (Indecision)
             candle_range = high - low
-            upper_wick_pct = 0
-            lower_wick_pct = 0
             has_wick = False
+            wick_txt = "No Wick"
             
             if candle_range > 0:
                 upper_wick = (high - max(close, current['open'])) / candle_range
                 lower_wick = (min(close, current['open']) - low) / candle_range
                 
                 has_wick = upper_wick > 0.4 or lower_wick > 0.4
-                upper_wick_pct = upper_wick * 100
-                lower_wick_pct = lower_wick * 100
+                if upper_wick > 0.4: wick_txt = "Upper Wick"
+                elif lower_wick > 0.4: wick_txt = "Lower Wick"
                 
             conditions.append({
-                "name": "Wick Formation (Rejection)",
+                "name": "2. Wick Formation (>40%)",
                 "status": has_wick,
-                "value": ""
+                "value": wick_txt
             })
             
-            # 3. Reversal Candle
+            # 3. Trigger (Reversal)
             bullish_reversal = low < recent_low and close > recent_low
             bearish_reversal = high > recent_high and close < recent_high
             
             rev_status = "None"
-            if bullish_reversal: rev_status = "Bullish"
-            elif bearish_reversal: rev_status = "Bearish"
+            if bullish_reversal: rev_status = "Bullish Reclaim"
+            elif bearish_reversal: rev_status = "Bearish Reclaim"
             
             conditions.append({
-                "name": "Liquidity Sweep Trigger",
+                "name": "3. Trigger (Level Reclaim)",
                 "status": bullish_reversal or bearish_reversal,
                 "value": rev_status
             })

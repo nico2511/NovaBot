@@ -278,7 +278,7 @@ class StrategyFiboPullback(BaseStrategy):
         except: return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Diagnostic Card Conditions"""
+        """Diagnostic Card Conditions - Full Funnel Visibility"""
         if df.empty: return []
         try:
             self.add_indicators(df)
@@ -287,14 +287,79 @@ class StrategyFiboPullback(BaseStrategy):
             adx = df['ADX_14'].iloc[-2]
             
             is_bull = current_price > ema_200
-            is_bear = current_price < ema_200
             trend_txt = "Bullish" if is_bull else "Bearish"
             
-            return [
-                {"name": f"Trend ({trend_txt})", "status": True, "value": f"Price vs EMA200"},
-                {"name": "ADX Strength", "status": adx >= self.adx_threshold, "value": f"{adx:.1f}"}
+            conditions = [
+                {"name": f"1. Trend ({trend_txt})", "status": True, "value": "Price vs EMA200"},
+                {"name": "2. ADX > 20", "status": adx >= self.adx_threshold, "value": f"{adx:.1f}"}
             ]
-        except: return []
+
+            # Swing Check
+            confirmed_end = -self.swing_confirmation_bars
+            confirmed_start = -(self.swing_lookback + self.swing_confirmation_bars)
+            confirmed_df = df.iloc[confirmed_start:confirmed_end].copy()
+            
+            has_swing = False
+            swing_info = "Waiting..."
+            in_zone = False
+            retrace_pct = 0.0
+            
+            if len(confirmed_df) >= 20:
+                if is_bull:
+                    high_idx = confirmed_df['high'].idxmax()
+                    low_idx = confirmed_df.loc[:high_idx]['low'].idxmin() # Low before High
+                    swing_h = confirmed_df.loc[high_idx, 'high']
+                    swing_l = confirmed_df.loc[low_idx, 'low']
+                    if swing_h > swing_l:
+                        has_swing = True
+                        diff = swing_h - swing_l
+                        retrace_pct = (swing_h - current_price) / diff * 100
+                        in_zone = 50 <= retrace_pct <= 78.6
+                        swing_info = f"Retrace: {retrace_pct:.1f}%"
+                else:
+                    low_idx = confirmed_df['low'].idxmin()
+                    high_idx = confirmed_df.loc[:low_idx]['high'].idxmax() # High before Low
+                    swing_l = confirmed_df.loc[low_idx, 'low']
+                    swing_h = confirmed_df.loc[high_idx, 'high']
+                    if swing_l < swing_h:
+                        has_swing = True
+                        diff = swing_h - swing_l
+                        retrace_pct = (current_price - swing_l) / diff * 100 # Upward retrace
+                        in_zone = 50 <= retrace_pct <= 78.6
+                        swing_info = f"Retrace: {retrace_pct:.1f}%"
+
+            conditions.append({
+                "name": "3. Swing Structure",
+                "status": has_swing,
+                "value": swing_info if has_swing else "Searching..."
+            })
+            
+            conditions.append({
+                "name": "4. Fibo Zone (50-78%)",
+                "status": in_zone,
+                "value": f"{retrace_pct:.1f}%" if has_swing else "--"
+            })
+
+            # Volume Check
+            vol_ok = False
+            vol_txt = "Low"
+            if 'volume' in df.columns:
+                cur_vol = df['volume'].iloc[-2]
+                avg_vol = df['volume'].iloc[-22:-2].mean()
+                if avg_vol > 0:
+                    ratio = cur_vol / avg_vol
+                    vol_ok = ratio >= self.volume_multiplier
+                    vol_txt = f"{ratio:.1f}x"
+            
+            conditions.append({
+                "name": "5. Volume Trigger",
+                "status": vol_ok,
+                "value": vol_txt
+            })
+            
+            return conditions
+        except Exception as e: 
+            return [{"name": "Error", "status": False, "value": str(e)}]
 
     def get_threshold_comparisons(self, df, extra_data=None):
         """Detailed parameters for UI"""

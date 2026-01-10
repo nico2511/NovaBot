@@ -226,39 +226,39 @@ class SmartMeanReversionStrategy(BaseStrategy):
             
             conditions = []
             
-            # 1. RSI Oversold
+            # 1. Setup (RSI < 30)
             rsi_ok = c_rsi < rsi_threshold
             conditions.append({
-                "name": "RSI Oversold Filter",
+                "name": "1. Setup (RSI < 30)",
                 "status": rsi_ok,
-                "value": ""
+                "value": f"{c_rsi:.1f}"
             })
             
-            # 2. Momentum Floor
+            # 2. Safety (Momentum Floor)
+            # ROC must be > -15% (avoid crashing markets)
             roc_ok = c_roc > roc_floor
+            
             conditions.append({
-                "name": "ROC Safety Floor",
+                "name": "2. Safety (ROC > -15%)",
                 "status": roc_ok,
-                "value": ""
+                "value": f"{c_roc:.1f}%"
             })
             
-            # 3. Bollinger Band Position
+            # 3. Trigger (Stabilization)
+            # Price under BB Lower AND Green Candle
             bb_ok = c_close < c_bbl
-            # Distance in %
-            dist_pct = ((c_close - c_bbl) / c_bbl) * 100
-            
-            conditions.append({
-                "name": "Price < BB Lower",
-                "status": bb_ok,
-                "value": ""
-            })
-            
-            # 4. Stabilization
             stab_ok = c_close > p_close
+            trigger_ok = bb_ok and stab_ok
+            
+            trigger_val = "Waiting..."
+            if not bb_ok: trigger_val = "Price above Lower Band"
+            elif not stab_ok: trigger_val = "Falling (Red Candle)"
+            elif trigger_ok: trigger_val = "Stabilized"
+            
             conditions.append({
-                "name": "Stabilization (Green Candle)",
-                "status": stab_ok,
-                "value": ""
+                "name": "3. Trigger (BB + Green)",
+                "status": trigger_ok,
+                "value": trigger_val
             })
             
             return conditions

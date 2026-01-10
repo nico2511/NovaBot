@@ -22,6 +22,7 @@ interface ChartProps {
         sl: number
         tp: number
         side: string
+        metadata?: any
     } | null
 }
 
@@ -216,6 +217,23 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
                 tradeLinesRef.current.push(candleSeriesRef.current.createPriceLine({
                     price: activeTrade.tp, color: '#10b981', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `TP`,
                 }))
+            }
+
+            // CUSTOM STRATEGY LINES (Metadata)
+            if (activeTrade.metadata) {
+                // FIBO 61.8
+                if (activeTrade.metadata.fibo_618) {
+                    tradeLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+                        price: activeTrade.metadata.fibo_618,
+                        color: '#d97706', // Amber-600
+                        lineWidth: 1,
+                        lineStyle: LineStyle.Dotted,
+                        axisLabelVisible: true,
+                        title: `FIB 61.8%`,
+                    }))
+                }
+                // SWING HIGH/LOW (Optional but helpful)
+                // if (activeTrade.metadata.swing_high) { ... }
             }
         }
     }, [activeTrade])

@@ -8,12 +8,7 @@ from strategies.elastic_reversion import ElasticReversionStrategy
 from strategies.scalp_ema_rsi import ScalpEmaRsi
 from strategies.smart_trend import StrategySmartTrend
 from strategies.smart_mean_reversion import SmartMeanReversionStrategy
-from strategies.double_bottom import DoubleBottomStrategy
-from strategies.double_top import DoubleTopStrategy
-from strategies.bull_flag import BullFlagStrategy
-from strategies.head_shoulders import HeadShouldersStrategy
 from strategies.bollinger_bounce import BollingerBounceStrategy
-from strategies.rsi_ping_pong import RSIPingPongStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 
@@ -38,15 +33,8 @@ class StrategyEngine:
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")),
             
-            # Pattern recognition strategies
-            "double_bottom": DoubleBottomStrategy(strats_config.get("double_bottom")),
-            "double_top": DoubleTopStrategy(strats_config.get("double_top")),
-            "bull_flag": BullFlagStrategy(strats_config.get("bull_flag")),
-            "head_shoulders": HeadShouldersStrategy(strats_config.get("head_shoulders")),
-            
             # Range trading strategies
             "bollinger_bounce": BollingerBounceStrategy(strats_config.get("bollinger_bounce")),
-            "rsi_ping_pong": RSIPingPongStrategy(strats_config.get("rsi_ping_pong")),
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
 

@@ -198,9 +198,9 @@ class ScalpEmaRsi(BaseStrategy):
             state_val = "Bullish" if is_bull_aligned else "Bearish"
             
             conditions.append({
-                "name": f"EMA {ema_fast_len}/{ema_slow_len} Alignment",
+                "name": f"1. EMA Alignment ({state_val})",
                 "status": True, 
-                "value": ""
+                "value": f"Diff: {ema_diff:.2f}"
             })
             
             # 2. Trend Filter
@@ -211,9 +211,9 @@ class ScalpEmaRsi(BaseStrategy):
             trend_ok = (is_bull_aligned and is_trend_bull) or (is_bear_aligned and is_trend_bear)
             
             conditions.append({
-                "name": f"Trend Filter (EMA 200)",
+                "name": f"2. Trend Filter (EMA 200)",
                 "status": trend_ok,
-                "value": ""
+                "value": "Above" if is_trend_bull else "Below"
             })
             
             # 3. RSI Filter
@@ -225,9 +225,9 @@ class ScalpEmaRsi(BaseStrategy):
                 target_range = "30-50"
                 
             conditions.append({
-                "name": f"RSI Momentum Zone",
+                "name": f"3. RSI Filter ({target_range})",
                 "status": rsi_ok, 
-                "value": ""
+                "value": f"{rsi:.1f}"
             })
             
             return conditions

@@ -243,7 +243,7 @@ class BotContext:
         }
     
     
-    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown"):
+    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None):
         """
         ATOMIC ENTRY FLOW (Unified v2)
         1. Check Quota
@@ -317,7 +317,8 @@ class BotContext:
                         "leverage": float(pos.get("leverage", 1.0)),
                         "oid": oid,
                         "pnl": 0,
-                        "max_pnl": 0
+                        "max_pnl": 0,
+                        "metadata": metadata or {}
                     }
                     self.risk_manager.record_trade_open()
                     StateManager.save_state(self)
@@ -1078,7 +1079,9 @@ class BotContext:
                                     entry_price,
                                     sl_price,
                                     sig.get("tp"),
-                                    sig.get("strategy")
+                                    sig.get("tp"),
+                                    sig.get("strategy"),
+                                    sig.get("metadata")
                                 )
                 
                 time.sleep(30) # Wait 30s
