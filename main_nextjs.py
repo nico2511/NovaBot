@@ -109,21 +109,20 @@ class BotContext:
                     equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
                     gam = AssetGamification(equity)
                     
-                    # Assuming get_max_positions() exists or use level-based logic
-                    # For now, simple level-based cap:
-                    # Level 1-2: max 1, Level 3-4: max 2, Level 5+: max 3
-                    if gam.level <= 2:
+                    # Level-based cap (gam.level is AccountLevel Enum)
+                    from app.core.asset_gamification import AccountLevel
+                    if gam.level == AccountLevel.GOBLIN:
                         max_allowed = 1
-                    elif gam.level <= 4:
+                    elif gam.level == AccountLevel.MERCENARY:
                         max_allowed = 2
-                    else:
+                    else:  # WHALE
                         max_allowed = 3
                     
                     # Cap to gamification limit
                     self.max_positions = min(requested_max, max_allowed)
                     
                     if requested_max > max_allowed:
-                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level})")
+                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
                     else:
                         self.add_log(f"⚙️ Max positions: {self.max_positions}")
                         
