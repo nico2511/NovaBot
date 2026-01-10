@@ -5,21 +5,21 @@
     },
     "strategies": {
         "scalp_ema_rsi": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
-            "description": "Trend following momentum scalp. EMA Cross + RSI Momentum filter.",
+            "description": "Trend following momentum scalp (Optimize 2026). EMA Cross + RSI Momentum filter.",
             "display_conditions": [
                 "EMA Cross (9/21)",
-                "RSI Momentum (50-70)",
-                "Trend Alignment"
+                "RSI Momentum (52-68 Bull / 32-48 Bear)",
+                "Trend Alignment + ADX > 25 + Vol filter"
             ],
             "params": {
                 "ema_fast": 9,
                 "ema_slow": 21,
                 "rsi_period": 14,
-                "rsi_overbought": 70,
-                "rsi_oversold": 30,
-                "min_rr": 1.3
+                "rsi_overbought": 68,
+                "rsi_oversold": 32,
+                "min_rr": 1.5
             }
         },
         "elastic_reversion": {
@@ -54,13 +54,13 @@
                 "AI Validation"
             ],
             "params": {
-                "min_rr": 1.8,
-                "adx_threshold": 22,
-                "rsi_min": 35,
-                "rsi_max": 72,
-                "pullback_tolerance": 0.012,
+                "min_rr": 1.6,
+                "adx_threshold": 20,
+                "rsi_min": 32,
+                "rsi_max": 75,
+                "pullback_tolerance": 0.015,
                 "bos_lookback": 2,
-                "sl_buffer": 0.25
+                "sl_buffer": 0.22
             }
         },
         "smart_mean_reversion": {
@@ -74,12 +74,12 @@
             ],
             "params": {
                 "rsi_period": 14,
-                "roc_period": 10,
+                "roc_period": 8,
                 "bb_period": 20,
-                "bb_std": 2.0,
-                "rsi_threshold": 30,
-                "roc_floor": -15.0,
-                "min_rr": 1.3
+                "bb_std": 2.2,
+                "rsi_threshold": 35,
+                "roc_floor": -10.0,
+                "min_rr": 1.5
             }
         },
         "double_bottom": {
@@ -158,23 +158,22 @@
         "bollinger_bounce": {
             "enabled": true,
             "type": "range",
-            "description": "Classic Range Strategy. Buy Lower Band, Sell Upper Band.",
+            "description": "Aggressive Bollinger Bounce (V2) for choppy markets.",
             "display_conditions": [
-                "Band Interaction",
-                "Bandwidth Expansion",
-                "Slope Check"
+                "Choppy Market (ADX < 45)",
+                "Kill Zone (12%)",
+                "Range Dip/Top",
+                "Candle Size (Vol)"
             ],
             "params": {
                 "bb_period": 20,
-                "bb_std": 2.0,
-                "adx_threshold": 25,
-                "adx_period": 14,
-                "bandwidth_expansion_limit": 1.3,
-                "ema50_slope_threshold": 0.001,
+                "bb_std": 2.15,
+                "adx_threshold": 42,
+                "ema50_slope_threshold": 0.008,
                 "atr_period": 14,
-                "atr_sl_multiplier": 1.2,
-                "min_rr": 2.0,
-                "min_bandwidth_percentile": 20
+                "min_rr": 1.0,
+                "kill_zone_percent": 0.12,
+                "min_candle_atr_multiple": 1.2
             }
         },
         "rsi_ping_pong": {
@@ -231,24 +230,6 @@
                 "min_rr": 1.5,
                 "swing_confirmation_bars": 10,
                 "volume_multiplier": 1.5
-            }
-        },
-        "bollinger_bounce_v2": {
-            "enabled": true,
-            "type": "range",
-            "description": "Aggressive Bollinger Bounce (V2) for choppy markets.",
-            "display_conditions": [
-                "Choppy Market (ADX < 45)",
-                "Kill Zone (15%)",
-                "Range Dip/Top"
-            ],
-            "params": {
-                "bb_period": 20,
-                "bb_std": 2.1,
-                "adx_threshold": 42,
-                "ema50_slope_threshold": 0.0065,
-                "atr_period": 14,
-                "min_rr": 0.95
             }
         }
     }

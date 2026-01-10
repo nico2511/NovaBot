@@ -3,7 +3,7 @@
     "trading_enabled": true,
     "is_running": true,
     "active_symbol": "BTC",
-    "last_updated": "2026-01-09 08:10:16.984727",
+    "last_updated": "2026-01-10 08:50:19.305832",
     "risk_state": {
         "daily_pnl": 0.0,
         "open_positions": 0,

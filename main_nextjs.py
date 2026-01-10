@@ -578,6 +578,13 @@ class BotContext:
                         new_sl = be_price
                         self.add_log(f"🛡️ Smart BE: >40% target. Moving SL to {new_sl:.2f}")
 
+                # Threshold 1.5: > 60% -> Lock 20% of profit
+                if progress_pct > 60:
+                    secure_price = entry_price + (total_dist * 0.20)
+                    if sl_price < secure_price:
+                         new_sl = secure_price
+                         self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
+
                 # Threshold 2: > 75% -> Lock 40% of profit
                 if progress_pct > 75:
                     lock_price = entry_price + (total_dist * 0.40)
@@ -601,6 +608,12 @@ class BotContext:
                     if sl_price > be_price:
                         new_sl = be_price
                         self.add_log(f"🛡️ Smart BE: >40% target. Moving SL to {new_sl:.2f}")
+
+                if progress_pct > 60:
+                    secure_price = entry_price - (total_dist * 0.20)
+                    if sl_price > secure_price:
+                        new_sl = secure_price
+                        self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
                         
                 if progress_pct > 75:
                     lock_price = entry_price - (total_dist * 0.40)
@@ -640,6 +653,89 @@ class BotContext:
             self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}")
             self.add_log(f"   🕵️ DEBUG: Side={side}, Entry={self.active_trade.get('entry')}, SL={sl_val}, TP={tp_val}")
             self.execute_exit_atomically(symbol, reason)
+
+    def force_sync(self):
+        """
+        Manually trigger synchronization with Exchange.
+        Called from API.
+        """
+        self.add_log("🔄 FORCE SYNC: Initiated by User")
+        
+        try:
+            # 1. Get Real Positions
+            positions = hyperliquid_service.get_positions()
+            
+            if positions:
+                pos = positions[0]
+                symbol = pos["symbol"]
+                
+                # Update Symbol
+                if self.active_symbol != symbol:
+                    self.active_symbol = symbol
+                    StateManager.save_state(self)
+                    self.add_log(f"✅ SYNC: Symbol corrected to {symbol}")
+                
+                # Update/Adopt Trade
+                # If we have an active trade but it doesn't match, or if we have None
+                self.active_trade = {
+                    "symbol": symbol,
+                    "side": "BUY" if float(pos["szi"]) > 0 else "SELL",
+                    "entry": float(pos["entryPx"]),
+                    "size": abs(float(pos["szi"])),
+                    "sl": self.active_trade.get("sl", 0) if self.active_trade else 0,
+                    "tp": self.active_trade.get("tp", 0) if self.active_trade else 0,
+                    "strategy": self.active_trade.get("strategy", "Manual/Sync") if self.active_trade else "Manual (Sync)",
+                    "timestamp": self.active_trade.get("timestamp", pd.Timestamp.now().isoformat()) if self.active_trade else pd.Timestamp.now().isoformat(),
+                    "pnl": float(pos["unrealizedPnl"]),
+                    "max_pnl": float(pos["unrealizedPnl"]),
+                    "status": "OPEN",
+                    # Preserve existing AI analysis if available to avoid flicker
+                    "ai_analysis": self.active_trade.get("ai_analysis") if self.active_trade else None
+                }
+                StateManager.save_state(self)
+                self.add_log(f"✅ SYNC: Trade state updated for {symbol}")
+                
+                # 2. Trigger AI Analysis (Async/Threaded)
+                def run_analysis():
+                    self.add_log(f"⏳ SYNC: Waiting 5s before AI analysis for data stability...")
+                    time.sleep(5)
+                    try:
+                        self.add_log(f"🤖 FORCE SYNC: Running AI Analysis on {symbol}")
+                        # Fetch context
+                        df = hyperliquid_service.get_candles(symbol, "15m", 50)
+                        if not df.empty:
+                            ai_result = ia_service.analyze_position_risk(
+                                symbol=symbol,
+                                position_data=pos,
+                                market_data={"close": float(df['close'].iloc[-1]), "regime": "UNKNOWN"}
+                            )
+                            if ai_result:
+                                ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
+                                
+                                # Update cache
+                                self.ai_cache[f"position_analysis_{symbol}"] = ai_data
+                                self.ai_cache["last_position_analysis"] = ai_data
+                                
+                                # Update active trade object in memory
+                                if self.active_trade:
+                                    self.active_trade["ai_analysis"] = ai_data
+                                
+                                self.add_log(f"✅ AI Analysis Updated: {ai_data.get('risk_level')}")
+                    except Exception as e:
+                        self.add_log(f"⚠️ AI Force Sync Failed: {e}")
+
+                threading.Thread(target=run_analysis, daemon=True).start()
+                
+                return {"status": "success", "message": "Sync and Analysis started"}
+            else:
+                self.active_trade = None
+                StateManager.save_state(self)
+                self.add_log("ℹ️ FORCE SYNC: No positions found. State cleared.")
+                return {"status": "success", "message": "State cleared (No position)"}
+                
+        except Exception as e:
+            self.add_log(f"❌ FORCE SYNC Failed: {e}")
+            return {"status": "error", "message": str(e)}
 
     def trading_loop(self):
         """Main trading loop"""

@@ -345,6 +345,40 @@ class StrategySmartTrend(BaseStrategy):
             return [{"name": "Error", "status": False, "value": str(e)}]
 
     
+    def analyze_trend_structure(self, df):
+        """Analyze trend structure for thresholds"""
+        if df is None or df.empty:
+            return {"direction": "NEUTRAL", "adx": 0}
+            
+        try:
+            self.add_indicators(df)
+            
+            # ADX
+            if 'ADX_14' in df.columns:
+                adx = df['ADX_14'].iloc[-1]
+            else:
+                adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
+                adx = adx_res['ADX'].iloc[-1]
+                
+            # Trend Direction
+            close = df['close'].iloc[-1]
+            ema_21 = df['EMA_21'].iloc[-1]
+            ema_50 = df['EMA_50'].iloc[-1]
+            
+            if close > ema_50:
+                direction = "BULLISH"
+            elif close < ema_50:
+                direction = "BEARISH"
+            else:
+                direction = "NEUTRAL"
+                
+            return {
+                "direction": direction,
+                "adx": float(adx)
+            }
+        except Exception as e:
+            return {"direction": "ERROR", "adx": 0}
+
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""
         if df is None or df.empty:
@@ -356,14 +390,24 @@ class StrategySmartTrend(BaseStrategy):
             close_15m = df['close'].iloc[-1]
             params = self.config.get("params", {})
             ema_21 = df[f'EMA_{params.get("ema_period", 21)}'].iloc[-1]
-            rsi_15m = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            # Use cached RSI if available, calculated in add_indicators
+            rsi_col = f'RSI_{params.get("rsi_period", 14)}'
+            if rsi_col in df.columns:
+                rsi_15m = df[rsi_col].iloc[-1]
+            else:
+                rsi_15m = 50.0
+
+            if ema_21 and ema_21 != 0:
+                dist_ema21 = abs(close_15m - ema_21) / ema_21
+            else:
+                dist_ema21 = 0.0
             
-            dist_ema21 = abs(close_15m - ema_21) / ema_21
+            pass_pullback = dist_ema21 <= self.pullback_tolerance
             
             return {
                 "Trend": f"{trend_data.get('direction', 'NEUTRAL')} (ADX: {trend_data.get('adx', 0):.1f})",
                 "Pullback (EMA21)": f"Dist: {dist_ema21*100:.2f}% vs Max: {self.pullback_tolerance*100:.1f}%",
-                "RSI": f"{rsi_15m:.1f} (Req: 30-70)"
+                "RSI": f"{rsi_15m:.1f} (Req: {self.rsi_min}-{self.rsi_max})"
             }
         except Exception as e:
             return {"Error": str(e)}

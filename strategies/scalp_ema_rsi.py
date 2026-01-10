@@ -57,15 +57,13 @@ class ScalpEmaRsi(BaseStrategy):
         if trend_col not in df.columns or atr_col not in df.columns: return None
         
         # GUARD CLAUSE: Trend Following only in Trend (ADX > 25)
+        # STRICTER: 25 -> 28 if desired, sticking to 25 for now but strictly enforced
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
             if current_adx < 25:
                 return None  # No trend, skip trend following strategy
 
         # Values (Use iloc[-2] for signal stability / avoiding repainting)
-        # However, checking cross often needs current vs prev.
-        # To be strict, we check if cross happened at Close of Prev.
-        
         current_fast = df[fast_col].iloc[-2]
         prev_fast = df[fast_col].iloc[-3]
         current_slow = df[slow_col].iloc[-2]
@@ -79,102 +77,66 @@ class ScalpEmaRsi(BaseStrategy):
         # ============================================
         # EVENT-BASED LOGIC (Crossover Detection)
         # ============================================
-        # Signal triggers ONLY on the exact crossover event, not continuous alignment.
-        # This prevents signal spam when EMAs remain aligned.
         
         # BUY: Bullish Crossover (EMA Fast crosses ABOVE EMA Slow)
-        # Condition: prev_fast <= prev_slow AND current_fast > current_slow
         is_bullish_cross = (prev_fast <= prev_slow) and (current_fast > current_slow)
         
         if is_bullish_cross:
-            # Additional Filters (only checked on crossover event)
+            # Additional Filters (Optimized 2026)
             if close > current_trend:  # Above 200 EMA (trend filter)
-                if 50 < current_rsi < 70:  # RSI in momentum zone
-                    # Volume Filter: Crossover without volume = fakeout (crypto 2026)
+                # Asymmetric RSI Bull: 52 - 68
+                if 52 < current_rsi < 68:  
+                    # Volume Filter: Strict 1.5x
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * 1.3:
+                        if current_vol < avg_vol * 1.5:
                             return None  # Insufficient volume
                     
                     # Check RR
-                    sl = close - (1.5 * atr)
-                    tp = close + (2.5 * atr)
+                    # Tight Scalp: SL 1.2 ATR, TP 2.0 ATR (Ratio ~1.66)
+                    sl = close - (1.2 * atr)
+                    tp = close + (2.0 * atr)
                     
                     risk = abs(close - sl)
                     reward = abs(tp - close)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.3):
+                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.5):
                         return {
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bullish Crossover + Trend + RSI + Vol"
+                            "comment": "EMA Bullish Cross (Strict V2) + Vol 1.5x"
                         }
                 
         # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
-        # Condition: prev_fast >= prev_slow AND current_fast < current_slow
         is_bearish_cross = (prev_fast >= prev_slow) and (current_fast < current_slow)
         
         if is_bearish_cross:
             if close < current_trend:  # Below 200 EMA (trend filter)
-                if 30 < current_rsi < 50:  # RSI in momentum zone
-                    # Volume Filter: Crossover without volume = fakeout (crypto 2026)
+                # Asymmetric RSI Bear: 32 - 48
+                if 32 < current_rsi < 48:
+                    # Volume Filter: Strict 1.5x
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * 1.3:
+                        if current_vol < avg_vol * 1.5:
                             return None  # Insufficient volume
                     
                     # Check RR
-                    sl = close + (1.5 * atr)
-                    tp = close - (2.5 * atr)
+                    sl = close + (1.2 * atr)
+                    tp = close - (2.0 * atr)
                     
                     risk = abs(sl - close)
                     reward = abs(close - tp)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.3):
+                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.5):
                         return {
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bearish Crossover + Trend + RSI + Vol"
+                            "comment": "EMA Bearish Cross (Strict V2) + Vol 1.5x"
                         }
-        
-        # ============================================
-        # OPTIONAL: PULLBACK RE-ENTRY LOGIC (Future Enhancement)
-        # ============================================
-        # To add pullback entries WITHOUT spam, use a state machine:
-        # 
-        # 1. Detect Initial Crossover (as above) → Set internal flag: self.pullback_armed = True
-        # 2. Wait for Pullback: Price touches EMA_fast (e.g., close <= ema_fast * 1.005)
-        # 3. Detect Bounce: Price closes above EMA_fast again
-        # 4. Trigger Re-Entry Signal → Reset flag: self.pullback_armed = False
-        # 
-        # Example Code (commented for future use):
-        # 
-        # if hasattr(self, 'pullback_armed') and self.pullback_armed:
-        #     # Check if price touched EMA_fast
-        #     if close <= current_fast * 1.005:  # Within 0.5% of EMA
-        #         self.pullback_touched = True
-        #     
-        #     # Check if price bounced back above EMA
-        #     if self.pullback_touched and close > current_fast:
-        #         # Trigger pullback entry
-        #         self.pullback_armed = False
-        #         self.pullback_touched = False
-        #         return {
-        #             "signal": "BUY",
-        #             "sl": close - (1.5 * atr),
-        #             "tp": close + (2.5 * atr),
-        #             "comment": "Pullback Re-Entry"
-        #         }
-        # 
-        # Note: Requires adding __init__ method to initialize flags:
-        # def __init__(self, config=None):
-        #     super().__init__(config)
-        #     self.pullback_armed = False
-        #     self.pullback_touched = False
         
         return None
 

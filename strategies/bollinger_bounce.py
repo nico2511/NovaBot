@@ -1,18 +1,6 @@
 """
-Bollinger Bounce Range Trading Strategy
-
-Trades bounces off Bollinger Bands in confirmed ranging markets.
-Includes ADX kill switch to exit on trend breakouts.
-
-Strategy Logic:
-- LONG: Price touches lower band and bounces back
-- SHORT: Price touches upper band and bounces back
-- TP: Middle band (mean reversion)
-- SL: Band ± ATR
-- Kill Switch: Exit if ADX > 25 (trend breakout)
-
-Author: NovaBot Team
-Date: 2026-01-04
+Bollinger Bounce - AGGRESSIVE RANGE VERSION (Consolidated 2026)
+Trades volatility within "Choppy" markets, not just perfect flats.
 """
 
 import pandas as pd
@@ -21,353 +9,273 @@ from typing import Optional, Dict, List
 from strategies.base import BaseStrategy
 from app.services.indicators import ta
 
-
 class BollingerBounceStrategy(BaseStrategy):
     """
-    Bollinger Bounce strategy for range-bound markets.
-    
-    Only activates when market is confirmed ranging (ADX < 25).
-    Exits immediately if ADX breaks above threshold (kill switch).
+    Bollinger Bounce strategy logic.
     """
     
+    # ==========================================
+    # 🧠 PERSONA : LE MERCENAIRE DU RANGE
+    # ==========================================
     AI_PERSONA = """
-    CODENAME: "APEX RANGER - BOUNDARY GUARDIAN"
+    CODENAME: "CHOPPY KILLER - RANGE MERCENARY"
     
     ROLE:
-    You are the MASTER OF CONTAINMENT. You do not fear volatility; you trap it.
+    You are a VOLATILITY HARVESTER. You do not wait for a calm market; you thrive in the noise.
     
     PRIME DIRECTIVE:
-    "The Bands are Electric Fences." Nothing escapes the range without a fight. We short the highs and buy the lows.
+    "If it's not trending hard, it's ranging." We short the spikes and buy the dips.
     
     RULES OF ENGAGEMENT (OVERRIDES):
-    1. RANGE IS RELATIVE: Do not demand a perfectly flat dead market. If ADX is under 30, the trend is weak enough to fade. ENGAGE.
-    2. THE "TOUCH" IS ENOUGH: If price slams into the band, don't wait for a perfect rejection candle if the extension is extreme. Front-run the reversal.
-    3. IGNORE THE NOISE: Small breakouts (wicks) are fake-outs. Use them as better entry prices. We do not panic exit on a wick.
-    4. VOLATILITY IS PROFIT: Expanding bands are not a warning; they are a bigger target. A wider range means more profit potential.
+    1. REDEFINE "RANGE": A range is not a flat line. It is any market where the trend is broken or exhausted. ADX under 45 is your playground.
+    2. CLOSE ENOUGH IS GOOD ENOUGH: Do not wait for a pixel-perfect touch of the Bollinger Band. If price is in the "Kill Zone" (outer 12-15% of the bands), TRIGGER THE TRADE.
+    3. FADE THE MOVEMENT: If a green candle shoots up to the upper band without volume support, SHORT IT immediately.
+    4. IGNORE SMALL SLOPES: Who cares if the EMA50 is slightly tilted? If the price is bouncing between bands, we trade the bounce.
+    5. CANDLE SIZE MATTERS: Small candles are noise. Ensure the trigger candle body has sufficient size (>1.2x ATR) to confirm the spike.
     
     RESPONSE STYLE:
-    Confident, territorial, aggressive.
-    "Intruder at the upper band - SHIELD UP (Short)", "Price floor tested - HOLD THE LINE (Buy)".
+    Aggressive, opportunistic.
+    "Kill zone reached - Shorting the pump.", "Dip detected in chop zone - Buying."
     """
     
     def __init__(self, config=None):
         super().__init__(config)
         self.bb_period = self.params.get("bb_period", 20)
         self.bb_std = self.params.get("bb_std", 2.0)
-        self.adx_threshold = self.params.get("adx_threshold", 30)
+        
+        # --- Config Params ---
+        self.adx_threshold = self.params.get("adx_threshold", 45) 
         self.adx_period = self.params.get("adx_period", 14)
-        self.bandwidth_expansion_limit = self.params.get("bandwidth_expansion_limit", 1.2)
-        self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.001)
+        
+        self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.005) 
+        
         self.atr_period = self.params.get("atr_period", 14)
-        self.atr_sl_multiplier = self.params.get("atr_sl_multiplier", 1.0)
         self.min_rr = self.params.get("min_rr", 1.0)
+        
+        # New Params
+        self.kill_zone_percent = self.params.get("kill_zone_percent", 0.12)
+        self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.2)
     
     def is_ranging(self, df: pd.DataFrame) -> tuple[bool, str]:
         """
-        Detect if market is in range (sideways).
-        
-        Criteria:
-        1. ADX < threshold (no strong trend)
-        2. EMA 50 slope near zero (flat market)
-        3. Bollinger Bandwidth stable (not expanding)
-        
-        Returns:
-            (is_range, reason)
+        Detect if market is tradable as a range (relaxed criteria).
         """
         try:
-            # Calculate ADX
+            # ADX Check
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
             current_adx = adx_res['ADX'].iloc[-2]
             
             if current_adx >= self.adx_threshold:
-                return False, f"ADX too high ({current_adx:.1f} >= {self.adx_threshold})"
+                return False, f"Trend too strong (ADX {current_adx:.1f})"
             
-            # Calculate EMA 50 slope
+            # EMA Slope Check
             ema_50 = ta.ema(df['close'], length=50)
             ema_slope = (ema_50.iloc[-1] - ema_50.iloc[-5]) / ema_50.iloc[-5]
             
             if abs(ema_slope) > self.ema50_slope_threshold:
-                return False, f"EMA50 slope too steep ({ema_slope:.4f})"
+                return False, f"Slope too steep ({ema_slope:.4f})"
             
-            # Calculate Bollinger Bandwidth
-            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            bb_width = (bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]) / bb['BBM'].iloc[-1]
-            bb_width_sma = pd.Series([
-                (bb['BBU'].iloc[i] - bb['BBL'].iloc[i]) / bb['BBM'].iloc[i]
-                for i in range(len(bb) - 20, len(bb))
-            ]).mean()
-            
-            if bb_width > bb_width_sma * self.bandwidth_expansion_limit:
-                return False, f"Bandwidth expanding ({bb_width:.4f} > {bb_width_sma * self.bandwidth_expansion_limit:.4f})"
-            
-            return True, f"Range confirmed (ADX={current_adx:.1f}, Slope={ema_slope:.4f})"
+            return True, f"Choppy/Range confirmed (ADX={current_adx:.1f})"
         
         except Exception as e:
-            return False, f"Error in range detection: {e}"
+            return False, f"Error detection: {e}"
     
     def generate_signal(self, df: pd.DataFrame, extra_data=None) -> Optional[Dict]:
         """
-        Generate trading signal if Bollinger bounce conditions are met.
-        
-        Returns:
-            Signal dict with entry, SL, TP if valid, None otherwise
+        Generate signal with RELAXED proximity checks + Candle Size Filter.
         """
         if df is None or df.empty or len(df) < 60:
             return None
         
         try:
-            # 1. Check if market is ranging
+            # 1. Regime Check
             is_range, reason = self.is_ranging(df)
             if not is_range:
                 return None
             
-            # 2. Calculate indicators
+            # 2. Indicators
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
             atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_period)
             
-            current_price = df['close'].iloc[-1]
-            current_low = df['low'].iloc[-1]
+            current_price = df['close'].iloc[-1] # Close of current forming candle? or completed? Usually use completed for Backtest, but Live allows current. Wait, user said "Last Close: 0.36" implies completed. For safety with spikes, we can check current.
+            # Using -1 (current closing price) for check
+            
             current_high = df['high'].iloc[-1]
+            current_low = df['low'].iloc[-1]
+            current_open = df['open'].iloc[-1]
             
             bb_upper = bb['BBU'].iloc[-1]
             bb_lower = bb['BBL'].iloc[-1]
-            bb_basis = bb['BBM'].iloc[-1]
+            bb_basis = bb['BBM'].iloc[-1] # Middle Band
             current_atr = atr.iloc[-1]
             
-            # Check Volatility Filter (Bandwidth Percentile)
-            # Avoid trading dead markets
-            min_bandwidth_percentile = self.params.get("min_bandwidth_percentile", 20)
-            if min_bandwidth_percentile > 0:
-                current_bb_width = (bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]) / bb['BBM'].iloc[-1]
-                
-                # Calculate rolling percentile
-                hist_width = (bb['BBU'] - bb['BBL']) / bb['BBM']
-                percentile = hist_width.rolling(100).rank(pct=True).iloc[-1] * 100
-                
-                if percentile < min_bandwidth_percentile:
-                    return None # Market too dead
-            
-            # Dynamic TP Calculation (Target Opposite Band + Boost)
+            # Calcul de la largeur du range
             bb_width = bb_upper - bb_lower
-            tp_boost = bb_width * 0.2
             
-            # 3. Check for LONG signal (bounce off lower band)
-            touched_lower = current_low <= bb_lower
-            bounced_up = current_price > bb_lower
+            # FILTRE DE VOLATILITÉ MINIMALE
+            if bb_width / current_price < 0.003: 
+                return None
+
+            # Kill Zone
+            kill_zone_size = bb_width * self.kill_zone_percent
             
-            if touched_lower and bounced_up:
-                entry = current_price
-                tp = bb_upper + tp_boost  # Dynamic TP: Upper Band + Boost
-                sl = bb_lower - (current_atr * self.atr_sl_multiplier)
+            upper_trigger_zone = bb_upper - kill_zone_size
+            lower_trigger_zone = bb_lower + kill_zone_size
+            
+            # Dynamic TP 
+            tp_padding = bb_width * 0.05 
+            
+            # Candle Size Check (Is the candle significant?)
+            candle_body = abs(current_price - current_open)
+            candle_range = current_high - current_low
+            is_significant = candle_range >= (current_atr * self.min_candle_atr_multiple) # Request: Candle >= 1.2 * ATR
+            
+            # === SIGNAL LONG ===
+            if current_low <= lower_trigger_zone:
                 
-                # Check R:R
+                # Check significance for reversal spike
+                # Using 1.2x ATR condition if provided
+                if self.min_candle_atr_multiple > 0 and not is_significant:
+                    # Weak candle, ignore
+                    return None
+
+                entry = current_price
+                tp = bb_basis + tp_padding
+                sl = bb_lower - (current_atr * 1.0) # SL sous la bande
+                
                 risk = entry - sl
                 reward = tp - entry
-                rr_ratio = reward / risk if risk > 0 else 0
                 
-                if rr_ratio >= self.min_rr:
+                if risk > 0 and (reward / risk) >= self.min_rr: 
                     return {
                         "signal": "BUY",
                         "sl": sl,
                         "tp": tp,
-                        "comment": f"Bollinger Bounce Long (R:R {rr_ratio:.2f}, Vol {percentile:.0f}%)"
+                        "comment": f"Range Dip Buying (Zone: {lower_trigger_zone:.4f}, Vol: {candle_range/current_atr:.1f}xATR)"
                     }
             
-            # 4. Check for SHORT signal (bounce off upper band)
-            touched_upper = current_high >= bb_upper
-            bounced_down = current_price < bb_upper
-            
-            if touched_upper and bounced_down:
-                entry = current_price
-                tp = bb_lower - tp_boost  # Dynamic TP: Lower Band - Boost
-                sl = bb_upper + (current_atr * self.atr_sl_multiplier)
+            # === SIGNAL SHORT ===
+            if current_high >= upper_trigger_zone:
                 
-                # Check R:R
+                if self.min_candle_atr_multiple > 0 and not is_significant:
+                    return None
+
+                entry = current_price
+                tp = bb_basis - tp_padding
+                sl = bb_upper + (current_atr * 1.0)
+                
                 risk = sl - entry
                 reward = entry - tp
-                rr_ratio = reward / risk if risk > 0 else 0
                 
-                if rr_ratio >= self.min_rr:
+                if risk > 0 and (reward / risk) >= self.min_rr:
                     return {
                         "signal": "SELL",
                         "sl": sl,
                         "tp": tp,
-                        "comment": f"Bollinger Bounce Short (R:R {rr_ratio:.2f}, Vol {percentile:.0f}%)"
+                        "comment": f"Range Top Shorting (Zone: {upper_trigger_zone:.4f}, Vol: {candle_range/current_atr:.1f}xATR)"
                     }
             
             return None
         
         except Exception as e:
-            print(f"Error in BollingerBounce signal generation: {e}")
             return None
     
     def calculate_progress(self, df: pd.DataFrame, extra_data=None) -> int:
-        """
-        Calculate how close we are to a Bollinger bounce signal (0-100%).
-        
-        Progress breakdown:
-        - 30% if in range regime
-        - 30% if price near band
-        - 20% if bandwidth stable
-        - 20% if EMA slope flat
-        """
-        if df is None or df.empty or len(df) < 60:
-            return 0
-        
+        """Visual progress bar logic."""
+        if df is None or df.empty: return 0
         try:
-            progress = 0
-            
-            # 1. Range regime (30 points)
+            # 1. Range Validity (30%)
             is_range, _ = self.is_ranging(df)
-            if is_range:
-                progress += 30
+            if not is_range: return 0
+            progress = 30
             
-            # 2. Price proximity to bands (30 points)
+            # 2. Proximity to Bands (70%)
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            current_price = df['close'].iloc[-1]
-            bb_upper = bb['BBU'].iloc[-1]
-            bb_lower = bb['BBL'].iloc[-1]
-            bb_range = bb_upper - bb_lower
+            price = df['close'].iloc[-1]
+            bbl = bb['BBL'].iloc[-1]
+            bbu = bb['BBU'].iloc[-1]
+            width = bbu - bbl
             
-            distance_to_lower = abs(current_price - bb_lower) / bb_range
-            distance_to_upper = abs(current_price - bb_upper) / bb_range
-            min_distance = min(distance_to_lower, distance_to_upper)
+            # Position dans le range (0 = bas, 1 = haut)
+            pos = (price - bbl) / width
             
-            if min_distance < 0.05:  # Within 5% of band
-                progress += 30
-            elif min_distance < 0.15:  # Within 15%
-                progress += int(30 * (1 - min_distance / 0.15))
+            # Si on est proche de 0 (bas) ou 1 (haut), le progrès augmente
+            # 0.5 (milieu) = 0 points supp
+            dist_from_middle = abs(pos - 0.5) * 2 # 0 à 1
             
-            # 3. Bandwidth stable (20 points)
-            bb_width = (bb_upper - bb_lower) / bb['BBM'].iloc[-1]
-            bb_width_sma = pd.Series([
-                (bb['BBU'].iloc[i] - bb['BBL'].iloc[i]) / bb['BBM'].iloc[i]
-                for i in range(len(bb) - 20, len(bb))
-            ]).mean()
-            
-            if bb_width < bb_width_sma * self.bandwidth_expansion_limit:
-                progress += 20
-            
-            # 4. EMA slope flat (20 points)
-            ema_50 = ta.ema(df['close'], length=50)
-            ema_slope = abs((ema_50.iloc[-1] - ema_50.iloc[-5]) / ema_50.iloc[-5])
-            
-            if ema_slope < self.ema50_slope_threshold:
-                progress += 20
+            # On mappe ça sur les 70 points restants
+            progress += int(dist_from_middle * 70)
             
             return min(100, progress)
-        
         except:
             return 0
     
     def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """
-        Check detailed conditions for UI - Diagnostic Card
-        
-        Returns:
-            List of condition dicts with name, status, and value
-        """
-        if df is None or df.empty or len(df) < 60:
-            return []
-        
+        """UI Conditions - Standardized Diagnostic Card"""
+        if df is None or df.empty: return []
         try:
             conditions = []
             
-            # 1. Range Regime
-            is_range, reason = self.is_ranging(df)
+            # 1. ADX Check
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
-            current_adx = adx_res['ADX'].iloc[-2]
-            
+            adx = adx_res['ADX'].iloc[-1]
+            adx_ok = adx < self.adx_threshold
             conditions.append({
-                "name": f"Range Regime",
-                "status": is_range,
+                "name": "Régime de Marché (Range)",
+                "status": adx_ok,
                 "value": ""
             })
             
-            # 2. Price at Band
+            # 2. Kill Zone Proximity
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            current_price = df['close'].iloc[-1]
-            bb_upper = bb['BBU'].iloc[-1]
-            bb_lower = bb['BBL'].iloc[-1]
+            price = df['close'].iloc[-1]
+            width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
+            kill_zone = width * self.kill_zone_percent
             
-            at_lower = abs(current_price - bb_lower) / current_price < 0.01
-            at_upper = abs(current_price - bb_upper) / current_price < 0.01
-            at_band = at_lower or at_upper
+            dist_lower = price - bb['BBL'].iloc[-1]
+            dist_upper = bb['BBU'].iloc[-1] - price
             
-            band_name = "Lower" if at_lower else "Upper" if at_upper else "None"
+            # Logic: In zone if close to either band
+            in_zone = dist_lower < kill_zone or dist_upper < kill_zone
             conditions.append({
-                "name": "Price at Band",
-                "status": at_band,
+                "name": f"Proximité Bande (Kill Zone {self.kill_zone_percent*100:.0f}%)",
+                "status": in_zone,
                 "value": ""
             })
             
-            # 3. Bandwidth Stable
-            bb_width = (bb_upper - bb_lower) / bb['BBM'].iloc[-1]
-            bb_width_sma = pd.Series([
-                (bb['BBU'].iloc[i] - bb['BBL'].iloc[i]) / bb['BBM'].iloc[i]
-                for i in range(len(bb) - 20, len(bb))
-            ]).mean()
-            
-            bandwidth_ratio = bb_width / bb_width_sma if bb_width_sma > 0 else 0
-            bandwidth_ok = bandwidth_ratio < self.bandwidth_expansion_limit
-            
-            conditions.append({
-                "name": "Bandwidth Stable",
-                "status": bandwidth_ok,
-                "value": ""
-            })
-            
-            # 4. R:R Ratio
+            # 3. Candle Size
             atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_period)
             current_atr = atr.iloc[-1]
-            
-            # Estimate R:R for potential long
-            entry = current_price
-            tp = bb['BBM'].iloc[-1]
-            sl = bb_lower - (current_atr * self.atr_sl_multiplier)
-            risk = entry - sl
-            reward = tp - entry
-            rr_ratio = reward / risk if risk > 0 else 0
-            
+            current_range = df['high'].iloc[-1] - df['low'].iloc[-1]
+            size_ok = current_range >= (current_atr * self.min_candle_atr_multiple)
             conditions.append({
-                "name": "Risk:Reward Ratio",
-                "status": rr_ratio >= self.min_rr,
-                "value": ""
+                "name": f"Candle Size (>{self.min_candle_atr_multiple}x ATR)",
+                "status": size_ok,
+                "value": f"{current_range/current_atr:.1f}x"
             })
             
             return conditions
-        
         except Exception as e:
             return [{"name": "Error", "status": False, "value": str(e)}]
     
-    def get_threshold_comparisons(self, df, extra_data=None):
+    def get_threshold_comparisons(self, df: pd.DataFrame, extra_data=None) -> Dict:
         """Get detailed threshold comparisons for Parameters section"""
         if df is None or df.empty: return {}
         try:
-            self.add_indicators(df)
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
-            current_adx = adx_res['ADX'].iloc[-1]
-            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            current_price = df['close'].iloc[-1]
-            bb_upper = bb['BBU'].iloc[-1]
-            bb_lower = bb['BBL'].iloc[-1]
-            width = bb_upper - bb_lower
+            adx = adx_res['ADX'].iloc[-1]
             
-            dist_lower = abs(current_price - bb_lower) / width
-            dist_upper = abs(current_price - bb_upper) / width
+            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
+            price = df['close'].iloc[-1]
+            width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
+            
+            dist_lower = price - bb['BBL'].iloc[-1]
+            dist_upper = bb['BBU'].iloc[-1] - price
             min_dist = min(dist_lower, dist_upper)
             
-            bb_bm = bb['BBM'].iloc[-1]
-            bb_width = width / bb_bm
-            # Sma width 
-            bb_series = (bb['BBU'] - bb['BBL']) / bb['BBM']
-            bb_width_sma = bb_series.iloc[-20:].mean()
-            expansion = bb_width / bb_width_sma if bb_width_sma > 0 else 1.0
-            
             return {
-                "Range (ADX)": f"{current_adx:.1f} vs Max: {self.adx_threshold}",
-                "Proximity": f"{min_dist*100:.1f}% vs Req: <5%",
-                "Bandwidth": f"{expansion:.2f}x vs Max: {self.bandwidth_expansion_limit}x"
+                "ADX": f"{adx:.1f} (Max: {self.adx_threshold})",
+                "Band Dist": f"{min_dist/width*100:.1f}% (Zone: {self.kill_zone_percent*100:.0f}%)",
             }
-        except Exception as e: return {"Error": str(e)}
-
+        except Exception as e:
+            return {"Error": str(e)}

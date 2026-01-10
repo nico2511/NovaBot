@@ -73,6 +73,21 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         return null
     }
 
+    const handleForceSync = async () => {
+        try {
+            const response = await axios.post(`${API_URL}/api/force_sync`);
+            if (response.data.status === "success") {
+                alert("✅ Sync Initiated! AI Analysis will follow shortly.");
+                window.location.reload();
+            } else {
+                alert("⚠️ Sync Failed: " + response.data.message);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("❌ Error calling Force Sync API");
+        }
+    };
+
     const closeTrade = async () => {
         try {
             await axios.post(`${API_URL}/api/close_trade`)
@@ -101,6 +116,13 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                     <div className="text-sm text-gray-500 mt-2">
                         Waiting for signal from strategies
                     </div>
+                    <button
+                        onClick={handleForceSync}
+                        className="mt-4 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-2 mx-auto"
+                        title="Force synchronization with exchange"
+                    >
+                        🔄 Force Sync
+                    </button>
                 </div>
             </div>
         )
@@ -288,6 +310,13 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                     <h3 className="text-lg font-semibold flex items-center gap-2">
                         💼 Active Trade
                         <span className="text-xs font-normal text-gray-500 px-2 py-0.5 bg-white/5 rounded-full">{trade.strategy}</span>
+                        <button
+                            onClick={handleForceSync}
+                            className="ml-2 p-1.5 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors"
+                            title="Force Sync State"
+                        >
+                            🔄
+                        </button>
                     </h3>
                     <div className="flex gap-2">
                         <button

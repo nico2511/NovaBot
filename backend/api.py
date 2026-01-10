@@ -798,6 +798,78 @@ def close_trade():
         else:
             return {"status": "error", "message": "No active trade to close"}
     
+    return {"status": "error", "message": "Bot not connected (Standalone Mode)"}
+
+@app.post("/api/force_breakeven")
+def force_breakeven():
+    """Force Stop Loss to Break Even"""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        if bot.active_trade:
+            entry = bot.active_trade["entry"]
+            symbol = bot.active_trade["symbol"]
+            
+            # Add small buffer for fees (0.1%)
+            # If LONG, SL = Entry * 1.001
+            # If SHORT, SL = Entry * 0.999
+            side = bot.active_trade["side"]
+            if side == "BUY":
+                new_sl = entry * 1.001
+            else:
+                new_sl = entry * 0.999
+                
+            try:
+                from app.services.hyperliquid_service import hyperliquid_service
+                res = hyperliquid_service.update_sl(symbol, new_sl)
+                if res.get("status") == "ok":
+                    bot.active_trade["sl"] = new_sl
+                    bot.add_log(f"🛡️ BREAK EVEN: SL moved to {new_sl}")
+                    return {"status": "success", "message": "SL moved to BE"}
+                else:
+                    return {"status": "error", "message": res.get("response")}
+            except Exception as e:
+                return {"status": "error", "message": str(e)}
+                
+    return {"status": "error", "message": "Bot not connected"}
+
+@app.post("/api/recalibrate_stops")
+def recalibrate_stops():
+    """Trigger recalibration of stops based on volatility"""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        if hasattr(bot, 'recalibrate_stops'):
+             res = bot.recalibrate_stops()
+             return res
+    return {"status": "error", "message": "Feature not available"}
+
+@app.post("/api/force_sync")
+async def force_sync():
+    """Force synchronization with exchange and trigger AI analysis"""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        try:
+            # Delegate to BotContext method (to be implemented)
+            if hasattr(bot, 'force_sync'):
+                # Note: force_sync might be async or sync. 
+                # If it's a synchronous method in the bot class, we call it directly.
+                # If it triggers logic that needs to run in the background, it should handle that.
+                # Here we assume it's a method we can call.
+                result = bot.force_sync()
+                
+                # If it returns a coroutine (async), we await it
+                if asyncio.iscoroutine(result):
+                    await result
+                
+                return {"status": "success", "message": "Sync initiated"}
+            else:
+                # Fallback implementation if method missing
+                return {"status": "error", "message": "Bot does not support force_sync"}
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+    
+    return {"status": "error", "message": "Bot not connected"}
     return {"status": "error", "message": "Bot not connected"}
 
 @app.post("/api/recalibrate_stops")
