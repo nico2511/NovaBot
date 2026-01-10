@@ -106,8 +106,14 @@ def calculate_volume_spike_ratio(df: pd.DataFrame, lookback: int = 20) -> float:
         return 1.0
     
     try:
-        current_volume = df['volume'].iloc[-1]
-        avg_volume = df['volume'].iloc[-(lookback+1):-1].mean()
+        # Use completed candle for volume (more accurate)
+        if len(df) >= lookback + 2:
+            current_volume = df['volume'].iloc[-2]  # Last completed candle
+            avg_volume = df['volume'].iloc[-(lookback+2):-2].mean()
+        else:
+            # Fallback for insufficient data
+            current_volume = df['volume'].iloc[-1]
+            avg_volume = df['volume'].iloc[-(lookback+1):-1].mean()
         
         if avg_volume == 0:
             return 1.0

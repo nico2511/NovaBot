@@ -1456,12 +1456,56 @@ class BotContext:
             if active_pos:
                 print(f"   ⚠️ FOUND GHOST POSITION on {self.active_symbol}!")
                 print(f"      Size: {active_pos['size']} | Entry: {active_pos['entry_price']}")
-                print("   ℹ️ It will be fully adopted (with SL/TP) in the main loop.")
+                
+                # AUTOMATIC ADOPTION (Phase 3 Fix)
+                entry_price = float(active_pos['entry_price'])
+                size = float(active_pos['size'])
+                side = active_pos['side']
+                
+                # Calculate default SL/TP (2% risk, 3% reward)
+                if side == "BUY":
+                    sl_price = entry_price * 0.98  # -2%
+                    tp_price = entry_price * 1.03  # +3%
+                else:  # SELL
+                    sl_price = entry_price * 1.02  # +2%
+                    tp_price = entry_price * 0.97  # -3%
+                
+                # Create active_trade
+                self.active_trade = {
+                    "symbol": self.active_symbol,
+                    "side": side,
+                    "entry": entry_price,
+                    "size": size,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "strategy": "Manual (Adopted)",
+                    "entry_time": pd.Timestamp.now().isoformat(),
+                    "pnl": float(active_pos.get('pnl', 0)),
+                    "max_pnl": float(active_pos.get('pnl', 0)),
+                    "status": "OPEN (ADOPTED)",
+                    "metadata": {"adopted_at_boot": True}
+                }
+                
+                # Place SL/TP orders
+                try:
+                    hyperliquid_service.place_sl_tp_orders(
+                        symbol=self.active_symbol,
+                        side=side,
+                        size=size,
+                        sl_price=sl_price,
+                        tp_price=tp_price
+                    )
+                    print(f"   ✅ Position adopted with SL: {sl_price:.2f}, TP: {tp_price:.2f}")
+                except Exception as e:
+                    print(f"   ⚠️ Failed to place SL/TP: {e}")
+                
+                # Save state
+                StateManager.save_state(self)
             else:
                 print("   ✅ No ghost positions on active symbol.")
                 # Ensure we don't think we have one
                 self.active_trade = None
-                
+                    
         except Exception as e:
              print(f"   ❌ FATAL: Account check failed: {e}")
              return False
