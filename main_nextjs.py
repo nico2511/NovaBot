@@ -1456,18 +1456,93 @@ class BotContext:
                 print(f"   ⚠️ FOUND GHOST POSITION on {self.active_symbol}!")
                 print(f"      Size: {active_pos['size']} | Entry: {active_pos['entry_price']}")
                 
-                # AUTOMATIC ADOPTION (Phase 3 Fix)
+                # SMART ADOPTION: Detect regime and calculate adaptive SL/TP
                 entry_price = float(active_pos['entry_price'])
                 size = float(active_pos['size'])
                 side = active_pos['side']
                 
-                # Calculate default SL/TP (2% risk, 3% reward)
-                if side == "BUY":
-                    sl_price = entry_price * 0.98  # -2%
-                    tp_price = entry_price * 1.03  # +3%
-                else:  # SELL
-                    sl_price = entry_price * 1.02  # +2%
-                    tp_price = entry_price * 0.97  # -3%
+                try:
+                    # 1. Fetch market data
+                    print("   🔍 Analyzing market regime for smart adoption...")
+                    df_15m = hyperliquid_service.get_candles(self.active_symbol, "15m", 200)
+                    
+                    # 2. Detect regime
+                    regime_data = self.strategy_engine.detect_regime(df_15m)
+                    regime = regime_data.get("regime", "UNKNOWN")
+                    adx = regime_data.get("adx", 0)
+                    
+                    # 3. Calculate ATR for dynamic SL
+                    if 'ATR_14' not in df_15m.columns:
+                        high_low = df_15m['high'] - df_15m['low']
+                        high_close = abs(df_15m['high'] - df_15m['close'].shift())
+                        low_close = abs(df_15m['low'] - df_15m['close'].shift())
+                        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+                        true_range = ranges.max(axis=1)
+                        atr = true_range.rolling(14).mean().iloc[-1]
+                    else:
+                        atr = df_15m['ATR_14'].iloc[-1]
+                    
+                    current_price = df_15m['close'].iloc[-1]
+                    
+                    # 4. Regime-based SL/TP calculation
+                    if regime == "TREND":
+                        sl_atr_multiplier = 2.0
+                        tp_risk_reward = 2.5
+                        print(f"   📈 TREND regime detected (ADX: {adx:.1f})")
+                    elif regime == "RANGE":
+                        sl_atr_multiplier = 1.2
+                        tp_risk_reward = 1.5
+                        print(f"   📊 RANGE regime detected (ADX: {adx:.1f})")
+                    else:
+                        sl_atr_multiplier = 1.5
+                        tp_risk_reward = 2.0
+                        print(f"   ❓ UNKNOWN regime (ADX: {adx:.1f}) - conservative settings")
+                    
+                    # 5. Calculate SL based on ATR
+                    sl_distance = atr * sl_atr_multiplier
+                    
+                    if side == "BUY":
+                        sl_price = entry_price - sl_distance
+                        tp_price = entry_price + (sl_distance * tp_risk_reward)
+                    else:
+                        sl_price = entry_price + sl_distance
+                        tp_price = entry_price - (sl_distance * tp_risk_reward)
+                    
+                    # 6. Adjust if price has moved significantly
+                    price_movement = abs(current_price - entry_price) / entry_price
+                    if price_movement > 0.02:
+                        print(f"   ⚠️ Price moved {price_movement*100:.1f}% - adjusting SL")
+                        if side == "BUY" and current_price > entry_price:
+                            sl_price = max(sl_price, entry_price * 0.999)
+                        elif side == "SELL" and current_price < entry_price:
+                            sl_price = min(sl_price, entry_price * 1.001)
+                    
+                    sl_percent = abs(sl_price - entry_price) / entry_price * 100
+                    tp_percent = abs(tp_price - entry_price) / entry_price * 100
+                    
+                    print(f"   🎯 Smart SL/TP: {sl_percent:.2f}% / {tp_percent:.2f}% (ATR: {atr:.4f})")
+                    
+                    strategy_name = f"Manual ({regime} - Adopted)"
+                    adoption_metadata = {
+                        "adopted_at_boot": True,
+                        "regime_detected": regime,
+                        "adx_at_adoption": adx,
+                        "atr_at_adoption": atr,
+                        "sl_basis": f"{sl_percent:.2f}% (ATR-based)",
+                        "tp_basis": f"{tp_percent:.2f}% (RR {tp_risk_reward}:1)",
+                        "adoption_method": "smart"
+                    }
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Smart adoption failed: {e}. Using basic 2%/3%")
+                    if side == "BUY":
+                        sl_price = entry_price * 0.98
+                        tp_price = entry_price * 1.03
+                    else:
+                        sl_price = entry_price * 1.02
+                        tp_price = entry_price * 0.97
+                    strategy_name = "Manual (Basic - Adopted)"
+                    adoption_metadata = {"adopted_at_boot": True, "adoption_method": "basic_fallback", "fallback_reason": str(e)}
                 
                 # Create active_trade
                 self.active_trade = {
@@ -1477,12 +1552,12 @@ class BotContext:
                     "size": size,
                     "sl": sl_price,
                     "tp": tp_price,
-                    "strategy": "Manual (Adopted)",
+                    "strategy": strategy_name,
                     "entry_time": pd.Timestamp.now().isoformat(),
                     "pnl": float(active_pos.get('pnl', 0)),
                     "max_pnl": float(active_pos.get('pnl', 0)),
                     "status": "OPEN (ADOPTED)",
-                    "metadata": {"adopted_at_boot": True}
+                    "metadata": adoption_metadata
                 }
                 
                 # Place SL/TP orders
@@ -1498,11 +1573,9 @@ class BotContext:
                 except Exception as e:
                     print(f"   ⚠️ Failed to place SL/TP: {e}")
                 
-                # Save state
                 StateManager.save_state(self)
             else:
                 print("   ✅ No ghost positions on active symbol.")
-                # Ensure we don't think we have one
                 self.active_trade = None
                     
         except Exception as e:
