@@ -63,46 +63,51 @@ This project is an advanced algorithmic trading bot designed for the **Hyperliqu
 - **Safety Nets**: Master Trailing Stop Logic (Multi-tier), Kill Switches.
 - **Logging**: Clean, rotated logs with clear emojis.
 
-### 🚧 Recent Major Improvements (Phase 3 - Jan 10, 2026)
+### 🚧 Recent Major Improvements (Phase 4 - Jan 10, 2026)
 
-#### 1. Strategy Optimizations
-- **Smart Trend**: Fixed `AttributeError` by implementing `analyze_trend_structure`.
-- **Bollinger Bounce**: Upgraded to "Aggressive Range" logic (V2), merged into main file, legacy deleted.
-- **Scalp EMA RSI**: Asymmetric RSI thresholds (Bull 52-68 / Bear 32-48) + Strict ADX/Volume filters.
+#### 1. Architecture Cleanup & Organization
+- **Orphaned File Analysis**: Identified and organized 12+ orphaned files.
+- **Project Structure**: Created `scripts/`, `tests/`, and `.archived/` directories.
+- **Consolidation**: Merged orphaned `api_trades_hyperliquid.py` into main `backend/api.py`.
 
-#### 2. Active Trade Management
-- **Force Sync**: Added `POST /api/force_sync` and UI button to recover state and trigger AI.
-- **Advanced Trailing**: Added 60% intermediate threshold to secure 20% gains.
+#### 2. Critical History & Logging Fixes
+- **Hyperliquid Trade History**: Repaired `/api/trades/hyperliquid` endpoint.
+- **Frontend Networking**: 
+  - Fixed API Port Mismatch (Frontend 8000 -> Backend 8001).
+  - Bypassed Next.js Proxy for critical endpoints (Direct Call to 8001) to solve Timeouts.
+- **Service Logging**: Implemented `LogBridge` to correctly route WebSocket logs to UI.
 
 #### 3. Bug Fixes
-- **Broken Imports**: Fixed `ModuleNotFoundError` by removing references to deleted `bollinger_bounce_v2`.
-- **Frontend Cache**: Cleared Next.js cache to resolve `ChunkLoadError`.
+- **TypeScript & Build**: Fixed `Trade` interface (missing `size`) and Component syntax errors.
+- **Port Configuration**: Aligned `.env.local` with actual Uvicorn port.
 
 ---
 
 ## 5. Recent Commits (Last 5)
 
-### 1. feat(trailing): Add 60% intermediate profit securing threshold
+### 1. fix(history): Repair Trade History Tab & Build
+**Commit**: `Jan 10, 2026`
+- Integrated orphaned history endpoint into `api.py`.
+- Fixed Frontend Port (8001) and bypassed proxy for stability.
+- Fixed TypeScript types and Component syntax.
+
+### 2. refactor(cleanup): Organize orphaned files
+**Commit**: `Jan 10, 2026`
+- Moved scripts to `scripts/` and tests to `tests/`.
+- Archived unused strategies.
+
+### 3. fix(logging): Repair WebSocket Logging Bridge
+**Commit**: `Jan 10, 2026`
+- Implementing `LogBridge` to fix missing UI logs from WebSocket service.
+- Fixed infinite recursion in logger fallback.
+
+### 4. feat(trailing): Add 60% intermediate profit securing threshold
 **Commit**: `Jan 10, 2026`
 - Active trades now secure 20% of profit when reaching 60% of target.
 
-### 2. fix(imports): Cleanup deleted V2 strategy references
+### 5. fix(imports): Cleanup deleted V2 strategy references
 **Commit**: `Jan 10, 2026`
 - Removed `strategies.bollinger_bounce_v2` imports from `engine.py`.
-
-### 3. feat(sync): Add Force Sync UI & Backend Logic
-**Commit**: `Jan 10, 2026`
-- Added manual sync button to Active Trade card.
-- Implemented state adoption and threaded AI analysis trigger.
-
-### 4. refactor(strategies): Optimize ScalpEmaRsi & Bollinger Bounce
-**Commit**: `Jan 10, 2026`
-- Replaced Bollinger V1 with V2 logic.
-- Tightened Scalp filters (ADX < 25, Asymmetric RSI).
-
-### 5. fix(smart_trend): Implement missing trend structure method
-**Commit**: `Jan 10, 2026`
-- Resolved `AttributeError` in diagnostic display.
 
 ---
 
