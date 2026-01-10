@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import axios from 'axios'
+import api from '@/lib/api'
 
 interface CryptoWeatherProps {
     regime: string
@@ -54,7 +54,7 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
         // Fetch Scanner V2 metrics
         const fetchMetrics = async () => {
             try {
-                const res = await axios.get(`/api/market_metrics?symbol=${symbol}`)
+                const res = await api.get(`/api/market_metrics?symbol=${symbol}`)
                 if (res.data && !res.data.error) {
                     setRvol(res.data.rvol)
                     setTrendAligned(res.data.trend_aligned)
@@ -76,7 +76,7 @@ export default function CryptoWeather({ regime, adx, trend, rsi, ema_20, ema_50,
         setAiReport(null)
         setShowModal(true)
         try {
-            const res = await axios.post('/api/ai_analysis', { symbol })
+            const res = await api.post('/api/ai_analysis', { symbol })
             if (res.data) {
                 // Parse if string
                 let data = res.data

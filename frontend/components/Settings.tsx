@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import useSWR from 'swr'
-import axios from 'axios'
+import api from '@/lib/api'
 
 const API_URL = ''
 
@@ -45,19 +45,19 @@ export default function Settings() {
 
     // CRITICAL: Fetch active_symbol from status endpoint
     const { data: statusData } = useSWR(`${API_URL}/api/status`, async (url) => {
-        const res = await axios.get(url)
+        const res = await api.get(url)
         return res.data
     }, { refreshInterval: 2000 })
 
     // Use SWR for auto-syncing settings (especially asset/symbol changes)
     const { data: serverSettings } = useSWR(`${API_URL}/api/settings`, async (url) => {
-        const res = await axios.get(url)
+        const res = await api.get(url)
         return res.data
     }, { refreshInterval: 2000 })
 
     // Fetch available tokens from cache
     const { data: availableTokens } = useSWR<string[]>(`${API_URL}/api/available_tokens`, async (url: string) => {
-        const res = await axios.get(url)
+        const res = await api.get(url)
         return res.data.tokens || []
     })
 
@@ -81,10 +81,10 @@ export default function Settings() {
     const saveSettings = async () => {
         try {
             // Save all settings
-            await axios.post(`${API_URL}/api/settings`, settings)
+            await api.post(`${API_URL}/api/settings`, settings)
 
             // Also explicitly switch symbol to ensure sync
-            await axios.post(`${API_URL}/api/symbol/switch`, { symbol: settings.asset })
+            await api.post(`${API_URL}/api/symbol/switch`, { symbol: settings.asset })
 
             alert('✅ Settings saved!')
         } catch (error) {
@@ -212,7 +212,7 @@ export default function Settings() {
                                                 // For now, let's just make the call and trust the fast refresh
                                                 try {
                                                     const endpoint = statusData?.is_running ? '/api/engine/stop' : '/api/engine/start'
-                                                    await axios.post(`${API_URL}${endpoint}`)
+                                                    await api.post(`${API_URL}${endpoint}`)
                                                     // Force immediate revalidation
                                                     // mutate(`${API_URL}/api/status`) 
                                                 } catch (error) {
@@ -245,7 +245,7 @@ export default function Settings() {
 
                                                 try {
                                                     const endpoint = settings.trading_enabled ? '/api/trading/disable' : '/api/trading/enable'
-                                                    await axios.post(`${API_URL}${endpoint}`)
+                                                    await api.post(`${API_URL}${endpoint}`)
                                                 } catch (error) {
                                                     console.error('Failed to toggle trading:', error)
                                                     alert('❌ Failed to toggle trading')

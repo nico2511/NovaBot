@@ -2,11 +2,11 @@
 
 import { useState } from 'react'
 import useSWR from 'swr'
-import axios from 'axios'
+import api from '@/lib/api'
 import ClientOnly from './ClientOnly'
 
 const API_URL = ''
-const fetcher = (url: string) => axios.get(url).then(res => res.data)
+const fetcher = (url: string) => api.get(url).then(res => res.data)
 
 export default function RecentSignals({ hideHeader = false, embedded = false }: { hideHeader?: boolean, embedded?: boolean }) {
     const [executing, setExecuting] = useState<number | null>(null)
@@ -21,7 +21,7 @@ export default function RecentSignals({ hideHeader = false, embedded = false }: 
     const handleExecute = async (signal: any, idx: number) => {
         setExecuting(idx)
         try {
-            await axios.post(`${API_URL}/api/execute_manual_signal`, {
+            await api.post(`${API_URL}/api/execute_manual_signal`, {
                 signal: signal.signal,
                 symbol: signal.symbol,
                 price: signal.price,

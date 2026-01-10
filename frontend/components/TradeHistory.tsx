@@ -1,30 +1,30 @@
 'use client'
 
+import React from 'react'
 import useSWR from 'swr'
-import axios from 'axios'
 import ClientOnly from './ClientOnly'
+import { useTradeHistory, Trade } from '../hooks/useTradeHistory'
+import axios from 'axios'
 
-const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 export default function TradeHistory() {
-    const { data: historyData, error: historyError } = useSWR(`${API_URL}/api/trade_history?limit=50`, fetcher, {
-        refreshInterval: 5000,
-        onError: (err) => console.error('Trade history fetch error:', err)
-    })
+    // 1. Get Historical Trades (Merged Local + Hyperliquid)
+    const { trades, stats, isLoading } = useTradeHistory()
 
-    const { data: positionsData } = useSWR(`${API_URL}/api/positions`, fetcher, {
+    // 2. Get Open Positions (for Unrealized PNL)
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+    const { data: positionsData } = useSWR(`${API_BASE_URL}/api/positions`, fetcher, {
         refreshInterval: 3000
     })
 
-    const trades = historyData?.trades || []
     const positions = positionsData?.positions || []
 
-    // Calculate PNL - handle both formats
+    // Calculate PNL
     const unrealizedPnl = positions.reduce((sum: number, pos: any) => sum + (pos.pnl || 0), 0)
-    const realizedPnl = trades.reduce((sum: number, trade: any) => sum + (trade.pnl || trade.closedPnl || 0), 0)
+    const realizedPnl = stats.totalPnL // From the hook
 
-    console.log('TradeHistory - trades:', trades.length, 'positions:', positions.length, 'realizedPnl:', realizedPnl)
+    console.log('[TradeHistory] Render. Trades:', trades.length, 'Unrealized:', unrealizedPnl)
 
     return (
         <ClientOnly>
@@ -55,7 +55,7 @@ export default function TradeHistory() {
 
                     {trades.length === 0 ? (
                         <div className="p-8 text-center text-gray-400">
-                            No trade history yet
+                            {isLoading ? 'Loading...' : 'No trade history yet'}
                         </div>
                     ) : (
                         <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
@@ -72,33 +72,42 @@ export default function TradeHistory() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border/20">
-                                    {trades.map((trade: any, idx: number) => {
-                                        // Handle both API formats
-                                        const symbol = trade.coin || trade.symbol || '-'
-                                        const side = trade.side === 'A' || trade.side === 'BUY' || trade.dir === 'Open Long' ? 'LONG' : 'SHORT'
-                                        const entryPrice = trade.px || trade.entry_price || trade.entryPx || 0
-                                        const exitPrice = trade.closedPx || trade.exit_price || 0
-                                        const size = trade.sz || trade.szi || trade.size || 0
-                                        const pnl = trade.closedPnl || trade.pnl || 0
-                                        const timestamp = trade.time || trade.closedTime || trade.timestamp || trade.entry_time
+                                    {trades.map((trade: Trade, idx: number) => {
+                                        // Normalize data (hook handles some, but be safe)
+                                        const side = trade.side === 'B' ? 'BUY' : (trade.side === 'S' ? 'SELL' : trade.side)
+                                        const displaySide = side === 'BUY' || side === 'LONG' ? 'LONG' : 'SHORT'
+                                        const pnl = trade.pnl || 0
+
+                                        // Timestamp handling
+                                        let dateStr = '-'
+                                        try {
+                                            const ts = trade.exit_time || trade.timestamp || trade.entry_time
+                                            if (ts) {
+                                                dateStr = new Date(ts).toLocaleString()
+                                            }
+                                        } catch (e) {
+                                            console.error('Date parse error', e)
+                                        }
 
                                         return (
                                             <tr key={idx} className="hover:bg-background/30 transition-colors">
                                                 <td className="p-3 text-sm text-gray-400" suppressHydrationWarning>
-                                                    {new Date(timestamp).toLocaleString()}
+                                                    {dateStr}
                                                 </td>
-                                                <td className="p-3 text-sm font-medium">{symbol}</td>
+                                                <td className="p-3 text-sm font-medium">{trade.symbol}</td>
                                                 <td className="p-3">
-                                                    <span className={`text-xs px-2 py-1 rounded ${side === 'LONG'
+                                                    <span className={`text-xs px-2 py-1 rounded ${displaySide === 'LONG'
                                                         ? 'bg-success/20 text-success'
                                                         : 'bg-error/20 text-error'
                                                         }`}>
-                                                        {side}
+                                                        {displaySide}
                                                     </span>
                                                 </td>
-                                                <td className="p-3 text-sm font-mono">${entryPrice.toFixed(4)}</td>
-                                                <td className="p-3 text-sm font-mono">{exitPrice > 0 ? `$${exitPrice.toFixed(4)}` : '-'}</td>
-                                                <td className="p-3 text-sm">{size}</td>
+                                                <td className="p-3 text-sm font-mono">${Number(trade.entry_price).toFixed(4)}</td>
+                                                <td className="p-3 text-sm font-mono">
+                                                    {Number(trade.exit_price) > 0 ? `$${Number(trade.exit_price).toFixed(4)}` : '-'}
+                                                </td>
+                                                <td className="p-3 text-sm">{trade.size || 0}</td>
                                                 <td className="p-3">
                                                     <span className={`text-sm font-bold ${pnl >= 0 ? 'text-success' : 'text-error'
                                                         }`}>

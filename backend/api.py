@@ -2,7 +2,7 @@
 FastAPI Backend for HyperLiquid Trading Bot
 Exposes REST API and integrates with main bot
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -12,6 +12,18 @@ from datetime import datetime
 import os
 import numpy as np
 import pandas as pd
+# Optimizations imports
+import time
+import logging
+from backend.api_optimizations import (
+    logger,
+    verify_api_key,
+    ai_cooldown_check,
+    ai_cache_update,
+    execute_bot_action,
+    log_requests_middleware
+)
+
 
 
 # Import optional route modules
@@ -69,7 +81,7 @@ try:
     from app.services.ia import ia_service
     AI_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ AI Service not available: {e}")
+    logger.warning(f"⚠️ AI Service not available: {e}")
     AI_AVAILABLE = False
 app = FastAPI(title="HyperLiquid Trading Bot API", version="2.0")
 
@@ -217,7 +229,7 @@ def _execute_bot_action(
             from app.core.state_manager import StateManager
             StateManager.save_state(bot)
         except Exception as e:
-            print(f"⚠️ State save error: {e}")
+            logger.warning(f"⚠️ State save error: {e}")
         
         return {"status": status_key, "message": f"Real bot {success_message}"}
     else:
@@ -764,6 +776,45 @@ async def get_trade_history(limit: int = 50):
         traceback.print_exc()
         return {"trades": [], "error": str(e)}
 
+
+@app.get("/api/bridge/status")
+async def get_bridge_status():
+    """Get bot bridge connection status"""
+    try:
+        if not bot_bridge:
+            return {
+                "connected": False,
+                "status": "not_initialized",
+                "message": "Bot bridge not initialized"
+            }
+        
+        is_connected = bot_bridge.is_connected()
+        
+        if is_connected:
+            bot = bot_bridge.get_bot_context()
+            return {
+                "connected": True,
+                "status": "connected",
+                "bot_running": getattr(bot, 'is_running', False),
+                "active_symbol": getattr(bot, 'active_symbol', None),
+                "uptime": time.time() - getattr(bot, 'start_time', time.time())
+            }
+        else:
+            return {
+                "connected": False,
+                "status": "disconnected",
+                "message": "Bot bridge disconnected - using fallback mode"
+            }
+            
+    except Exception as e:
+        logger.error(f"Bridge status check error: {e}")
+        return {
+            "connected": False,
+            "status": "error",
+            "error": str(e)
+        }
+
+
 @app.get("/api/logs")
 async def get_logs():
     """Get recent logs"""
@@ -780,20 +831,43 @@ async def get_logs():
                 logs.append({"time": "", "message": log})
         return {"logs": logs}
     
-    # Return standalone logs
+    # Return standalone logs (Decoupled Mode)
     logs = []
-    for log in list(bot_state.logs)[-50:]:
-        parts = log.split(" ", 1)
-        if len(parts) == 2:
-            logs.append({"time": parts[0], "message": parts[1]})
-        else:
-            logs.append({"time": "", "message": log})
+    
+    # 1. Try reading from shared log file
+    try:
+        log_file = os.path.join(ROOT, "bot_activity.log")
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as f:
+                # Read last 50 lines efficiently
+                lines = f.readlines()
+                start_idx = max(0, len(lines) - 50)
+                for line in lines[start_idx:]:
+                    line = line.strip()
+                    if not line: continue
+                    
+                    parts = line.split(" ", 1)
+                    if len(parts) == 2:
+                        logs.append({"time": parts[0], "message": parts[1]})
+                    else:
+                        logs.append({"time": "", "message": line})
+    except Exception as e:
+        print(f"Error reading log file: {e}")
+
+    # 2. If no file logs, use internal state logs (Fallback)
+    if not logs:
+        for log in list(bot_state.logs)[-50:]:
+            parts = log.split(" ", 1)
+            if len(parts) == 2:
+                logs.append({"time": parts[0], "message": parts[1]})
+            else:
+                logs.append({"time": "", "message": log})
     
     # If empty, show welcome message
     if not logs:
         return {
             "logs": [
-                {"time": datetime.now().strftime("%H:%M:%S"), "message": "🤖 Standalone mode ready"}
+                {"time": datetime.now().strftime("%H:%M:%S"), "message": "🤖 Standalone mode ready (Waiting for logs...)"}
             ]
         }
     
@@ -821,7 +895,7 @@ async def get_active_trade():
     return sanitize_for_json({"active_trade": bot_state.active_trade})
 
 @app.post("/api/close_trade")
-def close_trade():
+async def close_trade(_: bool = Depends(verify_api_key)):
     """Close active trade - Manual Override"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
@@ -864,37 +938,7 @@ def close_trade():
     
     return {"status": "error", "message": "Bot not connected (Standalone Mode)"}
 
-@app.post("/api/force_breakeven")
-def force_breakeven():
-    """Force Stop Loss to Break Even"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        if bot.active_trade:
-            entry = bot.active_trade["entry"]
-            symbol = bot.active_trade["symbol"]
-            
-            # Add small buffer for fees (0.1%)
-            # If LONG, SL = Entry * 1.001
-            # If SHORT, SL = Entry * 0.999
-            side = bot.active_trade["side"]
-            if side == "BUY":
-                new_sl = entry * 1.001
-            else:
-                new_sl = entry * 0.999
-                
-            try:
-                from app.services.hyperliquid_service import hyperliquid_service
-                res = hyperliquid_service.update_sl(symbol, new_sl)
-                if res.get("status") == "ok":
-                    bot.active_trade["sl"] = new_sl
-                    bot.add_log(f"🛡️ BREAK EVEN: SL moved to {new_sl}")
-                    return {"status": "success", "message": "SL moved to BE"}
-                else:
-                    return {"status": "error", "message": res.get("response")}
-            except Exception as e:
-                return {"status": "error", "message": str(e)}
-                
-    return {"status": "error", "message": "Bot not connected"}
+
 
 @app.post("/api/recalibrate_stops")
 def recalibrate_stops():
@@ -937,7 +981,7 @@ async def force_sync():
     return {"status": "error", "message": "Bot not connected"}
 
 @app.post("/api/recalibrate_stops")
-async def recalibrate_stops():
+async def recalibrate_stops(_: bool = Depends(verify_api_key), ):
     """Recalibrate TP/SL for active trade"""
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
@@ -1044,7 +1088,7 @@ async def get_stats():
         return {"stats": {}}
 
 @app.post("/api/execute_manual_trade")
-async def execute_manual_trade(request: dict):
+async def execute_manual_trade(request: dict, _: bool = Depends(verify_api_key)):
     """Execute a manually validated trade signal"""
     try:
         print(f"📥 RECEIVED MANUAL TRADE REQUEST: {request}") # DEBUG LOG
@@ -1064,13 +1108,13 @@ async def execute_manual_trade(request: dict):
             
             # Vérifier qu'il n'y a pas déjà un trade actif
             if bot.active_trade:
-                print(f"❌ Trade rejected: Active trade exists ({bot.active_trade['symbol']})")
+                logger.error(f"❌ Trade rejected: Active trade exists ({bot.active_trade['symbol']})")
                 return {"status": "error", "message": "A trade is already active"}
             
             # Vérifier les limites de risque
             can_trade, reason = bot.risk_manager.check_can_trade()
             if not can_trade:
-                print(f"❌ Trade rejected by Risk Manager: {reason}")
+                logger.error(f"❌ Trade rejected by Risk Manager: {reason}")
                 return {"status": "error", "message": reason}
 
             # 🛡️ GAMIFICATION CHECK 🛡️
@@ -1105,7 +1149,7 @@ async def execute_manual_trade(request: dict):
                         return {"status": "error", "message": msg}
                         
             except Exception as e:
-                print(f"⚠️ Gamification check error (proceeding anyway): {e}")
+                logger.warning(f"⚠️ Gamification check error (proceeding anyway): {e}")
 
             # Exécuter le trade si mode Auto
             if bot.execution_mode == "Auto (Hyperliquid)":
@@ -1204,7 +1248,7 @@ async def execute_manual_trade(request: dict):
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/force_breakeven")
-async def force_breakeven():
+async def force_breakeven(_: bool = Depends(verify_api_key), ):
     """Move Stop Loss to Break Even (Entry + 0.3% buffer for fees/slippage)"""
     try:
         if not bot_bridge or not bot_bridge.is_connected():
@@ -1513,7 +1557,7 @@ async def momentum_ranking(data: dict = {}):
             "ranking": result
         }
     except Exception as e:
-        print(f"❌ MOMENTUM RANKING ERROR: {e}")
+        logger.error(f"❌ MOMENTUM RANKING ERROR: {e}")
         import traceback
         traceback.print_exc()
         print("=" * 60)
@@ -1524,8 +1568,33 @@ async def momentum_ranking(data: dict = {}):
         }
 
 
+@app.get("/api/trades/hyperliquid")
+async def get_hyperliquid_trades(limit: int = 100):
+    """Get trade history from Hyperliquid API"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        
+        trades = hyperliquid_service.get_trade_history(limit)
+        
+        return {
+            "status": "success",
+            "trades": trades,
+            "source": "hyperliquid_api",
+            "count": len(trades)
+        }
+    except Exception as e:
+        logger.error(f"Error in /api/trades/hyperliquid: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "message": str(e),
+            "trades": []
+        }
+
+
 @app.post("/api/dev/git_pull")
-async def dev_git_pull():
+async def dev_git_pull(_: bool = Depends(verify_api_key), ):
     """Pull latest code from git"""
     import subprocess
     try:
@@ -1544,7 +1613,7 @@ async def dev_git_pull():
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/dev/restart_all")
-async def dev_restart_all():
+async def dev_restart_all(_: bool = Depends(verify_api_key), ):
     """Restart all PM2 processes"""
     import subprocess
     try:
@@ -1610,7 +1679,7 @@ async def get_gamification_status():
         return {"status": "error", "message": str(e)}
 
 @app.post("/api/toggle_gamification")
-async def toggle_gamification(data: dict):
+async def toggle_gamification(data: dict, _: bool = Depends(verify_api_key)):
     """Enable or disable gamification restrictions"""
     enabled = data.get("enabled", True)
     
@@ -1684,7 +1753,7 @@ async def get_available_tokens():
 
 
 @app.post("/api/dev/restart_bot")
-async def dev_restart_bot():
+async def dev_restart_bot(_: bool = Depends(verify_api_key)):
     """Restart bot engine"""
     import subprocess
     try:
@@ -1702,7 +1771,7 @@ async def dev_restart_bot():
 
 
 @app.post("/api/dev/rebuild_frontend")
-async def dev_rebuild_frontend():
+async def dev_rebuild_frontend(_: bool = Depends(verify_api_key), ):
     """Rebuild Next.js frontend (npm run build)"""
     import subprocess
     try:
@@ -1723,28 +1792,7 @@ async def dev_rebuild_frontend():
         return {"status": "error", "message": str(e)}
 
 
-@app.post("/api/toggle_gamification")
-async def toggle_gamification(data: dict):
-    """Toggle Gamification enforcement ON/OFF"""
-    bot = bot_bridge.get_bot_context()
-    if not bot:
-        return {"status": "error", "message": "Bot not initialized"}
-    
-    enabled = data.get("enabled", True)
-    bot.scanner_settings['gamification_enabled'] = enabled
-    
-    # Save state
-    from app.core.state_manager import StateManager
-    StateManager.save_state(bot)
-    
-    status_msg = "enabled" if enabled else "disabled"
-    bot.add_log(f"🎮 Gamification {status_msg} via Config")
-    
-    return {
-        "status": "success",
-        "gamification_enabled": enabled,
-        "message": f"Gamification {status_msg}"
-    }
+
 
 
 @app.get("/api/market_metrics")
@@ -1933,7 +1981,8 @@ async def save_settings(settings: dict):
             bot.scanner_settings = scanner_settings
             
             bot.sidebar_settings = settings
-            bot.active_symbol = settings.get("asset", "BTC")
+            new_asset = settings.get("asset", "BTC")
+            bot.switch_active_symbol(new_asset)
             # We don't necessarily want to force trading_enabled from sidebar if it logic differs, 
             # but usually settings controls it.
             # bot.trading_enabled = settings.get("trading_enabled", False) 
@@ -1986,7 +2035,7 @@ async def switch_symbol(data: dict):
         # Update bot if connected
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
-            bot.active_symbol = new_symbol
+            bot.switch_active_symbol(new_symbol)
             
             # Sync to sidebar settings to ensure persistence
             if hasattr(bot, 'sidebar_settings'):
@@ -2027,6 +2076,12 @@ async def switch_symbol(data: dict):
 async def ai_signal_analysis(data: dict):
     """Analyse un signal de trading avec l'IA"""
     try:
+        # Check AI cooldown
+        cached = ai_cooldown_check("signal_analysis")
+        if cached:
+            return cached
+        
+
         from app.services.ia import ia_service
         
         signal_data = data.get("signal", {})
@@ -2042,6 +2097,12 @@ async def ai_signal_analysis(data: dict):
 async def ai_market_commentary():
     """Obtient le dernier commentaire de marché de l'IA"""
     try:
+        # Check AI cooldown
+        cached = ai_cooldown_check("market_commentary")
+        if cached:
+            return cached
+        
+
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
             
@@ -2087,6 +2148,12 @@ async def ai_market_commentary():
 async def ai_position_analysis():
     """Analyse la position active avec l'IA"""
     try:
+        # Check AI cooldown
+        cached = ai_cooldown_check("position_analysis")
+        if cached:
+            return cached
+        
+
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
             

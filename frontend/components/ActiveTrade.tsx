@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import axios from 'axios'
+import api from '@/lib/api'
 
 const API_URL = ''
 
@@ -51,11 +51,11 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         const fetchData = async () => {
             try {
                 // Fetch active trade
-                const tradeResponse = await axios.get(`${API_URL}/api/active_trade`)
+                const tradeResponse = await api.get(`${API_URL}/api/active_trade`)
                 setTrade(tradeResponse.data.active_trade)
 
                 // Fetch current price
-                const marketResponse = await axios.get(`${API_URL}/api/market/data`)
+                const marketResponse = await api.get(`${API_URL}/api/market/data`)
                 setCurrentPrice(marketResponse.data.price)
             } catch (error) {
                 console.error('Failed to fetch trade data:', error)
@@ -75,7 +75,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
 
     const handleForceSync = async () => {
         try {
-            const response = await axios.post(`${API_URL}/api/force_sync`);
+            const response = await api.post(`${API_URL}/api/force_sync`);
             if (response.data.status === "success") {
                 alert("✅ Sync Initiated! AI Analysis will follow shortly.");
                 window.location.reload();
@@ -90,7 +90,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
 
     const closeTrade = async () => {
         try {
-            await axios.post(`${API_URL}/api/close_trade`)
+            await api.post(`${API_URL}/api/close_trade`)
             setTrade(null)
         } catch (error) {
             console.error('Failed to close trade:', error)
@@ -165,7 +165,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
         setRecalibrating(true)
         setRecalibrateMsg("Checking...")
         try {
-            const res = await axios.post(`${API_URL}/api/recalibrate_stops`)
+            const res = await api.post(`${API_URL}/api/recalibrate_stops`)
             const { status, message } = res.data
 
             if (status === "UNCHANGED") setRecalibrateMsg("✅ Optimized")
@@ -183,7 +183,7 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
 
     const forceBreakEven = async () => {
         try {
-            await axios.post(`${API_URL}/api/force_breakeven`)
+            await api.post(`${API_URL}/api/force_breakeven`)
             setRecalibrateMsg("✅ BE Set")
             setTimeout(() => setRecalibrateMsg(""), 3000)
         } catch (error) {

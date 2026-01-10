@@ -438,6 +438,14 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
             
         return result
 
+    
+    def analyze_position_risk(self, symbol: str, position_data: Dict[str, Any], market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Wrapper for analyze_active_position compatibility"""
+        # Ensure symbol is in position_data
+        if "symbol" not in position_data:
+            position_data["symbol"] = symbol
+        return self.analyze_active_position(position_data, market_data)
+
     def _get_rsi_label(self, rsi: Optional[float]) -> str:
         """Helper to label RSI values"""
         if rsi is None:

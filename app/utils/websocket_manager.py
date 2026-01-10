@@ -12,9 +12,11 @@ Date: 2026-01-01
 import asyncio
 import threading
 import time
+import json
+import logging
+import websockets
 from typing import Dict, Optional, List, Callable
 from datetime import datetime
-import json
 
 
 class WebSocketPriceManager:
@@ -31,6 +33,7 @@ class WebSocketPriceManager:
     - Staleness detection (alerts if price hasn't updated in 30s)
     - Graceful shutdown
     - Callback support for price updates
+    - Integrated logging system
     
     Architecture:
         Main Thread (Trading Bot)
@@ -56,7 +59,8 @@ class WebSocketPriceManager:
         self,
         symbols: List[str],
         on_price_update: Optional[Callable[[str, float], None]] = None,
-        staleness_threshold: int = 30
+        staleness_threshold: int = 30,
+        logger: Optional[logging.Logger] = None
     ):
         """
         Initialize WebSocket Price Manager.
@@ -65,10 +69,23 @@ class WebSocketPriceManager:
             symbols: List of symbols to subscribe to (e.g., ["BTC", "ETH", "HYPE"])
             on_price_update: Optional callback function(symbol, price) called on each update
             staleness_threshold: Seconds before price is considered stale (default: 30)
+            logger: Optional logger instance. If None, uses print() as fallback
         """
         self.symbols = symbols
         self.on_price_update = on_price_update
         self.staleness_threshold = staleness_threshold
+        
+        # Logging setup
+        if logger:
+            self.logger = logger
+        else:
+            # Fallback: Create a basic logger
+            self.logger = logging.getLogger(__name__)
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+                self.logger.addHandler(handler)
+                self.logger.setLevel(logging.INFO)
         
         # Thread-safe price cache
         self.prices: Dict[str, float] = {}
@@ -84,7 +101,7 @@ class WebSocketPriceManager:
         # Hyperliquid WebSocket endpoint
         self._ws_url = "wss://api.hyperliquid.xyz/ws"
         
-        print(f"📡 WebSocket Price Manager initialized for symbols: {', '.join(symbols)}")
+        self.logger.info(f"📡 WebSocket Price Manager initialized for symbols: {', '.join(symbols)}")
     
     def start(self) -> None:
         """
@@ -94,7 +111,7 @@ class WebSocketPriceManager:
         connection is established in the background thread.
         """
         if self._running:
-            print("⚠️ WebSocket manager already running")
+            self.logger.warning("⚠️ WebSocket manager already running")
             return
         
         self._running = True
@@ -104,7 +121,7 @@ class WebSocketPriceManager:
             name="HyperliquidWSManager"
         )
         self._ws_thread.start()
-        print(f"✅ WebSocket Price Manager started for {len(self.symbols)} symbols")
+        self.logger.info(f"✅ WebSocket Price Manager started for {len(self.symbols)} symbols")
     
     def stop(self) -> None:
         """
@@ -116,15 +133,15 @@ class WebSocketPriceManager:
         if not self._running:
             return
         
-        print("🛑 Stopping WebSocket Price Manager...")
+        self.logger.info("🛑 Stopping WebSocket Price Manager...")
         self._running = False
         
         if self._ws_thread:
             self._ws_thread.join(timeout=5.0)
             if self._ws_thread.is_alive():
-                print("⚠️ WebSocket thread did not terminate gracefully")
+                self.logger.warning("⚠️ WebSocket thread did not terminate gracefully")
             else:
-                print("✅ WebSocket manager stopped")
+                self.logger.info("✅ WebSocket manager stopped")
     
     def get_price(self, symbol: str) -> Optional[float]:
         """
@@ -153,7 +170,7 @@ class WebSocketPriceManager:
             age = time.time() - last_update_time
             
             if age > self.staleness_threshold:
-                print(f"⚠️ Price for {symbol} is stale ({age:.1f}s old)")
+                self.logger.warning(f"⚠️ Price for {symbol} is stale ({age:.1f}s old)")
                 return None
             
             return self.prices[symbol]
@@ -172,19 +189,16 @@ class WebSocketPriceManager:
         """
         Add a new symbol to the subscription list.
         
-        Note: This requires reconnecting the WebSocket. Use sparingly.
+        Note: Hyperliquid's 'allMids' channel sends prices for ALL assets.
+        This method only updates the local whitelist for filtering - no reconnection needed.
         
         Args:
             symbol: Symbol to add (e.g., "SOL")
         """
-        if symbol in self.symbols:
-            return
-        
-        print(f"➕ Adding symbol {symbol} to WebSocket subscription")
-        self.symbols.append(symbol)
-        
-        # Trigger reconnection to update subscription
-        # (Implementation would need to signal the WS loop)
+        self.logger.info(f"➕ Adding symbol {symbol} to local filter (no reconnection needed)")
+        with self._lock:
+            if symbol not in self.symbols:
+                self.symbols.append(symbol)
     
     def remove_symbol(self, symbol: str) -> None:
         """
@@ -193,11 +207,10 @@ class WebSocketPriceManager:
         Args:
             symbol: Symbol to remove
         """
-        if symbol not in self.symbols:
-            return
-        
-        print(f"➖ Removing symbol {symbol} from WebSocket subscription")
-        self.symbols.remove(symbol)
+        self.logger.info(f"➖ Removing symbol {symbol} from WebSocket subscription")
+        with self._lock:
+            if symbol in self.symbols:
+                self.symbols.remove(symbol)
         
         with self._lock:
             self.prices.pop(symbol, None)
@@ -216,7 +229,7 @@ class WebSocketPriceManager:
         
         while self._running:
             try:
-                print("🔌 Connecting to Hyperliquid WebSocket...")
+                self.logger.info("🔌 Connecting to Hyperliquid WebSocket...")
                 loop.run_until_complete(self._subscribe_prices())
                 
                 # If we exit cleanly, reset reconnect delay
@@ -226,8 +239,8 @@ class WebSocketPriceManager:
                 if not self._running:
                     break
                 
-                print(f"❌ WebSocket error: {e}")
-                print(f"🔄 Reconnecting in {self._reconnect_delay:.1f}s...")
+                self.logger.error(f"❌ WebSocket error: {e}")
+                self.logger.info(f"🔄 Reconnecting in {self._reconnect_delay:.1f}s...")
                 
                 time.sleep(self._reconnect_delay)
                 
@@ -238,7 +251,7 @@ class WebSocketPriceManager:
                 )
         
         loop.close()
-        print("🔌 WebSocket event loop closed")
+        self.logger.info("🔌 WebSocket event loop closed")
     
     async def _subscribe_prices(self) -> None:
         """
@@ -246,23 +259,17 @@ class WebSocketPriceManager:
         
         This method:
         1. Connects to Hyperliquid WebSocket
-        2. Sends subscription message for all symbols
+        2. Sends subscription message for allMids (all symbols)
         3. Processes incoming price updates
         4. Updates the thread-safe price cache
         
         Raises:
             Exception: On connection failure or protocol error
         """
-        try:
-            import websockets
-        except ImportError:
-            print("❌ websockets library not installed. Run: pip install websockets")
-            return
-        
         async with websockets.connect(self._ws_url) as websocket:
-            print(f"✅ Connected to Hyperliquid WebSocket")
+            self.logger.info(f"✅ Connected to Hyperliquid WebSocket")
             
-            # Subscribe to all symbols
+            # Subscribe to all mid prices
             # Hyperliquid WebSocket subscription format:
             # {"method": "subscribe", "subscription": {"type": "allMids"}}
             subscription_msg = {
@@ -273,7 +280,7 @@ class WebSocketPriceManager:
             }
             
             await websocket.send(json.dumps(subscription_msg))
-            print(f"📡 Subscribed to price feeds for: {', '.join(self.symbols)}")
+            self.logger.info(f"📡 Subscribed to allMids channel (filtering {len(self.symbols)} symbols locally)")
             
             # Process incoming messages
             while self._running:
@@ -292,12 +299,14 @@ class WebSocketPriceManager:
                     await websocket.ping()
                     
                 except Exception as e:
-                    print(f"⚠️ Error processing WebSocket message: {e}")
+                    self.logger.error(f"⚠️ Error processing WebSocket message: {e}")
                     break
     
     def _process_message(self, message: str) -> None:
         """
         Process incoming WebSocket message and update price cache.
+        
+        Wrapped in try/except to prevent silent crashes from malformed JSON.
         
         Args:
             message: JSON string from WebSocket
@@ -308,7 +317,9 @@ class WebSocketPriceManager:
             # Hyperliquid sends price updates in format:
             # {"channel": "allMids", "data": {"BTC": "50000.5", "ETH": "3000.2", ...}}
             if data.get("channel") == "allMids":
-                mids = data.get("data", {})
+                mids_data = data.get("data", {})
+                # Hyperliquid wraps prices in a "mids" key
+                mids = mids_data.get("mids", mids_data)
                 
                 # Update prices for subscribed symbols
                 current_time = time.time()
@@ -325,12 +336,12 @@ class WebSocketPriceManager:
                                 try:
                                     self.on_price_update(symbol, price)
                                 except Exception as e:
-                                    print(f"⚠️ Error in price update callback: {e}")
+                                    self.logger.error(f"⚠️ Error in price update callback: {e}")
         
-        except json.JSONDecodeError:
-            print(f"⚠️ Invalid JSON from WebSocket: {message[:100]}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"⚠️ Invalid JSON from WebSocket: {message[:100]} | Error: {e}")
         except Exception as e:
-            print(f"⚠️ Error processing message: {e}")
+            self.logger.error(f"⚠️ Error processing message: {e}")
     
     def is_healthy(self) -> bool:
         """

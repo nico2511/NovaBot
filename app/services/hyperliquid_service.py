@@ -13,6 +13,9 @@ from app.utils.retry_decorator import critical_operation, standard_operation, li
 from app.utils.websocket_manager import WebSocketPriceManager
 
 class HyperliquidService:
+    # Market order slippage simulation (5%)
+    MARKET_SLIPPAGE = 0.05
+    
     def __init__(self):
         # Initialize Info API (WebSocket will be managed separately)
         self.info = Info(base_url=MAINNET_API_URL, skip_ws=True)
@@ -31,7 +34,7 @@ class HyperliquidService:
                 account = eth_account.Account.from_key(sanitized_key)
                 self.exchange = Exchange(account, base_url=MAINNET_API_URL, account_address=config.HL_ACCOUNT_ADDRESS)
             except Exception as e:
-                print(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
+                self.log(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
                 self.exchange = None
         
         # Initialize metadata cache
@@ -40,6 +43,34 @@ class HyperliquidService:
         # Balance cache to prevent 429s from frontend polling
         self._balance_cache = {"time": 0, "data": None}
         self._cache_ttl = 10 # 10 seconds TTL
+    
+        # Log callback for UI integration
+        self.log_callback = None
+    
+    def set_log_callback(self, callback_func):
+        """
+        Set callback function for logging.
+        
+        Args:
+            callback_func: Function that takes (message: str, level: str = "INFO")
+        
+        Example:
+            >>> def bot_log(msg, level="INFO"):
+            ...     self.log(f"[{level}] {msg}")
+            >>> service.set_log_callback(bot_log)
+        """
+        self.log_callback = callback_func
+    
+    def log(self, message: str, level: str = "INFO"):
+        """
+        Internal logging method.
+        
+        Routes to callback if set, otherwise prints to console.
+        """
+        if self.log_callback:
+            self.log_callback(message, level)
+        else:
+            print(f"[{level}] {message}")
     
     def start_websocket(self, symbols: list[str]) -> None:
         """
@@ -57,16 +88,35 @@ class HyperliquidService:
             >>> service.start_websocket(["BTC", "HYPE"])
         """
         if self.ws_manager is not None:
-            print("⚠️ WebSocket manager already initialized")
+            self.log("⚠️ WebSocket manager already initialized")
             return
         
         try:
-            self.ws_manager = WebSocketPriceManager(symbols)
+            # Create a logger bridge that routes WebSocket logs to our log() method
+            class LogBridge:
+                """Simple logger bridge for WebSocket integration"""
+                def __init__(self, service):
+                    self.service = service
+                
+                def info(self, msg, *args):
+                    self.service.log(msg, "INFO")
+                
+                def error(self, msg, *args):
+                    self.service.log(msg, "ERROR")
+                
+                def warning(self, msg, *args):
+                    self.service.log(msg, "WARNING")
+                
+                def debug(self, msg, *args):
+                    self.service.log(msg, "DEBUG")
+            
+            # Pass LogBridge instance directly to WebSocket
+            self.ws_manager = WebSocketPriceManager(symbols, logger=LogBridge(self))
             self.ws_manager.start()
-            print(f"✅ WebSocket price feeds started for: {', '.join(symbols)}")
+            self.log(f"✅ WebSocket price feeds started for: {', '.join(symbols)}")
         except Exception as e:
-            print(f"❌ Failed to start WebSocket manager: {e}")
-            print("⚠️ Falling back to REST API for price feeds")
+            self.log(f"❌ Failed to start WebSocket manager: {e}")
+            self.log("⚠️ Falling back to REST API for price feeds")
             self.ws_manager = None
     
     def stop_websocket(self) -> None:
@@ -141,18 +191,18 @@ class HyperliquidService:
                     if error_code == 429:
                         if attempt < max_retries - 1:
                             wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
-                            print(f"⚠️ Rate limit hit (429), retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                            self.log(f"⚠️ Rate limit hit (429), retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                             time.sleep(wait_time)
                             continue
                         else:
-                            print(f"❌ Rate limit exceeded after {max_retries} attempts")
+                            self.log(f"❌ Rate limit exceeded after {max_retries} attempts")
                             raise
                     else:
                         # Not a rate limit error, re-raise immediately
                         raise
             
             if not raw_candles:
-                print(f"⚠️ No candles returned for {symbol} {interval}")
+                self.log(f"⚠️ No candles returned for {symbol} {interval}")
                 return pd.DataFrame()
             
             # Convert to DataFrame
@@ -195,7 +245,7 @@ class HyperliquidService:
             return df
             
         except Exception as e:
-            print(f"Error fetching candles for {symbol} {interval}: {e}")
+            self.log(f"Error fetching candles for {symbol} {interval}: {e}")
             import traceback
             traceback.print_exc()
             return pd.DataFrame()
@@ -220,16 +270,16 @@ class HyperliquidService:
                 if time.time() - last_modified < 86400: # 86400s = 24h
                     with open(CACHE_FILE, "r") as f:
                         self._meta_cache = json.load(f)
-                        print("✅ Metadata loaded from disk cache (Fresh).")
+                        self.log("✅ Metadata loaded from disk cache (Fresh).")
                 else:
-                    print("⚠️ Metadata cache expired (>24h). Will refresh from API.")
+                    self.log("⚠️ Metadata cache expired (>24h). Will refresh from API.")
             except Exception as e:
-                print(f"⚠️ Failed to load metadata cache from disk: {e}")
+                self.log(f"⚠️ Failed to load metadata cache from disk: {e}")
 
         # 3. If still needed, fetch from API (and save)
         if not self._meta_cache:
             try:
-                print("🌐 Fetching metadata from Hyperliquid API...")
+                self.log("🌐 Fetching metadata from Hyperliquid API...")
                 self._meta_cache = self.info.meta()
                 
                 # Save to disk
@@ -237,10 +287,10 @@ class HyperliquidService:
                     with open(CACHE_FILE, "w") as f:
                         json.dump(self._meta_cache, f)
                 except Exception as e:
-                    print(f"⚠️ Warning: Could not save metadata cache: {e}")
+                    self.log(f"⚠️ Warning: Could not save metadata cache: {e}")
                     
             except Exception as e:
-                print(f"⚠️ Failed to fetch metadata from API: {e}")
+                self.log(f"⚠️ Failed to fetch metadata from API: {e}")
                 # Fallback to defaults will happen in _get_precision
                 return None
         
@@ -258,7 +308,7 @@ class HyperliquidService:
         
         # 2. Fallback Map for Majors
         FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1}
-        print(f"⚠️ Metadata lookup failed for {symbol}. Using fallback precision.")
+        self.log(f"⚠️ Metadata lookup failed for {symbol}. Using fallback precision.")
         return FALLBACK_SZ.get(symbol, 2), 4 # Conservative default: 2 decimals 
 
     @standard_operation
@@ -276,7 +326,7 @@ class HyperliquidService:
             
             if sl_price:
                 sl_price = float(f"{sl_price:.{price_decimals}f}")
-                print(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price}")
+                self.log(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price}")
                 orders.append({
                     "coin": symbol,
                     "is_buy": close_is_buy,
@@ -288,7 +338,7 @@ class HyperliquidService:
                 
             if tp_price:
                 tp_price = float(f"{tp_price:.{price_decimals}f}")
-                print(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price}")
+                self.log(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price}")
                 orders.append({
                     "coin": symbol,
                     "is_buy": close_is_buy,
@@ -301,7 +351,7 @@ class HyperliquidService:
             if orders:
                 # Use bulk_orders for efficiency
                 if len(orders) > 1:
-                     print(f"🚀 Bulking {len(orders)} protection orders...")
+                     self.log(f"🚀 Bulking {len(orders)} protection orders...")
                      self.exchange.bulk_orders(orders)
                 else:
                      # Single order
@@ -309,7 +359,7 @@ class HyperliquidService:
                      self.exchange.order(o["coin"], o["is_buy"], o["sz"], o["limit_px"], o["order_type"], o["reduce_only"])
                 
         except Exception as e:
-            print(f"⚠️ Failed to place protection orders: {e}")
+            self.log(f"⚠️ Failed to place protection orders: {e}")
 
     def get_canonical_symbol(self, symbol: str) -> str:
         """
@@ -329,7 +379,7 @@ class HyperliquidService:
         # 2. Try adding 'k' prefix (e.g. PEPE -> kPEPE)
         k_symbol = f"k{symbol}"
         if k_symbol in universe:
-            print(f"ℹ️ Auto-resolving {symbol} -> {k_symbol}")
+            self.log(f"ℹ️ Auto-resolving {symbol} -> {k_symbol}")
             return k_symbol
             
         # 3. Try removing 'k' prefix (e.g. kPEPE -> PEPE - unlikely but safe)
@@ -359,8 +409,12 @@ class HyperliquidService:
             quantity = int(quantity) # Force int if decimals is 0
         else:
             quantity = round(quantity, sz_decimals)
+        
+        # Check for zero quantity after rounding
+        if quantity <= 0:
+            return {"status": "error", "message": "Quantity rounded to zero"}
             
-        print(f"📏 Rounded Order Size: {quantity} {symbol} (sz_decimals={sz_decimals})")
+        self.log(f"📏 Rounded Order Size: {quantity} {symbol} (sz_decimals={sz_decimals})")
         
         # RETRY CONFIG
         max_retries = 3
@@ -370,7 +424,7 @@ class HyperliquidService:
             try:
                 # CASE 1: ATOMIC ENTRY + SL/TP (Recommended)
                 if sl_price or tp_price:
-                    print(f"🚀 SUBMITTING ATOMIC ORDER (Entry + SL/TP) for {symbol} (Attempt {attempt + 1})")
+                    self.log(f"🚀 SUBMITTING ATOMIC ORDER (Entry + SL/TP) for {symbol} (Attempt {attempt + 1})")
                     
                     orders = []
                     
@@ -395,7 +449,7 @@ class HyperliquidService:
                     current_px = self.get_current_price(symbol)
                     if not price:
                         # Aggressive crossing: Buy @ +5%, Sell @ -5%
-                        simulated_limit_px = current_px * 1.05 if is_buy else current_px * 0.95
+                        simulated_limit_px = current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE)
                         entry_order["limit_px"] = float(f"{simulated_limit_px:.{price_decimals}f}")
                     else:
                         entry_order["limit_px"] = float(f"{price:.{price_decimals}f}")
@@ -435,19 +489,19 @@ class HyperliquidService:
                     if price:
                          # LIMIT
                          limit_px = float(f"{price:.{price_decimals}f}")
-                         print(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {limit_px}")
+                         self.log(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {limit_px}")
                          result = self.exchange.order(symbol, is_buy, quantity, limit_px, {"limit": {"tif": "Gtc"}})
                     else:
                          # MARKET
-                         print(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
+                         self.log(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
                          result = self.exchange.market_open(symbol, is_buy, quantity)
 
                 # VERIFICATION LOGIC (Shared)
-                print(f"✅ Exec Result: {result}")
+                self.log(f"✅ Exec Result: {result}")
                 
                 # CRITICAL FIX: Handle case where SDK returns a string (error message) instead of dict
                 if not isinstance(result, dict):
-                    print(f"❌ API returned non-dict result: {result}")
+                    self.log(f"❌ API returned non-dict result: {result}")
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         continue
@@ -474,11 +528,11 @@ class HyperliquidService:
                             # String status ('waitingForTrigger', etc.) - this is OK
                             pass
                         else:
-                            print(f"⚠️ Unknown status type: {type(status)} = {status}")
+                            self.log(f"⚠️ Unknown status type: {type(status)} = {status}")
                     
                     # Check for errors
                     if errors:
-                        print(f"❌ Order Rejected: {errors}")
+                        self.log(f"❌ Order Rejected: {errors}")
                         if attempt < max_retries - 1:
                             time.sleep(retry_delay)
                             continue
@@ -486,25 +540,25 @@ class HyperliquidService:
                     
                     # Check if entry was filled
                     if filled_orders:
-                        print(f"✅ Order Filled: {filled_orders[0]}")
+                        self.log(f"✅ Order Filled: {filled_orders[0]}")
                         
                     # Success
                     return {"status": "success", "result": result}
                     
                 else:
-                     print(f"❌ API Error: {result}")
+                     self.log(f"❌ API Error: {result}")
                      if attempt < max_retries - 1:
                          time.sleep(retry_delay)
                          continue
             
             except Exception as e:
                 error_msg = str(e)
-                print(f"❌ Exception in execute_order (Attempt {attempt+1}): {error_msg}")
+                self.log(f"❌ Exception in execute_order (Attempt {attempt+1}): {error_msg}")
                 
                 # Smart Backoff for Rate Limits
                 wait_time = retry_delay
                 if "429" in error_msg or "Too Many Requests" in error_msg:
-                    print("🚫 Rate Limit Hit (429). Cooling down for 10s...")
+                    self.log("🚫 Rate Limit Hit (429). Cooling down for 10s...")
                     wait_time = 10
                 
                 if attempt < max_retries - 1:
@@ -568,7 +622,7 @@ class HyperliquidService:
             sl_price = entry_price * (1 + sl_percent / 100)
             tp_price = entry_price * (1 - tp_percent / 100)
         
-        print(f"🛡️ Setting SL/TP for {symbol}: SL={sl_price:.2f}, TP={tp_price:.2f}")
+        self.log(f"🛡️ Setting SL/TP for {symbol}: SL={sl_price:.2f}, TP={tp_price:.2f}")
         
         # Use existing method (which also has retry logic via decorator)
         self._place_protection_orders(symbol, is_long, quantity, sl_price, tp_price)
@@ -588,7 +642,7 @@ class HyperliquidService:
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
             
-        print(f"🔄 SYNCING SL/TP for {symbol} (SL: {sl_price}, TP: {tp_price})...")
+        self.log(f"🔄 SYNCING SL/TP for {symbol} (SL: {sl_price}, TP: {tp_price})...")
         try:
             # 1. Cancel existing orders to avoid duplicates/conflicts
             self.cancel_all_orders(symbol)
@@ -599,7 +653,7 @@ class HyperliquidService:
                 
             return {"status": "success"}
         except Exception as e:
-            print(f"❌ Failed to sync SL/TP: {e}")
+            self.log(f"❌ Failed to sync SL/TP: {e}")
             return {"status": "error", "message": str(e)}
 
     def update_leverage(self, symbol: str, leverage: int, is_cross: bool = True):
@@ -608,12 +662,12 @@ class HyperliquidService:
             return {"status": "error", "message": "No private key configured"}
             
         try:
-            print(f"⚙️ Updating leverage for {symbol}: {leverage}x (Cross: {is_cross})")
+            self.log(f"⚙️ Updating leverage for {symbol}: {leverage}x (Cross: {is_cross})")
             # Set leverage
             self.exchange.update_leverage(leverage, symbol, is_cross)
             return {"status": "success", "leverage": leverage, "is_cross": is_cross}
         except Exception as e:
-            print(f"❌ Failed to update leverage: {e}")
+            self.log(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
     @standard_operation
@@ -654,10 +708,10 @@ class HyperliquidService:
             return result
             
         except Exception as e:
-            print(f"Error fetching account balance: {e}")
+            self.log(f"Error fetching account balance: {e}")
             # If API fails, try to return stale cache if available
             if self._balance_cache["data"]:
-                print("⚠️ Returning stale balance cache due to API error")
+                self.log("⚠️ Returning stale balance cache due to API error")
                 return self._balance_cache["data"]
                 
             return {
@@ -706,7 +760,7 @@ class HyperliquidService:
                 
             return positions
         except Exception as e:
-            print(f"Error fetching positions: {e}")
+            self.log(f"Error fetching positions: {e}")
             return []
 
     @lightweight_operation
@@ -722,12 +776,12 @@ class HyperliquidService:
             if not orders_to_cancel:
                 return
                 
-            print(f"🧹 Cancelling {len(orders_to_cancel)} open orders for {symbol}...")
+            self.log(f"🧹 Cancelling {len(orders_to_cancel)} open orders for {symbol}...")
             for order in orders_to_cancel:
                 self.exchange.cancel(symbol, order["oid"])
                 
         except Exception as e:
-            print(f"⚠️ Error cancelling orders: {e}")
+            self.log(f"⚠️ Error cancelling orders: {e}")
 
     @critical_operation
     def close_position(self, symbol: str):
@@ -755,11 +809,11 @@ class HyperliquidService:
             raise Exception("No private key configured")
         
         # Step 1: Cancel all pending orders (TP/SL)
-        print(f"🧹 Cancelling pending orders for {symbol}...")
+        self.log(f"🧹 Cancelling pending orders for {symbol}...")
         try:
             self.cancel_all_orders(symbol)
         except Exception as e:
-            print(f"⚠️ Failed to cancel orders (continuing anyway): {e}")
+            self.log(f"⚠️ Failed to cancel orders (continuing anyway): {e}")
         
         # Step 2: Get current position
         positions = self.get_positions()
@@ -779,12 +833,12 @@ class HyperliquidService:
         if quantity <= 0:
             raise Exception("Position size too small to close")
         
-        print(f"🔴 CLOSING {side} position: {quantity} {symbol}")
+        self.log(f"🔴 CLOSING {side} position: {quantity} {symbol}")
         
         # Step 4: Execute market close order
         # This will raise exception if it fails, triggering decorator retry
         result = self.exchange.market_open(symbol, is_buy, quantity)
-        print(f"✅ Close order submitted: {symbol} {quantity}")
+        self.log(f"✅ Close order submitted: {symbol} {quantity}")
         
         # Step 5: Verify closure
         time.sleep(2)  # Wait for fill
@@ -796,9 +850,9 @@ class HyperliquidService:
             raise Exception(f"Position not fully closed, {remaining['size']} remaining")
         elif remaining:
             # Just dust remaining - acceptable
-            print(f"ℹ️ Close incomplete: Dust remaining ({remaining['size']})")
+            self.log(f"ℹ️ Close incomplete: Dust remaining ({remaining['size']})")
         
-        print(f"✅ Position closed successfully: {symbol}")
+        self.log(f"✅ Position closed successfully: {symbol}")
         return {"status": "success", "closed_size": size, "result": result}
 
     def get_current_price(self, symbol: str) -> float:
@@ -818,7 +872,7 @@ class HyperliquidService:
         Example:
             >>> price = service.get_current_price("BTC")
             >>> if price > 0:
-            ...     print(f"BTC: ${price}")
+            ...     self.log(f"BTC: ${price}")
         """
         # Try WebSocket cache first (preferred method)
         if self.ws_manager is not None:
@@ -826,7 +880,7 @@ class HyperliquidService:
             if price is not None:
                 return price
             else:
-                print(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
+                self.log(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
         
         # Fallback to REST API (with warning)
         try:
@@ -834,7 +888,7 @@ class HyperliquidService:
             if not df.empty:
                 return float(df['close'].iloc[-1])
         except Exception as e:
-            print(f"❌ Error getting price via REST: {e}")
+            self.log(f"❌ Error getting price via REST: {e}")
         
         return 0.0
 
@@ -878,7 +932,7 @@ class HyperliquidService:
                         timestamp_str = pd.Timestamp.now().isoformat()
                     
                     trade_data = {
-                        "id": fill.get("oid", f"{coin}_{timestamp}"),
+                        "id": str(fill.get("oid", f"{coin}_{timestamp}")),
                         "symbol": coin,
                         "side": side,
                         "entry_price": price,
@@ -899,13 +953,13 @@ class HyperliquidService:
                     trades.append(trade_data)
                     
                 except Exception as e:
-                    print(f"Error parsing fill: {e}")
+                    self.log(f"Error parsing fill: {e}")
                     continue
             
             return trades
             
         except Exception as e:
-            print(f"Error fetching trade history from Hyperliquid: {e}")
+            self.log(f"Error fetching trade history from Hyperliquid: {e}")
             import traceback
             traceback.print_exc()
             return []
@@ -940,7 +994,7 @@ class HyperliquidService:
                 "prev_day_price": float(ctx.get("prevDayPx", 0))
             }
         except Exception as e:
-            print(f"Error fetching market data for {symbol}: {e}")
+            self.log(f"Error fetching market data for {symbol}: {e}")
             return {}
 
 hyperliquid_service = HyperliquidService()

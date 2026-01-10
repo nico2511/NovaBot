@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import axios from 'axios'
+import api from '@/lib/api'
 
 interface ManualSignal {
     strategy: string
@@ -41,7 +41,7 @@ export default function ManualTradeWidget({ signal, onDismiss }: Props) {
         setError(null)
 
         try {
-            const response = await axios.post('/api/execute_manual_trade', {
+            const response = await api.post('/api/execute_manual_trade', {
                 symbol: signal.symbol,
                 action: signal.action,
                 price: signal.price,

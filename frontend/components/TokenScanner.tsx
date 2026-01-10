@@ -1,24 +1,10 @@
 'use client'
 import { useState } from 'react'
-import axios from 'axios'
+import api from '@/lib/api'
 import useSWR from 'swr'
 
 // Custom fetcher with error handling
-const fetcher = async (url: string) => {
-    try {
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const text = await res.text()
-        try {
-            return JSON.parse(text)
-        } catch (e) {
-            console.error("Invalid JSON response:", text.substring(0, 100))
-            throw new Error("Invalid Server Response (Not JSON)")
-        }
-    } catch (e) {
-        throw e
-    }
-}
+const fetcher = (url: string) => api.get(url).then(res => res.data)
 
 interface Opportunity {
     symbol: string
@@ -67,7 +53,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
     const handleTrade = async (symbol: string) => {
         try {
             // Call switch endpoint
-            await axios.post('/api/symbol/switch', { symbol })
+            await api.post('/api/symbol/switch', { symbol })
 
             alert(`✅ Switched to ${symbol}! Go to Overview to trade.`)
             window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -122,7 +108,7 @@ export default function TokenScanner({ hideHeader = false }: { hideHeader?: bool
                         onClick={async () => {
                             setIsMomentumScanning(true)
                             try {
-                                const res = await axios.post('/api/momentum_ranking', { top_n: 3 })
+                                const res = await api.post('/api/momentum_ranking', { top_n: 3 })
                                 setMomentumResults(res.data.ranking)
                             } catch (error) {
                                 console.error('Momentum scan failed:', error)

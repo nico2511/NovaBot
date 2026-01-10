@@ -2,7 +2,15 @@ import { useState, useMemo } from 'react'
 import useSWR from 'swr'
 import axios from 'axios'
 
-const fetcher = (url: string) => axios.get(url).then(res => res.data)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+
+const fetcher = (url: string) => axios.get(url).then(res => {
+    console.log(`[useTradeHistory] Fetched ${url}:`, res.data)
+    return res.data
+}).catch(err => {
+    console.error(`[useTradeHistory] Error fetching ${url}:`, err)
+    throw err
+})
 
 export interface Trade {
     id: string
@@ -17,6 +25,9 @@ export interface Trade {
     strategy: string
     exit_reason: string
     timestamp?: string // For Hyperliquid trades
+    size: number
+    fee?: number
+    leverage?: number
 }
 
 export interface TradeStats {
@@ -29,9 +40,9 @@ export interface TradeStats {
 export function useTradeHistory() {
     const [source, setSource] = useState<'local' | 'hyperliquid' | 'all'>('all')
 
-    // Fetch both sources
-    const { data: localData, isLoading: localLoading } = useSWR('/api/trades', fetcher, { refreshInterval: 5000 })
-    const { data: hlData, isLoading: hlLoading } = useSWR('/api/trades/hyperliquid?limit=100', fetcher, { refreshInterval: 30000 })
+    // Fetch both sources using absolute URLs
+    const { data: localData, isLoading: localLoading } = useSWR(`${API_BASE_URL}/api/trades`, fetcher, { refreshInterval: 5000 })
+    const { data: hlData, isLoading: hlLoading } = useSWR(`${API_BASE_URL}/api/trades/hyperliquid?limit=100`, fetcher, { refreshInterval: 30000 })
 
     const trades = useMemo(() => {
         const local = localData?.trades || []

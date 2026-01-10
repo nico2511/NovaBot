@@ -1,7 +1,14 @@
 """
-Hyperliquid Token Scanner - REFACTORED
+Hyperliquid Token Scanner - ENHANCED V3
 Scans all available tokens and identifies best trading opportunities
 Optimized for k-prefix handling and proper whitelist filtering
+
+ENHANCEMENTS:
+- Bear symmetry in scoring (Perfect Bearish = Perfect Bullish inverted)
+- Funding rate veto (extreme rates filtered)
+- Dynamic MAX_TOKENS_TO_SCAN based on whitelist size
+- Per-token cache (5min) to avoid redundant analysis
+- ASSET_TIERS integration from gamification module
 """
 
 import time
@@ -10,6 +17,7 @@ from typing import List, Dict, Any, Set
 from app.services.hyperliquid_service import HyperliquidService
 from hyperliquid.info import Info
 from app.services.indicators import ta
+from app.core.asset_gamification import ASSET_TIERS, AssetTier
 
 
 class HyperliquidScanner:
@@ -18,17 +26,25 @@ class HyperliquidScanner:
     Filters by gamification level and finds best trading opportunities
     """
     
-    # Rate limit protection (INCREASED from 10 to 50)
-    MAX_TOKENS_TO_SCAN = 50  # Increased to capture more whitelisted tokens
-    CACHE_DURATION = 300  # 5 minutes cache
+    # Rate limit protection - Now DYNAMIC (see _calculate_scan_limit)
+    BASE_MAX_TOKENS = 30  # Base limit for small whitelists
+    CACHE_DURATION = 300  # 5 minutes global cache
+    TOKEN_CACHE_DURATION = 300  # 5 minutes per-token cache
+    
+    # Funding rate veto thresholds
+    MAX_FUNDING_LONG = 0.001  # 0.1% (extreme bullish funding = risky long)
+    MIN_FUNDING_SHORT = -0.001  # -0.1% (extreme bearish funding = risky short)
     
     def __init__(self):
         self.info = Info(skip_ws=True)
         self.hl_service = HyperliquidService()
         
-        # Simple cache
+        # Global scan cache
         self._cache = {}
         self._cache_time = 0
+        
+        # Per-token analysis cache (NEW)
+        self._token_cache = {}  # {symbol: {'data': {...}, 'timestamp': float}}
         
         # Configuration thresholds
         self.min_volume_24h = 10_000_000  # $10M minimum
@@ -37,6 +53,45 @@ class HyperliquidScanner:
         self.max_atr_pct = 8.0  # Maximum volatility
         self.min_momentum_pct = 5.0  # Minimum 24h change
         self.max_spread_pct = 0.1  # Maximum bid/ask spread
+    
+    def _calculate_scan_limit(self, whitelist: List[str] = None) -> int:
+        """
+        Calculate dynamic MAX_TOKENS_TO_SCAN based on whitelist size
+        
+        Logic:
+        - If no whitelist: Use BASE_MAX_TOKENS (30)
+        - If whitelist provided: whitelist_size + 20% margin
+        - Cap at 100 to respect API rate limits
+        """
+        if not whitelist:
+            return self.BASE_MAX_TOKENS
+        
+        # Whitelist size + 20% margin for k-prefix variants
+        dynamic_limit = int(len(whitelist) * 1.2)
+        
+        # Cap at 100 for safety
+        max_limit = min(100, dynamic_limit)
+        
+        print(f"📊 Dynamic scan limit: {max_limit} tokens (whitelist: {len(whitelist)})")
+        return max_limit
+    
+    def _get_combined_whitelist(self, user_whitelist: List[str] = None) -> List[str]:
+        """
+        Combine user whitelist with ASSET_TIERS if needed
+        
+        If user provides whitelist, use it as-is.
+        Otherwise, combine all ASSET_TIERS for comprehensive scan.
+        """
+        if user_whitelist is not None:
+            return user_whitelist
+        
+        # Combine all tiers
+        combined = []
+        for tier in ASSET_TIERS.values():
+            combined.extend(tier)
+        
+        # Remove duplicates
+        return list(set(combined))
     
     def _normalize_symbol(self, symbol: str) -> str:
         """
@@ -150,7 +205,24 @@ class HyperliquidScanner:
         return candidates
     
     def analyze_token(self, symbol: str) -> Dict[str, Any]:
-        """Perform technical analysis on a token"""
+        """
+        Perform technical analysis on a token with PER-TOKEN CACHE
+        
+        Cache logic:
+        - Check if symbol exists in cache and is fresh (<5min)
+        - If yes: return cached data
+        - If no: fetch, analyze, cache, return
+        """
+        # Check per-token cache
+        if symbol in self._token_cache:
+            cached_entry = self._token_cache[symbol]
+            age = time.time() - cached_entry['timestamp']
+            
+            if age < self.TOKEN_CACHE_DURATION:
+                print(f"  💾 Using cached analysis for {symbol} ({age:.0f}s old)", end='\r')
+                return cached_entry['data']
+        
+        # Cache miss or stale - perform analysis
         try:
             # Get 24h of 15m candles (96 candles)
             df = self.hl_service.get_candles(symbol, "15m", limit=96)
@@ -193,8 +265,9 @@ class HyperliquidScanner:
             current_ema_20 = ema_20.iloc[-1] if not ema_20.empty else 0
             current_ema_50 = ema_50.iloc[-1] if not ema_50.empty else 0
             
-            # Trend Alignment (Perfect Bullish)
-            trend_aligned = (current_ema_9 > current_ema_20 > current_ema_50)
+            # Trend Alignment (Perfect Bullish OR Bearish)
+            trend_aligned_bull = (current_ema_9 > current_ema_20 > current_ema_50)
+            trend_aligned_bear = (current_ema_9 < current_ema_20 < current_ema_50)  # NEW
             
             # Mean Reversion Risk
             if current_ema_20 > 0:
@@ -223,19 +296,28 @@ class HyperliquidScanner:
                 current_dmp = 0
                 current_dmn = 0
             
-            return {
+            analysis_result = {
                 'atr_pct': atr_pct,
                 'momentum_pct': momentum_pct,
                 'rsi': current_rsi,
                 'adx': current_adx,
                 'adx_dmp': current_dmp,
                 'adx_dmn': current_dmn,
-                'trend_aligned': trend_aligned,
+                'trend_aligned_bull': trend_aligned_bull,
+                'trend_aligned_bear': trend_aligned_bear,  # NEW
                 'rvol': rvol,
                 'dist_ema_20_pct': dist_ema_20_pct,
                 'dist_ma200_pct': dist_ma200_pct,
                 'current_price': close.iloc[-1]
             }
+            
+            # Cache the result
+            self._token_cache[symbol] = {
+                'data': analysis_result,
+                'timestamp': time.time()
+            }
+            
+            return analysis_result
             
         except Exception as e:
             print(f"⚠️ Error analyzing {symbol}: {e}")
@@ -243,7 +325,11 @@ class HyperliquidScanner:
     
     def calculate_opportunity_score(self, token_data: Dict[str, Any], analysis: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Calculate opportunity score (0-100) - V2 (Dynamic Weights & Veto)
+        Calculate opportunity score (0-100) - V3 (Bear Symmetry + Funding Veto)
+        
+        ENHANCEMENTS:
+        - Bear symmetry: Perfect bearish trend = inverted bull score
+        - Funding rate veto: Extreme rates filtered
         """
         score = 0
         reasons = []
@@ -251,7 +337,23 @@ class HyperliquidScanner:
         
         # --- KILL SWITCHES (Veto) ---
         
-        # 1. RSI Extreme (Overbought)
+        # 1. Funding Rate Veto (NEW)
+        funding = token_data.get('funding', 0)
+        
+        # Extreme positive funding = too crowded long (risky to enter long)
+        if funding > self.MAX_FUNDING_LONG:
+            return {
+                'score': 0, 
+                'reasons': [f"⛔ Funding Veto: Extreme Long Crowding ({funding*100:.3f}% > 0.1%)"],
+                'max_score': 100
+            }
+        
+        # Extreme negative funding = too crowded short (risky to enter short)
+        # For now we focus on longs, but this could be used for short strategies
+        if funding < self.MIN_FUNDING_SHORT:
+            print(f"   ⚠️ {token_data['symbol']}: Extreme short funding ({funding*100:.3f}%) - potential short squeeze")
+        
+        # 2. RSI Extreme (Overbought)
         if analysis['rsi'] > 75:
             return {
                 'score': 0, 
@@ -259,7 +361,7 @@ class HyperliquidScanner:
                 'max_score': 100
             }
             
-        # 2. Low Liquidity
+        # 3. Low Liquidity
         volume_millions = token_data['volume_24h'] / 1_000_000
         if volume_millions < 5.0:
              return {
@@ -284,11 +386,17 @@ class HyperliquidScanner:
             rvol_points = (rvol - 1.0) * 5
             score += rvol_points
         
-        # 2. Trend Alignment
-        if analysis.get('trend_aligned', False):
+        # 2. Trend Alignment (ENHANCED: Bear Symmetry)
+        if analysis.get('trend_aligned_bull', False):
             score += 30
-            reasons.append("📈 Perfect Trend Alignment (EMA 9>20>50) [+30]")
+            reasons.append("📈 Perfect Bull Trend (EMA 9>20>50) [+30]")
             details['Trend_Bonus'] = 30
+        elif analysis.get('trend_aligned_bear', False):
+            # Bear symmetry: Perfect bearish = good for shorts (inverted scoring)
+            # For now, we penalize since we focus on longs
+            score -= 15
+            reasons.append("📉 Perfect Bear Trend (EMA 9<20<50) [-15]")
+            details['Bear_Trend_Penalty'] = -15
             
         # 3. Mean Reversion Risk
         dist_ema = analysis.get('dist_ema_20_pct', 0)
@@ -297,6 +405,12 @@ class HyperliquidScanner:
             score -= extension_malus
             reasons.append(f"⚠️ Overextended (+{dist_ema:.1f}% vs EMA20) [-{extension_malus:.0f}]")
             details['Extension_Penalty'] = -extension_malus
+        elif dist_ema < -3.0:
+            # Underextended (potential bounce for longs)
+            bounce_bonus = abs(dist_ema + 3.0) * 5
+            score += bounce_bonus
+            reasons.append(f"💎 Underextended ({dist_ema:.1f}% vs EMA20) [+{bounce_bonus:.0f}]")
+            details['Bounce_Bonus'] = bounce_bonus
         
         # 4. ADX Quality
         adx = analysis.get('adx', 0)
@@ -305,7 +419,7 @@ class HyperliquidScanner:
         
         if adx > 25 and dmp > dmn:
             score += 15
-            reasons.append(f"💪 Strong Trend (ADX {adx:.0f}) [+15]")
+            reasons.append(f"💪 Strong Bull Trend (ADX {adx:.0f}) [+15]")
             details['ADX_Bonus'] = 15
         elif adx > 25 and dmn > dmp:
             score -= 10
@@ -323,6 +437,10 @@ class HyperliquidScanner:
         # 6. RSI (Fine Tuning)
         if 50 <= analysis['rsi'] <= 65:
             score += 10
+        elif analysis['rsi'] < 30:
+            # Oversold = potential bounce
+            score += 5
+            reasons.append(f"💎 Oversold RSI ({analysis['rsi']:.0f}) [+5]")
 
         # 7. Open Interest
         oi_millions = token_data['open_interest'] / 1_000_000
@@ -341,25 +459,25 @@ class HyperliquidScanner:
     
     def scan(self, top_n: int = 10, whitelist: List[str] = None) -> List[Dict[str, Any]]:
         """
-        Main scanning function - REFACTORED
+        Main scanning function - ENHANCED V3
         
         CRITICAL ORDER OF OPERATIONS:
         1. Get all tokens
         2. Get market data
         3. Apply WHITELIST filter (if provided)
         4. Filter by liquidity (volume + OI)
-        5. Limit to MAX_TOKENS_TO_SCAN for deep analysis
-        6. Analyze and score
+        5. Limit to DYNAMIC MAX_TOKENS_TO_SCAN for deep analysis
+        6. Analyze and score (with per-token cache)
         
         Returns top N opportunities sorted by score
         """
-        # Check cache first
+        # Check global cache first
         if self._cache and (time.time() - self._cache_time) < self.CACHE_DURATION:
             print("📦 Using cached results (fresh)")
             return self._cache.get('results', [])[:top_n]
         
         print("\n" + "="*60)
-        print("🔍 HYPERLIQUID TOKEN SCANNER (Scoring V2 - REFACTORED)")
+        print("🔍 HYPERLIQUID TOKEN SCANNER V3 (Bear Symmetry + Funding Veto)")
         print("="*60)
         
         # Step 1: Get all tokens
@@ -372,11 +490,14 @@ class HyperliquidScanner:
         market_data = self.get_market_data()
         
         # Step 3: WHITELIST FILTER (BEFORE liquidity filter)
-        if whitelist is not None:
-            print(f"\n🔒 Applying Whitelist Filter: {len(whitelist)} assets allowed")
+        # Use combined whitelist if user didn't provide one
+        effective_whitelist = self._get_combined_whitelist(whitelist)
+        
+        if effective_whitelist:
+            print(f"\n🔒 Applying Whitelist Filter: {len(effective_whitelist)} assets allowed")
             filtered_market_data = {}
             for symbol, data in market_data.items():
-                if self._is_whitelisted(symbol, whitelist):
+                if self._is_whitelisted(symbol, effective_whitelist):
                     filtered_market_data[symbol] = data
             
             print(f"   ✅ {len(filtered_market_data)} tokens matched whitelist")
@@ -394,23 +515,25 @@ class HyperliquidScanner:
             print("❌ No tokens meet liquidity criteria")
             return []
         
-        # Step 5: RATE LIMIT - Limit deep analysis to MAX_TOKENS_TO_SCAN
-        if len(candidates) > self.MAX_TOKENS_TO_SCAN:
-            print(f"⚠️ Limiting deep analysis to top {self.MAX_TOKENS_TO_SCAN} by volume (rate limit protection)")
+        # Step 5: DYNAMIC RATE LIMIT
+        max_tokens_to_scan = self._calculate_scan_limit(effective_whitelist)
+        
+        if len(candidates) > max_tokens_to_scan:
+            print(f"⚠️ Limiting deep analysis to top {max_tokens_to_scan} by volume (dynamic rate limit)")
             # Sort by volume to prioritize most liquid
             candidates.sort(key=lambda x: x['volume_24h'], reverse=True)
-            candidates = candidates[:self.MAX_TOKENS_TO_SCAN]
+            candidates = candidates[:max_tokens_to_scan]
         
-        # Step 6: Analyze each candidate
-        print(f"\n🔬 Analyzing {len(candidates)} candidates...")
+        # Step 6: Analyze each candidate (with per-token cache)
+        print(f"\n🔬 Analyzing {len(candidates)} candidates (with per-token cache)...")
         opportunities = []
         
         for i, token_data in enumerate(candidates):
             symbol = token_data['symbol']
             print(f"  [{i+1}/{len(candidates)}] Analyzing {symbol}...", end='\r')
             
-            # Rate limit protection
-            if i > 0:
+            # Rate limit protection (only if not using cache)
+            if i > 0 and symbol not in self._token_cache:
                 time.sleep(0.5)
             
             analysis = self.analyze_token(symbol)
@@ -459,6 +582,7 @@ class HyperliquidScanner:
             print(f"\n{i}. {opp['symbol']} (Score: {opp['score']:.0f}/100) {stars}")
             print(f"   💰 Volume: ${opp['volume_24h']/1e6:.1f}M | OI: ${opp['open_interest']/1e6:.1f}M")
             print(f"   📈 Momentum: {opp['momentum_24h']:+.2f}%")
+            print(f"   💸 Funding: {opp['funding']*100:.3f}%")
             print(f"   📊 ATR: {opp['atr_pct']:.2f}%")
             print(f"   🎯 RSI: {opp['rsi']:.0f}")
             print(f"   💵 Price: ${opp['current_price']:.4f}")

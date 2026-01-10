@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import api from '@/lib/api'
 
 interface Opportunity {
     symbol: string
@@ -22,7 +22,7 @@ export default function ScannerWidget({ onSwitchSymbol }: ScannerWidgetProps) {
     const fetchOpportunities = async () => {
         try {
             setLoading(true)
-            const res = await axios.get('/api/scanner/opportunities?top_n=5')
+            const res = await api.get('/api/scanner/opportunities?top_n=5')
             if (res.data.success) {
                 setOpportunities(res.data.opportunities)
             }

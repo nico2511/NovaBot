@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import axios from 'axios'
+import api from '@/lib/api'
 import { TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Zap } from 'lucide-react'
 
 interface MarketCardProps {
@@ -88,7 +88,7 @@ export default function MarketCard({
         setAiReport(null)
         setShowModal(true)
         try {
-            const res = await axios.post('/api/ai_analysis', { symbol })
+            const res = await api.post('/api/ai_analysis', { symbol })
             if (res.data) {
                 let data = res.data
                 if (data.raw_output) {

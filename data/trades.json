@@ -58,5 +58,17 @@
     "exit_time": "2026-01-03T09:57:24.478851",
     "exit_reason": "External Close",
     "id": "trade_1767430644_3"
+  },
+  {
+    "symbol": "FARTCOIN",
+    "strategy": "Manual (RANGE - Adopted)",
+    "side": "SELL",
+    "entry_price": 0.39257,
+    "exit_price": 0.38621,
+    "size": 50.8,
+    "pnl_usdc": 0.3230879999999988,
+    "exit_reason": "External Close",
+    "exit_time": "2026-01-10T17:01:44.730811",
+    "id": "trade_1768060904_4"
   }
 ]

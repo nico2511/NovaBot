@@ -41,5 +41,11 @@ class Config:
     # Profil de Risque (Défaut: Capital Preservation)
     # Voir TRADING_PROFILES.md pour les options
     RISK_PROFILE: str = os.getenv("RISK_PROFILE", "Capital Preservation First")
+    
+    # AI Call Cooldown (seconds) - Prevents excessive API calls
+    AI_CALL_COOLDOWN: int = int(os.getenv("AI_CALL_COOLDOWN", "300"))  # 5 minutes default
+    
+    # API Security
+    API_KEY: str = os.getenv("API_KEY", "dev_secret_change_in_production")
 
 config = Config()
