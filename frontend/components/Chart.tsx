@@ -265,10 +265,37 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
             </div>
             {/* Conteneur du Graphique */}
             <div ref={chartContainerRef} className="w-full h-full" />
+
+            {/* Chart Legend */}
+            <div className="absolute bottom-4 left-4 z-10 flex flex-wrap gap-3 pointer-events-none">
+                <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
+                    <div className="w-3 h-0.5 bg-[#eab308]"></div>
+                    <span className="text-[10px] text-gray-300 font-medium">EMA 21</span>
+                </div>
+                <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
+                    <div className="w-3 h-0.5 bg-[#a855f7]"></div>
+                    <span className="text-[10px] text-gray-300 font-medium">EMA 200</span>
+                </div>
+                <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
+                    <div className="w-3 h-0.5 bg-[#fb923c]"></div>
+                    <span className="text-[10px] text-gray-300 font-medium">BB Basis</span>
+                </div>
+                <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
+                    <div className="w-3 h-0.5 bg-[#3b82f6] opacity-50"></div>
+                    <span className="text-[10px] text-gray-300 font-medium">BB Bands</span>
+                </div>
+                {activeTrade?.metadata?.fibo_618 && (
+                    <div className="bg-[#1f2937]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700/50 flex items-center gap-2">
+                        <div className="w-3 h-0.5 border-t border-dashed border-[#d97706]"></div>
+                        <span className="text-[10px] text-gray-300 font-medium">Fibo 61.8%</span>
+                    </div>
+                )}
+            </div>
+
             {/* Loading State */}
             {!candleData && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e11]/80 z-0">
-                    <div className="animate-pulse text-indigo-400 font-mono text-sm">LOADING MARKET DATA...</div>
+                    <div className="text-gray-400 text-sm">Loading chart...</div>
                 </div>
             )}
         </div>

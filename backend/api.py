@@ -751,6 +751,25 @@ async def execute_manual_signal(request: Request):
         logger.error(f"Error executing manual signal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/trade_history")
+async def get_trade_history(limit: int = 50):
+    """Get trade history from Hyperliquid"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'hyperliquid_service'):
+                trades = bot.hyperliquid_service.get_trade_history(limit=limit)
+                return {"trades": trades}
+        
+        # Fallback: try direct service
+        from app.services.hyperliquid_service import HyperliquidService
+        service = HyperliquidService()
+        trades = service.get_trade_history(limit=limit)
+        return {"trades": trades}
+    except Exception as e:
+        logger.error(f"Error fetching trade history: {e}")
+        return {"trades": []}
+
 @app.get("/api/logs")
 async def get_logs():
     """Get recent logs"""
