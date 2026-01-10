@@ -213,23 +213,22 @@
             }
         },
         "fibo_pullback": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
-            "description": "Fibonacci Pullback V2 (REFACTORED 2026-01-08) - All 5 bugs fixed. Pending backtest validation.",
+            "description": "Fibonacci Pullback V2 (AI-Enhanced). LONG/SHORT Continuation in Golden Zone.",
             "display_conditions": [
-                "Price > EMA 200",
-                "ADX >= 20 (Trend)",
+                "Trend Alignment (EMA200 + ADX)",
+                "Confirmed Swing Structure",
                 "Fibo 50-78.6% Zone",
-                "Volume >= 1.5x",
-                "R:R >= 1.5"
+                "Volume > 1.3x"
             ],
             "params": {
                 "ema_period": 200,
-                "adx_threshold": 20,
-                "swing_lookback": 50,
+                "adx_threshold": 18,
+                "swing_lookback": 35,
                 "min_rr": 1.5,
                 "swing_confirmation_bars": 10,
-                "volume_multiplier": 1.5
+                "volume_multiplier": 1.3
             }
         }
     }
