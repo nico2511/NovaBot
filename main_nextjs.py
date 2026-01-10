@@ -34,7 +34,7 @@ from app.utils.data_processing import get_dynamic_context
 class BotContext:
     """Main bot context - same as main.py"""
     def __init__(self):
-        print("\n\n🤖 [BOOT] BotContext v1.0.2 (NULL SAFETY + IA FIX)\n")
+        print("\n\n🤖 [BOOT] BotContext v1.0.3 (OPTIMIZATIONS PHASE 1)\n")
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
@@ -86,6 +86,10 @@ class BotContext:
         
         # Debounce for "Position Vanished" check
         self.missing_pos_counter = 0
+        
+        # AI Call Management (Phase 1 Optimization)
+        self.last_ai_call = 0  # Timestamp du dernier appel IA
+        self.ai_call_cooldown = 300  # 5 minutes en secondes (configurable)
         
         # Load persisted state
         try:
@@ -246,6 +250,7 @@ class BotContext:
     def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None):
         """
         ATOMIC ENTRY FLOW (Unified v2)
+        Supports Dry Run mode for testing without real execution
         1. Check Quota
         2. Clean Orphans
         3. Execute (with retry/oid)
@@ -253,6 +258,32 @@ class BotContext:
         5. Sync State
         """
         try:
+            # DRY RUN MODE: Simulate trade without execution
+            if self.execution_mode == "Dry Run":
+                self.add_log(f"[DRY] Would enter {side} {symbol}")
+                self.add_log(f"[DRY] Size: {size}, Price: {price}, SL: {sl}, TP: {tp}")
+                
+                # Create simulated trade in memory
+                self.active_trade = {
+                    "symbol": symbol,
+                    "side": side,
+                    "entry": price or 0,
+                    "size": size,
+                    "sl": sl or 0,
+                    "tp": tp or 0,
+                    "strategy": strategy,
+                    "entry_time": pd.Timestamp.now().isoformat(),
+                    "pnl": 0,
+                    "max_pnl": 0,
+                    "status": "OPEN (DRY RUN)",
+                    "metadata": metadata
+                }
+                
+                StateManager.save_state(self)
+                self.add_log(f"[DRY] ✅ Simulated trade created")
+                return True
+            
+            # REAL EXECUTION (existing code continues...)
             # 1. FINAL QUOTA CHECK
             real_positions = hyperliquid_service.get_positions()
             active_count = len([p for p in real_positions if float(p["size"]) > 0])
@@ -1024,11 +1055,10 @@ class BotContext:
                     current_candle_time = df_1m.index[-1]
                     
                     if sig.get("signal") and sig.get("price"):
-                        # AI Validate
+                        # AI Validate with Cooldown (Phase 1 Optimization)
                         from app.services.ia import ia_service
+                        import time
                         market_context = self._prepare_ai_context()
-                        
-                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
                         
                         # Extract Strategy Persona if available
                         strat_name = sig.get('strategy')
@@ -1038,28 +1068,41 @@ class BotContext:
                         if strategy_persona:
                             self.add_log(f"🎭 Using Custom Persona for {strat_name}")
                         
-                        val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
+                        # Check AI Cooldown
+                        current_time = time.time()
+                        time_since_last_call = current_time - self.last_ai_call
                         
-                        approved = False
-                        try:
-                            import json
-                            if val_res.get("raw_output"):
-                                ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
-                                approved = ai_data.get("approved", False)
-                                if approved:
-                                    self.add_log(f"✅ AI APPROVED (Conf: {ai_data.get('confidence')}%)")
-                                    # Adjust SL/TP if AI suggests
-                                    if ai_data.get("suggested_adjustments"):
-                                        adj = ai_data["suggested_adjustments"]
-                                        if adj.get("sl"): sig["sl"] = adj["sl"]
-                                        if adj.get("tp"): sig["tp"] = adj["tp"]
-                                else:
-                                    self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
-                            else:
-                                approved = True # Fallback
-                        except:
-                            self.add_log("⚠️ AI Validation JSON Error. Defaulting to REJECT.")
+                        if time_since_last_call < self.ai_call_cooldown:
+                            # Cooldown active - skip AI validation
+                            remaining = int(self.ai_call_cooldown - time_since_last_call)
+                            self.add_log(f"⏭️ AI Cooldown active ({remaining}s remaining) - Auto-approving signal")
+                            approved = True
+                        else:
+                            # Cooldown expired - call AI
+                            self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
+                            val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
+                            self.last_ai_call = current_time
+                        
                             approved = False
+                            try:
+                                import json
+                                if val_res.get("raw_output"):
+                                    ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
+                                    approved = ai_data.get("approved", False)
+                                    if approved:
+                                        self.add_log(f"✅ AI APPROVED (Conf: {ai_data.get('confidence')}%)")
+                                        # Adjust SL/TP if AI suggests
+                                        if ai_data.get("suggested_adjustments"):
+                                            adj = ai_data["suggested_adjustments"]
+                                            if adj.get("sl"): sig["sl"] = adj["sl"]
+                                            if adj.get("tp"): sig["tp"] = adj["tp"]
+                                    else:
+                                        self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
+                                else:
+                                    approved = True # Fallback
+                            except:
+                                self.add_log("⚠️ AI Validation JSON Error. Defaulting to REJECT.")
+                                approved = False
                             
                         if approved:
                             # Execute
@@ -1132,6 +1175,15 @@ class BotContext:
             
         try:
             symbol = self.active_trade["symbol"]
+            
+            # DRY RUN MODE: Simulate close
+            if self.execution_mode == "Dry Run":
+                self.add_log(f"[DRY] Would close {symbol} ({reason})")
+                self.active_trade = None
+                StateManager.save_state(self)
+                return True, "[DRY] Trade closed (simulated)"
+            
+            # REAL CLOSE (existing code...)
             self.add_log(f"📉 MANUAL CLOSE REQUESTED for {symbol} ({reason})")
             
             # Use Atomic Exit Flow
@@ -1272,20 +1324,56 @@ class BotContext:
 
 
     def stop(self):
-        """Stop the bot"""
+        """Stop the bot with complete graceful shutdown"""
         if self.is_running:
             self.is_running = False
-            if self.thread:
-                self.thread.join(timeout=5)
-            self.add_log("⏹️ Bot stopped")
+            self.add_log("🛑 Initiating graceful shutdown...")
             
-            # Stop Scanner Job
+            # 1. Cancel all pending orders
+            if self.active_trade:
+                try:
+                    symbol = self.active_trade["symbol"]
+                    self.add_log(f"🧹 Cancelling pending orders for {symbol}...")
+                    hyperliquid_service.cancel_all_orders(symbol)
+                    self.add_log("✅ Orders cancelled")
+                except Exception as e:
+                    self.add_log(f"⚠️ Failed to cancel orders: {e}")
+            
+            # 2. Stop WebSocket
+            try:
+                self.add_log("🔌 Stopping WebSocket...")
+                hyperliquid_service.stop_websocket()
+                self.add_log("✅ WebSocket stopped")
+            except Exception as e:
+                self.add_log(f"⚠️ Failed to stop WebSocket: {e}")
+            
+            # 3. Stop Scanner Job
             if self.scanner_job:
-                self.scanner_settings['enabled'] = False
-                self.scanner_job.stop()
-                self.add_log("🕵️ Scanner disabled with engine stop")
-                
-            StateManager.save_state(self)
+                try:
+                    self.scanner_settings['enabled'] = False
+                    self.scanner_job.stop()
+                    self.add_log("✅ Scanner stopped")
+                except Exception as e:
+                    self.add_log(f"⚠️ Failed to stop scanner: {e}")
+            
+            # 4. Wait for trading thread
+            if self.thread:
+                self.add_log("⏳ Waiting for trading thread...")
+                self.thread.join(timeout=10)  # Increased from 5s to 10s
+                if self.thread.is_alive():
+                    self.add_log("⚠️ Trading thread did not stop gracefully")
+                else:
+                    self.add_log("✅ Trading thread stopped")
+            
+            # 5. Save state
+            try:
+                StateManager.save_state(self)
+                self.add_log("✅ State saved")
+            except Exception as e:
+                self.add_log(f"⚠️ Failed to save state: {e}")
+            
+            self.add_log("⏹️ Bot stopped gracefully")
+
 
     def boot_sequence(self) -> bool:
         """
