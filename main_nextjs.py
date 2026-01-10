@@ -1079,7 +1079,6 @@ class BotContext:
                                     entry_price,
                                     sl_price,
                                     sig.get("tp"),
-                                    sig.get("tp"),
                                     sig.get("strategy"),
                                     sig.get("metadata")
                                 )
