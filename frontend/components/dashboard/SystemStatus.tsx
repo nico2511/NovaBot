@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import axios from 'axios'
 import { Activity, DollarSign, TrendingUp, Zap } from 'lucide-react'
+import { getApiUrl } from '@/utils/apiConfig'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 interface BalanceData {
@@ -27,9 +27,9 @@ interface GamificationData {
 }
 
 export default function SystemStatus() {
-    const { data: status } = useSWR<StatusData>(`${API_URL}/api/status`, fetcher, { refreshInterval: 2000, keepPreviousData: true })
-    const { data: balance } = useSWR<BalanceData>(`${API_URL}/api/balance`, fetcher, { refreshInterval: 5000, keepPreviousData: true })
-    const { data: gamStatus } = useSWR<{ gamification: GamificationData }>(`${API_URL}/api/gamification_status`, fetcher, { refreshInterval: 10000, keepPreviousData: true })
+    const { data: status } = useSWR<StatusData>(`${getApiUrl()}/api/status`, fetcher, { refreshInterval: 2000, keepPreviousData: true })
+    const { data: balance } = useSWR<BalanceData>(`${getApiUrl()}/api/balance`, fetcher, { refreshInterval: 5000, keepPreviousData: true })
+    const { data: gamStatus } = useSWR<{ gamification: GamificationData }>(`${getApiUrl()}/api/gamification_status`, fetcher, { refreshInterval: 10000, keepPreviousData: true })
 
     const [pnl, setPnl] = useState(0)
     const [pnlPercent, setPnlPercent] = useState(0)

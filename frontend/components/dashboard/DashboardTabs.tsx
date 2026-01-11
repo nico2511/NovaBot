@@ -9,9 +9,9 @@ export default function DashboardTabs({ active, onChange }: DashboardTabsProps) 
     const tabs = [
         { id: 'overview', label: 'Price Chart', icon: Activity },
         { id: 'strategies', label: 'Strategies', icon: TrendingUp },
-        { id: 'signals', label: 'Signals', icon: Zap },
+        { id: 'signals', label: 'Trades', icon: Zap },
         { id: 'scanner', label: 'Scanner', icon: BarChart2 },
-        { id: 'history', label: 'History', icon: FileText },
+
         { id: 'logs', label: 'System Logs', icon: Terminal },
         { id: 'config', label: 'Config', icon: Settings, external: true },
         { id: 'dev', label: 'Dev Ops', icon: Terminal, external: true },

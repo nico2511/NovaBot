@@ -346,3 +346,19 @@ def check_asset_access(symbol: str, account_balance: float) -> Tuple[bool, str, 
     status = gam.get_status_summary()
     
     return allowed, reason, status
+
+
+def get_user_gamification_state(account_balance: float) -> Dict:
+    """
+    Récupère l'état complet de la gamification pour un solde donné.
+    Helper pour l'API.
+    
+    Args:
+        account_balance: Solde du compte en USDC
+        
+    Returns:
+        Dict: Résumé du statut (niveau, progression, assets autorisés...)
+    """
+    gam = AssetGamification(account_balance)
+    return gam.get_status_summary()
+

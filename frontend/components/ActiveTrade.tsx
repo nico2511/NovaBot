@@ -312,10 +312,10 @@ export default function ActiveTrade({ embedded = false }: { embedded?: boolean }
                         <span className="text-xs font-normal text-gray-500 px-2 py-0.5 bg-white/5 rounded-full">{trade.strategy}</span>
                         <button
                             onClick={handleForceSync}
-                            className="ml-2 p-1.5 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors"
+                            className="ml-2 px-2 py-1 bg-white/5 hover:bg-white/10 rounded-md text-xs font-medium text-gray-400 hover:text-white transition-colors flex items-center gap-1"
                             title="Force Sync State"
                         >
-                            🔄
+                            🔄 Sync
                         </button>
                     </h3>
                     <div className="flex gap-2">

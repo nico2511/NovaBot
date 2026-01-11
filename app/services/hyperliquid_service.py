@@ -18,7 +18,29 @@ class HyperliquidService:
     
     def __init__(self):
         # Initialize Info API (WebSocket will be managed separately)
-        self.info = Info(base_url=MAINNET_API_URL, skip_ws=True)
+        # Initialize Info API with robust retry mechanism for 429s (Startup Protection)
+        max_retries = 5
+        base_wait = 2
+        
+        for attempt in range(max_retries):
+            try:
+                self.info = Info(base_url=MAINNET_API_URL, skip_ws=True)
+                break
+            except Exception as e:
+                # Check for Rate Limit (429)
+                error_msg = str(e)
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    wait_time = base_wait * (2 ** attempt) # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                    print(f"⚠️ [HyperliquidService] Rate Limit (429) during init. Retrying in {wait_time}s (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(wait_time)
+                else:
+                    # Non-retriable error
+                    print(f"❌ [HyperliquidService] Critical Init Error: {e}")
+                    raise e
+        else:
+             print("❌ [HyperliquidService] Failed to initialize Info API after max retries due to Rate Limits.")
+             # Raise to crash process but hopefully PM2 restart delay helps if we waited long enough
+             raise Exception("Rate Limit Exceeded during Startup")
         self.exchange = None
         
         # Initialize WebSocket Price Manager (will be started externally)

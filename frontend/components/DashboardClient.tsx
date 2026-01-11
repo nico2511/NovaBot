@@ -11,7 +11,6 @@ import ActiveTrade from '@/components/ActiveTrade'
 import Settings from '@/components/Settings'
 import TokenScanner from '@/components/TokenScanner'
 import AICommentary from '@/components/AICommentary'
-import TradeHistory from '@/components/TradeHistory'
 
 import CryptoWeather from '@/components/CryptoWeather'
 import GamificationWidget from '@/components/GamificationWidget'
@@ -24,8 +23,8 @@ const Chart = dynamic(() => import('@/components/Chart'), {
     loading: () => <div className="w-full h-full bg-[#0b0e11] animate-pulse rounded-xl border border-gray-800 flex items-center justify-center text-gray-600 font-mono">INITIALIZING CHART ENGINE...</div>
 })
 
+import { getApiUrl } from '@/utils/apiConfig'
 
-const API_URL = ''
 const fetcher = (url: string) => axios.get(url).then(res => res.data)
 
 // OPTIMIZATION: SWR configuration to reduce API waterfalls
@@ -40,37 +39,22 @@ export default function DashboardClient() {
     const [activeTab, setActiveTab] = useState('overview')
 
     // OPTIMIZATION: Parallel API calls with optimized config
-    const { data: status } = useSWR(`${API_URL}/api/status`, fetcher, swrConfig)
-    const { data: marketData } = useSWR(`${API_URL}/api/market/data`, fetcher, swrConfig)
-    const { data: balance } = useSWR(`${API_URL}/api/balance`, fetcher, {
+    const { data: status } = useSWR(`${getApiUrl()}/api/status`, fetcher, swrConfig)
+    const { data: marketData } = useSWR(`${getApiUrl()}/api/market/data`, fetcher, swrConfig)
+    const { data: balance } = useSWR(`${getApiUrl()}/api/balance`, fetcher, {
         ...swrConfig,
         refreshInterval: 5000  // Less frequent for balance
     })
 
     // Fetch Active Trade for Chart Lines
-    const { data: activeTradeData } = useSWR(`${API_URL}/api/active_trade`, fetcher, {
+    const { data: activeTradeData } = useSWR(`${getApiUrl()}/api/active_trade`, fetcher, {
         refreshInterval: 2000
     })
-
-    // Check for manual signals
-    const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, {
-        ...swrConfig,
-        refreshInterval: 3000
-    })
-    const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
-
 
     return (
         <>
             {/* Header */}
             <header className="bg-gradient-to-r from-surface/95 to-surface/80 backdrop-blur-lg border-b border-border/30 sticky top-0 z-50">
-                {/* MANUAL ACTION BANNER */}
-                {manualSignals.length > 0 && (
-                    <div className="bg-orange-500 text-white px-4 py-2 text-center font-bold animate-pulse cursor-pointer hover:bg-orange-600 transition-colors">
-                        ⚠️ ACTION REQUIRED: {manualSignals.length} Trade Opportunity Waiting for Validation!
-                        <span className="ml-2 text-sm font-normal opacity-90">(Check Signals below)</span>
-                    </div>
-                )}
 
                 <div className="container mx-auto px-4 py-3">
                     {/* Top Row: Title + Weather + Gamification */}
@@ -178,19 +162,10 @@ export default function DashboardClient() {
                         >
                             🤖 AI Analysis
                         </button>
-                        <button
-                            onClick={() => setActiveTab('history')}
-                            className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${activeTab === 'history'
-                                ? 'bg-primary text-white'
-                                : 'text-gray-400 hover:text-white hover:bg-surface/50'
-                                }`}
-                        >
-                            📜 History
-                        </button>
 
                         {/* Download CSV (Dev / Audit) */}
                         <a
-                            href={`${API_URL}/api/trade_history/download`}
+                            href={`${getApiUrl()}/api/trade_history/download`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="ml-auto px-4 py-2 rounded-lg font-medium text-xs bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-all flex items-center gap-2 border border-gray-700"
@@ -242,9 +217,6 @@ export default function DashboardClient() {
                         <AICommentary symbol={status?.active_symbol || 'BTC'} />
                     )}
 
-                    {activeTab === 'history' && (
-                        <TradeHistory />
-                    )}
                 </div>
 
                 {/* Active Trade & Logs Grid */}

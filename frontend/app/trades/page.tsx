@@ -5,10 +5,9 @@ import Link from 'next/link'
 import { useTradeHistory } from '@/hooks/useTradeHistory'
 import TradesTable from '@/components/trades/TradesTable'
 import PnLChart from '@/components/trades/PnLChart'
-import SourceSelector from '@/components/trades/SourceSelector'
 
 export default function TradesPage() {
-    const { trades, source, setSource, isLoading, stats } = useTradeHistory()
+    const { trades, isLoading, stats } = useTradeHistory()
 
     return (
         <div className="min-h-screen bg-[#050505] text-white p-6">
@@ -22,12 +21,9 @@ export default function TradesPage() {
                         </h1>
                         <p className="text-gray-400 text-sm">Performance Analysis & Logs</p>
                     </div>
-                    <div className="flex gap-4 items-center">
-                        <SourceSelector value={source} onChange={setSource} />
-                        <Link href="/" className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm transition-colors border border-white/10">
-                            ← Back
-                        </Link>
-                    </div>
+                    <Link href="/" className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm transition-colors border border-white/10">
+                        ← Back
+                    </Link>
                 </div>
 
                 {/* KPI Cards (Derived from Hook Stats) */}

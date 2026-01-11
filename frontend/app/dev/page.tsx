@@ -1,10 +1,12 @@
 'use client'
 
+import React from 'react'
 import { useDiagnostics } from '@/hooks/useDiagnostics'
 import MetricCard from '@/components/dev/MetricCard'
 import ServiceStatusCard from '@/components/dev/ServiceStatusCard'
 import { RefreshCw, TrendingUp, DollarSign, Activity, Zap, Cpu } from 'lucide-react'
 import axios from 'axios'
+import { getApiUrl } from '@/utils/apiConfig'
 
 export default function DevPage() {
     const { data, error, isLoading, refresh } = useDiagnostics()
@@ -116,6 +118,14 @@ export default function DevPage() {
                         >
                             🔄 Restart Bot
                         </button>
+                        <a
+                            href={`${getApiUrl()}/api/trade_history/download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded-lg flex items-center gap-2 transition-colors text-sm font-semibold"
+                        >
+                            📥 Download Trade Recorder CSV
+                        </a>
                     </div>
                 </div>
 
@@ -232,3 +242,6 @@ export default function DevPage() {
         </div>
     )
 }
+
+
+

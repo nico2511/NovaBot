@@ -53,24 +53,10 @@ export default function V1Dashboard() {
         refreshInterval: 5000
     })
 
-    const { data: signalsData } = useSWR(`${API_URL}/api/signals`, fetcher, {
-        ...swrConfig,
-        refreshInterval: 3000
-    })
-    const manualSignals = signalsData?.signals?.filter((s: any) => s.manual_approval) || []
-
-
     return (
         <div className="min-h-screen bg-[#050505] text-white">
             {/* Header */}
             <header className="bg-black/40 backdrop-blur-lg border-b border-white/5 sticky top-0 z-50">
-                {/* MANUAL ACTION BANNER */}
-                {manualSignals.length > 0 && (
-                    <div className="bg-orange-500/90 text-white px-4 py-2 text-center font-bold animate-pulse cursor-pointer hover:bg-orange-600 transition-colors backdrop-blur">
-                        ⚠️ ACTION REQUIRED: {manualSignals.length} Trade Opportunity Waiting for Validation!
-                        <span className="ml-2 text-sm font-normal opacity-90">(Check Signals below)</span>
-                    </div>
-                )}
 
                 <div className="container mx-auto px-6 py-4">
                     <div className="flex items-center justify-between gap-4">
@@ -131,7 +117,7 @@ export default function V1Dashboard() {
                                 {[
                                     { id: 'overview', label: 'Price Chart', icon: Activity },
                                     { id: 'strategies', label: 'Strategies', icon: TrendingUp },
-                                    { id: 'signals', label: 'Signals', icon: Zap },
+                                    { id: 'signals', label: 'Trades', icon: Zap },
                                     { id: 'scanner', label: 'Scanner', icon: BarChart2 },
                                     { id: 'ai', label: 'AI Analysis', icon: Zap },
                                 ].map((tab) => (

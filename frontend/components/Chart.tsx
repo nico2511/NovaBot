@@ -140,11 +140,47 @@ export default function Chart({ symbol, strategy, activeTrade }: ChartProps) {
             },
         })
 
+        // Fetch Metadata for precision
+        fetch('/api/meta').then(async res => {
+            const meta = await res.json()
+            if (symbol && meta[symbol]) {
+                // Heuristic: If size decimals is 0 (like PEPE/DOGE), price precision is usually high (6-8)
+                // If size decimals is 3-5 (like BTC/ETH), price precision is usually 2
+                // This matches Hyperliquid's logic roughly
+                const szDecimals = meta[symbol].szDecimals
+                let pricePrecision = 2
+                let minMove = 0.01
+
+                if (szDecimals === 0) {
+                    pricePrecision = 8
+                    minMove = 0.00000001
+                } else if (szDecimals >= 3) {
+                    pricePrecision = 2
+                    minMove = 0.01
+                }
+
+                chart.applyOptions({
+                    localization: {
+                        priceFormatter: (p: number) => p.toFixed(pricePrecision),
+                    },
+                })
+
+                // We will update the series options later when we create it or now if possible
+                // Ideally we set it on the series. capture ref to set it later or set state.
+            }
+        }).catch(e => console.error("Meta fetch error", e))
+
+
         // Séries Bougies (Couleurs TradingView)
         const candleSeries = chart.addSeries(CandlestickSeries, {
             upColor: '#26a69a', downColor: '#ef5350',
             borderUpColor: '#26a69a', borderDownColor: '#ef5350',
             wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+            priceFormat: {
+                type: 'price',
+                precision: 8, // Support up to 8 decimals for memecoins
+                minMove: 0.00000001,
+            },
         })
         candleSeriesRef.current = candleSeries
 

@@ -207,7 +207,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             return 0
 
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI - Diagnostic Card"""
+        """Check detailed conditions for UI - Diagnostic Card (FUNNEL LOGIC)"""
         if df is None or df.empty or len(df) < 30:
             return []
         
@@ -226,7 +226,7 @@ class SmartMeanReversionStrategy(BaseStrategy):
             
             conditions = []
             
-            # 1. Setup (RSI < 30)
+            # 1. Setup (RSI < 30) - GATEKEEPER
             rsi_ok = c_rsi < rsi_threshold
             conditions.append({
                 "name": "1. Setup (RSI < 30)",
@@ -234,32 +234,45 @@ class SmartMeanReversionStrategy(BaseStrategy):
                 "value": f"{c_rsi:.1f}"
             })
             
-            # 2. Safety (Momentum Floor)
-            # ROC must be > -15% (avoid crashing markets)
-            roc_ok = c_roc > roc_floor
+            # 2. Safety (ROC > -15%) - DEPENDS ON SETUP
+            if not rsi_ok:
+                conditions.append({
+                    "name": "2. Safety (ROC > -15%)",
+                    "status": False,
+                    "value": "Waiting for Setup..."
+                })
+                roc_ok = False # Enforce failure cascade
+            else:
+                roc_ok = c_roc > roc_floor
+                conditions.append({
+                    "name": "2. Safety (ROC > -15%)",
+                    "status": roc_ok,
+                    "value": f"{c_roc:.1f}%"
+                })
             
-            conditions.append({
-                "name": "2. Safety (ROC > -15%)",
-                "status": roc_ok,
-                "value": f"{c_roc:.1f}%"
-            })
-            
-            # 3. Trigger (Stabilization)
-            # Price under BB Lower AND Green Candle
-            bb_ok = c_close < c_bbl
-            stab_ok = c_close > p_close
-            trigger_ok = bb_ok and stab_ok
-            
-            trigger_val = "Waiting..."
-            if not bb_ok: trigger_val = "Price above Lower Band"
-            elif not stab_ok: trigger_val = "Falling (Red Candle)"
-            elif trigger_ok: trigger_val = "Stabilized"
-            
-            conditions.append({
-                "name": "3. Trigger (BB + Green)",
-                "status": trigger_ok,
-                "value": trigger_val
-            })
+            # 3. Trigger (Stabilization) - DEPENDS ON SETUP & SAFETY
+            if not rsi_ok or not roc_ok:
+                 conditions.append({
+                    "name": "3. Trigger (BB + Green)",
+                    "status": False,
+                    "value": "Waiting for conditions..."
+                })
+            else:
+                # Price under BB Lower AND Green Candle
+                bb_ok = c_close < c_bbl
+                stab_ok = c_close > p_close
+                trigger_ok = bb_ok and stab_ok
+                
+                trigger_val = "Waiting..."
+                if not bb_ok: trigger_val = "Price above Lower Band"
+                elif not stab_ok: trigger_val = "Falling (Red Candle)"
+                elif trigger_ok: trigger_val = "Stabilized"
+                
+                conditions.append({
+                    "name": "3. Trigger (BB + Green)",
+                    "status": trigger_ok,
+                    "value": trigger_val
+                })
             
             return conditions
         except Exception as e:

@@ -13,6 +13,13 @@ from strategies.bollinger_middle_bounce import BollingerMiddleBounceStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 
+# Import robuste pour Panic Close
+try:
+    from strategies.utils import should_panic_close
+except ImportError:
+    print("⚠️ Warning: strategies.utils not found. Panic close disabled.")
+    def should_panic_close(strategy_name, df): return (False, "")
+
 import json
 
 class StrategyEngine:
@@ -71,16 +78,18 @@ class StrategyEngine:
             return {"action": "WAIT", "reason": "Not enough data"}
 
         # Use new custom indicators service
-        adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
+        # FIX: ADX returns a DataFrame, access specific column properly
+        adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
         rsi_series = ta.rsi(df['close'], length=14)
         ema_9 = ta.ema(df['close'], length=9)
         ema_20 = ta.ema(df['close'], length=20)
         ema_50 = ta.ema(df['close'], length=50)
 
         # 1. Standard Regime (ADX based on confirmed candle iloc[-2] for stability)
-        current_adx = adx_res['ADX'].iloc[-2] 
+        # FIX: Access 'ADX' column explicitly from adx_df
+        current_adx = adx_df['ADX'].iloc[-2] 
         # Calculate Slope using iloc [-2] and [-3] (Previous confirmed candles)
-        prev_adx = adx_res['ADX'].iloc[-3]
+        prev_adx = adx_df['ADX'].iloc[-3]
         adx_slope = current_adx - prev_adx
         
         threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
@@ -125,7 +134,7 @@ class StrategyEngine:
             print(f"⚠️ Waterfall check failed: {e}")
 
         # Add indicators to df for strategies
-        df['ADX_14'] = adx_res['ADX']
+        df['ADX_14'] = adx_df['ADX'] # Save specific column
         df['RSI_14'] = rsi_series
         df['EMA_9'] = ema_9
         df['EMA_20'] = ema_20
@@ -138,19 +147,53 @@ class StrategyEngine:
                 continue
             
             strat_type = params.get("type")
+            
+            # FIX: Logic for Strategy Selection
             if regime == "TREND" and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
-            elif regime == "RANGE" and strat_type == "range":
+                
+            elif regime == "RANGE":
+                if strat_type == "range":
+                    active_strategies.append(self.strategies[name])
+                elif strat_type == "reversion": # FIX: Reversion works in Range
+                    active_strategies.append(self.strategies[name])
+                    
+            elif strat_type == "sniper": # Sniper/FVG always active?
+                # Or maybe check if sniper specifically requested always active
                 active_strategies.append(self.strategies[name])
-            elif strat_type == "sniper": # FVG always active?
-                active_strategies.append(self.strategies[name])
-            elif strat_type == "reversion": # Reversion always active (Counter-trend or Range)
-                active_strategies.append(self.strategies[name])
+                
+            # If "reversion" was not caught by RANGE, check if it's meant to be active elsewhere?
+            # Usually reversion is antithetical to TREND, so ignoring it in TREND is correct.
+            # But checking if we missed any cases.
+            elif strat_type == "always_active":
+                 active_strategies.append(self.strategies[name])
 
         # 4. Generate Signals
         signals = []
         for strat in active_strategies:
+            
+            # --- PANIC CLOSE / KILL SWITCH (Imported or Fallback) ---
+            try:
+                # We check Panic Close BEFORE signal generation to prioritize exits
+                should_panic, panic_reason = should_panic_close(strat.name, df)
+                if should_panic:
+                    print(f"🚨 KILL SWITCH TRIGGERED for {strat.name}: {panic_reason}")
+                    # Force a SELL signal to close any open position
+                    signal_data = {
+                        "strategy": strat.name,
+                        "signal": "SELL",
+                        "price": df['close'].iloc[-1],
+                        "timestamp": df.index[-1],
+                        "metadata": {"panic_close": True, "reason": panic_reason}
+                    }
+                    signals.append(signal_data)
+                    continue # Skip normal signal generation
+            except Exception as e:
+                print(f"⚠️ Panic check error: {e}")
+            
+            # Normal Signal Generation
             sig = strat.generate_signal(df, extra_data=extra_data)
+            
             if sig:
                 # Check execution type
                 params = strat.config.get("params", {})
@@ -189,8 +232,15 @@ class StrategyEngine:
                     direction_allowed = False
                     rejection_reason = "Longs disabled"
                 elif signal_type == "SELL" and not allow_shorts:
-                    direction_allowed = False
-                    rejection_reason = "Shorts disabled"
+                    # Exception: Panic close should override 'allow_shorts' if it's just closing a long?
+                    # But 'SELL' here usually means 'Open Short' or 'Close Long'.
+                    # If it's a CLOSE signal specifically, we should allow it.
+                    # But our signals are usually BUY/SELL.
+                    if signal_data.get("metadata", {}).get("panic_close"):
+                        direction_allowed = True # ALWAYS allow panic exit
+                    else:
+                        direction_allowed = False
+                        rejection_reason = "Shorts disabled"
                 
                 # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
                 # Calculate BB only if we have a signal to verify
@@ -207,9 +257,11 @@ class StrategyEngine:
                         if signal_type == "SELL":
                             # Reject if close <= Lower Band * 1.01 (1% from support)
                             # Prevents shorting the bottom
-                            if curr_close <= (bb_lower * 1.01):
-                                direction_allowed = False
-                                rejection_reason = "Price too close to support/lower band (Oversold)"
+                            # EXCEPTION: Panic Close ignores this
+                            if not signal_data.get("metadata", {}).get("panic_close"):
+                                if curr_close <= (bb_lower * 1.01):
+                                    direction_allowed = False
+                                    rejection_reason = "Price too close to support/lower band (Oversold)"
                                 
                         elif signal_type == "BUY":
                             # Reject if close >= Upper Band * 0.99 (1% from resistance)
@@ -240,20 +292,16 @@ class StrategyEngine:
                 # Check detailed conditions
                 if hasattr(strat, "check_conditions"):
                     conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
-                    print(f"🔍 DEBUG: Collected {len(conditions[strat.name])} conditions for {strat.name}")
-                    if conditions[strat.name]:
-                        print(f"   Sample: {conditions[strat.name][0]}")
                 else:
                     conditions[strat.name] = []
                 
                 # Get threshold comparisons
                 if hasattr(strat, "get_threshold_comparisons"):
                     thresholds[strat.name] = strat.get_threshold_comparisons(df, extra_data=extra_data)
-                    print(f"🔍 DEBUG: Collected {len(thresholds[strat.name])} thresholds for {strat.name}")
                 else:
                     thresholds[strat.name] = {}
             except Exception as e:
-                print(f"Error calculating progress for {strat.name}: {e}")
+                # print(f"Error calculating progress for {strat.name}: {e}")
                 progress[strat.name] = 0
                 conditions[strat.name] = []
                 thresholds[strat.name] = {}
