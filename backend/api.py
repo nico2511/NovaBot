@@ -2183,6 +2183,33 @@ async def gamification_status():
         print(f"Gamification Status Error: {e}")
         return {"error": str(e)}
 
+@app.get("/api/active_trade")
+async def get_active_trade():
+    """Get the current active trade"""
+    try:
+         # Try to get from connected bot first
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if bot.active_trade:
+                # Sanitize
+                try:
+                    return sanitize_for_json(bot.active_trade)
+                except Exception as e:
+                    print(f"Error sanitizing active_trade: {e}")
+                    return None
+            return None
+        
+        # Fallback to state
+        if bot_state.active_trade:
+             try:
+                 return sanitize_for_json(bot_state.active_trade)
+             except:
+                 return None
+        return None
+    except Exception as e:
+        print(f"Error getting active trade: {e}")
+        return {"error": str(e)}
+
 
 # ============================================
 # TRADE MANAGEMENT ENDPOINTS (Fixing Missing Routes)
