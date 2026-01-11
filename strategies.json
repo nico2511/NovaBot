@@ -103,6 +103,26 @@
                 "min_candle_atr_multiple": 1.2
             }
         },
+        "bollinger_middle_bounce": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Pullback sur Middle Band Bollinger en continuation de trend",
+            "display_conditions": [
+                "1. Trend Filter (EMA20>50 & ADX)",
+                "2. Middle Band Touch",
+                "3. RSI Momentum & Green Candle"
+            ],
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "ema_trend_short": 20,
+                "ema_trend_long": 50,
+                "adx_threshold": 25,
+                "rsi_min": 40,
+                "volume_multiplier": 1.2,
+                "min_rr": 1.8
+            }
+        },
         "institutional_scalp": {
             "enabled": true,
             "type": "trend",

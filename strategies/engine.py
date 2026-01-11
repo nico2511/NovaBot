@@ -9,6 +9,7 @@ from strategies.scalp_ema_rsi import ScalpEmaRsi
 from strategies.smart_trend import StrategySmartTrend
 from strategies.smart_mean_reversion import SmartMeanReversionStrategy
 from strategies.bollinger_bounce import BollingerBounceStrategy
+from strategies.bollinger_middle_bounce import BollingerMiddleBounceStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 
@@ -32,6 +33,9 @@ class StrategyEngine:
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
             "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
             "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")),
+            
+            # Trend strategies
+            "bollinger_middle_bounce": BollingerMiddleBounceStrategy(strats_config.get("bollinger_middle_bounce")),
             
             # Range trading strategies
             "bollinger_bounce": BollingerBounceStrategy(strats_config.get("bollinger_bounce")),

@@ -962,6 +962,7 @@ class BotContext:
             side = active_pos['side']
             size = float(active_pos['size'])
             entry_price = float(active_pos['entry_price'])
+            leverage = float(active_pos.get('leverage', 1.0))
             
             with self.trade_lock:
                 self.active_trade = {
@@ -969,13 +970,16 @@ class BotContext:
                     "side": side,
                     "entry": entry_price,
                     "size": size,
+                    "leverage": leverage,
+                    "oid": "external_position",
                     "sl": 0,
                     "tp": 0,
                     "strategy": "Manual (Adopting...)",
                     "entry_time": pd.Timestamp.now().isoformat(),
                     "pnl": float(active_pos.get('pnl', 0)),
                     "max_pnl": float(active_pos.get('pnl', 0)),
-                    "status": "ADOPTING",
+                    "status": "OPEN",
+                    "ai_analysis": None,
                     "metadata": {"stage": "1_raw_adoption"}
                 }
                 StateManager.save_state(self)
