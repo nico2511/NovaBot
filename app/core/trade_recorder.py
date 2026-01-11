@@ -1,81 +1,151 @@
-import json
+import csv
 import os
 import threading
+import pandas as pd
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 class TradeRecorder:
+    """
+    Production-grade Trade Recorder with CSV persistence and Thread-Safety.
+    Single Source of Truth: data/trade_history.csv
+    """
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
-        self.file_path = os.path.join(data_dir, "trades.json")
+        self.csv_file = os.path.join(data_dir, "trade_history.csv")
         self._lock = threading.Lock()
-        self._ensure_data_dir()
         
-    def _ensure_data_dir(self):
+        # CSV Headers
+        self.headers = [
+            "timestamp", "symbol", "side", "entry_price", "exit_price", 
+            "size", "pnl", "strategy", "exit_reason", "leverage"
+        ]
+        
+        self._ensure_storage()
+        
+    def _ensure_storage(self):
+        """Ensure data directory and CSV file exist with correct headers"""
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
             
-    def load_trades(self) -> List[Dict[str, Any]]:
-        """Load all recorded trades"""
-        with self._lock:
-            if not os.path.exists(self.file_path):
-                return []
+        if not os.path.exists(self.csv_file):
             try:
-                with open(self.file_path, 'r') as f:
-                    return json.load(f)
+                with open(self.csv_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.headers)
+                print(f"✅ Created new trade history file: {self.csv_file}")
             except Exception as e:
-                print(f"Error loading trades: {e}")
-                return []
+                print(f"❌ critical error creating trade history file: {e}")
 
     def add_trade(self, trade_data: Dict[str, Any]):
-        """Record a closed trade"""
-        with self._lock:
-            trades = []
-            if os.path.exists(self.file_path):
-                try:
-                    with open(self.file_path, 'r') as f:
-                        trades = json.load(f)
-                except:
-                    trades = []
+        """
+        Record a closed trade to CSV.
+        Thread-safe.
+        
+        Args:
+            trade_data: Dict containing trade details.
+        """
+        # Data Normalization & Validation
+        try:
+            # Map incoming keys to CSV headers if needed
+            timestamp = trade_data.get("timestamp") or trade_data.get("exit_time") or datetime.now().isoformat()
+            pnl = trade_data.get("pnl") if trade_data.get("pnl") is not None else trade_data.get("pnl_usdc", 0.0)
             
-            # Enrich with ID if missing
-            if "id" not in trade_data:
-                trade_data["id"] = f"trade_{int(datetime.now().timestamp())}_{len(trades)}"
+            row = [
+                timestamp,
+                trade_data.get("symbol", "UNKNOWN"),
+                trade_data.get("side", "UNKNOWN"),
+                float(trade_data.get("entry_price", 0.0)),
+                float(trade_data.get("exit_price", 0.0)),
+                float(trade_data.get("size", 0.0)),
+                float(pnl),
+                trade_data.get("strategy", "Manual"),
+                trade_data.get("exit_reason", "Signal"),
+                float(trade_data.get("leverage", 1.0))
+            ]
             
-            trades.append(trade_data)
+            with self._lock:
+                with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(row)
             
-            try:
-                with open(self.file_path, 'w') as f:
-                    json.dump(trades, f, indent=2)
-                print(f"✅ Trade recorded: {trade_data.get('symbol')} PnL: {trade_data.get('pnl')}")
-            except Exception as e:
-                print(f"❌ Error saving trade: {e}")
+            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f}")
+            
+        except Exception as e:
+            print(f"❌ Failed to record trade: {e}")
+            # Fallback debug
+            print(f"Debug Data: {trade_data}")
+
+    def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get recent trade history from CSV.
+        Returns list of dicts.
+        """
+        if not os.path.exists(self.csv_file):
+            return []
+            
+        try:
+            # Use pandas for efficient reading
+            df = pd.read_csv(self.csv_file)
+            
+            # Sort by timestamp desc (assuming isoformat sort works, or parsing)
+            if not df.empty and 'timestamp' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.sort_values(by='timestamp', ascending=False, inplace=True)
+                # Convert back to string for consistency
+                df['timestamp'] = df['timestamp'].dt.isoformat()
+            
+            # Limit
+            df = df.head(limit)
+            
+            return df.to_dict('records')
+            
+        except Exception as e:
+            print(f"⚠️ Error reading trade history: {e}")
+            return []
 
     def get_stats(self) -> Dict[str, Any]:
-        """Calculate aggregate stats"""
-        trades = self.load_trades()
-        if not trades:
+        """
+        Calculate aggregate statistics from persistence.
+        """
+        if not os.path.exists(self.csv_file):
+            return self._empty_stats()
+            
+        try:
+            df = pd.read_csv(self.csv_file)
+            if df.empty:
+                return self._empty_stats()
+                
+            total_trades = len(df)
+            wins = df[df['pnl'] > 0]
+            losses = df[df['pnl'] <= 0]
+            
+            win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0
+            total_pnl = df['pnl'].sum()
+            
+            gross_profit = wins['pnl'].sum()
+            gross_loss = abs(losses['pnl'].sum())
+            profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+            
             return {
-                "total_trades": 0,
-                "win_rate": 0,
-                "total_pnl": 0,
-                "profit_factor": 0,
-                "best_trade": 0,
-                "worst_trade": 0
+                "total_trades": total_trades,
+                "win_rate": round(win_rate, 2),
+                "total_pnl": round(total_pnl, 2),
+                "profit_factor": round(profit_factor, 2),
+                "best_trade": round(df['pnl'].max(), 2),
+                "worst_trade": round(df['pnl'].min(), 2)
             }
             
-        wins = [t for t in trades if t.get("pnl", 0) > 0]
-        losses = [t for t in trades if t.get("pnl", 0) <= 0]
-        
-        total_pnl = sum(t.get("pnl", 0) for t in trades)
-        gross_profit = sum(t.get("pnl", 0) for t in wins)
-        gross_loss = abs(sum(t.get("pnl", 0) for t in losses))
-        
+        except Exception as e:
+            print(f"⚠️ Error calculating stats: {e}")
+            return self._empty_stats()
+
+    def _empty_stats(self):
         return {
-            "total_trades": len(trades),
-            "win_rate": (len(wins) / len(trades)) * 100 if trades else 0,
-            "total_pnl": total_pnl,
-            "profit_factor": gross_profit / gross_loss if gross_loss > 0 else float('inf'),
-            "best_trade": max([t.get("pnl", 0) for t in trades], default=0),
-            "worst_trade": min([t.get("pnl", 0) for t in trades], default=0)
+            "total_trades": 0,
+            "win_rate": 0,
+            "total_pnl": 0,
+            "profit_factor": 0,
+            "best_trade": 0,
+            "worst_trade": 0
         }
