@@ -88,7 +88,7 @@ app = FastAPI(title="HyperLiquid Trading Bot API", version="2.0")
 # CORS middleware for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_origins=["*"],  # AUTORISER TOUT POUR LE LAN
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -184,21 +184,37 @@ async def get_status():
     # Try to get from connected bot first
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
+        
+        # Sanitize Active Trade (NaN/Infinity protection)
+        sanitized_trade = None
+        if bot.active_trade:
+             # DEBUG: Print raw active trade for diagnostics
+             # print(f"🔍 DEBUG ACTIVE TRADE (Raw): {bot.active_trade}")
+             try:
+                 sanitized_trade = sanitize_for_json(bot.active_trade)
+             except Exception as e:
+                 print(f"⚠️ Error sanitizing active_trade: {e}")
+                 sanitized_trade = None
+
         return BotStatus(
             is_running=bot.is_running,
             trading_enabled=bot.trading_enabled,
             active_symbol=bot.active_symbol,
             execution_mode=bot.execution_mode,
-            active_trade=bot.active_trade
+            active_trade=sanitized_trade
         )
     
     # Fallback to bot_state
+    sanitized_trade_fallback = None
+    if bot_state.active_trade:
+         sanitized_trade_fallback = sanitize_for_json(bot_state.active_trade)
+
     return BotStatus(
         is_running=bot_state.is_running,
         trading_enabled=bot_state.trading_enabled,
         active_symbol=bot_state.active_symbol,
         execution_mode=bot_state.execution_mode,
-        active_trade=None
+        active_trade=sanitized_trade_fallback
     )
 
 
