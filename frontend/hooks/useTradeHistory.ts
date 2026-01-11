@@ -62,11 +62,13 @@ export function useTradeHistory() {
             merged.forEach(trade => {
                 // Use exit_time if available, otherwise timestamp
                 const timeKey = trade.exit_time || trade.timestamp;
-                if (timeKey) {
-                    const key = `${trade.symbol}_${timeKey}`;
-                    // Prioritize local trades if both exist for the same key (or just take the first one)
-                    if (!uniqueMap.has(key)) {
-                        uniqueMap.set(key, trade);
+                // Use ID if available, otherwise composite key
+                const uniqueId = trade.id || trade.oid || `${trade.symbol}_${timeKey}`;
+
+                if (uniqueId) {
+                    // Prioritize local trades (CSV) if duplicates found
+                    if (!uniqueMap.has(uniqueId)) {
+                        uniqueMap.set(uniqueId, trade);
                     }
                 }
             })

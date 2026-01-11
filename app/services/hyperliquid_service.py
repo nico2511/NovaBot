@@ -909,6 +909,9 @@ class HyperliquidService:
             if not user_fills:
                 return []
             
+            # DEBUG: See raw data in console
+            print(f"🔎 [HyperliquidService] Raw Fills (first 2): {user_fills[:2]}")
+            
             # Parser et formater les trades
             trades = []
             
@@ -921,9 +924,15 @@ class HyperliquidService:
                     price = float(fill.get("px", 0))
                     size = float(fill.get("sz", 0))
                     timestamp = fill.get("time", 0)
+                    oid = str(fill.get("oid", ""))
                     
-                    # Calculer PnL si disponible
-                    closed_pnl = float(fill.get("closedPnl", 0))
+                    # Robust PnL Mapping
+                    # Hyperliquid sometimes returns 'closedPnl', sometimes it's implied in other structures
+                    closed_pnl = fill.get("closedPnl")
+                    if closed_pnl is None:
+                        closed_pnl = 0.0
+                    else:
+                        closed_pnl = float(closed_pnl)
                     
                     # Formater timestamp
                     if timestamp:
@@ -931,12 +940,16 @@ class HyperliquidService:
                     else:
                         timestamp_str = pd.Timestamp.now().isoformat()
                     
+                    # Unique ID generation: Symbol + Timestamp + OID (to be sure)
+                    unique_id = f"{coin}_{timestamp}_{oid}"
+                    
                     trade_data = {
-                        "id": str(fill.get("oid", f"{coin}_{timestamp}")),
+                        "id": unique_id,
+                        "oid": oid,
                         "symbol": coin,
                         "side": side,
                         "entry_price": price,
-                        "exit_price": price,  # Pour un fill unique, entry = exit
+                        "exit_price": price,
                         "size": size,
                         "pnl": closed_pnl,
                         "pnl_percent": (closed_pnl / (price * size) * 100) if (price * size) > 0 else 0,
@@ -944,10 +957,10 @@ class HyperliquidService:
                         "exit_time": timestamp_str,
                         "timestamp": timestamp_str,
                         "fee": float(fill.get("fee", 0)),
-                        "strategy": "Unknown",  # Non disponible depuis Hyperliquid
+                        "strategy": "Unknown",
                         "exit_reason": "Hyperliquid",
                         "source": "hyperliquid",
-                        "leverage": 1  # Non disponible, default
+                        "leverage": 1
                     }
                     
                     trades.append(trade_data)

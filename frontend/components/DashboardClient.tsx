@@ -187,6 +187,17 @@ export default function DashboardClient() {
                         >
                             📜 History
                         </button>
+
+                        {/* Download CSV (Dev / Audit) */}
+                        <a
+                            href={`${API_URL}/api/trade_history/download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-auto px-4 py-2 rounded-lg font-medium text-xs bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-all flex items-center gap-2 border border-gray-700"
+                            title="Download Trade History CSV"
+                        >
+                            💾 CSV
+                        </a>
                     </div>
 
 

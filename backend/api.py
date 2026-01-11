@@ -763,19 +763,63 @@ async def execute_manual_signal(request: Request):
         logger.error(f"Error executing manual signal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+
+
+from fastapi.responses import FileResponse
+import time
+
 @app.get("/api/trade_history")
 async def get_trade_history(limit: int = 50):
-    """Get trade history from Hyperliquid"""
+    """
+    Get trade history with dual source:
+    1. CSV Recorder (Persistent, contains strategy info)
+    2. Hyperliquid API (Fallback, source of truth for execution)
+    """
     try:
-        from app.services.hyperliquid_service import hyperliquid_service
-        trades = hyperliquid_service.get_trade_history(limit=limit)
+        trades = []
+        
+        # 1. Try CSV Recorder first
+        try:
+             if bot_bridge and bot_bridge.is_connected():
+                 bot = bot_bridge.get_bot_context()
+                 if hasattr(bot, 'trade_recorder'):
+                     trades = bot.trade_recorder.get_history(limit)
+                     print(f"✅ [API] Loaded {len(trades)} trades from Recorder CSV")
+        except Exception as e:
+             logger.warning(f"⚠️ [API] Failed to load from Recorder: {e}")
+
+        # 2. Fallback to Hyperliquid API if empty or requested
+        if not trades:
+            from app.services.hyperliquid_service import hyperliquid_service
+            trades = hyperliquid_service.get_trade_history(limit=limit)
+            print(f"✅ [API] Loaded {len(trades)} trades from Hyperliquid SDK")
+            
         return {"trades": trades}
+        
     except Exception as e:
         logger.error(f"Error fetching trade history: {e}")
         import traceback
         traceback.print_exc()
         return {"trades": [], "error": str(e)}
 
+@app.get("/api/trade_history/download")
+async def download_trade_history():
+    """Download the trade history CSV file"""
+    try:
+        csv_file = os.path.join(BASE_DIR, "data", "trade_history.csv")
+        if os.path.exists(csv_file):
+            return FileResponse(
+                path=csv_file, 
+                filename=f"trade_history_{int(time.time())}.csv", 
+                media_type='text/csv'
+            )
+        else:
+            raise HTTPException(status_code=404, detail="Trade history CSV not found")
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/bridge/status")
 async def get_bridge_status():
@@ -2068,9 +2112,178 @@ async def switch_symbol(data: dict):
         print(f"Error switching symbol: {e}")
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/toggle_gamification")
+async def toggle_gamification(data: dict):
+    """Toggle gamification features"""
+    try:
+        enabled = data.get("enabled", True)
+        
+        # 1. Update active bot
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            # Update setting
+            if not hasattr(bot, 'scanner_settings'):
+                bot.scanner_settings = {}
+            bot.scanner_settings["gamification_enabled"] = enabled
+            
+            # Save state
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+            except Exception as e:
+                print(f"Error saving state in toggle_gamification: {e}")
+            
+            status = "enabled" if enabled else "disabled"
+            bot.add_log(f"🎮 Gamification {status}")
+            
+            return {"status": "success", "gamification_enabled": enabled}
+            
+        return {"status": "error", "message": "Bot not connected"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/gamification_status")
+async def gamification_status():
+    """Get current gamification status"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        from app.core.asset_gamification import AssetGamification
+        
+        # Get Equity (Sync call - okay if fast, but consider run_in_threadpool if slow)
+        balance_data = hyperliquid_service.get_account_balance()
+        equity = balance_data.get("total_equity", 0) if balance_data else 0
+        
+        # Get Gamification Status
+        gam = AssetGamification(equity)
+        status = gam.get_status_summary()
+        
+        return {
+            "gamification": status,
+            "equity": equity
+        }
+    except Exception as e:
+        print(f"Gamification Status Error: {e}")
+        return {"error": str(e)}
+
+
+# ============================================
+# TRADE MANAGEMENT ENDPOINTS (Fixing Missing Routes)
+# ============================================
+
+@app.post("/api/recalibrate_stops")
+async def recalibrate_stops():
+    """Manual trigger to recalibrate SL/TP based on latest volatility"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            # Call the method in main_nextjs.py
+            status, msg = await bot.recalibrate_position_stops()
+            return {"status": status, "message": msg}
+        return {"status": "ERROR", "message": "Bot not connected"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
+
+@app.post("/api/force_breakeven")
+async def force_breakeven():
+    """Manual trigger to move SL to Break Even"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            
+            with bot.trade_lock:
+                if not bot.active_trade:
+                     return {"status": "ERROR", "message": "No active trade"}
+                
+                # Logic to set SL to entry
+                entry = bot.active_trade["entry"]
+                # Add small buffer for fees (0.1%)
+                fee_buffer = entry * 0.001
+                new_sl = entry + fee_buffer if bot.active_trade["side"] == "BUY" else entry - fee_buffer
+                
+                bot.active_trade["sl"] = new_sl
+                # Mark as BE active
+                bot.active_trade["metadata"] = bot.active_trade.get("metadata", {})
+                bot.active_trade["metadata"]["breakeven_active"] = True
+                
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+                
+            return {"status": "SUCCESS", "message": "Moved to Break Even"}
+        return {"status": "ERROR", "message": "Bot not connected"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}
+
+@app.post("/api/force_sync")
+async def force_sync():
+    """Force synchronization with exchange"""
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            await bot.force_sync()
+            return {"status": "success", "message": "Sync initiated"}
+        return {"status": "error", "message": "Bot not connected"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # ============================================
 # AI COMMENTARY ENDPOINTS
 # ============================================
+
+
+@app.post("/api/ai_analysis")
+async def ai_analysis(data: dict):
+    """General AI Analysis for 'Ask AI' button"""
+    try:
+        symbol = data.get("symbol", "BTC")
+
+        # Check cooldown
+        cached = ai_cooldown_check(f"ai_analysis_{symbol}")
+        if cached: return cached
+
+        from app.services.ia import ia_service
+        from fastapi.concurrency import run_in_threadpool
+        from backend.market_data import get_hyperliquid_candles
+        from app.services.indicators import Indicators
+        
+        # Fetch Data
+        df = await get_hyperliquid_candles(symbol, "15m", 100)
+        if df is None or df.empty:
+             return {"error": "No data available for analysis"}
+
+        # Calculate Indicators (On the fly)
+        try:
+            df['RSI_14'] = Indicators.rsi(df['close'], 14)
+            adx_df = Indicators.adx(df['high'], df['low'], df['close'], 14)
+            df['ADX_14'] = adx_df['ADX']
+            df['EMA_20'] = Indicators.ema(df['close'], 20)
+            df['EMA_50'] = Indicators.ema(df['close'], 50)
+            df['ATR_14'] = Indicators.atr(df['high'], df['low'], df['close'], 14)
+        except Exception as e:
+            print(f"Indicator Calc Error: {e}")
+
+        # Prepare Context
+        last = df.iloc[-1]
+        market_data = {
+            "symbol": symbol,
+            "price": float(last['close']),
+            "rsi": float(last.get('RSI_14', 50)),
+            "adx": float(last.get('ADX_14', 0)),
+            "ema_20": float(last.get('EMA_20', 0)),
+            "ema_50": float(last.get('EMA_50', 0)),
+            "atr": float(last.get('ATR_14', 0)),
+            "current_volume": float(last.get('volume', 0)),
+            "regime": "UNKNOWN" # AI will determine or we can calc
+        }
+
+        # Analyze
+        analysis = await run_in_threadpool(ia_service.analyze_market, market_data)
+        return analysis
+
+    except Exception as e:
+        print(f"Error in ai_analysis: {e}")
+        return {"error": str(e)}
 
 @app.post("/api/ai/signal_analysis")
 async def ai_signal_analysis(data: dict):
@@ -2083,11 +2296,13 @@ async def ai_signal_analysis(data: dict):
         
 
         from app.services.ia import ia_service
+        from fastapi.concurrency import run_in_threadpool
         
         signal_data = data.get("signal", {})
         market_context = data.get("market_context", {})
         
-        analysis = ia_service.analyze_trade_signal(signal_data, market_context)
+        # Run blocking AI call in a separate thread
+        analysis = await run_in_threadpool(ia_service.analyze_trade_signal, signal_data, market_context)
         return analysis
     except Exception as e:
         print(f"Error in AI signal analysis: {e}")
@@ -2187,7 +2402,8 @@ async def ai_position_analysis():
                     "symbol": bot.active_symbol
                 }
                 
-                analysis = ia_service.analyze_active_position(bot.active_trade, market_context)
+                from fastapi.concurrency import run_in_threadpool
+                analysis = await run_in_threadpool(ia_service.analyze_active_position, bot.active_trade, market_context)
                 return {
                     "analysis": analysis,
                     "timestamp": pd.Timestamp.now().isoformat(),
