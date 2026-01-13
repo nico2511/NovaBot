@@ -1,51 +1,36 @@
-import os
-from dotenv import load_dotenv
-from dataclasses import dataclass
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
-load_dotenv()
+class Settings(BaseSettings):
+    PROJECT_NAME: str = "NovaBot"
+    VERSION: str = "2.0.0"
+    API_V1_STR: str = "/api/v1"
 
-@dataclass
-class Config:
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
-    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
-    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3.1-8b-instruct")
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openrouter") # Force openrouter default
+    # Database
+    DATABASE_URL: str = "sqlite:///./novabot.db"
+
     # Hyperliquid
-    HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
-    HL_ACCOUNT_ADDRESS: str = os.getenv("HL_ACCOUNT_ADDRESS")
-    HYPERLIQUID_API_URL: str = os.getenv("HYPERLIQUID_API_URL", "https://api.hyperliquid.xyz")
-    
-    DISCORD_WEBHOOK_ALERTS: str = os.getenv("DISCORD_WEBHOOK_URL_ALERTS")
-    DISCORD_WEBHOOK_LOGS: str = os.getenv("DISCORD_WEBHOOK_URL_LOGS")
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    HL_PRIVATE_KEY: Optional[str] = None
+    HL_ACCOUNT_ADDRESS: Optional[str] = None
+    HYPERLIQUID_API_URL: str = "https://api.hyperliquid.xyz"
 
-    # Risk Defaults
-    DEFAULT_MAX_POSITIONS: int = 1
-    DEFAULT_DAILY_STOP_LOSS: float = 50.0  # USDC
-    DEFAULT_LEVERAGE: int = 1
-    
-    # Operations
-    AUTO_START_TRADING: bool = os.getenv("AUTO_START_TRADING", "false").lower() == "true"
-    
-    # ==============================================================================
-    # 🧠 AI MODULAR CONFIGURATION (Added via Prompt)
-    # ==============================================================================
-    
-    # Timeframe principal pour l'analyse de structure (Défaut: 15m)
-    TRADING_TIMEFRAME: str = os.getenv("TRADING_TIMEFRAME", "15m")
-    
-    # Personnalité du Bot (Défaut: Conservative Scalper)
-    # Voir TRADING_PROFILES.md pour les options
-    BOT_PERSONA: str = os.getenv("BOT_PERSONA", "Conservative Scalper")
-    
-    # Profil de Risque (Défaut: Capital Preservation)
-    # Voir TRADING_PROFILES.md pour les options
-    RISK_PROFILE: str = os.getenv("RISK_PROFILE", "Capital Preservation First")
-    
-    # AI Call Cooldown (seconds) - Prevents excessive API calls
-    AI_CALL_COOLDOWN: int = int(os.getenv("AI_CALL_COOLDOWN", "300"))  # 5 minutes default
-    
-    # API Security
-    API_KEY: str = os.getenv("API_KEY", "dev_secret_change_in_production")
+    # AI Providers
+    GEMINI_API_KEY: Optional[str] = None
+    OPENROUTER_API_KEY: Optional[str] = None
+    AI_MODEL_NAME: str = "meta-llama/llama-3.1-8b-instruct"
+    AI_PROVIDER: str = "openrouter"
 
-config = Config()
+    # Logging / Notifications
+    DISCORD_WEBHOOK_URL_ALERTS: Optional[str] = None
+    DISCORD_WEBHOOK_URL_LOGS: Optional[str] = None
+    LOG_LEVEL: str = "INFO"
+
+    # Trading Defaults
+    TRADING_TIMEFRAME: str = "15m"
+    BOT_PERSONA: str = "Conservative Scalper"
+    RISK_PROFILE: str = "Capital Preservation First"
+    API_KEY: str = "dev_secret_change_in_production"
+
+    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+
+settings = Settings()

@@ -1,0 +1,96 @@
+# Workflow Status - NovaBot Project
+# Generated: 2026-01-12T17:31:00+01:00
+# Project: novabot
+# Type: Brownfield (Existing Codebase)
+# Track: BMad Method
+
+# STATUS DEFINITIONS:
+#   - required: Must be completed
+#   - optional: Can be skipped
+#   - conditional: Depends on project needs (e.g. if_has_ui)
+#   - {file-path}: Completed (e.g. "docs/product-brief.md")
+#   - skipped: Intentionally skipped
+
+generated: "2026-01-12T17:31:00+01:00"
+project: "novabot"
+project_type: "brownfield"
+selected_track: "bmad-method"
+field_type: "brownfield"
+workflow_path: "_bmad/bmm/workflows/workflow-status/paths/method-brownfield.yaml"
+
+workflow_status:
+  - phase: 0
+    name: "Documentation"
+    status: "completed"
+    items:
+      - id: "document-project"
+        status: "completed"
+        agent: "analyst"
+        command: "/bmad-bmm-workflows-document-project"
+        description: "Analyze and document existing codebase"
+
+  - phase: 1
+    name: "Analysis"
+    status: "completed"
+    items:
+      - id: "brainstorm-project"
+        status: "completed" # User selected
+        agent: "analyst"
+        command: "/bmad-core-workflows-brainstorming"
+        description: "Creative exploration for gamification features"
+      - id: "research"
+        status: "skipped"
+        agent: "analyst"
+      - id: "product-brief"
+        status: "skipped"
+        agent: "analyst"
+
+  - phase: 2
+    name: "Planning"
+    status: "completed"
+    items:
+      - id: "prd"
+        status: "completed"
+        agent: "pm" 
+        command: "/bmad-bmm-workflows-prd"
+        description: "Product Requirements Document"
+      - id: "create-ux-design"
+        status: "conditional"
+        condition: "if_has_ui"
+        agent: "ux-designer"
+        command: "/bmad-bmm-workflows-create-ux-design"
+
+  - phase: 3
+    name: "Solutioning"
+    status: "active"
+    items:
+      - id: "create-story"
+        status: "completed"
+        output_file: "_bmad-output/implementation-artifacts/1-1-project-structure-setup-migration.md"
+        agent: "pm"
+        command: "/bmad-bmm-workflows-create-story"
+      - id: "create-architecture"
+        status: "completed"
+        output_file: "_bmad-output/planning-artifacts/architecture.md"
+        agent: "architect"
+        command: "/bmad-bmm-workflows-create-architecture"
+        description: "System design aligning new features with existing code"
+      - id: "create-epics-and-stories"
+        status: "completed"
+        output_file: "_bmad-output/planning-artifacts/epics.md"
+        agent: "pm"
+        command: "/bmad-bmm-workflows-create-epics-and-stories"
+      - id: "implementation-readiness"
+        status: "required"
+        agent: "architect"
+        command: "/bmad-bmm-workflows-check-implementation-readiness"
+
+  - phase: 4
+    name: "Implementation"
+    status: "pending"
+    items:
+      - id: "sprint-planning"
+        status: "completed"
+        output_file: "_bmad-output/implementation-artifacts/sprint-status.yaml"
+        agent: "sm"
+        command: "/bmad-bmm-workflows-sprint-planning"

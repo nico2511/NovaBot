@@ -1,0 +1,43 @@
+{
+    "workflow_version": "1.2.0",
+    "timestamps": {
+        "started": "2026-01-12T17:35:00+01:00",
+        "last_updated": "2026-01-12T17:35:36+01:00"
+    },
+    "mode": "initial_scan",
+    "scan_level": "quick",
+    "project_root": "c:\\Users\\User\\Desktop\\novabot",
+    "output_folder": "c:\\Users\\User\\Desktop\\novabot\\_bmad-output\\project-knowledge",
+    "completed_steps": [
+        {
+            "step": "step_1",
+            "status": "completed",
+            "timestamp": "2026-01-12T17:35:36+01:00",
+            "summary": "Classified as multi-part with 3 parts: frontend (web), backend (backend), root (backend)"
+        }
+    ],
+    "current_step": "step_2",
+    "findings": {
+        "repository_type": "multi-part",
+        "parts_count": 3,
+        "project_classification": "Multi-part: frontend(web), backend(backend), root(backend)",
+        "project_types": [
+            {
+                "part_id": "frontend",
+                "project_type_id": "web",
+                "display_name": "Frontend"
+            },
+            {
+                "part_id": "backend",
+                "project_type_id": "backend",
+                "display_name": "Backend API"
+            },
+            {
+                "part_id": "root",
+                "project_type_id": "backend",
+                "display_name": "Core Bot"
+            }
+        ]
+    },
+    "resume_instructions": "Starting from step 2"
+}

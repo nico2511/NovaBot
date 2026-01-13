@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import Link from 'next/link'
+import { useTheme } from '@/contexts/ThemeContext'
 
 interface GamificationData {
     level: string
@@ -27,6 +28,7 @@ export default function GamificationWidget() {
     const [gamData, setGamData] = useState<GamificationData | null>(null)
     const [loading, setLoading] = useState(true)
     const [mounted, setMounted] = useState(false)
+    const { colors } = useTheme()
 
     useEffect(() => { setMounted(true) }, [])
 
@@ -62,19 +64,20 @@ export default function GamificationWidget() {
 
     const getLevelColor = (level: string) => {
         switch (level) {
-            case 'Goblin': return 'text-green-400'
-            case 'Mercenary': return 'text-blue-400'
-            case 'Whale': return 'text-purple-400'
+            case 'Goblin': return 'text-gray-400'        // NEBULA → Gray
+            case 'Mercenary': return 'text-gray-300'     // PROTOSTAR → Silver
+            case 'Whale': return 'text-yellow-600'       // SUPERNOVA → Gold
             default: return 'text-gray-400'
         }
     }
 
-    const getLevelEmoji = (level: string) => {
+    const getLevelIcon = (level: string) => {
+        // Minimal icons instead of emojis
         switch (level) {
-            case 'Goblin': return '👺'
-            case 'Mercenary': return '⚔️'
-            case 'Whale': return '🐋'
-            default: return '🎮'
+            case 'Goblin': return '◆'        // NEBULA
+            case 'Mercenary': return '◇'     // PROTOSTAR
+            case 'Whale': return '◈'         // SUPERNOVA
+            default: return '○'
         }
     }
 
@@ -83,7 +86,7 @@ export default function GamificationWidget() {
         <div className="group relative">
             <Link href="/gamification" className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
                 <span className="text-2xl filter drop-shadow-md transition-transform group-hover:scale-110 duration-200">
-                    {getLevelEmoji(gamData.level)}
+                    {getLevelIcon(gamData.level)}
                 </span>
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -100,7 +103,7 @@ export default function GamificationWidget() {
                             <div className="flex items-center gap-2 w-32">
                                 <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
                                     <div
-                                        className="h-full bg-gradient-to-r from-primary to-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                                        className={`h-full bg-gradient-to-r ${colors.gradient} transition-all duration-300`}
                                         style={{ width: `${gamData.progress.progress_percent}%` }}
                                     />
                                 </div>
@@ -123,7 +126,7 @@ export default function GamificationWidget() {
                     <h3 className={`font-bold text-lg ${getLevelColor(gamData.level)}`}>
                         {gamData.level} Rank
                     </h3>
-                    <span className="text-2xl">{getLevelEmoji(gamData.level)}</span>
+                    <span className="text-2xl">{getLevelIcon(gamData.level)}</span>
                 </div>
 
                 <p className="text-xs text-gray-300 mb-3 italic leading-relaxed">
