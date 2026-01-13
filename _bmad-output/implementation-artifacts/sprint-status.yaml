@@ -52,10 +52,10 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4 (Trading Integration)
-  epic-4: in-progress
+  epic-4: done
   4-1-migrate-hyperliquid-service: done
   4-2-migrate-indicators: done
   4-3-migrate-strategy-engine: done
-  4-4-migrate-bot-context: backlog
-  4-5-migrate-risk-manager: backlog
+  4-4-migrate-bot-context: done
+  4-5-migrate-risk-manager: done
   epic-4-retrospective: optional
