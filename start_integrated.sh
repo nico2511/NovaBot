@@ -3,6 +3,12 @@
 echo "🚀 Deploying HyperLiquid Trading Bot (PM2 Mode)"
 echo ""
 
+# Check and Create venv if missing
+if [ ! -d ".venv" ] && [ ! -d "venv" ]; then
+    echo "🐍 Creating virtual environment (.venv)..."
+    python3 -m venv .venv
+fi
+
 # Activate venv if exists
 if [ -d ".venv" ]; then
     echo "🐍 Activating virtual environment (.venv)..."
