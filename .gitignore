@@ -1,42 +1,25 @@
-# Secrets
-.env
-.streamlit/secrets.toml
-
-# Bot State (should not be in Git)
-bot_state.json
-bot_state.json.backup
-*.backup
-
 # Python
 __pycache__/
 *.pyc
-.venv/
+*.pyo
 venv/
-*.egg-info/
+.venv/
+.env
 
-# Node.js / Next.js
-node_modules/
-frontend/node_modules/
-.next/
-frontend/.next/
-dist/
-build/
-.npm/
-
-
-# System
-.DS_Store
-
-# Logs
+# Logs and State
 *.log
+bot_state.json
+bot_state.json.bak
+bot_state.json.tmp
 token_meta_cache.json
-
-# Backtest & Analysis (Local Only) - TEMPORARILY DISABLED FOR TESTING
-backtest_archive/
-backtest/
-tradingview/
 data/
+logs/
 
+# Helper output
+_bmad-output/
+.claude/
+.agent/
 
-fetch_prod_logs.bat
-fetch_prod_logs.sh
+# OS
+.DS_Store
+Thumbs.db

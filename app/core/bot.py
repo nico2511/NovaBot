@@ -52,7 +52,8 @@ class BotContext:
         self.active_symbol = "BTC"
         self.last_candle_time = None
         self.active_trade = None
-        self.execution_mode = "Manual (Phantom)"
+        self.trading_enabled = False # Master Switch
+        self.is_running = False      # Loop Switch
         self.active_strategy_name = "SmartTrend"
         self.active_strategies = []
 
@@ -91,10 +92,14 @@ class BotContext:
         
         # Load persisted state
         try:
-            StateManager.load_state(self)
+            state = StateManager.load_state(self)
             
             if hasattr(self, "sidebar_settings"):
-                self.execution_mode = self.sidebar_settings.get("execution_mode", "Manual (Phantom)")
+                self.trading_enabled = self.sidebar_settings.get("trading_enabled", False)
+                
+                # Load Scanner settings
+                if "scanner" in state:
+                    self.scanner_settings = state["scanner"]
                 requested_max = self.sidebar_settings.get("max_positions", 1)
                 
                 try:
@@ -122,7 +127,6 @@ class BotContext:
                     
         except Exception as e:
             print(f"Error loading state: {e}")
-            self.execution_mode = "Manual (Phantom)"
             
         # Initialize Services
         self.scanner_job = ScannerJob(self)
@@ -209,6 +213,98 @@ class BotContext:
         dynamic_ctx = get_dynamic_context(df)
         dynamic_ctx['adx'] = round(adx_value, 2)
         
+        # === ENHANCED CONTEXT: Bollinger Bands ===
+        bb_period = 20
+        bb_std = 2.0
+        try:
+            bb_middle = df['close'].rolling(bb_period).mean().iloc[-1]
+            bb_std_val = df['close'].rolling(bb_period).std().iloc[-1]
+            bb_upper = bb_middle + (bb_std * bb_std_val)
+            bb_lower = bb_middle - (bb_std * bb_std_val)
+            
+            # BB Position
+            if current_price > bb_upper:
+                bb_position = "ABOVE_UPPER"
+            elif current_price < bb_lower:
+                bb_position = "BELOW_LOWER"
+            elif abs(current_price - bb_middle) / bb_middle < 0.005:  # Within 0.5% of middle
+                bb_position = "AT_MIDDLE"
+            else:
+                bb_position = "INSIDE_BANDS"
+            
+            # BB Width (volatility indicator)
+            bb_width = ((bb_upper - bb_lower) / bb_middle) * 100 if bb_middle > 0 else 0
+            
+            dynamic_ctx['bb_upper'] = round(bb_upper, 4)
+            dynamic_ctx['bb_middle'] = round(bb_middle, 4)
+            dynamic_ctx['bb_lower'] = round(bb_lower, 4)
+            dynamic_ctx['bb_position'] = bb_position
+            dynamic_ctx['bb_width'] = round(bb_width, 2)
+        except Exception:
+            pass
+        
+        # === ENHANCED CONTEXT: EMA Slopes ===
+        try:
+            # Calculate EMA slopes (current vs previous candle)
+            ema_20_prev = float(df['close'].ewm(span=20).mean().iloc[-2])
+            ema_50_prev = float(df['close'].ewm(span=50).mean().iloc[-2])
+            
+            ema_20_slope = ((ema_20 - ema_20_prev) / ema_20_prev) if ema_20_prev > 0 else 0
+            ema_50_slope = ((ema_50 - ema_50_prev) / ema_50_prev) if ema_50_prev > 0 else 0
+            
+            dynamic_ctx['ema_20_slope'] = round(ema_20_slope, 6)
+            dynamic_ctx['ema_50_slope'] = round(ema_50_slope, 6)
+            
+            # Slope labels
+            if abs(ema_50_slope) < 0.0001:
+                dynamic_ctx['ema_50_slope_label'] = "FLAT"
+            elif ema_50_slope > 0.0005:
+                dynamic_ctx['ema_50_slope_label'] = "RISING"
+            elif ema_50_slope < -0.0005:
+                dynamic_ctx['ema_50_slope_label'] = "FALLING"
+            else:
+                dynamic_ctx['ema_50_slope_label'] = "NEUTRAL"
+        except Exception:
+            pass
+        
+        # === ENHANCED CONTEXT: Fibonacci Levels ===
+        try:
+            # Calculate Fibonacci retracement levels from swing high/low
+            if swing_high and swing_low and swing_high > swing_low:
+                swing_range = swing_high - swing_low
+                
+                # Key Fibonacci levels
+                fib_236 = swing_low + (swing_range * 0.236)
+                fib_382 = swing_low + (swing_range * 0.382)
+                fib_50 = swing_low + (swing_range * 0.50)
+                fib_618 = swing_low + (swing_range * 0.618)
+                fib_786 = swing_low + (swing_range * 0.786)
+                
+                # Determine which Fibo zone price is in
+                fib_zone = "UNKNOWN"
+                if current_price >= fib_786:
+                    fib_zone = "ABOVE_78.6%"
+                elif current_price >= fib_618:
+                    fib_zone = "GOLDEN_ZONE (61.8-78.6%)"
+                elif current_price >= fib_50:
+                    fib_zone = "MID_ZONE (50-61.8%)"
+                elif current_price >= fib_382:
+                    fib_zone = "LOWER_ZONE (38.2-50%)"
+                elif current_price >= fib_236:
+                    fib_zone = "SHALLOW (23.6-38.2%)"
+                else:
+                    fib_zone = "BELOW_23.6%"
+                
+                dynamic_ctx['fib_236'] = round(fib_236, 4)
+                dynamic_ctx['fib_382'] = round(fib_382, 4)
+                dynamic_ctx['fib_50'] = round(fib_50, 4)
+                dynamic_ctx['fib_618'] = round(fib_618, 4)
+                dynamic_ctx['fib_786'] = round(fib_786, 4)
+                dynamic_ctx['fib_zone'] = fib_zone
+                dynamic_ctx['swing_range'] = round(swing_range, 4)
+        except Exception:
+            pass
+        
         # Position-specific data
         pnl_percent = 0
         time_in_trade = None
@@ -281,27 +377,12 @@ class BotContext:
     def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None):
         """ATOMIC ENTRY FLOW (Unified v2)"""
         try:
-            # DRY RUN MODE
-            if self.execution_mode == "Dry Run":
-                self.add_log(f"[DRY] Would enter {side} {symbol}")
-                with self.trade_lock:
-                    self.active_trade = {
-                        "symbol": symbol,
-                        "side": side,
-                        "entry": price or 0,
-                        "size": size,
-                        "sl": sl or 0,
-                        "tp": tp or 0,
-                        "strategy": strategy,
-                        "entry_time": pd.Timestamp.now().isoformat(),
-                        "pnl": 0,
-                        "max_pnl": 0,
-                        "status": "OPEN (DRY RUN)",
-                        "metadata": metadata
-                    }
-                    StateManager.save_state(self)
-                self.add_log(f"[DRY] ✅ Simulated trade created")
-                return True
+            # 1. LIVE EXECUTION CHECK
+            if not self.trading_enabled:
+                self.add_log(f"⚠️ Signal ignored (Trading Disabled): {side} {symbol}")
+                return { "status": "ignored", "reason": "Trading Disabled" }
+            
+            current_price = price if price else hyperliquid_service.get_current_price(symbol)
             
             # REAL EXECUTION
             real_positions = hyperliquid_service.get_positions()
@@ -467,8 +548,9 @@ class BotContext:
 
     def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict):
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
-        if self.execution_mode != "Auto (Hyperliquid)":
-            return
+        # GUARD: Only enforce if trading is ENABLED (Real Trading)
+        if not self.trading_enabled:
+             return
 
         try:
             open_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
@@ -619,8 +701,8 @@ class BotContext:
     def _check_local_exits(self, trade: dict, symbol: str, current_price: float):
         """Check for local SL/TP triggers"""
         side = trade.get("side")
-        sl_val = float(trade.get("sl", 0))
-        tp_val = float(trade.get("tp", 0))
+        sl_val = float(trade.get("sl") or 0)
+        tp_val = float(trade.get("tp") or 0)
         
         exit_triggered = False
         reason = ""
@@ -667,6 +749,7 @@ class BotContext:
         """Manually trigger synchronization with Exchange."""
         self.add_log("🔄 FORCE SYNC: Initiated by User")
         
+        try:
             positions = hyperliquid_service.get_positions()
             
             if positions:
@@ -744,7 +827,7 @@ class BotContext:
         if not self.startup_sync_done:
             self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
             try:
-                if self.execution_mode == "Auto (Hyperliquid)":
+                if self.trading_enabled:
                     requested_leverage = int(self.sidebar_settings.get("leverage", 5))
                     margin_type = self.sidebar_settings.get("margin_type", "Cross")
                     is_cross = (margin_type == "Cross")
@@ -924,33 +1007,30 @@ class BotContext:
                         time_since_last_call = current_time - self.last_ai_call
                         
                         approved = False
-                        if time_since_last_call < self.ai_call_cooldown:
-                            remaining = int(self.ai_call_cooldown - time_since_last_call)
-                            self.add_log(f"⏭️ AI Cooldown active ({remaining}s remaining) - Auto-approving signal")
-                            approved = True
-                        else:
-                            self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
-                            val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
-                            self.last_ai_call = current_time
-                            
-                            try:
-                                import json
-                                if val_res.get("raw_output"):
-                                    ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
-                                    approved = ai_data.get("approved", False)
-                                    if approved:
-                                        self.add_log(f"✅ AI APPROVED (Conf: {ai_data.get('confidence')}%)")
-                                        if ai_data.get("suggested_adjustments"):
-                                            adj = ai_data["suggested_adjustments"]
-                                            if adj.get("sl"): sig["sl"] = adj["sl"]
-                                            if adj.get("tp"): sig["tp"] = adj["tp"]
-                                    else:
-                                        self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
+                        # REMOVED: Auto-approval during cooldown (security risk)
+                        # Always validate with AI for safety
+                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
+                        val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
+                        self.last_ai_call = current_time
+                        
+                        try:
+                            import json
+                            if val_res.get("raw_output"):
+                                ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
+                                approved = ai_data.get("approved", False)
+                                if approved:
+                                    self.add_log(f"✅ AI APPROVED (Conf: {ai_data.get('confidence')}%)")
+                                    if ai_data.get("suggested_adjustments"):
+                                        adj = ai_data["suggested_adjustments"]
+                                        if adj.get("sl"): sig["sl"] = adj["sl"]
+                                        if adj.get("tp"): sig["tp"] = adj["tp"]
                                 else:
-                                    approved = True 
-                            except:
-                                self.add_log("⚠️ AI Validation JSON Error. Defaulting to REJECT.")
-                                approved = False
+                                    self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
+                            else:
+                                approved = True 
+                        except:
+                            self.add_log("⚠️ AI Validation JSON Error. Defaulting to REJECT.")
+                            approved = False
                             
                         if approved:
                             acc = hyperliquid_service.get_account_balance()
@@ -960,8 +1040,14 @@ class BotContext:
                             entry_price = sig.get("price")
                             
                             size = self.risk_manager.calculate_position_size(entry_price, sl_price, equity)
-                            
-                            if size > 0:
+                            # ---------------------------------------------------
+                            # 2. EXECUTION LOGIC (Live)
+                            # ---------------------------------------------------
+                            if self.trading_enabled:
+                                
+                                # Sync Positions periodically
+                                if int(time.time()) % 60 == 0:
+                                     self.force_sync()
                                 self.execute_entry_atomically(
                                     self.active_symbol,
                                     sig.get("signal"),
@@ -1303,20 +1389,82 @@ class BotContext:
                          atr = df['ATRr_14'].iloc[-1]
             except: pass
             
-            if atr == 0:
-                 atr = entry_price * 0.015
+            # Use REAL-TIME price for validation, not candle close
+            current_price = hyperliquid_service.get_current_price(symbol)
+            if current_price == 0:
+                 current_price = df['close'].iloc[-1]
             
+            self.add_log(f"🔍 Recalibrate: Current Price for validation: {current_price}")
+
+            # Recalculate based on Entry but ensuring validity vs Current Price
+            atr_val = atr if atr > 0 else entry_price * 0.015
+            
+            # --- SMART CONTEXT AWARENESS ---
             sl_mult = 2.0; tp_mult = 3.0
             
-            if side == "BUY":
-                ideal_sl = entry_price - (atr * sl_mult)
-                ideal_tp = entry_price + (atr * tp_mult)
-            else:
-                ideal_sl = entry_price + (atr * sl_mult)
-                ideal_tp = entry_price - (atr * tp_mult)
+            try:
+                # 1. Strategy Intent
+                strategy_name = self.active_trade.get("strategy", "Unknown").lower()
                 
-            current_sl = float(self.active_trade.get("sl", 0))
-            current_tp = float(self.active_trade.get("tp", 0))
+                # 2. Market Context (RSI)
+                rsi = 50.0
+                if df is not None and not df.empty:
+                    rsi = Indicators.rsi(df['close'], 14).iloc[-1]
+                
+                if "scalp" in strategy_name:
+                    # Scalping: Tighter stops, quicker targets
+                    sl_mult = 1.2
+                    tp_mult = 1.8
+                    
+                    # Dynamic Trailing based on RSI Extension
+                    # If we are winning and RSI is extended, tighten SL significantly
+                    if side == "BUY" and rsi > 65:
+                         sl_mult = 0.5 # Protect gains
+                         self.add_log(f"🧠 AI Context: RSI High ({rsi:.1f}), tightening Scalp SL to 0.5 ATR")
+                    elif side == "SELL" and rsi < 35:
+                         sl_mult = 0.5
+                         self.add_log(f"🧠 AI Context: RSI Low ({rsi:.1f}), tightening Scalp SL to 0.5 ATR")
+                         
+                elif "trend" in strategy_name:
+                     # Trend Following: Give room to breathe
+                     sl_mult = 3.0
+                     tp_mult = 5.0
+            except Exception as e:
+                self.add_log(f"⚠️ Context Logic Error: {e}")
+                sl_mult = 2.0; tp_mult = 3.0
+            
+            MIN_DIST_PCT = 0.001 # 0.1% minimal buffer for scalping support
+            
+            if side == "BUY":
+                # LONG: SL below Entry, TP above Entry
+                ideal_sl = entry_price - (atr_val * sl_mult)
+                ideal_tp = entry_price + (atr_val * tp_mult)
+                
+                # Validation: SL must be < Current Price
+                if ideal_sl >= current_price * (1 - MIN_DIST_PCT):
+                    self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) above current price ({current_price:.2f}). Adjusting.")
+                    ideal_sl = current_price * (1 - 0.002) # 0.2% below current
+                
+                # Validation: TP must be > Current Price
+                if ideal_tp <= current_price * (1 + MIN_DIST_PCT):
+                     ideal_tp = current_price * (1 + 0.002) # 0.2% above current
+
+            else:
+                # SHORT: SL above Entry, TP below Entry
+                ideal_sl = entry_price + (atr_val * sl_mult)
+                ideal_tp = entry_price - (atr_val * tp_mult)
+                
+                # Validation: SL must be > Current Price
+                if ideal_sl <= current_price * (1 + MIN_DIST_PCT):
+                    self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) below current price ({current_price:.2f}). Adjusting.")
+                    ideal_sl = current_price * (1 + 0.002) # 0.2% above current
+                    
+                # Validation: TP must be < Current Price
+                if ideal_tp >= current_price * (1 - MIN_DIST_PCT):
+                     ideal_tp = current_price * (1 - 0.002) # 0.2% below current
+
+            current_sl = float(self.active_trade.get("sl") or 0)
+            current_tp = float(self.active_trade.get("tp") or 0)
             
             sl_diff = abs(current_sl - ideal_sl) / current_sl if current_sl else 1.0
             tp_diff = abs(current_tp - ideal_tp) / current_tp if current_tp else 1.0
@@ -1328,12 +1476,13 @@ class BotContext:
                 self.add_log(f"✅ Audit: Orders aligned. No update needed.")
                 return "UNCHANGED", "Orders are aligned."
             
-            self.add_log(f"⚠️ Audit: Divergence detected. Updating...")
+            self.add_log(f"⚠️ Audit: Divergence detected (Price: {current_price:.2f}). Updating to SL: {ideal_sl:.2f} | TP: {ideal_tp:.2f}")
             
             with self.trade_lock:
                 self.active_trade["sl"] = ideal_sl
                 self.active_trade["tp"] = ideal_tp
             
+            # Force verification immediately to sync with exchange
             self._verify_and_enforce_sl_tp(symbol, self.active_trade)
             StateManager.save_state(self)
             
