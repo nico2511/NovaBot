@@ -86,6 +86,10 @@ class BotContext:
         # Debounce for "Position Vanished" check
         self.missing_pos_counter = 0
         
+        # SL/TP Sync Cooldown (prevent infinite loop)
+        self._last_sltp_sync_time = None
+        self._sltp_sync_cooldown = 60  # Wait 60s after sync before re-verifying
+        
         # AI Call Management
         self.last_ai_call = 0 
         self.ai_call_cooldown = config.AI_CALL_COOLDOWN 
@@ -552,6 +556,12 @@ class BotContext:
         if not self.trading_enabled:
              return
 
+        # COOLDOWN: Skip verification if we just synced (prevent infinite loop)
+        if self._last_sltp_sync_time:
+            elapsed = (pd.Timestamp.now() - self._last_sltp_sync_time).total_seconds()
+            if elapsed < self._sltp_sync_cooldown:
+                return  # Too soon, wait for cooldown
+
         try:
             open_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
             symbol_orders = [o for o in open_orders if o["coin"] == symbol]
@@ -561,7 +571,7 @@ class BotContext:
             
             found_sl = False
             found_tp = False
-            TOLERANCE = 0.001
+            TOLERANCE = 0.005  # Increased from 0.001 to 0.5% to handle rounding differences
             
             for o in symbol_orders:
                 # FIX: For trigger orders (SL/TP), use triggerPx (actual trigger), not limitPx (aggressive fill price)
@@ -588,6 +598,7 @@ class BotContext:
                     desired_tp
                 )
                 self.add_log("✅ Audit: SL/TP enforced via Sync.")
+                self._last_sltp_sync_time = pd.Timestamp.now()  # Mark sync time for cooldown
                 
         except Exception as e:
             self.add_log(f"⚠️ Error in _verify_and_enforce_sl_tp: {e}")
@@ -740,10 +751,11 @@ class BotContext:
         # 2. Smart Trailing
         self._update_trailing_stops(trade, current_price)
 
-        # 3. Enforce Orders (Sync with Exchange)
-        self._verify_and_enforce_sl_tp(symbol, trade)
+        # NOTE: _verify_and_enforce_sl_tp is NOT called here.
+        # SL/TP sync happens ONCE during position adoption (_adopt_existing_position)
+        # or when manually triggered via frontend/API.
         
-        # 4. Local Exit Check
+        # 3. Local Exit Check
         self._check_local_exits(trade, symbol, current_price)
 
     def force_sync(self):
