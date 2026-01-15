@@ -1031,12 +1031,26 @@ class BotContext:
                             if val_res.get("raw_output"):
                                 ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
                                 approved = ai_data.get("approved", False)
+                                confidence = ai_data.get("confidence", 0)
+                                risk_level = ai_data.get("risk_level", "MEDIUM").upper()
+                                
                                 if approved:
-                                    self.add_log(f"✅ AI APPROVED (Conf: {ai_data.get('confidence')}%)")
-                                    if ai_data.get("suggested_adjustments"):
-                                        adj = ai_data["suggested_adjustments"]
-                                        if adj.get("sl"): sig["sl"] = adj["sl"]
-                                        if adj.get("tp"): sig["tp"] = adj["tp"]
+                                    # HYBRID CONFIDENCE THRESHOLD CHECK
+                                    required_conf = config.AI_CONF_THRESHOLD_MEDIUM  # Default
+                                    if risk_level == "HIGH":
+                                        required_conf = config.AI_CONF_THRESHOLD_HIGH
+                                    elif risk_level == "LOW":
+                                        required_conf = config.AI_CONF_THRESHOLD_LOW
+                                    
+                                    if confidence >= required_conf:
+                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}% >= {required_conf}% for {risk_level} risk)")
+                                        if ai_data.get("suggested_adjustments"):
+                                            adj = ai_data["suggested_adjustments"]
+                                            if adj.get("sl"): sig["sl"] = adj["sl"]
+                                            if adj.get("tp"): sig["tp"] = adj["tp"]
+                                    else:
+                                        self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)")
+                                        approved = False
                                 else:
                                     self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
                             else:
