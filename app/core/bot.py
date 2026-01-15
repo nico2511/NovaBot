@@ -564,7 +564,8 @@ class BotContext:
             TOLERANCE = 0.001
             
             for o in symbol_orders:
-                price = float(o.get("limitPx", o.get("triggerPx", 0)))
+                # FIX: For trigger orders (SL/TP), use triggerPx (actual trigger), not limitPx (aggressive fill price)
+                price = float(o.get("triggerPx") or o.get("limitPx", 0))
                 if desired_sl > 0 and abs(price - desired_sl) / desired_sl < TOLERANCE:
                     found_sl = True
                 if desired_tp > 0 and abs(price - desired_tp) / desired_tp < TOLERANCE:

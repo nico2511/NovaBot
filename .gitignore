@@ -16,10 +16,10 @@ data/
 logs/
 
 # Helper output
-_bmad-output/
-.claude/
-.agent/
-
+#_bmad-output/
+#.claude/
+#.agent/
+#
 # OS
 .DS_Store
 Thumbs.db
