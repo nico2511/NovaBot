@@ -302,6 +302,35 @@ def disable_trading():
         success_message="disabled"
     )
 
+@app.post("/api/switch_symbol")
+def switch_symbol(data: dict):
+    """
+    Switch active trading symbol.
+    
+    Body: {"symbol": "ETH"} or {"symbol": "SOL"}
+    
+    Example: curl -X POST http://localhost:8001/api/switch_symbol -H "Content-Type: application/json" -d '{"symbol":"ETH"}'
+    """
+    new_symbol = data.get("symbol", "").upper().strip()
+    if not new_symbol:
+        return {"status": "error", "message": "Missing 'symbol' in request body"}
+    
+    # Validate symbol exists on Hyperliquid
+    try:
+        canonical = hyperliquid_service.get_canonical_symbol(new_symbol)
+        if canonical != new_symbol:
+            logger.info(f"ℹ️ Symbol resolved: {new_symbol} -> {canonical}")
+            new_symbol = canonical
+    except Exception as e:
+        logger.warning(f"⚠️ Symbol validation failed: {e}")
+    
+    return _execute_bot_action(
+        bot_action=lambda bot: (bot.switch_active_symbol(new_symbol), bot.add_log(f"🔄 Symbol switched to {new_symbol} via API")),
+        standalone_action=lambda: (setattr(bot_state, 'active_symbol', new_symbol), bot_state.add_log(f"🔄 Symbol switched to {new_symbol}")),
+        status_key="switched",
+        success_message=f"symbol switched to {new_symbol}"
+    )
+
 
 # --- Market Data ---
 
