@@ -173,21 +173,14 @@ class StrategyEngine:
         for strat in active_strategies:
             
             # --- PANIC CLOSE / KILL SWITCH (Imported or Fallback) ---
+            # NOTE: Kill Switch now only BLOCKS new entries for incompatible strategies
+            # It does NOT generate SELL signals (that would be sent to AI for nothing)
+            # Actual panic close of existing positions is handled in bot.py trade management
             try:
-                # We check Panic Close BEFORE signal generation to prioritize exits
                 should_panic, panic_reason = should_panic_close(strat.name, df)
                 if should_panic:
-                    print(f"🚨 KILL SWITCH TRIGGERED for {strat.name}: {panic_reason}")
-                    # Force a SELL signal to close any open position
-                    signal_data = {
-                        "strategy": strat.name,
-                        "signal": "SELL",
-                        "price": df['close'].iloc[-1],
-                        "timestamp": df.index[-1],
-                        "metadata": {"panic_close": True, "reason": panic_reason}
-                    }
-                    signals.append(signal_data)
-                    continue # Skip normal signal generation
+                    print(f"🚨 KILL SWITCH: {strat.name} BLOCKED - {panic_reason}")
+                    continue  # Skip this strategy entirely (no signal generation)
             except Exception as e:
                 print(f"⚠️ Panic check error: {e}")
             
