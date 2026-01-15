@@ -681,67 +681,124 @@ async def execute_manual_trade(request: dict, _: bool = Depends(verify_api_key))
 
 # --- History & Logs ---
 
-@app.get("/api/trades/hyperliquid")
-async def get_hyperliquid_trades(limit: int = 100):
-    """Get trade history from Hyperliquid API"""
-    try:
-        trades = hyperliquid_service.get_trade_history(limit)
-        return {"status": "success", "trades": trades, "count": len(trades)}
-    except Exception as e:
-        return {"status": "error", "message": str(e), "trades": []}
+# ==========================================
+# EXCHANGE HISTORY (Hyperliquid API - All Account Fills)
+# ==========================================
 
-# In-memory cache for trade history to save rate limits
-_trade_history_cache = {
+_exchange_fills_cache = {
     "data": [],
     "timestamp": 0
 }
-CACHE_DURATION = 60  # Cache for 60 seconds
+EXCHANGE_CACHE_DURATION = 60  # 60 seconds
 
-@app.get("/api/trade_history")
-async def get_trade_history(limit: int = 50):
-    """Get trade history from Hyperliquid API (Cached)"""
-    global _trade_history_cache
+@app.get("/api/exchange/fills")
+async def get_exchange_fills(limit: int = 100):
+    """
+    Get ALL fills from Hyperliquid exchange (raw account history).
+    Includes manual trades, bot trades, liquidations, etc.
+    Source: Hyperliquid API
+    """
+    global _exchange_fills_cache
     
     current_time = time.time()
     
     # Return cached data if valid
-    if current_time - _trade_history_cache["timestamp"] < CACHE_DURATION and _trade_history_cache["data"]:
-        # logger.info("📊 Returning cached trade history")
-        return {"trades": _trade_history_cache["data"]} 
+    if current_time - _exchange_fills_cache["timestamp"] < EXCHANGE_CACHE_DURATION and _exchange_fills_cache["data"]:
+        return {"source": "hyperliquid", "trades": _exchange_fills_cache["data"], "cached": True}
 
     try:
-        logger.info(f"📊 Fetching trade history from Hyperliquid API (limit={limit})...")
+        logger.info(f"📊 Fetching fills from Hyperliquid API (limit={limit})...")
         trades = hyperliquid_service.get_trade_history(limit=limit)
         
-        # Update cache
         if trades:
-            _trade_history_cache["data"] = trades
-            _trade_history_cache["timestamp"] = current_time
+            _exchange_fills_cache["data"] = trades
+            _exchange_fills_cache["timestamp"] = current_time
             
-        logger.info(f"📊 Returning {len(trades)} trades from Hyperliquid")
-        return {"trades": trades}
+        return {"source": "hyperliquid", "trades": trades, "count": len(trades), "cached": False}
     except Exception as e:
-        logger.error(f"❌ Error fetching Hyperliquid history: {e}", exc_info=True)
-        # Return stale cache if available on error
-        if _trade_history_cache["data"]:
-            logger.warning("⚠️ Returning stale cache due to error")
-            return {"trades": _trade_history_cache["data"]}
-        
-        return {"trades": []}
+        logger.error(f"❌ Error fetching Hyperliquid fills: {e}", exc_info=True)
+        if _exchange_fills_cache["data"]:
+            return {"source": "hyperliquid", "trades": _exchange_fills_cache["data"], "cached": True, "stale": True}
+        return {"source": "hyperliquid", "trades": [], "error": str(e)}
 
-@app.get("/api/trade_history/download")
-async def download_trade_history():
-    """Download trade history CSV"""
-    from fastapi.responses import FileResponse
-    csv_path = os.path.join(BASE_DIR, "trade_history.csv")
+# Legacy route alias (deprecated, use /api/exchange/fills)
+@app.get("/api/trade_history")
+async def get_trade_history_legacy(limit: int = 50):
+    """DEPRECATED: Use /api/exchange/fills instead"""
+    return await get_exchange_fills(limit)
+
+@app.get("/api/trades/hyperliquid")
+async def get_hyperliquid_trades_legacy(limit: int = 100):
+    """DEPRECATED: Use /api/exchange/fills instead"""
+    return await get_exchange_fills(limit)
+
+# ==========================================
+# BOT TRADE RECORDER (Local CSV - Bot's Own Trades)
+# ==========================================
+
+@app.get("/api/bot/trades")
+async def get_bot_trades(limit: int = 50):
+    """
+    Get trades executed BY THE BOT only.
+    Includes: strategy name, exit_reason, enriched metadata.
+    Source: Local CSV (data/trade_history.csv)
+    """
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'trade_recorder'):
+                trades = bot.trade_recorder.get_history(limit)
+                return {"source": "bot_recorder", "trades": trades, "count": len(trades)}
+        
+        # Fallback: Direct read
+        recorder = TradeRecorder()
+        trades = recorder.get_history(limit)
+        return {"source": "bot_recorder", "trades": trades, "count": len(trades)}
+    except Exception as e:
+        logger.error(f"❌ Error fetching bot trades: {e}")
+        return {"source": "bot_recorder", "trades": [], "error": str(e)}
+
+@app.get("/api/bot/trades/stats")
+async def get_bot_trades_stats():
+    """
+    Get aggregated performance stats from bot's trade history.
+    Returns: win_rate, profit_factor, total_pnl, best/worst trade.
+    Source: Local CSV (data/trade_history.csv)
+    """
+    try:
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'trade_recorder'):
+                stats = bot.trade_recorder.get_stats()
+                return {"source": "bot_recorder", "stats": stats}
+        
+        # Fallback: Direct read
+        recorder = TradeRecorder()
+        stats = recorder.get_stats()
+        return {"source": "bot_recorder", "stats": stats}
+    except Exception as e:
+        logger.error(f"❌ Error fetching bot stats: {e}")
+        return {"source": "bot_recorder", "stats": {}, "error": str(e)}
+
+@app.get("/api/bot/trades/download")
+async def download_bot_trades():
+    """
+    Download bot's trade history as CSV file.
+    Source: Local CSV (data/trade_history.csv)
+    """
+    csv_path = os.path.join(BASE_DIR, "data", "trade_history.csv")
     
     if os.path.exists(csv_path):
-        return FileResponse(csv_path, filename="trade_history.csv", media_type="text/csv")
+        return FileResponse(csv_path, filename="bot_trade_history.csv", media_type="text/csv")
     else:
-        # Create empty CSV if not exists to avoid 404
-        df = pd.DataFrame(columns=["id", "symbol", "side", "entry_price", "exit_price", "size", "pnl", "entry_time", "exit_time", "strategy", "exit_reason"])
+        # Create empty CSV with correct headers
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+        df = pd.DataFrame(columns=[
+            "timestamp", "symbol", "side", "entry_price", "exit_price", 
+            "size", "pnl", "strategy", "exit_reason", "leverage"
+        ])
         df.to_csv(csv_path, index=False)
-        return FileResponse(csv_path, filename="trade_history.csv", media_type="text/csv")
+        return FileResponse(csv_path, filename="bot_trade_history.csv", media_type="text/csv")
 
 @app.get("/api/logs")
 async def get_logs():
