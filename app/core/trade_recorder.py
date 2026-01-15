@@ -93,7 +93,7 @@ class TradeRecorder:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df.sort_values(by='timestamp', ascending=False, inplace=True)
                 # Convert back to string for consistency
-                df['timestamp'] = df['timestamp'].dt.isoformat()
+                df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%dT%H:%M:%S')
             
             # Limit
             df = df.head(limit)
