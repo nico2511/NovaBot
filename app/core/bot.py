@@ -1085,6 +1085,8 @@ class BotContext:
                                     sig.get("strategy"),
                                     sig.get("metadata")
                                 )
+                            else:
+                                self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 
                 # Optimized Sleep Loop (Non-blocking)
                 sleep_duration = 10 if self.active_trade else (15 if signals else 60)
