@@ -103,6 +103,10 @@ class BaseStrategy(ABC):
             if price_high_idx == current_idx and rsi_high_idx != current_idx:
                  return True
                  
+            return False
+        except:
+            return False
+
     def manage_trade(self, trade, current_price, df=None, extra_data=None):
         """
         Optional: Override trade management logic (Trailing SL, TP, etc).
