@@ -56,10 +56,9 @@ class ElasticNibblerStrategy(BaseStrategy):
         bb_period = self.params.get("bb_period", 20)
         bb_std = self.params.get("bb_std", 3.0)
         
-        sma = ta.sma(close, length=bb_period)
-        std = ta.stdev(close, length=bb_period)
-        bb_upper = sma + (std * bb_std)
-        bb_lower = sma - (std * bb_std)
+        bb_df = ta.bbands(close, length=bb_period, std=bb_std)
+        bb_upper = bb_df['BBU']
+        bb_lower = bb_df['BBL']
         
         # RSI (14)
         rsi_period = self.params.get("rsi_period", 14)
