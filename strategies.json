@@ -36,11 +36,14 @@
                 "bb_period": 20,
                 "bb_std": 3.0,
                 "rsi_period": 14,
-                "entry_vol_multiplier": 2.0,
+                "entry_vol_multiplier": 2.2,
                 "adx_limit": 25,
                 "activation_pnl_pct": 0.0015,
                 "secure_pnl_pct": 0.0008,
-                "is_btc_only": true
+                "is_btc_only": true,
+                "sl_atr_mult": 1.4,
+                "tp_atr_mult": 2.2,
+                "min_bb_width_pct": 0.7
             }
         },
         "elastic_reversion": {

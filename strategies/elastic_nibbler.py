@@ -71,6 +71,12 @@ class ElasticNibblerStrategy(BaseStrategy):
                 current_price = df['close'].iloc[-1]
                 if current_price < 5000:  # Likely ETH or other, not BTC
                     return None
+                    
+        # 0B. Time Filter (Grok Recommendation) - Avoid Asia Low Liq (02:00-06:00 UTC)
+        from datetime import datetime
+        current_hour = datetime.utcnow().hour
+        if 2 <= current_hour < 6:
+            return None
 
         # 1. Indicators
         close = df['close']
@@ -110,7 +116,7 @@ class ElasticNibblerStrategy(BaseStrategy):
         lower_band = bb_lower.iloc[-1]
         
         # PARAMS
-        entry_vol_mult = self.params.get("entry_vol_multiplier", 2.0)
+        entry_vol_mult = self.params.get("entry_vol_multiplier", 2.2) # Updated default
         adx_limit = self.params.get("adx_limit", 25)
         
         # 2. Conditions
@@ -130,14 +136,15 @@ class ElasticNibblerStrategy(BaseStrategy):
         
         # C. BB Width Filter - Skip dead ranges (Grok Phase 2)
         bb_width_pct = (upper_band - lower_band) / current_close * 100
-        min_bb_width = self.params.get("min_bb_width_pct", 0.8)  # 0.8% minimum
+        min_bb_width = self.params.get("min_bb_width_pct", 0.7)  # 0.7% minimum (Optimized)
         if bb_width_pct < min_bb_width:
             return None
         
         # ATR-based SL/TP (Grok Phase 3 - Improved R:R)
         # SL reduced to 1.5 (was 1.8), TP increased to 2.0 (was 1.2)
-        sl_atr_mult = self.params.get("sl_atr_mult", 1.5)
-        tp_atr_mult = self.params.get("tp_atr_mult", 2.0)
+        # User requested 1.4 / 2.2 for final
+        sl_atr_mult = self.params.get("sl_atr_mult", 1.4)
+        tp_atr_mult = self.params.get("tp_atr_mult", 2.2)
         
         sl_distance = atr * sl_atr_mult
         tp_distance = atr * tp_atr_mult
