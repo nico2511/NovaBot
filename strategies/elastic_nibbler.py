@@ -115,10 +115,16 @@ class ElasticNibblerStrategy(BaseStrategy):
         
         # 2. Conditions
         # A. Volume Spike
+        # Avoid division by zero
         if current_vol_avg == 0: return None
         is_vol_spike = current_vol > (current_vol_avg * entry_vol_mult)
         
+        # New Filter: Avoid massive spikes (>5x) often indicating trend continuation (Grok Phase 3)
+        if current_vol > (current_vol_avg * 5.0):
+            return None
+        
         # B. ADX Filter (Skip if trend is too strong)
+        # User said: "Skip si ADX > 25"
         if adx > adx_limit:
             return None
         
@@ -128,12 +134,19 @@ class ElasticNibblerStrategy(BaseStrategy):
         if bb_width_pct < min_bb_width:
             return None
         
-        # ATR-based SL/TP (Grok Phase 2 - better risk/reward)
-        sl_atr_mult = self.params.get("sl_atr_mult", 1.8)   # 1.8× ATR for SL
-        tp_atr_mult = self.params.get("tp_atr_mult", 1.2)   # 1.2× ATR for TP (aim for 1:1.5 R:R)
+        # ATR-based SL/TP (Grok Phase 3 - Improved R:R)
+        # SL reduced to 1.5 (was 1.8), TP increased to 2.0 (was 1.2)
+        sl_atr_mult = self.params.get("sl_atr_mult", 1.5)
+        tp_atr_mult = self.params.get("tp_atr_mult", 2.0)
         
         sl_distance = atr * sl_atr_mult
         tp_distance = atr * tp_atr_mult
+        
+        # Partial targets metadata (for future execution support)
+        percentage_targets = [
+            {"pct": 0.5, "multiplier": 1.2},   # 50% at +1.2 ATR
+            {"pct": 0.3, "multiplier": 1.8}    # 30% at +1.8 ATR
+        ]
             
         # D. LONG Setup
         # Price < BB Lower AND RSI < 20
@@ -149,7 +162,8 @@ class ElasticNibblerStrategy(BaseStrategy):
                     "reason": f"BB Breakout (Low) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
                     "adx": adx,
                     "atr": atr,
-                    "bb_width": bb_width_pct
+                    "bb_width": bb_width_pct,
+                    "partial_targets": percentage_targets
                 }
             }
             
@@ -167,7 +181,8 @@ class ElasticNibblerStrategy(BaseStrategy):
                     "reason": f"BB Breakout (High) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
                     "adx": adx,
                     "atr": atr,
-                    "bb_width": bb_width_pct
+                    "bb_width": bb_width_pct,
+                    "partial_targets": percentage_targets
                 }
             }
             
@@ -200,15 +215,13 @@ class ElasticNibblerStrategy(BaseStrategy):
             # Fallback to metadata ATR if available
             atr = trade.get("metadata", {}).get("atr", current_price * 0.002)
 
-        # Dynamic Trailing Levels (ATR Multipliers)
-        # Level 1: Activated at 0.8 ATR profit -> Trail 2.0 ATR (Wide)
-        # Level 2: Activated at 1.5 ATR profit -> Trail 1.5 ATR (Tighter)
-        # Level 3: Activated at 2.5 ATR profit -> Trail 1.0 ATR (Very Tight)
+        # Dynamic Trailing Levels (ATR Multipliers) - Grok Phase 3 Aggressive
+        # Early activation and tightening trail distances
         
-        # Thresholds in price distance
-        dist_activation = atr * 0.8
-        dist_level_2 = atr * 1.5
-        dist_level_3 = atr * 2.5
+        # Thresholds in price distance (lower activation)
+        dist_activation = atr * 0.4
+        dist_level_2 = atr * 0.9
+        dist_level_3 = atr * 1.6
         
         updates = {}
         target_sl = None
@@ -217,22 +230,20 @@ class ElasticNibblerStrategy(BaseStrategy):
             pnl = current_price - entry_price
             
             # Secure Fees First (Fixed small amount)
-            # If PnL > 0.08%, move SL to Entry + 0.04%
-            # This is a "Breakeven+" guard separate from ATR trailing
             min_profit_dist = entry_price * 0.0008
             if pnl > min_profit_dist:
                 be_sl = entry_price * 1.0004
                 if not sl_price or be_sl > sl_price:
                     target_sl = be_sl
 
-            # ATR Trailing Logic
+            # ATR Trailing Logic (Phase 3: Tighter as profit increases)
             trail_dist = None
             if pnl >= dist_level_3:
-                trail_dist = atr * 1.0
+                trail_dist = atr * 0.7   # Very tight at high profit
             elif pnl >= dist_level_2:
-                trail_dist = atr * 1.5
+                trail_dist = atr * 1.0
             elif pnl >= dist_activation:
-                trail_dist = atr * 2.0
+                trail_dist = atr * 1.4   # Wider at start
             
             if trail_dist:
                 dynamic_sl = current_price - trail_dist
@@ -253,14 +264,14 @@ class ElasticNibblerStrategy(BaseStrategy):
                 if not sl_price or be_sl < sl_price:
                     target_sl = be_sl
 
-            # ATR Trailing
+            # ATR Trailing Logic (Phase 3)
             trail_dist = None
             if pnl >= dist_level_3:
-                trail_dist = atr * 1.0
+                trail_dist = atr * 0.7
             elif pnl >= dist_level_2:
-                trail_dist = atr * 1.5
+                trail_dist = atr * 1.0
             elif pnl >= dist_activation:
-                trail_dist = atr * 2.0
+                trail_dist = atr * 1.4
                 
             if trail_dist:
                 dynamic_sl = current_price + trail_dist
