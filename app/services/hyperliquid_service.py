@@ -416,7 +416,6 @@ class HyperliquidService:
         Resolve symbol to its canonical Hyperliquid name.
         Handles aliases like PEPE -> kPEPE, BONK -> kBONK.
         """
-        """
         meta = self._fetch_metadata()
         if not meta:
             return symbol
