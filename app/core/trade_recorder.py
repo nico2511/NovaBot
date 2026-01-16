@@ -15,10 +15,13 @@ class TradeRecorder:
         self.csv_file = os.path.join(data_dir, "trade_history.csv")
         self._lock = threading.Lock()
         
-        # CSV Headers
+        # CSV Headers - Extended with entry indicators
         self.headers = [
             "timestamp", "symbol", "side", "entry_price", "exit_price", 
-            "size", "pnl", "strategy", "exit_reason", "leverage"
+            "size", "pnl", "strategy", "exit_reason", "leverage",
+            # NEW: Entry indicators for post-trade analysis
+            "entry_regime", "entry_adx", "entry_rsi", "entry_ema20", "entry_ema50",
+            "entry_volume_ratio", "ai_confidence", "ai_reasoning"
         ]
         
         self._ensure_storage()
@@ -43,13 +46,16 @@ class TradeRecorder:
         Thread-safe.
         
         Args:
-            trade_data: Dict containing trade details.
+            trade_data: Dict containing trade details and optional entry_indicators.
         """
         # Data Normalization & Validation
         try:
             # Map incoming keys to CSV headers if needed
             timestamp = trade_data.get("timestamp") or trade_data.get("exit_time") or datetime.now().isoformat()
             pnl = trade_data.get("pnl") if trade_data.get("pnl") is not None else trade_data.get("pnl_usdc", 0.0)
+            
+            # Extract entry indicators (with defaults for backward compatibility)
+            entry_indicators = trade_data.get("entry_indicators", {})
             
             row = [
                 timestamp,
@@ -61,7 +67,17 @@ class TradeRecorder:
                 float(pnl),
                 trade_data.get("strategy", "Manual"),
                 trade_data.get("exit_reason", "Signal"),
-                float(trade_data.get("leverage", 1.0))
+                float(trade_data.get("leverage", 1.0)),
+                # NEW: Entry indicators columns
+                entry_indicators.get("regime", ""),
+                entry_indicators.get("adx", ""),
+                entry_indicators.get("rsi", ""),
+                entry_indicators.get("ema_20", ""),
+                entry_indicators.get("ema_50", ""),
+                entry_indicators.get("volume_ratio", ""),
+                entry_indicators.get("ai_confidence", ""),
+                # Truncate reasoning to avoid CSV issues
+                str(entry_indicators.get("ai_reasoning", ""))[:200]
             ]
             
             with self._lock:
@@ -69,7 +85,7 @@ class TradeRecorder:
                     writer = csv.writer(f)
                     writer.writerow(row)
             
-            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f}")
+            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f} | Regime: {entry_indicators.get('regime', 'N/A')}")
             
         except Exception as e:
             print(f"❌ Failed to record trade: {e}")

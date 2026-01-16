@@ -378,8 +378,8 @@ class BotContext:
             **dynamic_ctx
         }
 
-    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None):
-        """ATOMIC ENTRY FLOW (Unified v2)"""
+    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None, entry_indicators: dict = None):
+        """ATOMIC ENTRY FLOW (Unified v2) - Now captures entry indicators for analysis"""
         try:
             # 1. LIVE EXECUTION CHECK
             if not self.trading_enabled:
@@ -443,7 +443,8 @@ class BotContext:
                             "oid": oid,
                             "pnl": 0,
                             "max_pnl": 0,
-                            "metadata": metadata or {}
+                            "metadata": metadata or {},
+                            "entry_indicators": entry_indicators or {}  # Market snapshot at entry
                         }
                         self.risk_manager.record_trade_open()
                         StateManager.save_state(self)
@@ -503,7 +504,8 @@ class BotContext:
                                  "size": size,
                                  "pnl_usdc": pnl_usdc,
                                  "exit_reason": reason,
-                                 "exit_time": pd.Timestamp.now().isoformat()
+                                 "exit_time": pd.Timestamp.now().isoformat(),
+                                 "entry_indicators": self.active_trade.get("entry_indicators", {})
                              })
                              
                              discord_service.send_alert(
@@ -628,7 +630,8 @@ class BotContext:
                       "size": size,
                       "pnl_usdc": pnl_usdc,
                       "exit_reason": "External Close",
-                      "exit_time": pd.Timestamp.now().isoformat()
+                      "exit_time": pd.Timestamp.now().isoformat(),
+                      "entry_indicators": trade.get("entry_indicators", {})
                 })
                 
                 discord_service.send_alert(
@@ -1039,8 +1042,12 @@ class BotContext:
                 rsi = result.get('rsi', 0)
                 ema_20 = result.get('ema_20', 0)
                 ema_50 = result.get('ema_50', 0)
+                volume_ratio = result.get('volume_ratio', 100)
                 
-                self.add_log(f"📊 Regime: {regime} | ADX: {adx:.1f} | RSI: {rsi:.1f}")
+                # Enhanced regime log with calculations context
+                ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
+                adx_note = ">25=TREND" if adx < 25 else "TRENDING"
+                self.add_log(f"📊 Regime: {regime} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%")
                 
                 signals = result.get("signals", [])
                 if signals:
@@ -1110,6 +1117,25 @@ class BotContext:
                                 # Sync Positions periodically
                                 if int(time.time()) % 60 == 0:
                                      self.force_sync()
+                                
+                                # Capture full market snapshot for trade analysis
+                                entry_indicators = {
+                                    "regime": result.get("regime"),
+                                    "adx": round(result.get("adx", 0), 2),
+                                    "adx_slope": round(result.get("adx_slope", 0), 2),
+                                    "rsi": round(result.get("rsi", 0), 2),
+                                    "ema_9": round(result.get("ema_9", 0), 4),
+                                    "ema_20": round(result.get("ema_20", 0), 4),
+                                    "ema_50": round(result.get("ema_50", 0), 4),
+                                    "bb_upper": round(result.get("bb_upper", 0), 4),
+                                    "bb_lower": round(result.get("bb_lower", 0), 4),
+                                    "bb_width": round(result.get("bb_width", 0), 2),
+                                    "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                                    "current_price": result.get("current_price"),
+                                    "ai_confidence": confidence if 'confidence' in locals() else None,
+                                    "ai_reasoning": ai_data.get("reasoning", "")[:200] if 'ai_data' in locals() else ""
+                                }
+                                
                                 self.execute_entry_atomically(
                                     self.active_symbol,
                                     sig.get("signal"),
@@ -1118,7 +1144,8 @@ class BotContext:
                                     sl_price,
                                     sig.get("tp"),
                                     sig.get("strategy"),
-                                    sig.get("metadata")
+                                    sig.get("metadata"),
+                                    entry_indicators
                                 )
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")

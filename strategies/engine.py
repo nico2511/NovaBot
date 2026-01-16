@@ -306,12 +306,39 @@ class StrategyEngine:
                 conditions[strat.name] = []
                 thresholds[strat.name] = {}
 
+        # === CAPTURE FULL MARKET SNAPSHOT ===
+        # Calculate BB for snapshot
+        try:
+            sma_20 = df['close'].rolling(window=20).mean().iloc[-1]
+            std_20 = df['close'].rolling(window=20).std().iloc[-1]
+            bb_upper = sma_20 + (std_20 * 2)
+            bb_lower = sma_20 - (std_20 * 2)
+            bb_width = ((bb_upper - bb_lower) / sma_20) * 100 if sma_20 > 0 else 0
+        except:
+            sma_20 = bb_upper = bb_lower = bb_width = 0
+        
+        # Volume ratio
+        try:
+            avg_volume = df['volume'].rolling(50).mean().iloc[-1]
+            current_volume = df['volume'].iloc[-1]
+            volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
+        except:
+            volume_ratio = 100
+
         return {
             "regime": regime,
             "adx": current_adx,
+            "adx_slope": adx_slope,
             "rsi": rsi_series.iloc[-1],
+            "ema_9": ema_9.iloc[-1],
             "ema_20": ema_20.iloc[-1],
             "ema_50": ema_50.iloc[-1],
+            "sma_20": sma_20,
+            "bb_upper": bb_upper,
+            "bb_lower": bb_lower,
+            "bb_width": bb_width,
+            "volume_ratio": volume_ratio,
+            "current_price": df['close'].iloc[-1],
             "strategies": [s.name for s in active_strategies],
             "progress": progress,
             "conditions": conditions,
