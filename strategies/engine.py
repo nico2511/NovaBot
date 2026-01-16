@@ -170,6 +170,11 @@ class StrategyEngine:
             elif strat_type == "always_active":
                  active_strategies.append(self.strategies[name])
 
+        # Log active strategies
+        if active_strategies:
+            strat_names = ", ".join([s.name for s in active_strategies])
+            print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+
         # 4. Generate Signals
         signals = []
         for strat in active_strategies:
