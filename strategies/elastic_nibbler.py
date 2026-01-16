@@ -97,6 +97,9 @@ class ElasticNibblerStrategy(BaseStrategy):
         adx_df = ta.adx(high, low, close, length=14)
         adx = adx_df['ADX'].iloc[-1]
         
+        # ATR for volatility-adapted SL/TP (Grok Phase 2)
+        atr = ta.atr(high, low, close, length=14).iloc[-1]
+        
         # Current Values
         current_close = close.iloc[-1]
         current_rsi = rsi.iloc[-1]
@@ -112,36 +115,59 @@ class ElasticNibblerStrategy(BaseStrategy):
         
         # 2. Conditions
         # A. Volume Spike
-        # Avoid division by zero
         if current_vol_avg == 0: return None
         is_vol_spike = current_vol > (current_vol_avg * entry_vol_mult)
         
         # B. ADX Filter (Skip if trend is too strong)
-        # User said: "Skip si ADX > 25"
         if adx > adx_limit:
             return None
+        
+        # C. BB Width Filter - Skip dead ranges (Grok Phase 2)
+        bb_width_pct = (upper_band - lower_band) / current_close * 100
+        min_bb_width = self.params.get("min_bb_width_pct", 0.8)  # 0.8% minimum
+        if bb_width_pct < min_bb_width:
+            return None
+        
+        # ATR-based SL/TP (Grok Phase 2 - better risk/reward)
+        sl_atr_mult = self.params.get("sl_atr_mult", 1.8)   # 1.8× ATR for SL
+        tp_atr_mult = self.params.get("tp_atr_mult", 1.2)   # 1.2× ATR for TP (aim for 1:1.5 R:R)
+        
+        sl_distance = atr * sl_atr_mult
+        tp_distance = atr * tp_atr_mult
             
-        # C. LONG Setup
+        # D. LONG Setup
         # Price < BB Lower AND RSI < 20
         if current_close < lower_band and current_rsi < 20 and is_vol_spike:
+            sl_price = current_close - sl_distance
+            tp_price = current_close + tp_distance
             return {
                 "signal": "BUY",
                 "price": current_close,
+                "sl": sl_price,
+                "tp": tp_price,
                 "metadata": {
                     "reason": f"BB Breakout (Low) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
-                    "adx": adx
+                    "adx": adx,
+                    "atr": atr,
+                    "bb_width": bb_width_pct
                 }
             }
             
-        # D. SHORT Setup
+        # E. SHORT Setup
         # Price > BB Upper AND RSI > 80
         if current_close > upper_band and current_rsi > 80 and is_vol_spike:
-             return {
+            sl_price = current_close + sl_distance
+            tp_price = current_close - tp_distance
+            return {
                 "signal": "SELL",
                 "price": current_close,
+                "sl": sl_price,
+                "tp": tp_price,
                 "metadata": {
                     "reason": f"BB Breakout (High) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
-                    "adx": adx
+                    "adx": adx,
+                    "atr": atr,
+                    "bb_width": bb_width_pct
                 }
             }
             
@@ -149,7 +175,7 @@ class ElasticNibblerStrategy(BaseStrategy):
 
     def manage_trade(self, trade, current_price, df=None, extra_data=None):
         """
-        Custom Trailing Logic for Elastic Nibbler
+        Custom Trailing Logic for Elastic Nibbler (Tightened & Dynamic ATR-based)
         """
         if not trade: return None
         
@@ -159,51 +185,91 @@ class ElasticNibblerStrategy(BaseStrategy):
         
         if not entry_price: return None
         
-        # Params
-        activation_pnl = self.params.get("activation_pnl_pct", 0.0015) # 0.15%
-        secure_pnl = self.params.get("secure_pnl_pct", 0.0008)     # 0.08% (~fees+profit)
-        hard_trail_start = 0.003 # 0.30%
+        # Calculate ATR for dynamic trailing
+        atr = 0
+        if df is not None and not df.empty:
+            try:
+                atr_series = ta.atr(df['high'], df['low'], df['close'], length=14)
+                atr = atr_series.iloc[-1]
+            except Exception:
+                pass
+        
+        # Fallback if no ATR (use fixed % approx 0.2%)
+        # But we really want ATR. If fails, we might just default to previous fixed logic or skip.
+        if atr == 0:
+            # Fallback to metadata ATR if available
+            atr = trade.get("metadata", {}).get("atr", current_price * 0.002)
+
+        # Dynamic Trailing Levels (ATR Multipliers)
+        # Level 1: Activated at 0.8 ATR profit -> Trail 2.0 ATR (Wide)
+        # Level 2: Activated at 1.5 ATR profit -> Trail 1.5 ATR (Tighter)
+        # Level 3: Activated at 2.5 ATR profit -> Trail 1.0 ATR (Very Tight)
+        
+        # Thresholds in price distance
+        dist_activation = atr * 0.8
+        dist_level_2 = atr * 1.5
+        dist_level_3 = atr * 2.5
         
         updates = {}
-        
+        target_sl = None
+
         if side == "BUY":
-            pnl_pct = (current_price - entry_price) / entry_price
+            pnl = current_price - entry_price
             
-            # 1. First Step: Secure Fees
-            if pnl_pct >= activation_pnl:
-                target_sl = entry_price * (1 + secure_pnl)
-                # Only move SL up
-                if not sl_price or target_sl > sl_price:
-                     updates["sl"] = target_sl
+            # Secure Fees First (Fixed small amount)
+            # If PnL > 0.08%, move SL to Entry + 0.04%
+            # This is a "Breakeven+" guard separate from ATR trailing
+            min_profit_dist = entry_price * 0.0008
+            if pnl > min_profit_dist:
+                be_sl = entry_price * 1.0004
+                if not sl_price or be_sl > sl_price:
+                    target_sl = be_sl
+
+            # ATR Trailing Logic
+            trail_dist = None
+            if pnl >= dist_level_3:
+                trail_dist = atr * 1.0
+            elif pnl >= dist_level_2:
+                trail_dist = atr * 1.5
+            elif pnl >= dist_activation:
+                trail_dist = atr * 2.0
             
-            # 2. Hard Trailing (Above 0.3%)
-            if pnl_pct >= hard_trail_start:
-                # Trail at 0.15% distance for example (aggressive)
-                trail_dist = entry_price * 0.0015
-                target_sl = current_price - trail_dist
-                
-                # Check current SL to ensure we don't loosen it
-                # Logic: If existing SL is lower than target, raise it.
-                if not sl_price or target_sl > sl_price:
-                    updates["sl"] = target_sl
+            if trail_dist:
+                dynamic_sl = current_price - trail_dist
+                # Take the higher of BE SL or Dynamic SL
+                if target_sl is None or dynamic_sl > target_sl:
+                    target_sl = dynamic_sl
+
+            if target_sl and (not sl_price or target_sl > sl_price):
+                updates["sl"] = target_sl
                     
         else: # SELL
-            pnl_pct = (entry_price - current_price) / entry_price
+            pnl = entry_price - current_price
             
-            # 1. First Step: Secure Fees
-            if pnl_pct >= activation_pnl:
-                target_sl = entry_price * (1 - secure_pnl)
-                # Only move SL down
-                if not sl_price or target_sl < sl_price:
-                    updates["sl"] = target_sl
-                    
-            # 2. Hard Trailing
-            if pnl_pct >= hard_trail_start:
-                 trail_dist = entry_price * 0.0015
-                 target_sl = current_price + trail_dist
-                 
-                 if not sl_price or target_sl < sl_price:
-                     updates["sl"] = target_sl
+            # Secure Fees
+            min_profit_dist = entry_price * 0.0008
+            if pnl > min_profit_dist:
+                be_sl = entry_price * 0.9996
+                if not sl_price or be_sl < sl_price:
+                    target_sl = be_sl
+
+            # ATR Trailing
+            trail_dist = None
+            if pnl >= dist_level_3:
+                trail_dist = atr * 1.0
+            elif pnl >= dist_level_2:
+                trail_dist = atr * 1.5
+            elif pnl >= dist_activation:
+                trail_dist = atr * 2.0
+                
+            if trail_dist:
+                dynamic_sl = current_price + trail_dist
+                # Take the lower of BE SL or Dynamic SL (for SHORT)
+                if target_sl is None or dynamic_sl < target_sl:
+                    target_sl = dynamic_sl
+
+            if target_sl and (not sl_price or target_sl < sl_price):
+                updates["sl"] = target_sl
                      
         return updates if updates else {}
 
