@@ -416,25 +416,27 @@ class HyperliquidService:
         Resolve symbol to its canonical Hyperliquid name.
         Handles aliases like PEPE -> kPEPE, BONK -> kBONK.
         """
+        """
         meta = self._fetch_metadata()
         if not meta:
             return symbol
             
         universe = [a["name"] for a in meta.get("universe", [])]
         
-        # 1. Exact match
+        # 1. Exact Match (Prioritize user input case: e.g. "kPEPE")
         if symbol in universe:
             return symbol
             
-        # 2. Try adding 'k' prefix (e.g. PEPE -> kPEPE)
-        k_symbol = f"k{symbol}"
+        # 2. Uppercase Match (e.g. "pepe" -> "PEPE")
+        upper_symbol = symbol.upper()
+        if upper_symbol in universe:
+            return upper_symbol
+            
+        # 3. Try adding 'k' prefix to Uppercase (e.g. "PEPE" -> "kPEPE", "pepe" -> "kPEPE")
+        k_symbol = f"k{upper_symbol}"
         if k_symbol in universe:
             self.log(f"ℹ️ Auto-resolving {symbol} -> {k_symbol}")
             return k_symbol
-            
-        # 3. Try removing 'k' prefix (e.g. kPEPE -> PEPE - unlikely but safe)
-        if symbol.startswith("k") and symbol[1:] in universe:
-            return symbol[1:]
             
         return symbol
 

@@ -103,6 +103,20 @@ class BaseStrategy(ABC):
             if price_high_idx == current_idx and rsi_high_idx != current_idx:
                  return True
                  
-            return False
-        except:
-            return False
+    def manage_trade(self, trade, current_price, df=None, extra_data=None):
+        """
+        Optional: Override trade management logic (Trailing SL, TP, etc).
+        
+        Args:
+            trade (dict): Active trade data from bot context
+            current_price (float): Current market price
+            df (pd.DataFrame): Current market data
+            
+        Returns:
+            dict or None: 
+                - If None: Use default bot management (fallback)
+                - If dict: Updates to apply (e.g., {"sl": 1234.5})
+                    - Return empty dict {} to signal "I handled it, do nothing else"
+        """
+        return None # Default: Fallback to bot logic
+

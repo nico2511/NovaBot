@@ -22,6 +22,27 @@
                 "min_rr": 1.5
             }
         },
+        "elastic_nibbler": {
+            "enabled": true,
+            "type": "reversion",
+            "description": "Advanced Scalper for BTC/ETH. BB Breakout + Custom Trailing Scalp.",
+            "display_conditions": [
+                "BB Breakout (3.0 SD)",
+                "RSI Extreme (<20/>80)",
+                "Vol Spike (>2x Avg)"
+            ],
+            "params": {
+                "timeframe": "1m",
+                "bb_period": 20,
+                "bb_std": 3.0,
+                "rsi_period": 14,
+                "entry_vol_multiplier": 2.0,
+                "adx_limit": 25,
+                "activation_pnl_pct": 0.0015,
+                "secure_pnl_pct": 0.0008,
+                "is_btc_only": true
+            }
+        },
         "elastic_reversion": {
             "enabled": true,
             "type": "range",

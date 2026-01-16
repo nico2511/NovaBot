@@ -748,14 +748,49 @@ class BotContext:
 
         current_price = hyperliquid_service.get_current_price(symbol)
         
-        # 2. Smart Trailing
-        self._update_trailing_stops(trade, current_price)
-
-        # NOTE: _verify_and_enforce_sl_tp is NOT called here.
-        # SL/TP sync happens ONCE during position adoption (_adopt_existing_position)
-        # or when manually triggered via frontend/API.
+        # --- STRATEGY DELEGATION (Override) ---
+        # Ask the strategy if it wants to handle this trade's management
+        handled_by_strategy = False
+        strategy_name = trade.get("strategy")
         
-        # 3. Local Exit Check
+        if strategy_name and strategy_name in self.strategy_engine.strategies:
+            strat_instance = self.strategy_engine.strategies[strategy_name]
+            
+            # Check if strategy overrides management
+            custom_updates = strat_instance.manage_trade(
+                trade, 
+                current_price, 
+                # Pass latest dataframe if available (optional but good for context)
+                df=self.latest_data if hasattr(self, 'latest_data') else None
+            )
+            
+            if custom_updates is not None:
+                handled_by_strategy = True
+                
+                # Apply strategy updates (e.g. SL modification)
+                if custom_updates:
+                    with self.trade_lock:
+                        changed = False
+                        if "sl" in custom_updates:
+                             self.active_trade["sl"] = custom_updates["sl"]
+                             changed = True
+                             self.add_log(f"🤖 Strategy {strategy_name} updated SL to {custom_updates['sl']}")
+                        
+                        if "tp" in custom_updates:
+                             self.active_trade["tp"] = custom_updates["tp"]
+                             changed = True
+                             self.add_log(f"🤖 Strategy {strategy_name} updated TP to {custom_updates['tp']}")
+                             
+                        if changed:
+                            StateManager.save_state(self)
+
+        # 2. Default Smart Trailing (Fallback)
+        # Only run default logic if strategy didn't handle it
+        if not handled_by_strategy:
+            self._update_trailing_stops(trade, current_price)
+
+        # 3. Local Local Exit Check (Universal safety net)
+        # Even if strategy handled logic, we still respect the committed SL/TP triggers here
         self._check_local_exits(trade, symbol, current_price)
 
     def force_sync(self):
@@ -995,7 +1030,7 @@ class BotContext:
                 
                 self.latest_data = df_15m
                 
-                result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m})
+                result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m, "symbol": self.active_symbol})
                 self.active_strategies = result.get('strategies', [])
                 self.latest_strategy_result = result
                 

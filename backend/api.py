@@ -282,6 +282,36 @@ def stop_engine():
         success_message="stopped"
     )
 
+@app.post("/api/engine/restart")
+def restart_engine():
+    """Restart the trading engine (Stop + Start)."""
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        try:
+            bot.add_log("🔄 RESTART: Stopping engine...")
+            bot.stop()
+            import time
+            time.sleep(2) # Brief pause to allow clean shutdown
+            bot.add_log("🔄 RESTART: Starting engine...")
+            bot.start()
+            try:
+                StateManager.save_state(bot)
+            except Exception as e:
+                logger.warning(f"⚠️ State save error on restart: {e}")
+            return {"status": "restarted", "message": "Bot restarted successfully"}
+        except Exception as e:
+            return {"status": "error", "message": f"Restart failed: {str(e)}"}
+    else:
+        # Standalone mode restart
+        bot_state.is_running = False
+        bot_state.add_log("🛑 Bot stopped (Restart)")
+        import time
+        time.sleep(1)
+        bot_state.is_running = True
+        bot_state.add_log("🚀 Bot started (Restart)")
+        bot_state.save_state()
+        return {"status": "restarted", "message": "Standalone mode - Bot restarted"}
+
 @app.post("/api/trading/enable")
 def enable_trading():
     """Enable live trading."""
