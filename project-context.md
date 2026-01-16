@@ -9,7 +9,7 @@
 *   **Backend :** Python (FastAPI, Port 8001).
 *   **Frontend :** Next.js 14 + Tailwind CSS (Port 8000 expected).
 *   **Orchestration :** PM2 (`ecosystem.config.js`).
-*   **IA :** OpenRouter (Llama 3.1 8B) pour validation des signaux.
+*   **IA :** OpenRouter (DeepSeek v3.2) pour validation des signaux.
 *   **Plateforme :** Hyperliquid (DEX).
 
 ## 🧩 Protocoles & Features Clés
@@ -18,6 +18,8 @@
 *   **Atomic Position Tracking :** Récupération automatique des positions après crash.
 *   **Internal Scanner :** Scanne les tokens, check Trend/Volume, note > 75 déclenche une opportunité.
 *   **Mode Hybride :** Le bot gère le TP/SL des positions manuelles prises sur Hyperliquid.
+*   **Symbol Resolver :** Résolution automatique des symboles (ex: `PEPE` -> `kPEPE`). Case-insensitive.
+*   **Strategy-Level Trade Management :** Hook `manage_trade()` dans `BaseStrategy` pour trailing SL personnalisé.
 
 ## 🧠 Stratégies & Personas
 Chaque stratégie possède un "Persona" IA dédié pour la validation.
@@ -27,16 +29,20 @@ Chaque stratégie possède un "Persona" IA dédié pour la validation.
 *   `institutional_scalp.py`
 *   `scalp_ema_rsi.py`
 *   `smart_mean_reversion.py`
+*   `elastic_nibbler.py` (**NEW** - Reversion Scalp BTC avec trailing SL custom)
 
-## 📂 Structure Cible (à restaurer)
+## 🛠 API Endpoints Clés
+*   `POST /api/engine/start` - Démarrer le bot
+*   `POST /api/engine/stop` - Arrêter le bot
+*   `POST /api/engine/restart` - Redémarrer le bot (Stop + Start)
+*   `POST /api/trading/enable` - Activer le trading live
+*   `POST /api/trading/disable` - Désactiver le trading live
+*   `POST /api/switch_symbol` - Changer le symbole actif
+
+## � Structure Cible
 *   `/app` : Core Logic (Python package).
 *   `/backend` : Serveur API.
 *   `/strategies` : Implémentation des stratégies.
-*   `/utils` : Helpers.
+*   `/frontend-v3` : Dashboard Next.js.
 *   `/docs` : Documentation (Reference: `CONTEXT.md`).
-*   *(Frontend introuvable pour l'instant)*
 
-## 🛠 Tâches Prioritaires
-1.  **Restructuration :** Sortir le code de `_legacy_backup`.
-2.  **Frontend :** Localiser et reconnecter le Dashboard.
-3.  **Fiabilisation :** Sécuriser la boucle d'exécution et les appels IA.
