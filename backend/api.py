@@ -207,6 +207,16 @@ class BotStatus(BaseModel):
     active_symbol: str
     active_trade: Optional[Dict[str, Any]]
 
+class GlobalSettingsModel(BaseModel):
+    max_positions: int
+    daily_stop_loss: float
+    trading_timeframe: str
+    bot_persona: str
+    risk_profile: str
+    ai_conf_threshold: int
+    available_personas: Optional[List[str]] = None
+    available_risk_profiles: Optional[List[str]] = None
+
 def _execute_bot_action(bot_action: callable, standalone_action: callable, status_key: str, success_message: str) -> Dict[str, str]:
     """Execute action on bot or standalone state with automatic persistence."""
     if bot_bridge and bot_bridge.is_connected():
@@ -361,6 +371,107 @@ def switch_symbol(data: dict):
         success_message=f"symbol switched to {new_symbol}"
     )
 
+
+# --- Global Settings ---
+
+@app.get("/api/settings/global", response_model=GlobalSettingsModel)
+def get_global_settings():
+    """Get global bot settings (Personas, Risk, etc.)"""
+    # 1. Try Live Bot Context
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        if hasattr(bot, 'global_settings'):
+            return bot.global_settings
+            
+    # 2. Fallback to persisted state
+    try:
+        if os.path.exists(os.path.join(BASE_DIR, "bot_state.json")):
+            with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f:
+                state = json.load(f)
+                if "global_settings" in state:
+                    return state["global_settings"]
+    except Exception as e:
+        logger.error(f"Error loading global settings: {e}")
+
+    # 3. Default Fallback
+    return {
+        "max_positions": 1, 
+        "daily_stop_loss": 50.0,
+        "trading_timeframe": "15m",
+        "bot_persona": "Conservative Scalper",
+        "risk_profile": "Capital Preservation First",
+        "ai_conf_threshold": 55,
+        "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
+        "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
+    }
+
+@app.post("/api/settings/global")
+def update_global_settings(settings: GlobalSettingsModel):
+    """Update global bot settings"""
+    
+    def update_logic(context_or_state):
+        # Preserve lists if not provided or empty
+        current = getattr(context_or_state, 'global_settings', {})
+        
+        new_settings = settings.dict()
+        
+        # Ensure availability lists are preserved if missing in update
+        if not new_settings.get('available_personas'):
+            new_settings['available_personas'] = current.get('available_personas', ["Conservative Scalper", "Aggressive Day Trader", "Sniper"])
+            
+        if not new_settings.get('available_risk_profiles'):
+             new_settings['available_risk_profiles'] = current.get('available_risk_profiles', ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"])
+
+        # Update context
+        if isinstance(context_or_state, BotState):
+             # For standalone state, we might need a different approach as it's a dict in json
+             pass 
+        else:
+             context_or_state.global_settings = new_settings
+             context_or_state.add_log(f"⚙️ Global Settings Updated: Persona={settings.bot_persona}, Risk={settings.risk_profile}")
+
+        return new_settings
+
+    # Execute
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        new_settings = update_logic(bot)
+        try:
+            StateManager.save_state(bot)
+            return {"status": "success", "message": "Settings updated", "settings": new_settings}
+        except Exception as e:
+            return {"status": "error", "message": f"Save failed: {e}"}
+    else:
+        # Standalone update (update bot_state directly)
+        try:
+             # Load current state to preserve other fields
+             bot_state.load_state() 
+             # We need to manually update the inner dict in bot_state if we want to save it using save_state? 
+             # bot_state.save_state() saves what is in attributes. 
+             # But bot_state class in api.py is minimal. 
+             # Let's do a direct JSON patch for standalone safety.
+             
+             state_file = os.path.join(BASE_DIR, "bot_state.json")
+             with open(state_file, "r") as f:
+                 full_state = json.load(f)
+            
+             current_global = full_state.get("global_settings", {})
+             new_global = settings.dict()
+             
+             # Preserve lists
+             if not new_global.get('available_personas'):
+                 new_global['available_personas'] = current_global.get('available_personas', ["Conservative Scalper", "Aggressive Day Trader", "Sniper"])
+             if not new_global.get('available_risk_profiles'):
+                 new_global['available_risk_profiles'] = current_global.get('available_risk_profiles', ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"])
+
+             full_state["global_settings"] = new_global
+             
+             with open(state_file, "w") as f:
+                 json.dump(full_state, f, indent=4)
+                 
+             return {"status": "success", "message": "Settings saved (Standalone)", "settings": new_global}
+        except Exception as e:
+             return {"status": "error", "message": f"Standalone save failed: {e}"}
 
 # --- Market Data ---
 
