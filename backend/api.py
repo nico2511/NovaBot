@@ -217,6 +217,13 @@ class GlobalSettingsModel(BaseModel):
     available_personas: Optional[List[str]] = None
     available_risk_profiles: Optional[List[str]] = None
 
+class ScannerSettingsModel(BaseModel):
+    enabled: bool
+    interval: int
+    min_score: int
+    auto_switch: bool
+    gamification_enabled: bool
+
 def _execute_bot_action(bot_action: callable, standalone_action: callable, status_key: str, success_message: str) -> Dict[str, str]:
     """Execute action on bot or standalone state with automatic persistence."""
     if bot_bridge and bot_bridge.is_connected():
@@ -474,6 +481,69 @@ def update_global_settings(settings: GlobalSettingsModel):
                  json.dump(full_state, f, indent=4)
                  
              return {"status": "success", "message": "Settings saved (Standalone)", "settings": new_global}
+        except Exception as e:
+             return {"status": "error", "message": f"Standalone save failed: {e}"}
+
+             return {"status": "error", "message": f"Standalone save failed: {e}"}
+
+# --- Scanner Settings ---
+
+@app.get("/api/settings/scanner", response_model=ScannerSettingsModel)
+def get_scanner_settings():
+    """Get scanner settings"""
+    # 1. Try Live Bot Context
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        if hasattr(bot, 'scanner_settings'):
+            return bot.scanner_settings
+            
+    # 2. Fallback to persisted state
+    try:
+        if os.path.exists(os.path.join(BASE_DIR, "bot_state.json")):
+            with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f:
+                state = json.load(f)
+                if "scanner_settings" in state:
+                    return state["scanner_settings"]
+    except Exception as e:
+        logger.error(f"Error loading scanner settings: {e}")
+
+    # 3. Default Fallback
+    return {
+        "enabled": False,
+        "interval": 15,
+        "min_score": 50,
+        "auto_switch": False,
+        "gamification_enabled": True
+    }
+
+@app.post("/api/settings/scanner")
+def update_scanner_settings(settings: ScannerSettingsModel):
+    """Update scanner settings"""
+    new_settings = settings.dict()
+    
+    # Execute
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        bot.scanner_settings = new_settings
+        bot.add_log(f"🕵️ Scanner Settings Updated: Min Score={settings.min_score}, Gamification={settings.gamification_enabled}")
+        try:
+            StateManager.save_state(bot)
+            return {"status": "success", "message": "Scanner settings updated", "settings": new_settings}
+        except Exception as e:
+            return {"status": "error", "message": f"Save failed: {e}"}
+    else:
+        # Standalone update
+        try:
+             state_file = os.path.join(BASE_DIR, "bot_state.json")
+             with open(state_file, "r") as f:
+                 full_state = json.load(f)
+            
+             full_state["scanner_settings"] = new_settings
+             
+             with open(state_file, "w") as f:
+                 json.dump(full_state, f, indent=4)
+                 
+             return {"status": "success", "message": "Scanner settings saved (Standalone)", "settings": new_settings}
         except Exception as e:
              return {"status": "error", "message": f"Standalone save failed: {e}"}
 
