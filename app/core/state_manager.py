@@ -71,6 +71,8 @@ class StateManager:
             with open(STATE_FILE, "r") as f:
                 state = json.load(f)
             
+            state_modified = False # Track if we need to auto-save defaults
+            
             # Restore Context
             context.active_trade = state.get("active_trade")
             context.trading_enabled = state.get("trading_enabled", False)
@@ -108,7 +110,8 @@ class StateManager:
                     "min_score": 50,
                     "auto_switch": False
                 }
-            
+                state_modified = True  # Mark state as modified
+
             # Restore Global Settings (for frontend config)
             if "global_settings" in state:
                 gs = state["global_settings"]
@@ -122,6 +125,7 @@ class StateManager:
                         "medium": old_val, # Use legacy value as medium
                         "low": 101
                     }
+                    state_modified = True # Mark state as modified
                     
                 context.global_settings = gs
                 print(f"✅ Loaded global settings: {context.global_settings}")
@@ -141,7 +145,13 @@ class StateManager:
                     "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
                     "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
                 }
+                state_modified = True # Mark state as modified
                 
+            # If state was modified (defaults applied or migration occurred), persist it immediately
+            if state_modified:
+                print("💾 State modified during load (defaults applied). Saving updates...")
+                StateManager.save_state(context)
+
             print("✅ State restored from persistence file.")
             return state
         except Exception as e:
