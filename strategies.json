@@ -40,7 +40,7 @@
                 "adx_limit": 25,
                 "activation_pnl_pct": 0.0015,
                 "secure_pnl_pct": 0.0008,
-                "is_btc_only": true,
+                "is_btc_only": false,
                 "sl_atr_mult": 1.4,
                 "tp_atr_mult": 2.2,
                 "min_bb_width_pct": 0.7
