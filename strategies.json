@@ -19,6 +19,7 @@
                 "rsi_period": 14,
                 "rsi_overbought": 68,
                 "rsi_oversold": 32,
+                "adx_threshold": 25,
                 "min_rr": 1.5
             }
         },
@@ -48,12 +49,12 @@
         },
         "elastic_reversion": {
             "enabled": true,
-            "type": "range",
-            "description": "Range mean reversion. Oversold bounce in Range regime.",
+            "type": "reversion",
+            "description": "Elastic Mean Reversion. Captures snap-back from RSI/Price extremes.",
             "display_conditions": [
-                "RSI Extreme (<20)",
-                "Price Extension",
-                "Range Regime"
+                "RSI Extreme (<20/>80)",
+                "Price Extension (>4% from EMA)",
+                "ADX < 50 (Not runaway trend)"
             ],
             "params": {
                 "rsi_period": 14,
@@ -61,6 +62,7 @@
                 "oversold_rsi": 20,
                 "overbought_rsi": 80,
                 "extension_pct": 0.04,
+                "adx_limit": 50,
                 "sl_lookback": 5,
                 "sl_margin": 0.005,
                 "min_rr": 1.5,
@@ -82,19 +84,19 @@
                 "adx_threshold": 28,
                 "rsi_min": 38,
                 "rsi_max": 70,
-                "pullback_tolerance": 0.008,
+                "pullback_tolerance": 0.01,
                 "bos_lookback": 3,
                 "sl_buffer": 0.35
             }
         },
         "smart_mean_reversion": {
             "enabled": true,
-            "type": "reversion",
-            "description": "Bottom Fishing with Momentum Floor (ROC) logic.",
+            "type": "trend",
+            "description": "Trend Dip Buyer. Buys healthy dips in strong trends (RSI 40-55, EMA support).",
             "display_conditions": [
-                "RSI Oversold (<30)",
-                "Momentum Floor (ROC)",
-                "Stabilization"
+                "Trend Active (ADX > 20, Price > EMA200)",
+                "RSI Recharge Zone (40-55)",
+                "Green Confirmation Candle"
             ],
             "params": {
                 "rsi_period": 14,
@@ -109,22 +111,23 @@
         "bollinger_bounce": {
             "enabled": true,
             "type": "range",
-            "description": "Aggressive Bollinger Bounce (V2) for choppy markets.",
+            "description": "Aggressive Bollinger Bounce (V2) for choppy/range markets.",
             "display_conditions": [
-                "Choppy Market (ADX < 45)",
+                "Range Market (ADX < 30)",
                 "Kill Zone (12%)",
-                "Range Dip/Top",
-                "Candle Size (Vol)"
+                "Range Dip/Top + RSI Extreme",
+                "Candle Size (>1.2x ATR)"
             ],
             "params": {
                 "bb_period": 20,
                 "bb_std": 2.15,
-                "adx_threshold": 42,
+                "adx_threshold": 30,
                 "ema50_slope_threshold": 0.008,
                 "atr_period": 14,
                 "min_rr": 1.0,
                 "kill_zone_percent": 0.12,
-                "min_candle_atr_multiple": 1.2
+                "min_candle_atr_multiple": 1.2,
+                "volume_multiplier": 1.2
             }
         },
         "bollinger_middle_bounce": {
@@ -152,12 +155,12 @@
             "type": "trend",
             "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
             "display_conditions": [
-                "Liquidity Sweep",
-                "Rapid Reclaim",
-                "Structure Shift"
+                "Liquidity Sweep (15-bar range)",
+                "Rapid Reclaim (Wick > 40%)",
+                "Volume Spike (>1.3x)"
             ],
             "params": {
-                "liq_grab_lookback": 7,
+                "liq_grab_lookback": 15,
                 "min_rr": 1.2,
                 "volume_multiplier": 1.3
             }
