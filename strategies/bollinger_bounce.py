@@ -25,7 +25,7 @@ class BollingerBounceStrategy(BaseStrategy):
     
     RULES OF ENGAGEMENT:
     1. STRICT RANGE ONLY: ADX must be LOW. If ADX is rising above 30, the beast is waking up -> ABORT TRADES.
-    2. EXHAUSTION IS KEY: We do not trade every touch of the Bollinger Band. We trade when the price screams "Oversold" (RSI < 35) or "Overbought" (RSI > 65).
+    2. EXHAUSTION IS KEY: We do not trade every touch of the Bollinger Band. We trade when the price shows exhaustion "Oversold" (RSI < 40) or "Overbought" (RSI > 60).
     3. FADE THE SPIKES: We love vertical moves into resistance. Moving slowly to the band is risky (trend grinding). We want a violent rejection.
     4. PROTECT THE CAPITAL: If the price closes OUTSIDE the band and stays there, it's a breakout. DO NOT FADE. We need a "Wick" rejection.
     
@@ -134,7 +134,7 @@ class BollingerBounceStrategy(BaseStrategy):
             if current_low <= lower_trigger_zone:
                 
                 # RSI Safety Check: Must be oversold (or close) to buy bounce
-                if current_rsi > 35: # Conservative Oversold approximation
+                if current_rsi > 40: # Relaxed Oversold threshold for normal bounces
                      return None
 
                 
@@ -163,7 +163,7 @@ class BollingerBounceStrategy(BaseStrategy):
             if current_high >= upper_trigger_zone:
                 
                 # RSI Safety Check: Must be overbought to short bounce
-                if current_rsi < 65: # Conservative Overbought approximation
+                if current_rsi < 60: # Relaxed Overbought threshold for normal bounces
                     return None
                 
                 if self.min_candle_atr_multiple > 0 and not is_significant:
