@@ -136,7 +136,7 @@ class StateManager:
                     "ai_thresholds": {
                         "high": 101,
                         "medium": 55,
-                        "low": 101
+                        "low": 60
                     },
                     "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
                     "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
