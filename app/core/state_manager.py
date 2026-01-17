@@ -32,6 +32,10 @@ class StateManager:
         # Save Scanner Settings (centralized config)
         if hasattr(context, 'scanner_settings'):
             state["scanner_settings"] = context.scanner_settings
+        
+        # Save Global Settings (for future frontend config)
+        if hasattr(context, 'global_settings'):
+            state["global_settings"] = context.global_settings
 
         # Atomic write with Backup
         temp_file = f"{STATE_FILE}.tmp"
@@ -103,6 +107,21 @@ class StateManager:
                     "interval": 15, 
                     "min_score": 75,
                     "auto_switch": False
+                }
+            
+            # Restore Global Settings (for frontend config)
+            if "global_settings" in state:
+                context.global_settings = state["global_settings"]
+                print(f"✅ Loaded global settings: {context.global_settings}")
+            else:
+                # Default global settings
+                context.global_settings = {
+                    "max_positions": 1,
+                    "daily_stop_loss": 50.0,
+                    "trading_timeframe": "15m",
+                    "bot_persona": "Conservative Scalper",
+                    "risk_profile": "Capital Preservation First",
+                    "ai_conf_threshold": 55
                 }
                 
             print("✅ State restored from persistence file.")

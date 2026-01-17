@@ -26,7 +26,9 @@ class ElasticNibblerStrategy(BaseStrategy):
         self.params = self.config.get("params", {})
     
     # AI Persona for signal validation
-    AI_PERSONA = """Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marché.
+    AI_PERSONA = """CODENAME: "ELASTIC NIBBLER - MEAN REVERSION AGGRESSOR"
+
+Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marché.
 
 🎯 TON STYLE: Tu cherches les "élastiques étirés" - quand le prix va TROP LOIN, TROP VITE, il revient.
 
