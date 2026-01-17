@@ -121,7 +121,13 @@ class StateManager:
                     "trading_timeframe": "15m",
                     "bot_persona": "Conservative Scalper",
                     "risk_profile": "Capital Preservation First",
-                    "ai_conf_threshold": 55
+                    "ai_thresholds": {
+                        "high": 101,
+                        "medium": 55,
+                        "low": 101
+                    },
+                    "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
+                    "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
                 }
                 
             print("✅ State restored from persistence file.")
