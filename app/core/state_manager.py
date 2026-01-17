@@ -111,7 +111,19 @@ class StateManager:
             
             # Restore Global Settings (for frontend config)
             if "global_settings" in state:
-                context.global_settings = state["global_settings"]
+                gs = state["global_settings"]
+                
+                # MIGRATION V1 -> V2 (Integer Threshold -> Tri-Level Object)
+                if "ai_conf_threshold" in gs and "ai_thresholds" not in gs:
+                    old_val = gs.pop("ai_conf_threshold", 55)
+                    print(f"🔄 Migrating legacy AI threshold ({old_val}) to tri-level structure...")
+                    gs["ai_thresholds"] = {
+                        "high": 101,
+                        "medium": old_val, # Use legacy value as medium
+                        "low": 101
+                    }
+                    
+                context.global_settings = gs
                 print(f"✅ Loaded global settings: {context.global_settings}")
             else:
                 # Default global settings
