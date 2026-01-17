@@ -29,11 +29,7 @@ class StateManager:
             "stop_reason": risk_status["stop_reason"]
         }
         
-        # Save Sidebar Settings
-        if hasattr(context, 'sidebar_settings'):
-            state["sidebar_settings"] = context.sidebar_settings
-
-        # Save Scanner Settings
+        # Save Scanner Settings (centralized config)
         if hasattr(context, 'scanner_settings'):
             state["scanner_settings"] = context.scanner_settings
 
@@ -65,9 +61,6 @@ class StateManager:
         """Restores bot state from JSON."""
         if not os.path.exists(STATE_FILE):
             print(f"⚠️ State file {STATE_FILE} not found. Starting fresh.")
-            # Initialize crucial settings to avoid overwrite race
-            context.sidebar_settings = {}
-            context.sidebar_settings = {}
             return {}
 
         try:
@@ -98,13 +91,7 @@ class StateManager:
                 if context.risk_manager.state.open_positions == 0:
                      context.risk_manager.state.open_positions = 1
             
-            # Restore Sidebar Settings
-            if "sidebar_settings" in state:
-                context.sidebar_settings = state["sidebar_settings"]
-                print(f"✅ Loaded sidebar settings: {context.sidebar_settings}")
-            else:
-                print("⚠️ No sidebar_settings found in state file. Initializing empty.")
-                context.sidebar_settings = {}
+            # (sidebar_settings removed - use scanner_settings)
             
             # Restore Scanner Settings
             if "scanner_settings" in state:
@@ -122,7 +109,4 @@ class StateManager:
             return state
         except Exception as e:
             print(f"❌ Failed to load state: {e}")
-            # Ensure sidebar settings exists even if load fails
-            if not hasattr(context, 'sidebar_settings'):
-                context.sidebar_settings = {}
             return {}

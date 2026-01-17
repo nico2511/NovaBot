@@ -101,36 +101,31 @@ class BotContext:
         try:
             state = StateManager.load_state(self)
             
-            if hasattr(self, "sidebar_settings"):
-                self.trading_enabled = self.sidebar_settings.get("trading_enabled", False)
+            # Load trading params from scanner_settings (centralized source)
+            requested_max = self.scanner_settings.get("max_positions", 1)
+            
+            try:
+                balance_data = hyperliquid_service.get_account_balance()
+                equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
+                gam = AssetGamification(equity)
                 
-                # Load Scanner settings
-                if "scanner" in state:
-                    self.scanner_settings = state["scanner"]
-                requested_max = self.sidebar_settings.get("max_positions", 1)
+                if gam.level == AccountLevel.GOBLIN:
+                    max_allowed = 1
+                elif gam.level == AccountLevel.MERCENARY:
+                    max_allowed = 2
+                else:
+                    max_allowed = 3
                 
-                try:
-                    balance_data = hyperliquid_service.get_account_balance()
-                    equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
-                    gam = AssetGamification(equity)
+                self.max_positions = min(requested_max, max_allowed)
+                
+                if requested_max > max_allowed:
+                    self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
+                else:
+                    self.add_log(f"⚙️ Max positions: {self.max_positions}")
                     
-                    if gam.level == AccountLevel.GOBLIN:
-                        max_allowed = 1
-                    elif gam.level == AccountLevel.MERCENARY:
-                        max_allowed = 2
-                    else:
-                        max_allowed = 3
-                    
-                    self.max_positions = min(requested_max, max_allowed)
-                    
-                    if requested_max > max_allowed:
-                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
-                    else:
-                        self.add_log(f"⚙️ Max positions: {self.max_positions}")
-                        
-                except Exception as e:
-                    self.max_positions = requested_max
-                    print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
+            except Exception as e:
+                self.max_positions = requested_max
+                print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
                     
         except Exception as e:
             print(f"Error loading state: {e}")
@@ -878,8 +873,9 @@ class BotContext:
             # Check if Gamification is explicitly disabled in settings
             gamification_active = self.scanner_settings.get("gamification_enabled", True)
             
-            requested_leverage = int(self.sidebar_settings.get("leverage", 5))
-            margin_type = self.sidebar_settings.get("margin_type", "Cross")
+            # Read trading params from scanner_settings (centralized source)
+            requested_leverage = int(self.scanner_settings.get("leverage", 5))
+            margin_type = self.scanner_settings.get("margin_type", "Cross")
             is_cross = (margin_type == "Cross")
             
             target_leverage = requested_leverage
