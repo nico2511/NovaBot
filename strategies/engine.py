@@ -319,8 +319,9 @@ class StrategyEngine:
         
         # Volume ratio
         try:
-            avg_volume = df['volume'].rolling(50).mean().iloc[-1]
-            current_volume = df['volume'].iloc[-1]
+            # FIX: Use closed candle for volume ratio context (avoid 0% at open)
+            avg_volume = df['volume'].iloc[:-1].rolling(50).mean().iloc[-1]
+            current_volume = df['volume'].iloc[-2]
             volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
         except:
             volume_ratio = 100
