@@ -105,7 +105,7 @@ class StateManager:
                 context.scanner_settings = {
                     "enabled": False,
                     "interval": 15, 
-                    "min_score": 75,
+                    "min_score": 50,
                     "auto_switch": False
                 }
             
