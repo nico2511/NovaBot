@@ -213,7 +213,7 @@ class GlobalSettingsModel(BaseModel):
     trading_timeframe: str
     bot_persona: str
     risk_profile: str
-    ai_conf_threshold: int
+    ai_thresholds: Dict[str, int]
     available_personas: Optional[List[str]] = None
     available_risk_profiles: Optional[List[str]] = None
 
@@ -400,7 +400,11 @@ def get_global_settings():
         "trading_timeframe": "15m",
         "bot_persona": "Conservative Scalper",
         "risk_profile": "Capital Preservation First",
-        "ai_conf_threshold": 55,
+        "ai_thresholds": {
+            "high": 101,
+            "medium": 55,
+            "low": 101
+        },
         "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
         "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
     }
