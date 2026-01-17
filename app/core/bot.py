@@ -94,6 +94,9 @@ class BotContext:
         self.last_ai_call = 0 
         self.ai_call_cooldown = config.AI_CALL_COOLDOWN 
         
+        # Leverage state
+        self._leverage_synced = False 
+        
         # Load persisted state
         try:
             state = StateManager.load_state(self)
@@ -869,6 +872,44 @@ class BotContext:
             self.add_log(f"❌ FORCE SYNC Failed: {e}")
             return {"status": "error", "message": str(e)}
 
+    def _enforce_leverage(self):
+        """Enforce leverage based on Gamification and Settings"""
+        try:
+            # Check if Gamification is explicitly disabled in settings
+            gamification_active = self.scanner_settings.get("gamification_enabled", True)
+            
+            requested_leverage = int(self.sidebar_settings.get("leverage", 5))
+            margin_type = self.sidebar_settings.get("margin_type", "Cross")
+            is_cross = (margin_type == "Cross")
+            
+            target_leverage = requested_leverage
+            
+            if gamification_active:
+                try:
+                    balance_data = hyperliquid_service.get_account_balance()
+                    current_equity = balance_data.get("equity", 0.0) if balance_data.get("status") == "success" else 0.0
+                    gam = AssetGamification(current_equity)
+                    max_leverage = gam.get_max_leverage()
+                    
+                    target_leverage = min(requested_leverage, max_leverage)
+                    
+                    if requested_leverage > max_leverage:
+                        self.add_log(f"🎮 GAMIFICATION: Leverage capped {requested_leverage}x → {target_leverage}x (Level: {gam.level.value})")
+                except Exception as gam_err:
+                    self.add_log(f"⚠️ Gamification check failed: {gam_err}")
+            else:
+                self.add_log(f"ℹ️ Gamification disabled. Using requested leverage: {target_leverage}x")
+            
+            if 'current_equity' in locals():
+                self.account_value = float(current_equity)
+
+            self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
+            hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
+            self._leverage_synced = True
+            
+        except Exception as e:
+            self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
+
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
@@ -877,32 +918,9 @@ class BotContext:
         # STARTUP SYNC
         if not self.startup_sync_done:
             self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
-            try:
-                if self.trading_enabled:
-                    requested_leverage = int(self.sidebar_settings.get("leverage", 5))
-                    margin_type = self.sidebar_settings.get("margin_type", "Cross")
-                    is_cross = (margin_type == "Cross")
-                    
-                    try:
-                        balance_data = hyperliquid_service.get_account_balance()
-                        current_equity = balance_data.get("equity", 0.0) if balance_data.get("status") == "success" else 0.0
-                        gam = AssetGamification(current_equity)
-                        max_leverage = gam.get_max_leverage()
-                        target_leverage = min(requested_leverage, max_leverage)
-                        
-                        if requested_leverage > max_leverage:
-                            self.add_log(f"🎮 GAMIFICATION: Leverage capped {requested_leverage}x → {target_leverage}x (Level: {gam.level})")
-                    except Exception as gam_err:
-                        self.add_log(f"⚠️ Gamification check failed: {gam_err}")
-                        target_leverage = requested_leverage
-                    
-                    if 'current_equity' in locals():
-                        self.account_value = float(current_equity)
-
-                    self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
-                    hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
-            except Exception as e:
-                self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
+            
+            if self.trading_enabled:
+                self._enforce_leverage()
             
             try:
                 self.add_log("🔄 INITIAL SYNC: Checking Hyperliquid for existing positions...")
@@ -984,6 +1002,12 @@ class BotContext:
             self.add_log("✅ STARTUP SYNC: Complete")
         
         while self.is_running:
+            # Dynamic Leverage & Gamification Enforcement
+            if self.trading_enabled and not self._leverage_synced:
+                self._enforce_leverage()
+            elif not self.trading_enabled:
+                self._leverage_synced = False
+
             action = None
             sl = None
             tp = None
