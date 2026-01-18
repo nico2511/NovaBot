@@ -167,7 +167,7 @@ class StrategySmartTrend(BaseStrategy):
             if close_1m > high_of_last_n:
                 # Find swing low for SL
                 swing_low = df_1m.tail(10)['low'].min()
-                sl = swing_low - (self.sl_buffer * atr_15m)
+                sl = swing_low - (self.sl_atr_mult * atr_15m)
                 risk = close_1m - sl
                 tp = close_1m + (self.rr_ratio * risk)
                 
@@ -189,7 +189,7 @@ class StrategySmartTrend(BaseStrategy):
             if close_1m < low_of_last_n:
                 # Find swing high for SL
                 swing_high = df_1m.tail(10)['high'].max()
-                sl = swing_high + (self.sl_buffer * atr_15m)
+                sl = swing_high + (self.sl_atr_mult * atr_15m)
                 risk = sl - close_1m
                 tp = close_1m - (self.rr_ratio * risk)
                 
