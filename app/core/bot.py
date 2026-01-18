@@ -662,18 +662,22 @@ class BotContext:
                 current_dist = current_price - entry_price
                 progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
                 
-                if progress_pct > 40:
-                    be_price = entry_price * 1.003
-                    if sl_price < be_price:
+                # 1. Smart BE (Moved to 50% progress, only locks 0.1% profit)
+                if progress_pct > 50:
+                    be_price = entry_price * 1.001 # 0.1% profit (covers fees)
+                    # Safety: Ensure current price is at least 0.1% away from new SL
+                    if sl_price < be_price and current_price > (be_price * 1.001):
                         new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >40% target. Moving SL to {new_sl:.2f}")
+                        self.add_log(f"🛡️ Smart BE: >50% target. Moving SL to {new_sl:.2f}")
 
+                # 2. Trailing Profit (Locks 20% of gains)
                 if progress_pct > 60:
                     secure_price = entry_price + (total_dist * 0.20)
                     if sl_price < secure_price:
                          new_sl = secure_price
                          self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
 
+                # 3. Aggressive Lock (Locks 40% of gains)
                 if progress_pct > 75:
                     lock_price = entry_price + (total_dist * 0.40)
                     if sl_price < lock_price:
@@ -685,18 +689,22 @@ class BotContext:
                 current_dist = entry_price - current_price
                 progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
                 
-                if progress_pct > 40:
-                    be_price = entry_price * 0.997
-                    if sl_price > be_price:
+                # 1. Smart BE
+                if progress_pct > 50:
+                    be_price = entry_price * 0.999 # 0.1% profit
+                    # Safety: Ensure current price is at least 0.1% away from new SL
+                    if sl_price > be_price and current_price < (be_price * 0.999):
                         new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >40% target. Moving SL to {new_sl:.2f}")
+                        self.add_log(f"🛡️ Smart BE: >50% target. Moving SL to {new_sl:.2f}")
 
+                # 2. Trailing Profit
                 if progress_pct > 60:
                     secure_price = entry_price - (total_dist * 0.20)
                     if sl_price > secure_price:
                         new_sl = secure_price
                         self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
                         
+                # 3. Aggressive Lock
                 if progress_pct > 75:
                     lock_price = entry_price - (total_dist * 0.40)
                     if sl_price > lock_price:
