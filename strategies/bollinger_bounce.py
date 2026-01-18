@@ -40,17 +40,19 @@ class BollingerBounceStrategy(BaseStrategy):
         self.bb_std = self.params.get("bb_std", 2.15)  # Match strategies.json
         
         # --- Config Params ---
-        self.adx_threshold = self.params.get("adx_threshold", 30)  # Optimized: Tightened from 42 to 30 for pure range 
+        self.adx_threshold = self.params.get("adx_threshold", 22)  # Updated: Range-only (ADX < 22)
         self.adx_period = self.params.get("adx_period", 14)
         
         self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.008)  # Match strategies.json 
         
         self.atr_period = self.params.get("atr_period", 14)
-        self.min_rr = self.params.get("min_rr", 1.0)
+        self.min_rr = self.params.get("min_rr", 1.5)  # Updated: From 1.0 to 1.5 for better risk management
         
         # New Params
         self.kill_zone_percent = self.params.get("kill_zone_percent", 0.12)
         self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.2)
+        self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
+        self.sl_atr_mult = self.params.get("sl_atr_mult", 1.0)  # SL distance in ATR
     
     def is_ranging(self, df: pd.DataFrame) -> tuple[bool, str]:
         """
@@ -138,15 +140,20 @@ class BollingerBounceStrategy(BaseStrategy):
                      return None
 
                 
-                # Check significance for reversal spike
-                # Using 1.2x ATR condition if provided
                 if self.min_candle_atr_multiple > 0 and not is_significant:
                     # Weak candle, ignore
                     return None
+                
+                # Volume Filter
+                if 'volume' in df.columns:
+                    current_vol = df['volume'].iloc[-2]
+                    avg_vol = df['volume'].iloc[-22:-2].mean()
+                    if avg_vol > 0 and current_vol < avg_vol * self.volume_multiplier:
+                        return None
 
                 entry = current_price
                 tp = bb_basis + tp_padding
-                sl = bb_lower - (current_atr * 1.0) # SL sous la bande
+                sl = bb_lower - (current_atr * self.sl_atr_mult)  # SL from config
                 
                 risk = entry - sl
                 reward = tp - entry
@@ -168,10 +175,17 @@ class BollingerBounceStrategy(BaseStrategy):
                 
                 if self.min_candle_atr_multiple > 0 and not is_significant:
                     return None
+                
+                # Volume Filter
+                if 'volume' in df.columns:
+                    current_vol = df['volume'].iloc[-2]
+                    avg_vol = df['volume'].iloc[-22:-2].mean()
+                    if avg_vol > 0 and current_vol < avg_vol * self.volume_multiplier:
+                        return None
 
                 entry = current_price
                 tp = bb_basis - tp_padding
-                sl = bb_upper + (current_atr * 1.0)
+                sl = bb_upper + (current_atr * self.sl_atr_mult)  # SL from config
                 
                 risk = sl - entry
                 reward = entry - tp

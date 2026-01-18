@@ -91,16 +91,17 @@ class ScalpEmaRsi(BaseStrategy):
             if close > current_trend and trend_slope > min_slope:  # Above 200 EMA AND Slope Positive
                 # Asymmetric RSI Bull: 52 - 68
                 if 52 < current_rsi < 68:  
-                    # Volume Filter: Strict 1.5x
+                    # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * 1.5:
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.5):
                             return None  # Insufficient volume
                     
                     # Check RR
-                    # Tight Scalp: SL 1.2 ATR, TP 2.0 ATR (Ratio ~1.66)
-                    sl = close - (1.2 * atr)
+                    # Tight Scalp: SL via Config (Default 1.2 ATR), TP 2.0 ATR
+                    sl_atr_mult = params.get("sl_atr_mult", 1.2)
+                    sl = close - (sl_atr_mult * atr)
                     tp = close + (2.0 * atr)
                     
                     risk = abs(close - sl)
@@ -111,7 +112,7 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bullish Cross (Strict V2) + Vol 1.5x"
+                            "comment": f"EMA Bullish Cross (Strict V2) + Vol {params.get('volume_multiplier', 1.5)}x"
                         }
                 
         # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
@@ -121,15 +122,16 @@ class ScalpEmaRsi(BaseStrategy):
             if close < current_trend and trend_slope < -min_slope:  # Below 200 EMA AND Slope Negative
                 # Asymmetric RSI Bear: 32 - 48
                 if 32 < current_rsi < 48:
-                    # Volume Filter: Strict 1.5x
+                    # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * 1.5:
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.5):
                             return None  # Insufficient volume
                     
                     # Check RR
-                    sl = close + (1.2 * atr)
+                    sl_atr_mult = params.get("sl_atr_mult", 1.2)
+                    sl = close + (sl_atr_mult * atr)
                     tp = close - (2.0 * atr)
                     
                     risk = abs(sl - close)
@@ -140,7 +142,7 @@ class ScalpEmaRsi(BaseStrategy):
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": "EMA Bearish Cross (Strict V2) + Vol 1.5x"
+                            "comment": f"EMA Bearish Cross (Strict V2) + Vol {params.get('volume_multiplier', 1.5)}x"
                         }
         
         return None

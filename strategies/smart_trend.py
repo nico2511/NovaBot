@@ -64,7 +64,7 @@ class StrategySmartTrend(BaseStrategy):
         self.rsi_max = params.get("rsi_max", 70)
         self.pullback_tolerance = params.get("pullback_tolerance", 0.01)  # Optimized to 1.0% width
         self.bos_lookback = params.get("bos_lookback", 3)
-        self.sl_buffer = params.get("sl_buffer", 0.35)
+        self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""

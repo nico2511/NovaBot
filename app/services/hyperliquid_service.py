@@ -1061,4 +1061,82 @@ class HyperliquidService:
             self.log(f"Error fetching market data for {symbol}: {e}")
             return {}
 
+    @standard_operation
+    def get_daily_pnl(self):
+        """
+        Calculate daily PnL using account value snapshot method.
+        
+        Method:
+        1. Save account value at 00:00 UTC (start of day)
+        2. Calculate PnL = Current Account Value - Start of Day Value
+        
+        This captures both realized and unrealized PnL automatically.
+        
+        Returns:
+            float: Total daily PnL in USDC
+        """
+        import json
+        import os
+        from datetime import datetime, timezone
+        
+        SNAPSHOT_FILE = "daily_pnl_snapshot.json"
+        
+        if not config.HL_ACCOUNT_ADDRESS:
+            self.log("⚠️ No account address configured for PnL sync")
+            return 0.0
+            
+        try:
+            # Get current account value
+            balance_data = self.get_account_balance()
+            current_value = balance_data.get("total_equity", 0.0)
+            
+            # Get today's date (UTC)
+            now_utc = datetime.now(timezone.utc)
+            today_str = now_utc.strftime("%Y-%m-%d")
+            
+            # Load or create snapshot
+            snapshot_data = {}
+            if os.path.exists(SNAPSHOT_FILE):
+                try:
+                    with open(SNAPSHOT_FILE, "r") as f:
+                        snapshot_data = json.load(f)
+                except Exception as e:
+                    self.log(f"⚠️ Could not load snapshot file: {e}")
+            
+            # Check if we need to create today's snapshot
+            if today_str not in snapshot_data:
+                # New day! Save current value as start of day
+                snapshot_data[today_str] = {
+                    "start_value": current_value,
+                    "timestamp": now_utc.isoformat()
+                }
+                
+                # Clean up old snapshots (keep last 7 days)
+                dates = sorted(snapshot_data.keys())
+                if len(dates) > 7:
+                    for old_date in dates[:-7]:
+                        del snapshot_data[old_date]
+                
+                # Save snapshot
+                try:
+                    with open(SNAPSHOT_FILE, "w") as f:
+                        json.dump(snapshot_data, f, indent=2)
+                    self.log(f"📸 Created new daily snapshot: ${current_value:.2f}")
+                except Exception as e:
+                    self.log(f"⚠️ Could not save snapshot: {e}")
+            
+            # Calculate daily PnL
+            start_value = snapshot_data.get(today_str, {}).get("start_value", current_value)
+            daily_pnl = current_value - start_value
+            
+            self.log(f"💰 Daily PnL: ${daily_pnl:.2f} (Start: ${start_value:.2f}, Current: ${current_value:.2f})")
+            return daily_pnl
+            
+        except Exception as e:
+            self.log(f"❌ Error calculating daily PnL: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0.0
+
+
 hyperliquid_service = HyperliquidService()

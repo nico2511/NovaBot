@@ -1,48 +1,60 @@
 # Contexte du Projet NovaBot
+**Mise à jour Architecture :** 2026-01-17 (Post-Review)
 
-## 🎯 Vision
-**Objectif :** Bot de trading passif générant 5-10% de rendement mensuel via des stratégies court-terme (5-15min).
-**Utilisation :** Personnelle & Open Source.
-**Philosophie :** "Consolider, Pérenniser, Automatiser". Éviter le "code spaghetti".
+## 🎯 Vision & Principes
+*   **Objectif :** Bot de trading passif (5-10% retour mensuel) via stratégies court-terme.
+*   **Philosophie :** "Consolider, Pérenniser, Automatiser".
+*   **Règle d'Or (Code) :** "Silence is Golden" - Gestion des erreurs robuste, pas de crash pour des détails.
+*   **Règle d'Or (Architecture) :** **IMMUTABLE BACKEND**. On ne touche pas au moteur Python qui fonctionne.
 
-## 🏗 Architecture Technique (Hybride)
-*   **Backend :** Python (FastAPI, Port 8001).
-*   **Frontend :** Next.js 14 + Tailwind CSS (Port 8000 expected).
-*   **Orchestration :** PM2 (`ecosystem.config.js`).
-*   **IA :** OpenRouter (DeepSeek v3.2) pour validation des signaux.
-*   **Plateforme :** Hyperliquid (DEX).
+## 🛑 Directives d'Implémentation (CRITIQUE)
+Tous les agents IA doivent respecter ces contraintes absolues :
 
-## 🧩 Protocoles & Features Clés
-*   **Zero Repainting :** Décisions basées sur `iloc[-2]` (bougie clôturée).
-*   **Funnel Strategy :** Filtre Régime (ADX) -> Setup -> Trigger.
-*   **Atomic Position Tracking :** Récupération automatique des positions après crash.
-*   **Internal Scanner :** Scanne les tokens, check Trend/Volume, note > 75 déclenche une opportunité.
-*   **Mode Hybride :** Le bot gère le TP/SL des positions manuelles prises sur Hyperliquid.
-*   **Symbol Resolver :** Résolution automatique des symboles (ex: `PEPE` -> `kPEPE`). Case-insensitive.
-*   **Strategy-Level Trade Management :** Hook `manage_trade()` dans `BaseStrategy` pour trailing SL personnalisé.
+1.  **Back-end Immuable :**
+    *   Les dossiers `app/`, `backend/`, `strategies/` sont considérés **READ-ONLY**.
+    *   Interdiction de refactorer le code Python existant pour "faire propre".
+    *   Seule exception : Ajout d'endpoints API dans `backend/` si strictement nécessaire pour exposer une donnée existante.
 
-## 🧠 Stratégies & Personas
-Chaque stratégie possède un "Persona" IA dédié pour la validation.
-*   `smart_trend.py` (Suivi de tendance)
-*   `bollinger_bounce.py` (Rebond volatilité)
-*   `elastic_reversion.py`
-*   `institutional_scalp.py`
-*   `scalp_ema_rsi.py`
-*   `smart_mean_reversion.py`
-*   `elastic_nibbler.py` (**NEW** - Reversion Scalp BTC avec trailing SL custom)
+2.  **Frontend "Sidecar" :**
+    *   Tout le développement UI se fait dans `frontend-v3/` (Next.js 14).
+    *   Le Frontend considère le Backend comme une API externe (Black Box).
+    *   Pas de "Business Logic" complexe dans le Frontend (juste de la visualisation et des commandes).
 
-## 🛠 API Endpoints Clés
-*   `POST /api/engine/start` - Démarrer le bot
-*   `POST /api/engine/stop` - Arrêter le bot
-*   `POST /api/engine/restart` - Redémarrer le bot (Stop + Start)
-*   `POST /api/trading/enable` - Activer le trading live
-*   `POST /api/trading/disable` - Désactiver le trading live
-*   `POST /api/switch_symbol` - Changer le symbole actif
+3.  **Intégration "Loosely Coupled" :**
+    *   Communication via **API REST Polling** (1s) sur `localhost:8001`.
+    *   Pas d'Authentification requise (Contexte Localhost/VPN).
+    *   Le Frontend ne possède PAS l'état. Il reflète l'état du Backend (`bot_state.json`).
 
-## � Structure Cible
-*   `/app` : Core Logic (Python package).
-*   `/backend` : Serveur API.
-*   `/strategies` : Implémentation des stratégies.
-*   `/frontend-v3` : Dashboard Next.js.
-*   `/docs` : Documentation (Reference: `CONTEXT.md`).
+## 🏗 Architecture Technique
+*   **Stack Hybride :**
+    *   **Backend (Legacy) :** Python 3.10+, FastAPI, StateManager (Atomic JSON).
+    *   **Frontend (New) :** Next.js 14, Tailwind CSS, Shadcn/UI.
+    *   **Orchestration :** PM2 (`ecosystem.config.js` gère les 2 processus).
 
+*   **Flux de Données :**
+    *   `Bot` (Python) -> écrit -> `bot_state.json`.
+    *   `API` (FastAPI) -> lit -> `bot_state.json`.
+    *   `Frontend` (Next.js) -> poll -> `GET /api/status`.
+
+## 🧩 Protocoles Clés
+*   **Zero Repainting :** `iloc[-2]` uniquement.
+*   **Atomic Position Tracking :** Le bot doit pouvoir redémarrer à tout moment et retrouver ses positions via Hyperliquid API + `bot_state.json`.
+*   **Hard Veto IA :** DeepSeek v3.2 valide *tous* les signaux avant exécution.
+
+## 📁 Structure du Projet
+```
+novabot/
+├── app/               # 🔒 [IMMUTABLE] Core Logic Python
+├── backend/           # 🔒 [IMMUTABLE] API Server
+├── strategies/        # 🔒 [IMMUTABLE] Trading Strategies
+├── frontend-v3/       # ⭐ [DEV ZONE] Next.js PWA
+│   ├── app/           # Pages & Routes
+│   ├── components/    # UI (Shadcn) & Widgets
+│   └── lib/api/       # Clients API (Typescript interfaces mirroring Python)
+└── ecosystem.config.js # Config de lancement unifié
+```
+
+## 🛠 Commandes Utiles
+*   **Lancer tout :** `pm2 start ecosystem.config.js`
+*   **Dev Frontend :** `cd frontend-v3 && npm run dev`
+*   **Logs Backend :** `pm2 logs bot-engine`

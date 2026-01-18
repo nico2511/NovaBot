@@ -97,7 +97,12 @@ class ElasticReversionStrategy(BaseStrategy):
             # We want to catch extension, but not stand in front of a freight train (ADX > 50)
             if 'ADX_14' in df.columns:
                 current_adx = df['ADX_14'].iloc[-2]
+            # GUARD CLAUSE: Elasticity limit (ADX < 50)
+            # We want to catch extension, but not stand in front of a freight train (ADX > 50)
+            if 'ADX_14' in df.columns:
+                current_adx = df['ADX_14'].iloc[-2]
                 if current_adx > 50:
+                    # Note: adx_threshold renamed from adx_limit for standardization
                     return None  # Trend too strong (Runaway), skip mean reversion
 
             # ==========================================
@@ -133,8 +138,8 @@ class ElasticReversionStrategy(BaseStrategy):
                 # SL Calculation: Max High of last 5 candles + Margin
                 lookback = params.get("sl_lookback", 5)
                 recent_high = df['high'].iloc[-lookback:].max()
-                sl_margin = params.get("sl_margin", 0.005)
-                sl = recent_high * (1 + sl_margin)
+                sl_buffer_pct = params.get("sl_buffer_pct", 0.005)
+                sl = recent_high * (1 + sl_buffer_pct)
                 
                 # TP Calculation: Current EMA 20
                 tp = c_ema 
@@ -181,8 +186,8 @@ class ElasticReversionStrategy(BaseStrategy):
                 # SL: Min Low of last 5 candles - Margin
                 lookback = params.get("sl_lookback", 5)
                 recent_low = df['low'].iloc[-lookback:].min()
-                sl_margin = params.get("sl_margin", 0.005)
-                sl = recent_low * (1 - sl_margin)
+                sl_buffer_pct = params.get("sl_buffer_pct", 0.005)
+                sl = recent_low * (1 - sl_buffer_pct)
                 
                 # TP: Current EMA 20
                 tp = c_ema

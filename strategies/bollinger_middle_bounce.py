@@ -54,6 +54,11 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
         self.rsi_min = self.params.get("rsi_min", 40)
         
         self.min_rr = self.params.get("min_rr", 1.8)
+        
+        # NEW: sl_buffer_pct for dynamic SL calculation
+        self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.008)  # 0.8% default
+        # NEW: volume_multiplier for confirmation filter
+        self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
     
     def check_trend(self, df: pd.DataFrame) -> tuple[int, str]:
         """
@@ -117,6 +122,11 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
             
             atr = ta.atr(df['high'], df['low'], df['close'], length=14).iloc[-1]
             
+            # Volume Check (NEW: use volume_multiplier from config)
+            avg_volume = df['volume'].rolling(20).mean().iloc[-1]
+            current_volume = df['volume'].iloc[-1]
+            volume_ok = current_volume >= (avg_volume * self.volume_multiplier)
+            
             # === LONG SETUP ===
             if trend_dir == 1:
                 # Interaction Check (Pullback): 
@@ -131,9 +141,10 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
                 # Allow a small buffer (0.1% or similar) or strict crossover
                 recent_touch = (df['low'].iloc[-1] <= current_mb * 1.001) or (prev_low <= prev_mb * 1.001)
                 
-                if is_green and closes_above_mb and recent_touch:
+                if is_green and closes_above_mb and recent_touch and volume_ok:
                      if rsi > self.rsi_min:
-                        sl = df['low'].iloc[-1] - (atr * 0.5) # Tight SL below confirmation candle
+                        # Use sl_buffer_pct from config instead of hardcoded ATR
+                        sl = df['low'].iloc[-1] * (1 - self.sl_buffer_pct)  # Dynamic SL with buffer
                         tp = upper_band.iloc[-1] # Target 1: Upper Band
                         
                         # Calculate Risk/Reward to Upper Band to determine viability
@@ -163,9 +174,10 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
                 
                 recent_touch = (df['high'].iloc[-1] >= current_mb * 0.999) or (prev_high >= prev_mb * 0.999)
                 
-                if is_red and closes_below_mb and recent_touch:
+                if is_red and closes_below_mb and recent_touch and volume_ok:
                     if rsi < (100 - self.rsi_min): # e.g. < 60
-                        sl = df['high'].iloc[-1] + (atr * 0.5)
+                        # Use sl_buffer_pct from config
+                        sl = df['high'].iloc[-1] * (1 + self.sl_buffer_pct)  # Dynamic SL with buffer
                         tp = lower_band.iloc[-1]
                         
                         risk = sl - current_price

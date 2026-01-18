@@ -20,7 +20,9 @@
                 "rsi_overbought": 68,
                 "rsi_oversold": 32,
                 "adx_threshold": 25,
-                "min_rr": 1.5
+                "min_rr": 1.5,
+                "sl_atr_mult": 1.2,
+                "volume_multiplier": 1.3
             }
         },
         "elastic_nibbler": {
@@ -37,14 +39,16 @@
                 "bb_period": 20,
                 "bb_std": 3.0,
                 "rsi_period": 14,
-                "entry_vol_multiplier": 2.2,
-                "adx_limit": 25,
-                "activation_pnl_pct": 0.0015,
+                "volume_multiplier": 2.2,
+                "adx_threshold": 25,
+                "activation_pnl_pct": 0.005,
                 "secure_pnl_pct": 0.0008,
                 "is_btc_only": false,
                 "sl_atr_mult": 1.4,
                 "tp_atr_mult": 2.2,
-                "min_bb_width_pct": 0.7
+                "min_bb_width_pct": 0.7,
+                "min_rr": 1.5,
+                "sl_buffer_pct": 0.008
             }
         },
         "elastic_reversion": {
@@ -54,7 +58,7 @@
             "display_conditions": [
                 "RSI Extreme (<20/>80)",
                 "Price Extension (>4% from EMA)",
-                "ADX < 50 (Not runaway trend)"
+                "ADX < 40 (Not runaway trend)"
             ],
             "params": {
                 "rsi_period": 14,
@@ -62,12 +66,13 @@
                 "oversold_rsi": 20,
                 "overbought_rsi": 80,
                 "extension_pct": 0.04,
-                "adx_limit": 50,
+                "adx_threshold": 40,
                 "sl_lookback": 5,
-                "sl_margin": 0.005,
+                "sl_buffer_pct": 0.008,
                 "min_rr": 1.5,
                 "bonus_rsi_long": 25,
-                "bonus_rsi_short": 75
+                "bonus_rsi_short": 75,
+                "volume_multiplier": 1.3
             }
         },
         "smart_trend": {
@@ -86,7 +91,8 @@
                 "rsi_max": 70,
                 "pullback_tolerance": 0.01,
                 "bos_lookback": 3,
-                "sl_buffer": 0.35
+                "sl_atr_mult": 0.35,
+                "volume_multiplier": 1.3
             }
         },
         "smart_mean_reversion": {
@@ -94,7 +100,7 @@
             "type": "trend",
             "description": "Trend Dip Buyer. Buys healthy dips in strong trends (RSI 40-55, EMA support).",
             "display_conditions": [
-                "Trend Active (ADX > 20, Price > EMA200)",
+                "Trend Active (ADX > 25, Price > EMA200)",
                 "RSI Recharge Zone (40-55)",
                 "Green Confirmation Candle"
             ],
@@ -105,7 +111,10 @@
                 "bb_std": 2.2,
                 "rsi_threshold": 35,
                 "roc_floor": -10.0,
-                "min_rr": 1.5
+                "min_rr": 1.5,
+                "adx_threshold": 25,
+                "sl_buffer_pct": 0.008,
+                "volume_multiplier": 1.3
             }
         },
         "bollinger_bounce": {
@@ -113,7 +122,7 @@
             "type": "range",
             "description": "Aggressive Bollinger Bounce (V2) for choppy/range markets.",
             "display_conditions": [
-                "Range Market (ADX < 30)",
+                "Range Market (ADX < 22)",
                 "Kill Zone (12%)",
                 "Range Dip/Top + RSI Extreme",
                 "Candle Size (>1.2x ATR)"
@@ -121,13 +130,14 @@
             "params": {
                 "bb_period": 20,
                 "bb_std": 2.15,
-                "adx_threshold": 30,
+                "adx_threshold": 22,
                 "ema50_slope_threshold": 0.008,
                 "atr_period": 14,
-                "min_rr": 1.0,
+                "min_rr": 1.5,
                 "kill_zone_percent": 0.12,
                 "min_candle_atr_multiple": 1.2,
-                "volume_multiplier": 1.2
+                "volume_multiplier": 1.2,
+                "sl_atr_mult": 1.0
             }
         },
         "bollinger_middle_bounce": {
@@ -147,7 +157,8 @@
                 "adx_threshold": 25,
                 "rsi_min": 40,
                 "volume_multiplier": 1.2,
-                "min_rr": 1.8
+                "min_rr": 1.8,
+                "sl_buffer_pct": 0.008
             }
         },
         "institutional_scalp": {
@@ -161,8 +172,10 @@
             ],
             "params": {
                 "liq_grab_lookback": 15,
-                "min_rr": 1.2,
-                "volume_multiplier": 1.3
+                "min_rr": 1.5,
+                "volume_multiplier": 1.3,
+                "adx_extreme_limit": 60,
+                "sl_atr_mult": 0.5
             }
         },
         "fibo_pullback": {
@@ -177,11 +190,12 @@
             ],
             "params": {
                 "ema_period": 200,
-                "adx_threshold": 18,
+                "adx_threshold": 25,
                 "swing_lookback": 35,
                 "min_rr": 1.5,
                 "swing_confirmation_bars": 10,
-                "volume_multiplier": 1.3
+                "volume_multiplier": 1.3,
+                "sl_buffer_pct": 0.008
             }
         }
     }

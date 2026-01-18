@@ -54,11 +54,11 @@ class InstitutionalScalp(BaseStrategy):
         
         # GUARD CLAUSE: ADX Logic - Relaxed for Liquidity Grabs
         # Liquidity grabs can happen in Trends (Pullbacks) or Ranges. 
-        # We only filter if ADX is EXTREME (>60) to avoid catching a crashing knife.
-        # But generally, we WANT volatility.
+        # We only filter if ADX is EXTREME (> configured threshold) to avoid catching a crashing knife.
+        adx_extreme_limit = params.get("adx_extreme_limit", 60)  # High default for liquidity grabs
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
-            if current_adx > 60:
+            if current_adx > adx_extreme_limit:
                 # Extreme trend, liquidations might be genuine breakouts. Safe to avoid.
                 return None  
 
@@ -85,10 +85,10 @@ class InstitutionalScalp(BaseStrategy):
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
                     if current_volume < (avg_volume * vol_mult):
-                        # Insufficient volume, likely a fakeout
-                        return None
+                        return None  # Insufficient volume
                 
-                sl = low - (0.5 * atr)
+                sl_atr_mult = params.get("sl_atr_mult", 0.5)
+                sl = low - (sl_atr_mult * atr)
                 tp = close + (2.0 * atr)
                 
                 # Check Min R:R
@@ -119,10 +119,10 @@ class InstitutionalScalp(BaseStrategy):
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
                     
                     if current_volume < (avg_volume * vol_mult):
-                        # Insufficient volume, likely a fakeout
-                        return None
+                        return None  # Insufficient volume
                 
-                sl = high + (0.6 * atr)
+                sl_atr_mult = params.get("sl_atr_mult", 0.6)
+                sl = high + (sl_atr_mult * atr)
                 tp = close - (1.8 * atr)
                 
                 # Check Min R:R

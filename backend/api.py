@@ -156,6 +156,9 @@ class BotState:
         self.trading_enabled = False
         self.active_symbol = "BTC"
         self.active_trade = None
+        self.daily_pnl = 0.0
+        self.active_positions = 0
+        self.last_updated = None
         self.signals_log = []
         self.logs = []
         self.load_state()
@@ -175,6 +178,11 @@ class BotState:
                     self.is_running = state.get("is_running", False)
                     self.trading_enabled = state.get("trading_enabled", False)
                     self.active_symbol = state.get("active_symbol", "BTC")
+                    self.last_updated = state.get("last_updated", None)
+                    
+                    risk_state = state.get("risk_state", {})
+                    self.daily_pnl = risk_state.get("daily_pnl", 0.0)
+                    self.active_positions = risk_state.get("open_positions", 0)
         except Exception as e:
             print(f"Error loading state: {e}")
 
@@ -206,6 +214,9 @@ class BotStatus(BaseModel):
     trading_enabled: bool
     active_symbol: str
     active_trade: Optional[Dict[str, Any]]
+    daily_pnl: float = 0.0
+    active_positions: int = 0
+    last_updated: Optional[str] = None
 
 class GlobalSettingsModel(BaseModel):
     max_positions: int
@@ -258,11 +269,29 @@ async def get_status():
                  print(f"⚠️ Error sanitizing active_trade: {e}")
                  sanitized_trade = None
 
+        # Fetch Risk Data (Thread-Safe)
+        daily_pnl = 0.0
+        active_positions = 0
+        try:
+            # Use Hyperliquid snapshot PnL (more accurate than manual tracking)
+            from app.services.hyperliquid_service import hyperliquid_service
+            daily_pnl = hyperliquid_service.get_daily_pnl()
+            
+            # Get active positions count from risk manager
+            if hasattr(bot, 'risk_manager'):
+                risk_status = bot.risk_manager.get_status()
+                active_positions = int(risk_status.get("open_positions", 0))
+        except Exception as e:
+            logger.error(f"Error fetching status data: {e}")
+
         return BotStatus(
             is_running=bot.is_running,
             trading_enabled=bot.trading_enabled,
             active_symbol=bot.active_symbol,
-            active_trade=sanitized_trade
+            active_trade=sanitized_trade,
+            daily_pnl=daily_pnl,
+            active_positions=active_positions,
+            last_updated=getattr(bot, 'last_updated', None)
         )
     
     # Fallback to bot_state
@@ -274,7 +303,10 @@ async def get_status():
         is_running=bot_state.is_running,
         trading_enabled=bot_state.trading_enabled,
         active_symbol=bot_state.active_symbol,
-        active_trade=sanitized_trade_fallback
+        active_trade=sanitized_trade_fallback,
+        daily_pnl=bot_state.daily_pnl,
+        active_positions=bot_state.active_positions,
+        last_updated=bot_state.last_updated
     )
 
 # --- Engine Control ---
@@ -1016,14 +1048,62 @@ async def download_bot_trades():
         return FileResponse(csv_path, filename="bot_trade_history.csv", media_type="text/csv")
 
 @app.get("/api/logs")
-async def get_logs():
-    """Get recent logs"""
+async def get_logs(limit: int = 50):
+    """Get recent logs with structured format including level and metadata"""
+    
+    def parse_log_entry(log_line: str) -> dict:
+        """Parse a log line into structured format"""
+        # Default values
+        result = {
+            "timestamp": "",
+            "level": "INFO",
+            "message": log_line,
+            "metadata": None
+        }
+        
+        # Try to extract timestamp (first part before space)
+        parts = log_line.split(" ", 1)
+        if len(parts) >= 2:
+            result["timestamp"] = parts[0]
+            remaining = parts[1]
+        else:
+            remaining = log_line
+        
+        # Detect log level from content
+        remaining_upper = remaining.upper()
+        if "ERROR" in remaining_upper or "❌" in remaining or "FAILED" in remaining_upper:
+            result["level"] = "ERROR"
+        elif "WARNING" in remaining_upper or "⚠️" in remaining:
+            result["level"] = "WARNING"
+        elif "✅" in remaining or "SUCCESS" in remaining_upper:
+            result["level"] = "SUCCESS"
+        elif "VETO" in remaining_upper or "REJECTED" in remaining_upper:
+            result["level"] = "VETO"
+            # Try to extract reasoning
+            if ":" in remaining:
+                reason = remaining.split(":")[-1].strip()
+                result["metadata"] = {"reason": reason}
+        elif "SIGNAL" in remaining_upper:
+            result["level"] = "SIGNAL"
+        elif "TRADE" in remaining_upper:
+            result["level"] = "TRADE"
+        
+        result["message"] = remaining
+        return result
+    
+    logs = []
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
-        logs = [{"time": l.split(" ", 1)[0], "message": l.split(" ", 1)[1] if " " in l else l} for l in list(bot.logs)[-50:]]
-        return {"logs": logs}
-    logs = [{"time": l.split(" ", 1)[0], "message": l.split(" ", 1)[1] if " " in l else l} for l in list(bot_state.logs)[-50:]]
-    return {"logs": logs}
+        raw_logs = list(bot.logs)[-limit:]
+        logs = [parse_log_entry(l) for l in raw_logs]
+    else:
+        raw_logs = list(bot_state.logs)[-limit:]
+        logs = [parse_log_entry(l) for l in raw_logs]
+    
+    # Return in reverse chronological order (newest first)
+    logs.reverse()
+    return {"logs": logs, "total": len(logs)}
+
 
 
 # --- Settings & Gamification ---

@@ -82,9 +82,11 @@ class SmartMeanReversionStrategy(BaseStrategy):
         rsi = ta.rsi(df['close'], length=14).iloc[-2]
         
         # Regime (ADX)
+        params = self.config.get("params", {})
+        adx_threshold = params.get("adx_threshold", 25)
         if 'ADX_14' in df.columns:
             adx = df['ADX_14'].iloc[-2]
-            if adx < 20: # Weak trend
+            if adx < adx_threshold:  # Weak trend - use config threshold
                 return None
                 
         # Price Action
@@ -98,9 +100,21 @@ class SmartMeanReversionStrategy(BaseStrategy):
             if 40 <= rsi <= 55:
                 # 3. Trigger: Green Candle (Close > Open) indicating support found
                 if close > open_p:
-                    # SL: Recent Swing Low
-                    sl = df['low'].iloc[-5:-1].min()
-                    tp = close + (abs(close - sl) * 2.0) # R:R 2.0
+                    # Volume Filter
+                    volume_multiplier = params.get("volume_multiplier", 1.3)
+                    if 'volume' in df.columns:
+                        current_vol = df['volume'].iloc[-2]
+                        avg_vol = df['volume'].iloc[-22:-2].mean()
+                        if avg_vol > 0 and current_vol < avg_vol * volume_multiplier:
+                            return None
+                    
+                    # SL: Recent Swing Low with buffer
+                    sl_buffer_pct = params.get("sl_buffer_pct", 0.008)
+                    sl_base = df['low'].iloc[-5:-1].min()
+                    sl = sl_base * (1 - sl_buffer_pct)
+                    
+                    min_rr = params.get("min_rr", 1.5)
+                    tp = close + (abs(close - sl) * min_rr)
                     
                     return {
                         "signal": "BUY",
@@ -116,9 +130,21 @@ class SmartMeanReversionStrategy(BaseStrategy):
             if 45 <= rsi <= 60:
                 # 3. Trigger: Red Candle
                 if close < open_p:
-                    # SL: Recent Swing High
-                    sl = df['high'].iloc[-5:-1].max()
-                    tp = close - (abs(sl - close) * 2.0)
+                    # Volume Filter
+                    volume_multiplier = params.get("volume_multiplier", 1.3)
+                    if 'volume' in df.columns:
+                        current_vol = df['volume'].iloc[-2]
+                        avg_vol = df['volume'].iloc[-22:-2].mean()
+                        if avg_vol > 0 and current_vol < avg_vol * volume_multiplier:
+                            return None
+                    
+                    # SL: Recent Swing High with buffer
+                    sl_buffer_pct = params.get("sl_buffer_pct", 0.008)
+                    sl_base = df['high'].iloc[-5:-1].max()
+                    sl = sl_base * (1 + sl_buffer_pct)
+                    
+                    min_rr = params.get("min_rr", 1.5)
+                    tp = close - (abs(sl - close) * min_rr)
                     
                     return {
                         "signal": "SELL",

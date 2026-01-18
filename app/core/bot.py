@@ -97,6 +97,9 @@ class BotContext:
         # Leverage state
         self._leverage_synced = False 
         
+        # Cooldown tracking (anti-overtrading)
+        self._last_trade_info = {"symbol": None, "direction": None, "time": None}
+        
         # Load persisted state
         try:
             state = StateManager.load_state(self)
@@ -527,23 +530,30 @@ class BotContext:
             return False
 
     def _check_hard_veto(self, signal: str, market_context: dict):
-        """HARD VETO: Technical guardrails (RSI + Volume + Spread)."""
+        """HARD VETO: Technical guardrails (RSI + Volume + ADX)."""
         try:
-            # 1. RSI Veto
+            price = market_context.get("current_price", 0)
+            
+            # 1. RSI Veto (Tightened: 42 for SELL, 72 for BUY)
             rsi = market_context.get("rsi")
             if rsi is not None:
-                if signal == "BUY" and rsi > 75:
-                    return f"HARD VETO: RSI Overbought ({rsi:.1f} > 75)"
-                if signal == "SELL" and rsi < 25:
-                    return f"HARD VETO: RSI Oversold ({rsi:.1f} < 25)"
+                if signal == "BUY" and rsi > 72:
+                    return f"HARD VETO: RSI Overbought ({rsi:.1f} > 72) @ {price:.2f}"
+                if signal == "SELL" and rsi < 42:
+                    return f"HARD VETO: RSI Oversold ({rsi:.1f} < 42) @ {price:.2f}"
 
-            # 2. Volume Veto (Low Volume Warning)
+            # 2. ADX Extreme Veto (Trend Runaway Protection)
+            adx = market_context.get("adx", 0)
+            if adx is not None and adx > 55:
+                return f"HARD VETO: ADX Extreme ({adx:.1f} > 55) - Trend runaway @ {price:.2f}"
+
+            # 3. Volume Veto (Low Volume Warning)
             current_vol = market_context.get("current_volume")
             avg_vol = market_context.get("avg_volume")
             if current_vol and avg_vol and avg_vol > 0:
                 vol_ratio = (current_vol / avg_vol) * 100
                 if vol_ratio < 20:
-                    return f"HARD VETO: Volume Dead ({vol_ratio:.1f}% of avg)"
+                    return f"HARD VETO: Volume Dead ({vol_ratio:.1f}% of avg) @ {price:.2f}"
 
             return None
         except Exception as e:
@@ -662,20 +672,20 @@ class BotContext:
                 current_dist = current_price - entry_price
                 progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
                 
-                # 1. Smart BE (Moved to 50% progress, only locks 0.1% profit)
-                if progress_pct > 50:
-                    be_price = entry_price * 1.001 # 0.1% profit (covers fees)
-                    # Safety: Ensure current price is at least 0.1% away from new SL
-                    if sl_price < be_price and current_price > (be_price * 1.001):
-                        new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >50% target. Moving SL to {new_sl:.2f}")
-
-                # 2. Trailing Profit (Locks 20% of gains)
+                # 1. Smart BE (Moved to 60% progress, locks 0.2% profit with 0.3% buffer)
                 if progress_pct > 60:
+                    be_price = entry_price * 1.002 # 0.2% profit (covers fees + buffer)
+                    # Safety: Ensure current price is at least 0.3% away from new SL
+                    if sl_price < be_price and current_price > (be_price * 1.003):
+                        new_sl = be_price
+                        self.add_log(f"🛡️ Smart BE: >60% target. Moving SL to {new_sl:.2f} (Price: {current_price:.2f})")
+
+                # 2. Trailing Profit (Locks 20% of gains at 65% progress)
+                if progress_pct > 65:
                     secure_price = entry_price + (total_dist * 0.20)
                     if sl_price < secure_price:
                          new_sl = secure_price
-                         self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
+                         self.add_log(f"🛡️ Trailing: >65% target. Locking 20% at {new_sl:.2f} (Price: {current_price:.2f})")
 
                 # 3. Aggressive Lock (Locks 40% of gains)
                 if progress_pct > 75:
@@ -689,20 +699,20 @@ class BotContext:
                 current_dist = entry_price - current_price
                 progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
                 
-                # 1. Smart BE
-                if progress_pct > 50:
-                    be_price = entry_price * 0.999 # 0.1% profit
-                    # Safety: Ensure current price is at least 0.1% away from new SL
-                    if sl_price > be_price and current_price < (be_price * 0.999):
-                        new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >50% target. Moving SL to {new_sl:.2f}")
-
-                # 2. Trailing Profit
+                # 1. Smart BE (60% progress, 0.2% profit lock, 0.3% buffer)
                 if progress_pct > 60:
+                    be_price = entry_price * 0.998 # 0.2% profit
+                    # Safety: Ensure current price is at least 0.3% away from new SL
+                    if sl_price > be_price and current_price < (be_price * 0.997):
+                        new_sl = be_price
+                        self.add_log(f"🛡️ Smart BE: >60% target. Moving SL to {new_sl:.2f} (Price: {current_price:.2f})")
+
+                # 2. Trailing Profit (65% progress)
+                if progress_pct > 65:
                     secure_price = entry_price - (total_dist * 0.20)
                     if sl_price > secure_price:
                         new_sl = secure_price
-                        self.add_log(f"🛡️ Trailing: >60% target. Locking 20% at {new_sl:.2f}")
+                        self.add_log(f"🛡️ Trailing: >65% target. Locking 20% at {new_sl:.2f} (Price: {current_price:.2f})")
                         
                 # 3. Aggressive Lock
                 if progress_pct > 75:
@@ -881,9 +891,13 @@ class BotContext:
             # Check if Gamification is explicitly disabled in settings
             gamification_active = self.scanner_settings.get("gamification_enabled", True)
             
-            # Read trading params from scanner_settings (centralized source)
-            requested_leverage = int(self.scanner_settings.get("leverage", 5))
-            margin_type = self.scanner_settings.get("margin_type", "Cross")
+            # Fallback: Use global_settings default_leverage when gamification disabled
+            default_leverage = self.global_settings.get("default_leverage", 5)
+            default_margin_type = self.global_settings.get("default_margin_type", "Cross")
+            
+            # Read trading params from scanner_settings (centralized source) with fallbacks
+            requested_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+            margin_type = self.scanner_settings.get("margin_type", default_margin_type)
             is_cross = (margin_type == "Cross")
             
             target_leverage = requested_leverage
@@ -902,7 +916,8 @@ class BotContext:
                 except Exception as gam_err:
                     self.add_log(f"⚠️ Gamification check failed: {gam_err}")
             else:
-                self.add_log(f"ℹ️ Gamification disabled. Using requested leverage: {target_leverage}x")
+                target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+                self.add_log(f"ℹ️ Gamification disabled. Using leverage: {target_leverage}x (default: {default_leverage}x)")
             
             if 'current_equity' in locals():
                 self.account_value = float(current_equity)
@@ -1075,12 +1090,29 @@ class BotContext:
                 # Enhanced regime log with calculations context
                 ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
                 adx_note = ">25=TREND" if adx < 25 else "TRENDING"
-                self.add_log(f"📊 Regime: {regime} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%")
+                current_price = float(df_15m['close'].iloc[-1])
+                self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%")
                 
                 signals = result.get("signals", [])
                 if signals:
                     sig = signals[0]
                     if sig.get("signal") and sig.get("price"):
+                        
+                        # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
+                        cooldown_minutes = self.global_settings.get("cooldown_minutes", 0)
+                        if cooldown_minutes > 0 and self._last_trade_info.get("time"):
+                            last_symbol = self._last_trade_info.get("symbol")
+                            last_direction = self._last_trade_info.get("direction")
+                            last_time = self._last_trade_info.get("time")
+                            
+                            if last_symbol == self.active_symbol and last_direction == sig.get("signal"):
+                                elapsed_minutes = (pd.Timestamp.now() - pd.Timestamp(last_time)).total_seconds() / 60
+                                if elapsed_minutes < max(1, cooldown_minutes):  # min 1 minute
+                                    remaining = max(1, cooldown_minutes) - elapsed_minutes
+                                    self.add_log(f"⏳ COOLDOWN: {self.active_symbol} {sig.get('signal')} - Skip (wait {remaining:.1f}min)")
+                                    time.sleep(10)
+                                    continue
+                        
                         market_context = self._prepare_ai_context()
                         strat_name = sig.get('strategy')
                         strat_obj = self.strategy_engine.strategies.get(strat_name)
@@ -1175,6 +1207,13 @@ class BotContext:
                                     sig.get("metadata"),
                                     entry_indicators
                                 )
+                                
+                                # Update last trade info for cooldown
+                                self._last_trade_info = {
+                                    "symbol": self.active_symbol,
+                                    "direction": sig.get("signal"),
+                                    "time": pd.Timestamp.now().isoformat()
+                                }
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 

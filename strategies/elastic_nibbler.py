@@ -118,8 +118,8 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         lower_band = bb_lower.iloc[-1]
         
         # PARAMS
-        entry_vol_mult = self.params.get("entry_vol_multiplier", 2.2) # Updated default
-        adx_limit = self.params.get("adx_limit", 25)
+        entry_vol_mult = self.params.get("volume_multiplier", 2.2) # Updated name
+        adx_limit = self.params.get("adx_threshold", 25) # Updated name
         
         # 2. Conditions
         # A. Volume Spike
