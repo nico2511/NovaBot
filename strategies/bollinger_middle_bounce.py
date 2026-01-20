@@ -129,6 +129,11 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
             
             # === LONG SETUP ===
             if trend_dir == 1:
+                # GUARD: Reject if price is already at lower band extreme (not a middle band pullback!)
+                current_lb = lower_band.iloc[-1]
+                if current_price < current_lb * 1.005:  # Within 0.5% of lower band
+                    return None  # Price crashed to lower band, this is NOT a middle band bounce
+                
                 # Interaction Check (Pullback): 
                 # Price recently interacted with Middle Band (e.g. Low < MB or Close near MB)
                 # And now confirming upward
@@ -167,6 +172,16 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
 
             # === SHORT SETUP ===
             elif trend_dir == -1:
+                # GUARD: Reject if price is already at upper band extreme (not a middle band pullback!)
+                current_ub = upper_band.iloc[-1]
+                current_lb = lower_band.iloc[-1]
+                
+                # CRITICAL FIX: Also reject if price is already at/below lower band
+                # This prevents the bug where we SHORT when price has already crashed
+                if current_price > current_ub * 0.995:  # Within 0.5% of upper band
+                    return None  # Price spiked to upper band, not a middle band rejection
+                if current_price < current_lb * 1.005:  # Within 0.5% of lower band  
+                    return None  # Price already at lower band - NO MORE ROOM TO SHORT!
                 
                 # Confirmation: Red and closed below MB
                 is_red = df['close'].iloc[-1] < df['open'].iloc[-1]
