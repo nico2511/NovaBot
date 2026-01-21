@@ -165,13 +165,6 @@ export const api = {
         return response.json();
     },
 
-    async getEquityHistory(): Promise<{ time: number; value: number }[]> {
-        const response = await fetch(`${API_BASE_URL}/api/history/equity`);
-        if (!response.ok) {
-            throw new Error('Failed to fetch equity history');
-        }
-        return response.json();
-    },
 };
 
 // SWR Fetcher
