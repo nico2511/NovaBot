@@ -58,25 +58,31 @@ class BotContext:
         self.active_strategies = []
 
         # Scanner Settings defaults
+        # Scanner Settings defaults (Seeded from user_settings API via config)
         self.scanner_settings = {
-            "enabled": False,
-            "interval": 15,
-            "min_score": 75,
-            "auto_switch": False,
-            "gamification_enabled": True
+            "enabled": config.SCANNER_ENABLED,
+            "interval": config.SCANNER_INTERVAL,
+            "min_score": config.SCANNER_MIN_SCORE,
+            "auto_switch": config.SCANNER_AUTO_SWITCH,
+            "gamification_enabled": config.SCANNER_GAMIFICATION
         }
 
         # Global Settings Defaults (Ensures fields exist even if file is missing)
+        # Global Settings Defaults (Seeded from user_settings API via config)
         self.global_settings = {
-            "max_positions": 1,
-            "daily_stop_loss": 50.0,
-            "trading_timeframe": "15m",
-            "bot_persona": "Conservative Scalper",
-            "risk_profile": "Capital Preservation First",
-            "ai_thresholds": {"high": 101, "medium": 55, "low": 35},
+            "max_positions": config.DEFAULT_MAX_POSITIONS,
+            "daily_stop_loss": config.DEFAULT_DAILY_STOP_LOSS,
+            "trading_timeframe": config.TRADING_TIMEFRAME,
+            "bot_persona": config.BOT_PERSONA,
+            "risk_profile": config.RISK_PROFILE,
+            "ai_thresholds": {
+                "high": config.AI_CONF_THRESHOLD_HIGH,
+                "medium": config.AI_CONF_THRESHOLD_MEDIUM,
+                "low": config.AI_CONF_THRESHOLD_LOW
+            },
             "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
             "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
-            "default_leverage": 1,
+            "default_leverage": config.DEFAULT_LEVERAGE,
             "default_margin_type": "ISOLATED"
         }
         

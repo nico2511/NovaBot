@@ -30,12 +30,16 @@ class StateManager:
         }
         
         # Save Scanner Settings (centralized config)
-        if hasattr(context, 'scanner_settings'):
-            state["scanner_settings"] = context.scanner_settings
+        # Save Scanner Settings (centralized config)
+        # DISABLED: Now managed via user_settings.json
+        # if hasattr(context, 'scanner_settings'):
+        #    state["scanner_settings"] = context.scanner_settings
         
         # Save Global Settings (for future frontend config)
-        if hasattr(context, 'global_settings'):
-            state["global_settings"] = context.global_settings
+        # DISABLED: We now rely on user_settings.json as the Source of Truth.
+        # Storing them here caused conflicts/overwrites on reload.
+        # if hasattr(context, 'global_settings'):
+        #     state["global_settings"] = context.global_settings
 
         # Atomic write with Backup
         temp_file = f"{STATE_FILE}.tmp"
@@ -100,20 +104,33 @@ class StateManager:
             # (sidebar_settings removed - use scanner_settings)
             
             # Restore Scanner Settings
-            if "scanner_settings" in state:
+            # Restore Scanner Settings
+            # DISABLED: Now managed via user_settings.json
+            if False: # if "scanner_settings" in state:
                 context.scanner_settings = state["scanner_settings"]
                 print(f"✅ Loaded scanner settings: {context.scanner_settings}")
             else:
-                context.scanner_settings = {
-                    "enabled": False,
-                    "interval": 15, 
-                    "min_score": 50,
-                    "auto_switch": False
-                }
-                state_modified = True  # Mark state as modified
+                 # Initialized in BotContext.__init__ via config
+                 pass
+                # context.scanner_settings = {
+                #     "enabled": False,
+                #     "interval": 15, 
+                #     "min_score": 50,
+                #     "auto_switch": False
+                # }
+                # state_modified = True  # Mark state as modified
 
-            # Restore Global Settings (for frontend config)
-            if "global_settings" in state:
+            # Restore Global Settings (Deprioritized - Config/User Settings are Source of Truth)
+            # We ONLY load from state if context.global_settings is somehow empty (unlikely with new init)
+            # But to be safe and respect user_settings.json, we generally SKIP overwriting from state 
+            # unless we implement a specific field-level timestamp check (overkill).
+            
+            # For now: We assume bot.py __init__ loaded the fresh user_settings.json via config.py.
+            # We DO NOT overwrite it with stale state data.
+            print("ℹ️ Configuration Strategy: Keeping defaults/user_settings (ignoring potentially stale state global_settings)")
+
+            if False: # DISABLED - See note above.
+            # if "global_settings" in state:
                 gs = state["global_settings"]
                 
                 # MIGRATION V1 -> V2 (Integer Threshold -> Tri-Level Object)
@@ -135,7 +152,8 @@ class StateManager:
                 print(f"✅ Loaded global settings (merged): {context.global_settings}")
             else:
                 # Default global settings
-                context.global_settings = {
+                # context.global_settings = { ... } # Already set in bot.py __init__ via config
+                pass
                     "max_positions": 1,
                     "daily_stop_loss": 50.0,
                     "trading_timeframe": "15m",

@@ -21,5 +21,12 @@
         "conf_threshold_high": 101,
         "conf_threshold_medium": 55,
         "conf_threshold_low": 35
+    },
+    "scanner": {
+        "enabled": false,
+        "interval": 15,
+        "min_score": 75,
+        "auto_switch": false,
+        "gamification_enabled": true
     }
 }

@@ -57,6 +57,13 @@ class Config:
     # Operations (from bot_state.json or .env fallback)
     AUTO_START_TRADING: bool = _state_settings.get('operations', {}).get('auto_start_trading') if _state_settings.get('operations', {}).get('auto_start_trading') is not None else (os.getenv("AUTO_START_TRADING", "false").lower() == "true")
     
+    # Scanner Settings (New in v2 - from user_settings.json)
+    SCANNER_ENABLED: bool = _state_settings.get('scanner', {}).get('enabled', False)
+    SCANNER_INTERVAL: int = _state_settings.get('scanner', {}).get('interval', 15)
+    SCANNER_MIN_SCORE: int = _state_settings.get('scanner', {}).get('min_score', 75)
+    SCANNER_AUTO_SWITCH: bool = _state_settings.get('scanner', {}).get('auto_switch', False)
+    SCANNER_GAMIFICATION: bool = _state_settings.get('scanner', {}).get('gamification_enabled', True)
+
     # ==============================================================================
     # 🧠 AI MODULAR CONFIGURATION
     # ==============================================================================

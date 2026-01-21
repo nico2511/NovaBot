@@ -30,12 +30,12 @@ if ! python3 -c "import pandas; import dotenv; import eth_account; import hyperl
     fi
 fi
 
-# Frontend skipped (Phasing out legacy frontend)
-# echo "🏗️  Building Next.js Frontend..."
-# cd frontend
-# npm install --no-audit --prefer-offline
-# npm run build
-# cd ..
+# Frontend Build (Next.js 14)
+echo "🏗️  Building Next.js Frontend (frontend-v3)..."
+cd frontend-v3
+npm install --no-audit --prefer-offline
+npm run build
+cd ..
 
 # Check PM2 availability
 if ! command -v pm2 &> /dev/null; then
