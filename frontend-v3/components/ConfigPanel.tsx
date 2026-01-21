@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import useSWR, { mutate } from 'swr';
 import { Save, RefreshCw } from 'lucide-react';
+import { StrategySelector } from './StrategySelector';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -105,7 +106,7 @@ export default function ConfigPanel() {
 
             // Change active symbol if modified
             if (status?.active_symbol !== activeSymbol) {
-                const res = await fetch(`${API_BASE_URL}/api/symbol`, {
+                const res = await fetch(`${API_BASE_URL}/api/switch_symbol`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ symbol: activeSymbol }),
@@ -130,6 +131,8 @@ export default function ConfigPanel() {
 
     return (
         <div className="space-y-6">
+            <StrategySelector />
+
             {/* Message */}
             {message && (
                 <div className={`p-3 rounded text-sm ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
@@ -141,7 +144,6 @@ export default function ConfigPanel() {
             {/* Active Token */}
             <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
                 <h3 className="text-sm text-gray-400 mb-3">Active Token</h3>
-                <label className="block text-sm text-gray-500 mb-1">Active Token</label>
                 <select
                     className="w-full bg-neutral-950 border border-neutral-800 rounded p-2 text-white"
                     value={activeSymbol}
@@ -198,69 +200,6 @@ export default function ConfigPanel() {
                 </div>
             </div>
 
-            {/* Global Settings */}
-            <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4">
-                <h3 className="text-sm text-gray-400 mb-3">Trading</h3>
-                <div className="space-y-3">
-                    <label className="flex flex-col gap-1">
-                        <span className="text-sm">Leverage</span>
-                        <select
-                            value={global.default_leverage}
-                            onChange={(e) => setGlobal({ ...global, default_leverage: parseInt(e.target.value) })}
-                            className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2"
-                        >
-                            {[1, 2, 3, 5, 10, 20].map(lev => (
-                                <option key={lev} value={lev}>{lev}x</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-sm">Timeframe</span>
-                        <select
-                            value={global.trading_timeframe}
-                            onChange={(e) => setGlobal({ ...global, trading_timeframe: e.target.value })}
-                            className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2"
-                        >
-                            {TIMEFRAMES.map(tf => (
-                                <option key={tf} value={tf}>{tf}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-sm">Persona</span>
-                        <select
-                            value={global.bot_persona}
-                            onChange={(e) => setGlobal({ ...global, bot_persona: e.target.value })}
-                            className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2"
-                        >
-                            {PERSONAS.map(p => (
-                                <option key={p} value={p}>{p}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-sm">Risk Profile</span>
-                        <select
-                            value={global.risk_profile}
-                            onChange={(e) => setGlobal({ ...global, risk_profile: e.target.value })}
-                            className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2"
-                        >
-                            {RISK_PROFILES.map(r => (
-                                <option key={r} value={r}>{r}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <label className="flex flex-col gap-1">
-                        <span className="text-sm">Daily Stop Loss ($)</span>
-                        <input
-                            type="number"
-                            value={global.daily_stop_loss}
-                            onChange={(e) => setGlobal({ ...global, daily_stop_loss: parseFloat(e.target.value) })}
-                            className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2"
-                        />
-                    </label>
-                </div>
-            </div>
 
             {/* Save Button */}
             <button

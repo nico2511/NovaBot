@@ -17,8 +17,8 @@ const interpreterPath = isWin
 module.exports = {
     apps: [
         {
-            name: 'hl-bot-engine',
-            script: 'main_nextjs.py',
+            name: 'novabot-backend',
+            script: 'backend/api.py',
             interpreter: interpreterPath,
             interpreter_args: '-X utf8',
             cwd: process.cwd(),
@@ -26,15 +26,30 @@ module.exports = {
                 PYTHONPATH: process.cwd(),
                 VIRTUAL_ENV: process.cwd() + (venvDir.startsWith('./') ? venvDir.substring(1) : '/' + venvDir),
                 PYTHONIOENCODING: 'utf-8',
-                // Add Flask/FastAPI env vars if needed
                 PORT: 8001
             },
-            error_file: './logs/bot-error.log',
-            out_file: './logs/bot-out.log',
+            error_file: './logs/backend-error.log',
+            out_file: './logs/backend-out.log',
             log_date_format: 'YYYY-MM-DD HH:mm:ss',
             autorestart: true,
             max_restarts: 10,
-            min_uptime: '10s'
+            min_uptime: '5s'
+        },
+        {
+            name: 'novabot-frontend',
+            script: 'npm',
+            args: 'start',
+            cwd: './frontend-v3',
+            env: {
+                NODE_ENV: 'production',
+                PORT: 3000
+            },
+            error_file: '../logs/frontend-error.log',
+            out_file: '../logs/frontend-out.log',
+            log_date_format: 'YYYY-MM-DD HH:mm:ss',
+            autorestart: true,
+            max_restarts: 10,
+            min_uptime: '5s'
         }
     ]
 }

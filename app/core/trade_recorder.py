@@ -25,6 +25,22 @@ class TradeRecorder:
         ]
         
         self._ensure_storage()
+
+    def _read_csv_safe(self) -> pd.DataFrame:
+        """Read CSV robustly handling schema evolution"""
+        if not os.path.exists(self.csv_file):
+            return pd.DataFrame(columns=self.headers)
+        
+        try:
+            # Force using current headers, fill missing with NaN for old rows
+            # header=None + skiprows=1 avoids mismatch error between names and file header
+            return pd.read_csv(self.csv_file, names=self.headers, header=None, skiprows=1, engine='python')
+        except Exception as e:
+            print(f"⚠️ CSV Read Error (Attempting fallback): {e}")
+            try:
+                return pd.read_csv(self.csv_file) # Fallback to standard read
+            except:
+                return pd.DataFrame(columns=self.headers)
         
     def _ensure_storage(self):
         """Ensure data directory and CSV file exist with correct headers"""
@@ -97,24 +113,21 @@ class TradeRecorder:
         Get recent trade history from CSV.
         Returns list of dicts.
         """
-        if not os.path.exists(self.csv_file):
-            return []
-            
         try:
-            # Use pandas for efficient reading
-            df = pd.read_csv(self.csv_file)
+            # Use safe reader
+            df = self._read_csv_safe()
             
+            if df.empty:
+                 return []
+
             # Sort by timestamp desc (assuming isoformat sort works, or parsing)
-            if not df.empty and 'timestamp' in df.columns:
+            if 'timestamp' in df.columns:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df.sort_values(by='timestamp', ascending=False, inplace=True)
                 # Convert back to string for consistency
                 df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%dT%H:%M:%S')
             
-            # Limit
-            df = df.head(limit)
-            
-            return df.to_dict('records')
+            return df.head(limit).fillna("").to_dict('records')
             
         except Exception as e:
             print(f"⚠️ Error reading trade history: {e}")
@@ -124,11 +137,8 @@ class TradeRecorder:
         """
         Calculate aggregate statistics from persistence.
         """
-        if not os.path.exists(self.csv_file):
-            return self._empty_stats()
-            
         try:
-            df = pd.read_csv(self.csv_file)
+            df = self._read_csv_safe()
             if df.empty:
                 return self._empty_stats()
                 
@@ -155,6 +165,36 @@ class TradeRecorder:
         except Exception as e:
             print(f"⚠️ Error calculating stats: {e}")
             return self._empty_stats()
+
+    def get_equity_curve(self) -> List[Dict[str, Any]]:
+        """
+        Calculate cumulative PnL curve for charting.
+        Returns list of { "time": "YYYY-MM-DD", "value": 123.45 }
+        """
+        try:
+            df = self._read_csv_safe()
+            if df.empty:
+                return []
+                
+            # Sort by timestamp
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.sort_values(by='timestamp', inplace=True)
+            
+            # Calculate cumulative PnL
+            df['cumulative_pnl'] = df['pnl'].cumsum()
+            
+            curve = []
+            for _, row in df.iterrows():
+                curve.append({
+                    "time": int(row['timestamp'].timestamp()), # UNIX timestamp for Lightweight Charts
+                    "value": round(row['cumulative_pnl'], 2)
+                })
+                
+            return curve
+            
+        except Exception as e:
+            print(f"⚠️ Error calculating equity curve: {e}")
+            return []
 
     def _empty_stats(self):
         return {

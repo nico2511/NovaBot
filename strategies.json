@@ -26,7 +26,7 @@
             }
         },
         "elastic_nibbler": {
-            "enabled": true,
+            "enabled": false,
             "type": "reversion",
             "description": "Advanced Scalper for BTC/ETH. BB Breakout + Custom Trailing Scalp.",
             "display_conditions": [
@@ -52,7 +52,7 @@
             }
         },
         "elastic_reversion": {
-            "enabled": true,
+            "enabled": false,
             "type": "reversion",
             "description": "Elastic Mean Reversion. Captures snap-back from RSI/Price extremes.",
             "display_conditions": [
@@ -76,7 +76,7 @@
             }
         },
         "smart_trend": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Smart Trend V3 - Plus stricte sur vrai trend, moins de faux en range",
             "display_conditions": [
@@ -96,7 +96,7 @@
             }
         },
         "smart_mean_reversion": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Trend Dip Buyer. Buys healthy dips in strong trends (RSI 40-55, EMA support).",
             "display_conditions": [
@@ -118,7 +118,7 @@
             }
         },
         "bollinger_bounce": {
-            "enabled": true,
+            "enabled": false,
             "type": "range",
             "description": "Aggressive Bollinger Bounce (V2) for choppy/range markets.",
             "display_conditions": [
@@ -141,7 +141,7 @@
             }
         },
         "bollinger_middle_bounce": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Pullback sur Middle Band Bollinger en continuation de trend",
             "display_conditions": [
@@ -162,7 +162,7 @@
             }
         },
         "institutional_scalp": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Liquidity Grab & Sweep Detection. Enters on reclaim.",
             "display_conditions": [
@@ -179,7 +179,7 @@
             }
         },
         "fibo_pullback": {
-            "enabled": true,
+            "enabled": false,
             "type": "trend",
             "description": "Fibonacci Pullback V2 (AI-Enhanced). LONG/SHORT Continuation in Golden Zone.",
             "display_conditions": [

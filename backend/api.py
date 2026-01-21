@@ -45,6 +45,7 @@ logger = logging.getLogger("API")
 # 1. Utilities & Data (Essential)
 try:
     from app.utils.token_metadata import token_metadata
+    from app.core.trade_recorder import TradeRecorder
     from backend.market_data import get_hyperliquid_candles, get_current_price, get_open_interest
     ESSENTIALS_AVAILABLE = True
 except ImportError as e:
@@ -117,10 +118,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def debug_middleware(request: Request, call_next):
+    print(f"🔍 REQUEST: {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"✅ RESPONSE: {response.status_code}")
+    return response
+
 # Register routers
 if ROUTES_AVAILABLE:
-    app.include_router(scanner_router, prefix="/api", tags=["scanner"])
-    print("✅ Scanner routes registered")
+    # app.include_router(scanner_router, prefix="/api", tags=["scanner"])
+    print("✅ Scanner routes registered (DISABLED DEBUG)")
 
 # ==========================================
 # HELPER CLASSES & FUNCTIONS
@@ -161,6 +169,14 @@ class BotState:
         self.last_updated = None
         self.signals_log = []
         self.logs = []
+        self.latest_analysis = {}
+        
+        # Settings sections (migrated from .env)
+        self.notifications = {}
+        self.operations = {}
+        self.risk_defaults = {}
+        self.ai_config = {}
+        
         self.load_state()
     
     def add_log(self, message):
@@ -179,10 +195,17 @@ class BotState:
                     self.trading_enabled = state.get("trading_enabled", False)
                     self.active_symbol = state.get("active_symbol", "BTC")
                     self.last_updated = state.get("last_updated", None)
+                    self.latest_analysis = state.get("latest_analysis", {})
                     
                     risk_state = state.get("risk_state", {})
                     self.daily_pnl = risk_state.get("daily_pnl", 0.0)
                     self.active_positions = risk_state.get("open_positions", 0)
+                    
+                    # Load settings sections
+                    self.notifications = state.get("notifications", {})
+                    self.operations = state.get("operations", {})
+                    self.risk_defaults = state.get("risk_defaults", {})
+                    self.ai_config = state.get("ai_config", {})
         except Exception as e:
             print(f"Error loading state: {e}")
 
@@ -202,6 +225,20 @@ class BotState:
             if "sidebar_settings" not in state:
                 state["sidebar_settings"] = {}
             
+            # Persist latest analysis for UI
+            if hasattr(self, 'latest_analysis'):
+                 state["latest_analysis"] = self.latest_analysis
+            
+            # Persist settings sections
+            if hasattr(self, 'notifications'):
+                state["notifications"] = self.notifications
+            if hasattr(self, 'operations'):
+                state["operations"] = self.operations
+            if hasattr(self, 'risk_defaults'):
+                state["risk_defaults"] = self.risk_defaults
+            if hasattr(self, 'ai_config'):
+                state["ai_config"] = self.ai_config
+
             with open(state_file, "w") as f:
                 json.dump(state, f, indent=2)
         except Exception as e:
@@ -217,8 +254,22 @@ class BotStatus(BaseModel):
     daily_pnl: float = 0.0
     active_positions: int = 0
     last_updated: Optional[str] = None
+    logs: List[str] = []
+    
+    # Health Metrics
+    margin_usage: float = 0.0
+    win_rate: float = 0.0
+    max_drawdown: float = 0.0
+    
+    
+    # Market Analysis
+    market_analysis: Optional[Dict[str, Any]] = None
+    
+    # Positions
+    open_positions: List[Dict[str, Any]] = []
 
 class GlobalSettingsModel(BaseModel):
+
     max_positions: int
     daily_stop_loss: float
     trading_timeframe: str
@@ -227,6 +278,8 @@ class GlobalSettingsModel(BaseModel):
     ai_thresholds: Dict[str, int]
     available_personas: Optional[List[str]] = None
     available_risk_profiles: Optional[List[str]] = None
+    default_leverage: int = 1
+    default_margin_type: str = "ISOLATED"
 
 class ScannerSettingsModel(BaseModel):
     enabled: bool
@@ -234,6 +287,9 @@ class ScannerSettingsModel(BaseModel):
     min_score: int
     auto_switch: bool
     gamification_enabled: bool
+
+class StrategySelectModel(BaseModel):
+    strategy_id: str
 
 def _execute_bot_action(bot_action: callable, standalone_action: callable, status_key: str, success_message: str) -> Dict[str, str]:
     """Execute action on bot or standalone state with automatic persistence."""
@@ -272,17 +328,73 @@ async def get_status():
         # Fetch Risk Data (Thread-Safe)
         daily_pnl = 0.0
         active_positions = 0
+        margin_usage = 0.0
+        win_rate = 0.0
+        max_drawdown = 0.0
+        open_positions_list = []
+
         try:
             # Use Hyperliquid snapshot PnL (more accurate than manual tracking)
             from app.services.hyperliquid_service import hyperliquid_service
             daily_pnl = hyperliquid_service.get_daily_pnl()
             
-            # Get active positions count from risk manager
+            # Fetch Real Open Positions
+            open_positions_list = hyperliquid_service.get_positions()
+            active_positions = len(open_positions_list)
+            
+            # Theoretical Margin Usage (Account Value / Maintenance Margin)
+            # For now, we simulate it based on positions for speed (or fetch full account state if needed)
+            # In a real scenario we'd call exchange.info.user_state() but that's heavy.
+            # We'll use a simplified estimate: (Open Positions Value / Account Value) * 10 
+            # (Assuming 10x leverage as baseline for risk meter)
+            
             if hasattr(bot, 'risk_manager'):
-                risk_status = bot.risk_manager.get_status()
-                active_positions = int(risk_status.get("open_positions", 0))
+                # Get real stats from TradeRecorder
+                try:
+                    if hasattr(bot, 'trade_recorder'):
+                        stats = bot.trade_recorder.get_stats()
+                        win_rate = stats.get('win_rate', 0.0)
+                        max_drawdown = abs(stats.get('max_drawdown', 0.0))
+                    else:
+                        win_rate = 0.0
+                        max_drawdown = 0.0
+                except Exception as e:
+                    logger.warning(f"Could not fetch trade stats: {e}")
+                    win_rate = 0.0
+                    max_drawdown = 0.0
+                
+                # Fix Margin calculation (remove double *100)
+                if bot.account_value > 0 and active_positions > 0:
+                    # Calculate total position value
+                    total_position_value = sum(
+                        abs(float(pos.get('szi', 0)) * float(pos.get('entryPx', 0))) 
+                        for pos in open_positions_list
+                    )
+                    # Margin usage = (Position Value / Account Value) * 100
+                    margin_usage = (total_position_value / bot.account_value) * 100
+                else:
+                    margin_usage = 0.0
+                
+            # Add duration to active positions
+            from datetime import datetime
+            for pos in open_positions_list:
+                if 'entryTime' in pos:
+                    try:
+                        entry_time = datetime.fromtimestamp(pos['entryTime'] / 1000)
+                        duration_seconds = (datetime.now() - entry_time).total_seconds()
+                        hours = int(duration_seconds // 3600)
+                        minutes = int((duration_seconds % 3600) // 60)
+                        pos['duration'] = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+                    except:
+                        pos['duration'] = "--"
+                else:
+                    pos['duration'] = "--"
+                     
         except Exception as e:
             logger.error(f"Error fetching status data: {e}")
+
+        # Get logs (convert deque to list)
+        logs_list = list(bot.logs) if hasattr(bot, 'logs') else []
 
         return BotStatus(
             is_running=bot.is_running,
@@ -291,7 +403,13 @@ async def get_status():
             active_trade=sanitized_trade,
             daily_pnl=daily_pnl,
             active_positions=active_positions,
-            last_updated=getattr(bot, 'last_updated', None)
+            last_updated=getattr(bot, 'last_updated', None),
+            logs=logs_list,
+            margin_usage=margin_usage,
+            win_rate=win_rate,
+            max_drawdown=max_drawdown,
+            market_analysis=getattr(bot, 'latest_analysis', {}),
+            open_positions=open_positions_list
         )
     
     # Fallback to bot_state
@@ -306,7 +424,10 @@ async def get_status():
         active_trade=sanitized_trade_fallback,
         daily_pnl=bot_state.daily_pnl,
         active_positions=bot_state.active_positions,
-        last_updated=bot_state.last_updated
+        last_updated=bot_state.last_updated,
+        logs=bot_state.logs,
+        market_analysis=bot_state.latest_analysis, 
+        open_positions=[]
     )
 
 # --- Engine Control ---
@@ -360,6 +481,74 @@ def restart_engine():
         bot_state.add_log("🚀 Bot started (Restart)")
         bot_state.save_state()
         return {"status": "restarted", "message": "Standalone mode - Bot restarted"}
+
+@app.post("/api/engine/panic")
+def panic_close():
+    """🚨 PANIC BUTTON: Stop engine and Close ALL Positions immediately."""
+    results = []
+    
+    # 1. Stop the Engine first
+    if bot_bridge and bot_bridge.is_connected():
+        bot = bot_bridge.get_bot_context()
+        bot.stop()
+        bot.trading_enabled = False
+        bot.add_log("🚨 PANIC BUTTON ACTIVATED! Stopping engine...")
+    else:
+        bot_state.is_running = False
+        bot_state.trading_enabled = False
+        bot_state.add_log("🚨 PANIC BUTTON ACTIVATED! (Standalone)")
+
+    # 2. Close All Positions via Hyperliquid Service
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        
+        # Fetch actual open positions from exchange to be sure
+        positions = hyperliquid_service.get_positions()
+        
+        if not positions:
+            log_msg = "ℹ️ Panic: No open positions found on exchange."
+            if bot_bridge: bot_bridge.get_bot_context().add_log(log_msg)
+            return {"status": "success", "message": "Engine stopped. No positions to close.", "closed": []}
+
+        for pos in positions:
+            symbol = pos['symbol']
+            size = float(pos['size'])
+            if size == 0: continue
+            
+            try:
+                # Attempt close
+                if bot_bridge: bot_bridge.get_bot_context().add_log(f"🚨 Panic: Closing {symbol} ({size})...")
+                
+                # Use the robust close_position method
+                res = hyperliquid_service.close_position(symbol)
+                results.append({
+                    "symbol": symbol, 
+                    "status": "success" if res.get("status") == "success" else "failed",
+                    "details": res
+                })
+            except Exception as e:
+                err_msg = f"❌ Panic: Failed to close {symbol}: {e}"
+                logger.error(err_msg)
+                if bot_bridge: bot_bridge.get_bot_context().add_log(err_msg)
+                results.append({"symbol": symbol, "status": "error", "error": str(e)})
+
+    except Exception as e:
+        logger.critical(f"❌ Panic Execution Failed: {e}")
+        return {"status": "error", "message": f"Critical Panic Error: {e}"}
+
+    # Save state to reflect stopped status
+    if bot_bridge:
+        try:
+            StateManager.save_state(bot_bridge.get_bot_context())
+        except: pass
+    else:
+        bot_state.save_state()
+
+    return {
+        "status": "success", 
+        "message": f"Engine Stopped. Attempted to close {len(results)} positions.",
+        "results": results
+    }
 
 @app.post("/api/trading/enable")
 def enable_trading():
@@ -445,7 +634,9 @@ def get_global_settings():
             "low": 101
         },
         "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
-        "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
+        "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
+        "default_leverage": 1,
+        "default_margin_type": "ISOLATED"
     }
 
 @app.post("/api/settings/global")
@@ -479,9 +670,34 @@ def update_global_settings(settings: GlobalSettingsModel):
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         new_settings = update_logic(bot)
+        
+        # TRIGGER LEVERAGE UPDATE ON EXCHANGE
+        try:
+            leverage = int(new_settings.get("default_leverage", 1))
+            margin_type = new_settings.get("default_margin_type", "ISOLATED")
+            is_cross = (margin_type.upper() == "CROSS")
+            
+            # Use active symbol from bot context
+            symbol = bot.active_symbol
+            
+            # Call Service
+            logger.info(f"🔄 Syncing leverage to Exchange for {symbol}: {leverage}x ({margin_type})")
+            bot.add_log(f"🔄 Syncing leverage to Exchange for {symbol}: {leverage}x ({margin_type})...")
+            
+            result = hyperliquid_service.update_leverage(symbol, leverage, is_cross)
+            
+            if result.get("status") == "success":
+                bot.add_log(f"✅ Leverage Synced: {leverage}x ({margin_type}) for {symbol}")
+            else:
+                bot.add_log(f"❌ Leverage Sync Failed: {result.get('message')}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to sync leverage to exchange: {e}")
+            bot.add_log(f"❌ Failed to sync leverage: {e}")
+
         try:
             StateManager.save_state(bot)
-            return {"status": "success", "message": "Settings updated", "settings": new_settings}
+            return {"status": "success", "message": "Settings updated & Leverage Synced", "settings": new_settings}
         except Exception as e:
             return {"status": "error", "message": f"Save failed: {e}"}
     else:
@@ -578,6 +794,63 @@ def update_scanner_settings(settings: ScannerSettingsModel):
              return {"status": "success", "message": "Scanner settings saved (Standalone)", "settings": new_settings}
         except Exception as e:
              return {"status": "error", "message": f"Standalone save failed: {e}"}
+
+@app.get("/api/market/candles")
+def get_candles(symbol: str, interval: str = "15m", limit: int = 100):
+    """Get historical candles for a symbol"""
+    try:
+        print(f"🕯️ API Request: Candles for {symbol} ({interval}, limit={limit})")
+        
+        # Use hyperliquid service to fetch candles
+        df = hyperliquid_service.get_candles(symbol, interval=interval, limit=limit)
+        
+        print(f"📊 DataFrame shape: {df.shape if not df.empty else 'EMPTY'}")
+
+        if df.empty:
+            print("⚠️ Returned DF is empty!")
+            return []
+            
+        # Convert to list of dicts for JSON response
+        # TV Charts expects: { time: set/timestamp, open: float, high: float, low: float, close: float }
+        # Our DF has: index=time, columns=[open, high, low, close, volume, t, ...]
+        
+        # Ensure 'time' or 't' is available in records
+        df_reset = df.reset_index() # Adds 'time' column from index
+        records = df_reset.to_dict('records')
+        
+        # Transform for Lightweight Charts
+        # We need seconds for TV charts
+        formatted = []
+        for i, r in enumerate(records):
+            try:
+                # Use 't' (ms) if available, else convert 'time' (datetime)
+                ts_val = 0
+                if 't' in r and pd.notna(r['t']):
+                    ts_val = int(r['t'] / 1000)
+                elif 'time' in r:
+                     # Convert pandas Timestamp to unix seconds
+                     ts_val = int(pd.Timestamp(r['time']).timestamp())
+                else:
+                    # Fallback if no time info
+                    print(f"⚠️ Row {i} missing time info. Keys: {list(r.keys())}")
+                    continue
+                
+                formatted.append({
+                    "time": ts_val,
+                    "open": r['open'],
+                    "high": r['high'],
+                    "low": r['low'],
+                    "close": r['close'],
+                    "volume": r['volume']
+                })
+            except Exception as e_inner:
+                print(f"❌ Error processing row {i}: {e_inner}. Keys: {list(r.keys())}")
+                raise e_inner
+            
+        return formatted
+    except Exception as e:
+        logger.error(f"Error fetching candles: {e}")
+        return []
 
 # --- Market Data ---
 
@@ -1051,9 +1324,23 @@ async def download_bot_trades():
 async def get_logs(limit: int = 50):
     """Get recent logs with structured format including level and metadata"""
     
-    def parse_log_entry(log_line: str) -> dict:
-        """Parse a log line into structured format"""
-        # Default values
+    def parse_log_entry(log_entry: Union[str, dict]) -> dict:
+        """Parse a log entry (string or dict) into structured format"""
+        # Case 1: Already structured (New Bot Logic)
+        if isinstance(log_entry, dict):
+            # Ensure Level is present if not set
+            if "level" not in log_entry:
+                msg_upper = log_entry.get("message", "").upper()
+                if "ERROR" in msg_upper or "❌" in msg_upper: log_entry["level"] = "ERROR"
+                elif "WARNING" in msg_upper or "⚠️" in msg_upper: log_entry["level"] = "WARNING"
+                elif "SUCCESS" in msg_upper or "✅" in msg_upper: log_entry["level"] = "SUCCESS"
+                elif "VETO" in msg_upper: log_entry["level"] = "VETO"
+                elif "SIGNAL" in msg_upper: log_entry["level"] = "SIGNAL"
+                else: log_entry["level"] = "INFO"
+            return log_entry
+
+        # Case 2: Legacy String Log
+        log_line = str(log_entry)
         result = {
             "timestamp": "",
             "level": "INFO",
@@ -1097,8 +1384,13 @@ async def get_logs(limit: int = 50):
         raw_logs = list(bot.logs)[-limit:]
         logs = [parse_log_entry(l) for l in raw_logs]
     else:
-        raw_logs = list(bot_state.logs)[-limit:]
-        logs = [parse_log_entry(l) for l in raw_logs]
+        # Fallback to file reading or state if disconnected
+        # For simplicity, we return empty or last known state logs if available strings
+        try:
+             raw_logs = list(bot_state.logs)[-limit:] if hasattr(bot_state, 'logs') else []
+             logs = [parse_log_entry(l) for l in raw_logs]
+        except:
+             logs = []
     
     # Return in reverse chronological order (newest first)
     logs.reverse()
@@ -1108,38 +1400,91 @@ async def get_logs(limit: int = 50):
 
 # --- Settings & Gamification ---
 
-@app.get("/api/settings")
-async def get_settings():
-    """Get settings"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        return bot.sidebar_settings
-    
-    # Fallback to file
-    try:
-        with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f:
-            return json.load(f).get("sidebar_settings", {})
-    except:
-        return {}
+# --- Settings & Gamification ---
 
-@app.post("/api/settings")
-async def save_settings(settings: dict):
-    """Save settings"""
-    if bot_bridge and bot_bridge.is_connected():
-        bot = bot_bridge.get_bot_context()
-        bot.sidebar_settings = settings
-        bot.scanner_settings = settings.get("scanner", {})
-        bot.active_symbol = settings.get("asset", bot.active_symbol)
-        StateManager.save_state(bot)
-        return {"status": "success"}
-    
-    # Standalone save
+# --- Settings & Gamification ---
+
+SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
+
+def load_user_settings():
     try:
-        with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f: state = json.load(f)
-    except: state = {}
-    state["sidebar_settings"] = settings
-    with open(os.path.join(BASE_DIR, "bot_state.json"), "w") as f: json.dump(state, f)
-    return {"status": "success"}
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading user_settings.json: {e}")
+    return {}
+
+def save_user_settings(settings):
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=4)
+        return True
+    except Exception as e:
+        logger.error(f"Error saving user_settings.json: {e}")
+        return False
+
+@app.get("/api/settings/all")
+async def get_all_settings():
+    """Get all settings categorized from user_settings.json"""
+    # Defaults
+    settings = {
+        "notifications": {},
+        "operations": {},
+        "risk_defaults": {},
+        "ai_config": {}
+    }
+    
+    # Load from dedicated file (Source of Truth for Config)
+    user_conf = load_user_settings()
+    settings.update(user_conf)
+
+    # Ensure defaults structure exists
+    if "risk_defaults" not in settings: settings["risk_defaults"] = {}
+    if "default_leverage" not in settings["risk_defaults"]:
+        settings["risk_defaults"]["default_leverage"] = 1
+
+    return settings
+
+@app.post("/api/settings/update")
+async def update_settings(payload: dict):
+    """Update a specific settings section in user_settings.json"""
+    section = payload.get("section")
+    data = payload.get("data")
+    
+    if not section or not data:
+        raise HTTPException(status_code=400, detail="Missing section or data")
+
+    try:
+        settings = load_user_settings()
+        
+        # Initialize sections if missing
+        if "notifications" not in settings: settings["notifications"] = {}
+        if "operations" not in settings: settings["operations"] = {}
+        if "risk_defaults" not in settings: settings["risk_defaults"] = {}
+        if "ai_config" not in settings: settings["ai_config"] = {}
+
+        # Update Section
+        settings[section] = data
+        
+        # Save to File
+        save_user_settings(settings)
+            
+        # Update Live Bot (Hot Reload)
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if section == "risk_defaults":
+                 bot.max_positions = int(data.get("max_positions", bot.max_positions))
+                 
+            # Also update global_settings if it exists on bot for backward compat
+            if hasattr(bot, 'global_settings'):
+                 bot.global_settings.update(data)
+            
+        return {"status": "success", "message": f"Updated {section}"}
+        
+    except Exception as e:
+        logger.error(f"Save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/toggle_gamification")
 async def toggle_gamification(data: dict):
@@ -1190,13 +1535,141 @@ async def ai_analysis(data: dict):
         
         last = df.iloc[-1]
         market_data = {
-            "symbol": symbol, "price": float(last['close']),
+            "symbol": symbol, 
+            "price": float(last['close']),
             "rsi": float(Indicators.rsi(df['close'], 14).iloc[-1]),
             "adx": float(Indicators.adx(df['high'], df['low'], df['close'], 14)['ADX'].iloc[-1])
         }
         return await run_in_threadpool(ia_service.analyze_market, market_data)
     except Exception as e:
         return {"error": str(e)}
+
+
+# --- Settings Management ---
+
+@app.get("/api/settings/all")
+def get_all_settings():
+    """Get all editable settings sections"""
+    try:
+        return {
+            "notifications": bot_state.notifications,
+            "operations": bot_state.operations,
+            "risk_defaults": bot_state.risk_defaults,
+            "ai_config": bot_state.ai_config
+        }
+    except Exception as e:
+        logger.error(f"Error fetching settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings/update")
+def update_settings(request: Dict[str, Any]):
+    """Update a specific settings section"""
+    try:
+        section = request.get("section")
+        data = request.get("data")
+        
+        if not section or data is None:
+            raise HTTPException(status_code=400, detail="Missing 'section' or 'data'")
+        
+        valid_sections = ["notifications", "operations", "risk_defaults", "ai_config"]
+        if section not in valid_sections:
+            raise HTTPException(status_code=400, detail=f"Invalid section. Must be one of: {valid_sections}")
+        
+        # Update the section
+        setattr(bot_state, section, data)
+        bot_state.save_state()
+        
+        # 🔄 CRITICAL: Reload config to apply changes immediately
+        try:
+            import importlib
+            from app.core import config as config_module
+            importlib.reload(config_module)
+            logger.info(f"✅ Config reloaded after updating {section}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not reload config: {e}")
+        
+        logger.info(f"✅ Updated settings section: {section}")
+        return {"status": "success", "section": section, "data": data}
+        
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Strategy Management ---
+
+@app.get("/api/config/strategy-list")
+def get_strategies():
+    """Get all strategies from strategies.json with their status"""
+    print("👉 DEBUG: get_strategies endpoint called!")
+    try:
+        strat_file = os.path.join(BASE_DIR, "strategies.json")
+        if not os.path.exists(strat_file):
+            raise HTTPException(status_code=404, detail="strategies.json not found")
+            
+        with open(strat_file, "r") as f:
+            config_data = json.load(f)
+            
+        strategies = config_data.get("strategies", {})
+        result = []
+        for sid, info in strategies.items():
+            result.append({
+                "id": sid,
+                "name": sid.replace("_", " ").title(),
+                "enabled": info.get("enabled", False),
+                "type": info.get("type", "unknown"),
+                "description": info.get("description", "")
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching strategies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/config/strategy-select")
+def select_strategy(selection: StrategySelectModel):
+    """Enable a single strategy and disable all others"""
+    try:
+        strat_file = os.path.join(BASE_DIR, "strategies.json")
+        if not os.path.exists(strat_file):
+            raise HTTPException(status_code=404, detail="strategies.json not found")
+            
+        with open(strat_file, "r") as f:
+            config_data = json.load(f)
+            
+        strategies = config_data.get("strategies", {})
+        target_id = selection.strategy_id
+        
+        if target_id not in strategies:
+            raise HTTPException(status_code=404, detail=f"Strategy '{target_id}' not found")
+            
+        # Update logic: Enable target, disable others
+        for sid in strategies:
+            strategies[sid]["enabled"] = (sid == target_id)
+            
+        # Save back to file
+        with open(strat_file, "w") as f:
+            json.dump(config_data, f, indent=4)
+            
+        # Trigger bot reload if connected
+        message = f"Strategy switched to {target_id}"
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            # Most bots reload config on certain triggers or we can force it
+            # If StrategyEngine has a reload_config method, we'd call it here
+            if hasattr(bot, 'strategy_engine') and hasattr(bot.strategy_engine, 'load_config'):
+                bot.strategy_engine.load_config()
+                bot.add_log(f"🔄 Strategy switched to: {target_id} (Config Reloaded)")
+                message += " (Bot reloaded)"
+            else:
+                bot.add_log(f"🔄 Strategy switched to: {target_id}")
+                
+        return {"status": "success", "message": message, "active_strategy": target_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error selecting strategy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Dev Diagnostics ---
@@ -1247,6 +1720,25 @@ async def dev_restart_frontend():
     subprocess.run(["pm2", "restart", "frontend"], capture_output=True)
     return {"status": "success"}
 
+
+@app.get("/api/history/equity")
+def get_equity_curve():
+    """Get cumulative PnL history for charting"""
+    try:
+        recorder = None
+        if bot_bridge and bot_bridge.is_connected():
+            bot = bot_bridge.get_bot_context()
+            if hasattr(bot, 'trade_recorder'):
+                recorder = bot.trade_recorder
+        
+        # Fallback if recorder not found in bot (or standalone)
+        if not recorder:
+            recorder = TradeRecorder()
+            
+        return recorder.get_equity_curve()
+    except Exception as e:
+        logger.error(f"Error fetching equity curve: {e}")
+        return []
 
 if __name__ == "__main__":
     import uvicorn

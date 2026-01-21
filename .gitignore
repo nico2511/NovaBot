@@ -12,6 +12,7 @@ bot_state.json
 bot_state.json.bak
 bot_state.json.tmp
 token_meta_cache.json
+bot_activity.log
 data/
 logs/
 

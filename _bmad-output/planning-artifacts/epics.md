@@ -270,3 +270,39 @@ So that I can use it comfortably while holding a coffee.
 **And** All touch targets are at least 44x44 pixels
 **And** Safe Area padding is applied to avoid overlap with iPhone Home Indicator
 
+## Epic 5: Advanced Control & Insights (The Pro)
+**Goal**: Provide deep control over bot behavior and clear performance metrics for advanced users.
+**User Outcome**: "I can swap strategies mid-flight and see exactly why the AI is making specific decisions based on indicators."
+**FRs covered**: FR3 (Enhanced), FR8 (Refined), FR7 (Drill-Down).
+
+### Story 5.1: Strategy Selector
+As a Trader,
+I want to select the active trading strategy from the UI,
+So that I can adapt to changing market conditions without editing config files.
+
+**Acceptance Criteria:**
+- [ ] Dropdown menu in the Settings panel listing all available strategies.
+- [ ] Displays the current active strategy as selected.
+- [ ] Changing selection calls `POST /api/settings/update`.
+- [ ] UI shows a loading state during the update and confirmation toast on success.
+
+### Story 5.2: Enhanced AI Rationale (Metadata Visualization)
+As a Serene Investor,
+I want the "Copilot" card to show specific indicator values (RSI, ADX) that caused a decision,
+So that I have full transparency on the AI's logic.
+
+**Acceptance Criteria:**
+- [ ] "Copilot" card displays tags or badges for the primary indicators involved in the latest decision.
+- [ ] Shows the specific value (e.g., "RSI: 75") if available in the log metadata.
+- [ ] Color-coded badges (Emerald for positive, Amber for warning/veto).
+
+### Story 5.3: Performance Analytics Chart
+As an Operator,
+I want to see a history of PnL performance over time,
+So that I can evaluate the strategy's consistency.
+
+**Acceptance Criteria:**
+- [ ] Line chart showing cumulative PnL over the last 7 days/30 days.
+- [ ] Toggle between different timeframes.
+- [ ] Tooltip showing details on hover.
+

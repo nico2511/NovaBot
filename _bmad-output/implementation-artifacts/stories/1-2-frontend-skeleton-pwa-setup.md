@@ -1,6 +1,6 @@
 # Story 1.2: Frontend Skeleton & PWA Setup
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

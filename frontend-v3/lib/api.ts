@@ -10,11 +10,25 @@ export interface BotStatus {
     daily_pnl: number;
     active_positions: number;
     last_updated: string | null;
+    logs?: string[];
+    margin_usage?: number;
+    win_rate?: number;
+    max_drawdown?: number;
+    market_analysis?: Record<string, any>;
+    open_positions?: any[];
 }
 
 export interface ApiResponse {
     status: string;
     message: string;
+}
+
+export interface Strategy {
+    id: string;
+    name: string;
+    enabled: boolean;
+    type: string;
+    description: string;
 }
 
 // API Client
@@ -43,6 +57,16 @@ export const api = {
         });
         if (!response.ok) {
             throw new Error('Failed to start engine');
+        }
+        return response.json();
+    },
+
+    async panicClose(): Promise<ApiResponse> {
+        const response = await fetch(`${API_BASE_URL}/api/engine/panic`, {
+            method: 'POST',
+        });
+        if (!response.ok) {
+            throw new Error('Failed to execute panic close');
         }
         return response.json();
     },
@@ -91,6 +115,60 @@ export const api = {
         const response = await fetch(`${API_BASE_URL}/api/meta`);
         if (!response.ok) {
             throw new Error('Failed to fetch meta');
+        }
+        return response.json();
+    },
+
+    async getEquityHistory(): Promise<{ time: number; value: number }[]> {
+        const response = await fetch(`${API_BASE_URL}/api/history/equity`);
+        if (!response.ok) return [];
+        return response.json();
+    },
+
+    async getAllSettings(): Promise<Record<string, any>> {
+        const response = await fetch(`${API_BASE_URL}/api/settings/all`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch settings');
+        }
+        return response.json();
+    },
+
+    async updateSettings(section: string, data: any): Promise<ApiResponse> {
+        const response = await fetch(`${API_BASE_URL}/api/settings/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section, data }),
+        });
+        if (!response.ok) {
+            throw new Error('Failed to update settings');
+        }
+        return response.json();
+    },
+
+    async getStrategies(): Promise<Strategy[]> {
+        const response = await fetch(`${API_BASE_URL}/api/config/strategy-list`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch strategies');
+        }
+        return response.json();
+    },
+
+    async selectStrategy(strategyId: string): Promise<ApiResponse & { active_strategy: string }> {
+        const response = await fetch(`${API_BASE_URL}/api/config/strategy-select`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy_id: strategyId }),
+        });
+        if (!response.ok) {
+            throw new Error('Failed to select strategy');
+        }
+        return response.json();
+    },
+
+    async getEquityHistory(): Promise<{ time: number; value: number }[]> {
+        const response = await fetch(`${API_BASE_URL}/api/history/equity`);
+        if (!response.ok) {
+            throw new Error('Failed to fetch equity history');
         }
         return response.json();
     },

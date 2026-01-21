@@ -65,6 +65,20 @@ class BotContext:
             "auto_switch": False,
             "gamification_enabled": True
         }
+
+        # Global Settings Defaults (Ensures fields exist even if file is missing)
+        self.global_settings = {
+            "max_positions": 1,
+            "daily_stop_loss": 50.0,
+            "trading_timeframe": "15m",
+            "bot_persona": "Conservative Scalper",
+            "risk_profile": "Capital Preservation First",
+            "ai_thresholds": {"high": 101, "medium": 55, "low": 35},
+            "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
+            "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
+            "default_leverage": 1,
+            "default_margin_type": "ISOLATED"
+        }
         
         # AI Commentary Cache
         self.ai_cache = {
@@ -137,16 +151,29 @@ class BotContext:
         self.scanner_job = ScannerJob(self)
         self.trade_recorder = TradeRecorder()
         self.gamification = AssetGamification(0)
+        self.latest_analysis = {}
 
-    def add_log(self, message: str):
-        """Add log message"""
+    def add_log(self, message: str, metadata: dict = None):
+        """Add log message with optional metadata"""
         timestamp = pd.Timestamp.now().strftime('%H:%M:%S')
-        log_entry = f"{timestamp} {message}"
-        self.logs.append(log_entry)
+        
+        # Store structured entry for API/Frontend
+        structured_entry = {
+            "timestamp": timestamp,
+            "message": message,
+            "metadata": metadata
+        }
+        self.logs.append(structured_entry)
+        
+        # String representation for Console/File
+        log_str = f"{timestamp} {message}"
         print(f"[BOT] {message}")
+        if metadata:
+            print(f"   >>> Metadata: {metadata}")
+            
         try:
             with open("bot_activity.log", "a", encoding="utf-8") as f:
-                f.write(f"{log_entry}\n")
+                f.write(f"{log_str}\n")
         except Exception as e:
             print(f"⚠️ Log write error: {e}")
 
@@ -157,6 +184,13 @@ class BotContext:
 
         old_symbol = self.active_symbol
         self.add_log(f"🔄 Switching active symbol from {old_symbol} to {new_symbol}")
+        
+        # SAFETY CHECK: Ensure we don't carry over ghost positions
+        with self.trade_lock:
+            if self.active_trade and self.active_trade.get('symbol') != new_symbol:
+                self.add_log(f"⚠️ Warning: Switching context while active trade exists on {self.active_trade['symbol']}. State cleared.")
+                self.active_trade = None
+        
         self.active_symbol = new_symbol
         
         try:
@@ -376,6 +410,7 @@ class BotContext:
             "sl_distance": round(sl_distance, 2) if sl_distance else None,
             "tp_distance": round(tp_distance, 2) if tp_distance else None,
             "rr_ratio": rr_ratio,
+            "recent_closes": df['close'].tail(20).tolist() if not df.empty else [],
             **dynamic_ctx
         }
 
@@ -469,6 +504,11 @@ class BotContext:
 
     def execute_exit_atomically(self, symbol: str, reason: str = "SIGNAL"):
         """ATOMIC EXIT FLOW (THE KILL SWITCH)"""
+        # CRITICAL SAFETY: Verify symbol context
+        if symbol != self.active_symbol:
+             self.add_log(f"🚨 CRITICAL: Attempted to close {symbol} while active symbol is {self.active_symbol}. EXIT ABORTED.")
+             return False
+             
         self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
         
         try:
@@ -557,8 +597,6 @@ class BotContext:
 
             return None
         except Exception as e:
-            self.add_log(f"⚠️ Hard Veto Error: {e}")
-            return None 
 
     def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict):
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
@@ -1091,7 +1129,15 @@ class BotContext:
                 ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
                 adx_note = ">25=TREND" if adx < 25 else "TRENDING"
                 current_price = float(df_15m['close'].iloc[-1])
-                self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%")
+                
+                analysis_metrics = {
+                    "regime": regime,
+                    "adx": round(adx, 1),
+                    "rsi": round(rsi, 1),
+                    "volume_ratio": round(volume_ratio, 0),
+                    "current_price": current_price
+                }
+                self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%", metadata=analysis_metrics)
                 
                 signals = result.get("signals", [])
                 if signals:
@@ -1145,16 +1191,16 @@ class BotContext:
                                         required_conf = config.AI_CONF_THRESHOLD_LOW
                                     
                                     if confidence >= required_conf:
-                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}% >= {required_conf}% for {risk_level} risk)")
+                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}% >= {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                         if ai_data.get("suggested_adjustments"):
                                             adj = ai_data["suggested_adjustments"]
                                             if adj.get("sl"): sig["sl"] = adj["sl"]
                                             if adj.get("tp"): sig["tp"] = adj["tp"]
                                     else:
-                                        self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)")
+                                        self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                         approved = False
                                 else:
-                                    self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}")
+                                    self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}", metadata=ai_data)
                             else:
                                 approved = True 
                         except:
@@ -1192,8 +1238,8 @@ class BotContext:
                                     "bb_width": round(result.get("bb_width", 0), 2),
                                     "volume_ratio": round(result.get("volume_ratio", 100), 1),
                                     "current_price": result.get("current_price"),
-                                    "ai_confidence": confidence if 'confidence' in locals() else None,
-                                    "ai_reasoning": ai_data.get("reasoning", "")[:200] if 'ai_data' in locals() else ""
+                                    "ai_confidence": confidence if 'confidence' in locals() else 0,
+                                    "ai_reasoning": (ai_data.get("reasoning", "") if 'ai_data' in locals() else sig.get("reason", "Strategy Signal"))[:200]
                                 }
                                 
                                 self.execute_entry_atomically(

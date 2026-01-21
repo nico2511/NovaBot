@@ -6,9 +6,17 @@ import ControlButtons from '@/components/ControlButtons';
 import CopilotCard from '@/components/CopilotCard';
 import ConfigPanel from '@/components/ConfigPanel';
 import ActivePosition from '@/components/ActivePosition';
+import ActivePositionsList from '@/components/ActivePositionsList';
+
+import NotificationLog from '@/components/NotificationLog';
+import HealthMetrics from '@/components/HealthMetrics';
+import MarketAnalysis from '@/components/MarketAnalysis';
+import PerformanceChart from '@/components/PerformanceChart';
+import { PriceChart } from '@/components/PriceChart';
 import { useBotStatus } from '@/hooks/useBotStatus';
 import { useState } from 'react';
 import { Settings, X } from 'lucide-react';
+import AdvancedSettings from '@/components/AdvancedSettings';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -50,6 +58,22 @@ export default function Home() {
               lastUpdated={data.last_updated}
             />
 
+            {/* Active Position Cards (Dynamic List) */}
+            <ActivePositionsList positions={data.open_positions || []} />
+
+            {/* Performance Chart */}
+            <PerformanceChart />
+
+            {/* Health Metrics */}
+            <HealthMetrics
+              marginUsage={data.margin_usage || 0}
+              winRate={data.win_rate || 0}
+              maxDrawdown={data.max_drawdown || 0}
+            />
+
+            {/* Visual Token Analysis */}
+            <MarketAnalysis analysis={data.market_analysis || {}} />
+
             {/* Co-pilot Card (AI Reasoning) */}
             <CopilotCard />
 
@@ -59,26 +83,15 @@ export default function Home() {
               onStatusChange={() => mutate()}
             />
 
-            {/* Active Position Card (only shown if trade is active) */}
-            {data.active_trade && (
-              <ActivePosition
-                symbol={data.active_trade.symbol}
-                side={data.active_trade.side}
-                pnl={data.active_trade.pnl}
-                size={data.active_trade.size}
-                entryPrice={data.active_trade.entry_price}
-                currentPrice={data.active_trade.current_price}
-              />
-            )}
+            {/* Price Chart - Disabled per user request */}
+            {/* <div className="w-full">
+              <PriceChart symbol={data.active_symbol || "BTC"} />
+            </div> */}
 
-            {/* Additional Info */}
-            <div className="text-center text-sm text-gray-500 mt-4">
-              <div className="mt-1">
-                Status: <span className={data.is_running ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}>
-                  {data.is_running ? 'RUNNING' : 'STOPPED'}
-                </span>
-              </div>
-            </div>
+
+
+            {/* Notification Logs */}
+            <NotificationLog logs={data.logs || []} />
 
             {/* Settings Toggle */}
             <div className="text-center pt-4 space-y-2">
@@ -107,6 +120,7 @@ export default function Home() {
                   </button>
                 </div>
                 <ConfigPanel />
+                <AdvancedSettings />
               </div>
             )}
           </>

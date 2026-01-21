@@ -10,7 +10,7 @@ interface LogEntry {
     timestamp: string;
     level: string;
     message: string;
-    metadata?: { reason?: string } | null;
+    metadata?: Record<string, any> | null;
 }
 
 interface LogsResponse {
@@ -78,17 +78,72 @@ export default function CopilotCard() {
     const getAccentColor = (level: string): string => {
         switch (level) {
             case 'VETO':
-                return 'border-amber-500/30';
+                return 'border-amber-500/50';
             case 'ERROR':
-                return 'border-loss/30';
+                return 'border-loss/50';
             case 'TRADE':
             case 'SUCCESS':
-                return 'border-profit/30';
+                return 'border-profit/50';
             case 'SIGNAL':
-                return 'border-blue-400/30';
+                return 'border-blue-400/50';
             default:
-                return 'border-gray-600/30';
+                return 'border-gray-600/50';
         }
+    };
+
+    const renderMetadata = (metadata: Record<string, any>) => {
+        const entryIndicators = metadata.entry_indicators || metadata;
+
+        const badges = [];
+
+        if (entryIndicators.rsi) {
+            badges.push({
+                label: 'RSI',
+                value: Number(entryIndicators.rsi).toFixed(1),
+                color: entryIndicators.rsi > 70 ? 'text-loss' : entryIndicators.rsi < 30 ? 'text-profit' : 'text-blue-400'
+            });
+        }
+
+        if (entryIndicators.adx) {
+            badges.push({
+                label: 'ADX',
+                value: Number(entryIndicators.adx).toFixed(1),
+                color: entryIndicators.adx > 25 ? 'text-profit' : 'text-gray-400'
+            });
+        }
+
+        if (entryIndicators.regime) {
+            badges.push({
+                label: 'Regime',
+                value: entryIndicators.regime,
+                color: 'text-neutral-300'
+            });
+        }
+
+        if (entryIndicators.volume_ratio) {
+            badges.push({
+                label: 'Vol',
+                value: `${Number(entryIndicators.volume_ratio).toFixed(0)}%`,
+                color: entryIndicators.volume_ratio > 120 ? 'text-profit' : 'text-neutral-400'
+            });
+        }
+
+        if (metadata.reason && typeof metadata.reason === 'string') {
+            // Add reason as a full-width alert or badge if needed
+        }
+
+        if (badges.length === 0) return null;
+
+        return (
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
+                {badges.map((b, i) => (
+                    <div key={i} className="flex items-center gap-1.5 bg-white/5 px-2 py-0.5 rounded border border-white/5">
+                        <span className="text-[9px] uppercase tracking-tighter text-neutral-500 font-bold">{b.label}</span>
+                        <span className={`text-[10px] font-mono font-bold ${b.color}`}>{b.value}</span>
+                    </div>
+                ))}
+            </div>
+        );
     };
 
     if (error || !data) {
@@ -110,19 +165,24 @@ export default function CopilotCard() {
     }
 
     return (
-        <div className={`bg-gray-900/50 border ${getAccentColor(latestLog.level)} rounded-lg p-4`}>
+        <div className={`bg-[#111] border ${getAccentColor(latestLog.level)} rounded-lg p-4 transition-all duration-500`}>
             <div className="flex items-start gap-3">
-                {getIcon(latestLog.level)}
+                <div className="mt-1">
+                    {getIcon(latestLog.level)}
+                </div>
                 <div className="flex-1 min-w-0">
-                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Co-pilot</div>
-                    <div className="text-gray-200 text-sm leading-relaxed">
+                    <div className="flex items-center justify-between mb-1">
+                        <div className="text-xs text-gray-500 uppercase tracking-wider">Co-pilot AI</div>
+                        {latestLog.timestamp && (
+                            <div className="text-[10px] text-gray-600">
+                                {latestLog.timestamp}
+                            </div>
+                        )}
+                    </div>
+                    <div className="text-gray-200 text-sm leading-relaxed font-medium">
                         {getSummary(latestLog)}
                     </div>
-                    {latestLog.timestamp && (
-                        <div className="text-xs text-gray-600 mt-2">
-                            {latestLog.timestamp}
-                        </div>
-                    )}
+                    {latestLog.metadata && renderMetadata(latestLog.metadata)}
                 </div>
             </div>
         </div>

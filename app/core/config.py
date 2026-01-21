@@ -1,58 +1,84 @@
 import os
 from dotenv import load_dotenv
 from dataclasses import dataclass
+import json
+from pathlib import Path
 
 load_dotenv()
+
+def _load_bot_state_settings():
+    """Load settings from user_settings.json if available, otherwise use .env defaults"""
+    try:
+        # Priority: user_settings.json (Dedicated config)
+        config_file = Path("user_settings.json")
+        if config_file.exists():
+             with open(config_file, 'r') as f:
+                return json.load(f)
+        
+        # Fallback: bot_state.json (Legacy/Migration)
+        state_file = Path("bot_state.json")
+        if state_file.exists():
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                return {
+                    'notifications': state.get('notifications', {}),
+                    'operations': state.get('operations', {}),
+                    'risk_defaults': state.get('risk_defaults', {}),
+                    'ai_config': state.get('ai_config', {})
+                }
+    except Exception as e:
+        print(f"⚠️ Could not load settings: {e}")
+    return {}
+
+_state_settings = _load_bot_state_settings()
 
 @dataclass
 class Config:
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
-    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3.1-8b-instruct")
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openrouter") # Force openrouter default
+    AI_MODEL_NAME: str = _state_settings.get('ai_config', {}).get('model_name') or os.getenv("AI_MODEL_NAME", "deepseek/deepseek-v3.2")
+    AI_PROVIDER: str = "openrouter"  # Always openrouter
+    
     # Hyperliquid
     HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
     HL_ACCOUNT_ADDRESS: str = os.getenv("HL_ACCOUNT_ADDRESS")
     HYPERLIQUID_API_URL: str = os.getenv("HYPERLIQUID_API_URL", "https://api.hyperliquid.xyz")
     
-    DISCORD_WEBHOOK_ALERTS: str = os.getenv("DISCORD_WEBHOOK_URL_ALERTS")
-    DISCORD_WEBHOOK_LOGS: str = os.getenv("DISCORD_WEBHOOK_URL_LOGS")
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    # Notifications (from bot_state.json or .env fallback)
+    DISCORD_WEBHOOK_ALERTS: str = _state_settings.get('notifications', {}).get('discord_webhook_alerts') or os.getenv("DISCORD_WEBHOOK_URL_ALERTS", "")
+    DISCORD_WEBHOOK_LOGS: str = _state_settings.get('notifications', {}).get('discord_webhook_logs') or os.getenv("DISCORD_WEBHOOK_URL_LOGS", "")
+    LOG_LEVEL: str = _state_settings.get('operations', {}).get('log_level') or os.getenv("LOG_LEVEL", "INFO")
 
-    # Risk Defaults
-    DEFAULT_MAX_POSITIONS: int = 1
-    DEFAULT_DAILY_STOP_LOSS: float = 50.0  # USDC
+    # Risk Defaults (from bot_state.json or .env fallback)
+    DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "1"))
+    DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
     DEFAULT_LEVERAGE: int = 1
     
-    # Operations
-    AUTO_START_TRADING: bool = os.getenv("AUTO_START_TRADING", "false").lower() == "true"
+    # Operations (from bot_state.json or .env fallback)
+    AUTO_START_TRADING: bool = _state_settings.get('operations', {}).get('auto_start_trading') if _state_settings.get('operations', {}).get('auto_start_trading') is not None else (os.getenv("AUTO_START_TRADING", "false").lower() == "true")
     
     # ==============================================================================
-    # 🧠 AI MODULAR CONFIGURATION (Added via Prompt)
+    # 🧠 AI MODULAR CONFIGURATION
     # ==============================================================================
     
-    # Timeframe principal pour l'analyse de structure (Défaut: 15m)
-    TRADING_TIMEFRAME: str = os.getenv("TRADING_TIMEFRAME", "15m")
+    # Timeframe principal (from bot_state.json or .env fallback)
+    TRADING_TIMEFRAME: str = _state_settings.get('operations', {}).get('trading_timeframe') or os.getenv("TRADING_TIMEFRAME", "15m")
     
-    # Personnalité du Bot (Défaut: Conservative Scalper)
-    # Voir TRADING_PROFILES.md pour les options
-    BOT_PERSONA: str = os.getenv("BOT_PERSONA", "Conservative Scalper")
+    # Bot Persona (from bot_state.json or .env fallback)
+    BOT_PERSONA: str = _state_settings.get('risk_defaults', {}).get('bot_persona') or os.getenv("BOT_PERSONA", "Conservative Scalper")
     
-    # Profil de Risque (Défaut: Capital Preservation)
-    # Voir TRADING_PROFILES.md pour les options
-    RISK_PROFILE: str = os.getenv("RISK_PROFILE", "Capital Preservation First")
+    # Risk Profile (from bot_state.json or .env fallback)
+    RISK_PROFILE: str = _state_settings.get('risk_defaults', {}).get('risk_profile') or os.getenv("RISK_PROFILE", "Capital Preservation First")
     
-    # AI Call Cooldown (seconds) - Prevents excessive API calls
-    AI_CALL_COOLDOWN: int = int(os.getenv("AI_CALL_COOLDOWN", "300"))  # 5 minutes default
+    # AI Call Cooldown (from bot_state.json or .env fallback)
+    AI_CALL_COOLDOWN: int = _state_settings.get('ai_config', {}).get('call_cooldown') or int(os.getenv("AI_CALL_COOLDOWN", "2"))
     
     # ==============================================================================
-    # 🎯 AI CONFIDENCE THRESHOLDS (Hybrid Approach)
+    # 🎯 AI CONFIDENCE THRESHOLDS
     # ==============================================================================
-    # Minimum confidence % required for AI to approve a trade, per risk level.
-    # Set to 0 to disable confidence filtering (only use approved=true/false)
-    AI_CONF_THRESHOLD_HIGH: int = int(os.getenv("AI_CONF_THRESHOLD_HIGH", "70"))
-    AI_CONF_THRESHOLD_MEDIUM: int = int(os.getenv("AI_CONF_THRESHOLD_MEDIUM", "55"))
-    AI_CONF_THRESHOLD_LOW: int = int(os.getenv("AI_CONF_THRESHOLD_LOW", "40"))
+    AI_CONF_THRESHOLD_HIGH: int = _state_settings.get('ai_config', {}).get('conf_threshold_high') or int(os.getenv("AI_CONF_THRESHOLD_HIGH", "101"))
+    AI_CONF_THRESHOLD_MEDIUM: int = _state_settings.get('ai_config', {}).get('conf_threshold_medium') or int(os.getenv("AI_CONF_THRESHOLD_MEDIUM", "55"))
+    AI_CONF_THRESHOLD_LOW: int = _state_settings.get('ai_config', {}).get('conf_threshold_low') or int(os.getenv("AI_CONF_THRESHOLD_LOW", "101"))
     
     # API Security
     API_KEY: str = os.getenv("API_KEY", "dev_secret_change_in_production")

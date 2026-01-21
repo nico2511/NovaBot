@@ -51,16 +51,35 @@ export default function ControlButtons({ isRunning, onStatusChange }: ControlBut
         }
     };
 
+    const handlePanic = async () => {
+        if (!confirm("🚨 ARE YOU SURE?\n\nThis will STOP the bot and MARKET CLOSE all open positions immediately.\nThis action cannot be undone.")) {
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        try {
+            await api.panicClose();
+            setShowDialog(false);
+            onStatusChange();
+        } catch (err) {
+            setError('Failed to execute panic close. Login to exchange manually!');
+            console.error('Panic error:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     return (
         <>
             <div className="flex justify-center">
                 {isRunning ? (
                     <Button
-                        variant="destructive"
+                        variant="outline"
                         size="lg"
                         onClick={() => setShowDialog(true)}
                         disabled={isLoading}
-                        className="w-full max-w-xs font-semibold min-h-[48px] touch-target"
+                        className="w-full max-w-xs font-semibold min-h-[48px] touch-target border-red-500 text-red-500 hover:bg-red-500/10 hover:text-red-400 transition-all duration-300"
                     >
                         {isLoading ? 'STOPPING...' : 'STOP TRADING'}
                     </Button>
@@ -95,21 +114,32 @@ export default function ControlButtons({ isRunning, onStatusChange }: ControlBut
                             Existing positions will remain open. Are you sure you want to continue?
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter className="gap-2">
-                        <Button
-                            variant="outline"
-                            onClick={() => setShowDialog(false)}
-                            disabled={isLoading}
-                            className="border-gray-600"
-                        >
-                            Cancel
-                        </Button>
+                    <DialogFooter className="gap-2 sm:justify-between flex-col sm:flex-row">
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowDialog(false)}
+                                disabled={isLoading}
+                                className="border-gray-600"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={handleStop}
+                                disabled={isLoading}
+                            >
+                                {isLoading ? 'Stopping...' : 'Stop Bot Only'}
+                            </Button>
+                        </div>
+
                         <Button
                             variant="destructive"
-                            onClick={handleStop}
+                            onClick={handlePanic}
                             disabled={isLoading}
+                            className="bg-red-600 hover:bg-red-700 font-bold border border-red-400 w-full sm:w-auto mt-2 sm:mt-0"
                         >
-                            {isLoading ? 'Stopping...' : 'Yes, Stop Trading'}
+                            🚨 Stop & Close All
                         </Button>
                     </DialogFooter>
                 </DialogContent>

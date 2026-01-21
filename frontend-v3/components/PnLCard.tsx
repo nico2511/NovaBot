@@ -9,11 +9,11 @@ export default function PnLCard({ dailyPnL, activePositions, lastUpdated }: PnLC
     const isNeutral = dailyPnL === 0;
 
     const colorClass = isProfit ? 'text-profit' : isNeutral ? 'text-gray-400' : 'text-loss';
-    const bgClass = isProfit ? 'bg-profit/10' : isNeutral ? 'bg-gray-800' : 'bg-loss/10';
-    const borderClass = isProfit ? 'border-profit/30' : isNeutral ? 'border-gray-700' : 'border-loss/30';
+    const bgClass = isProfit ? 'bg-profit/10' : isNeutral ? 'bg-[#111]' : 'bg-loss/10';
+    const borderClass = isProfit ? 'border-profit/50' : isNeutral ? 'border-[#333]' : 'border-loss/50';
 
     return (
-        <div className={`${bgClass} ${borderClass} border-2 rounded-2xl p-8`}>
+        <div className={`${bgClass} ${borderClass} border rounded-2xl p-8`}>
             <div className="text-center">
                 <div className="text-sm text-gray-400 mb-2">Daily PnL</div>
                 <div className={`text-6xl font-bold ${colorClass} mb-4`}>

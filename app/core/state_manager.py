@@ -127,8 +127,12 @@ class StateManager:
                     }
                     state_modified = True # Mark state as modified
                     
-                context.global_settings = gs
-                print(f"✅ Loaded global settings: {context.global_settings}")
+                # Perform Merge (File overrides Defaults)
+                merged_settings = context.global_settings.copy()
+                merged_settings.update(gs)
+                context.global_settings = merged_settings
+                
+                print(f"✅ Loaded global settings (merged): {context.global_settings}")
             else:
                 # Default global settings
                 context.global_settings = {
