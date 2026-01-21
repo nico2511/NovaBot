@@ -154,20 +154,8 @@ class StateManager:
                 # Default global settings
                 # context.global_settings = { ... } # Already set in bot.py __init__ via config
                 pass
-                    "max_positions": 1,
-                    "daily_stop_loss": 50.0,
-                    "trading_timeframe": "15m",
-                    "bot_persona": "Conservative Scalper",
-                    "risk_profile": "Capital Preservation First",
-                    "ai_thresholds": {
-                        "high": 101,
-                        "medium": 55,
-                        "low": 35
-                    },
-                    "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
-                    "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
-                }
-                state_modified = True # Mark state as modified
+                # End of load_state
+                pass
                 
             # If state was modified (defaults applied or migration occurred), persist it immediately
             if state_modified:
