@@ -603,8 +603,8 @@ class BotContext:
 
             return None
         except Exception as e:
-
-    def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict):
+            print(f"⚠️ Veto Check Error: {e}")
+            return None
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
         # GUARD: Only enforce if trading is ENABLED (Real Trading)
         if not self.trading_enabled:

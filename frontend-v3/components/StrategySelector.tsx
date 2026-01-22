@@ -13,21 +13,15 @@ export function StrategySelector() {
     const [isChanging, setIsChanging] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
 
-    const activeStrategy = strategies?.find(s => s.enabled);
+    const activeStrategies = strategies?.filter(s => s.enabled) || [];
 
     const handleSelect = async (id: string) => {
-        if (id === activeStrategy?.id) {
-            setIsOpen(false);
-            return;
-        }
-
+        // Toggle logic (Backend handles the toggle now)
         setIsChanging(true);
         try {
             await api.selectStrategy(id);
             await mutate(`${API_BASE_URL}/api/config/strategy-list`);
-            setIsOpen(false);
-            // We might also want to mutate the bot status to show the log message
-            await mutate(`${API_BASE_URL}/api/status`);
+            // Don't close logic so user can select multiple
         } catch (err) {
             console.error('Failed to change strategy:', err);
         } finally {
@@ -58,13 +52,17 @@ export function StrategySelector() {
                     </div>
                     <div className="text-left">
                         <div className="text-sm font-medium text-neutral-200">
-                            {activeStrategy?.name || 'Select Strategy'}
+                            {activeStrategies.length === 0 && 'Select Strategy'}
+                            {activeStrategies.length === 1 && activeStrategies[0].name}
+                            {activeStrategies.length > 1 && `Multiple Active (${activeStrategies.length})`}
                         </div>
-                        {activeStrategy?.type && (
-                            <div className="text-[10px] text-neutral-500 uppercase">
-                                {activeStrategy.type}
-                            </div>
-                        )}
+                        <div className="text-[10px] text-neutral-500 uppercase">
+                            {activeStrategies.length > 0 ? (
+                                activeStrategies.length === 1 ? activeStrategies[0].type : "Multi-Strategy Mode"
+                            ) : (
+                                "No Strategy"
+                            )}
+                        </div>
                     </div>
                 </div>
                 {isChanging ? (
@@ -94,11 +92,14 @@ export function StrategySelector() {
                                     )}
                                 >
                                     <div className="mt-1">
-                                        {strategy.enabled ? (
-                                            <Check className="w-4 h-4 text-blue-400" />
-                                        ) : (
-                                            <div className="w-4 h-4" />
-                                        )}
+                                        <div className={cn(
+                                            "w-4 h-4 rounded border flex items-center justify-center transition-colors",
+                                            strategy.enabled
+                                                ? "bg-blue-500 border-blue-500"
+                                                : "border-neutral-600 group-hover:border-neutral-500"
+                                        )}>
+                                            {strategy.enabled && <Check className="w-3 h-3 text-white" />}
+                                        </div>
                                     </div>
                                     <div className="flex-1">
                                         <div className="flex items-center justify-between">
@@ -124,7 +125,7 @@ export function StrategySelector() {
                         <div className="bg-neutral-900/50 p-2 border-t border-neutral-800 flex items-center gap-2">
                             <Info className="w-3 h-3 text-neutral-500" />
                             <span className="text-[10px] text-neutral-500">
-                                Selection takes effect on the next candle.
+                                You can select multiple strategies.
                             </span>
                         </div>
                     </div>

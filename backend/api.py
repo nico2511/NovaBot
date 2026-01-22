@@ -79,6 +79,7 @@ try:
     from app.core.state_manager import StateManager
     from app.core.trade_recorder import TradeRecorder
     from app.core.asset_gamification import AssetGamification, check_asset_access, get_user_gamification_state
+    from app.core.bot import BotContext  # Core Bot Import
     
     # Optional Routes
     try:
@@ -109,6 +110,29 @@ except ImportError:
 
 app = FastAPI(title="HyperLiquid Trading Bot API", version="2.0")
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Bot Logic on API Startup"""
+    print("🚀 API Startup: Initializing Bot Context...")
+    try:
+        # Initialize Core Bot
+        if 'BotContext' in globals():
+            bot = BotContext()
+            
+            # Connect Bridge
+            bot_bridge.set_bot_context(bot)
+            
+            # Auto-Start Bot Thread (Monitoring Mode)
+            print("🚀 API Startup: Starting Bot Engine (Monitoring Mode)...")
+            bot.start()
+            
+        else:
+            print("⚠️ BotContext class not available, creating generic context...")
+            
+    except Exception as e:
+        print(f"❌ API Startup Error: {e}")
+
+
 # CORS middleware for Next.js frontend (Supports LAN/Mobile)
 app.add_middleware(
     CORSMiddleware,
@@ -118,12 +142,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def debug_middleware(request: Request, call_next):
-    print(f"🔍 REQUEST: {request.method} {request.url.path}")
-    response = await call_next(request)
-    print(f"✅ RESPONSE: {response.status_code}")
-    return response
+
 
 # Register routers
 if ROUTES_AVAILABLE:
@@ -254,7 +273,7 @@ class BotStatus(BaseModel):
     daily_pnl: float = 0.0
     active_positions: int = 0
     last_updated: Optional[str] = None
-    logs: List[str] = []
+    logs: List[Union[str, Dict[str, Any]]] = []
     
     # Health Metrics
     margin_usage: float = 0.0
@@ -1580,7 +1599,7 @@ def get_strategies():
 
 @app.post("/api/config/strategy-select")
 def select_strategy(selection: StrategySelectModel):
-    """Enable a single strategy and disable all others"""
+    """Toggle a strategy on/off (Supports Multi-Strategy)"""
     try:
         strat_file = os.path.join(BASE_DIR, "strategies.json")
         if not os.path.exists(strat_file):
@@ -1595,28 +1614,34 @@ def select_strategy(selection: StrategySelectModel):
         if target_id not in strategies:
             raise HTTPException(status_code=404, detail=f"Strategy '{target_id}' not found")
             
-        # Update logic: Enable target, disable others
-        for sid in strategies:
-            strategies[sid]["enabled"] = (sid == target_id)
+        # Update logic: TOGGLE target, leave others alone
+        current_status = strategies[target_id].get("enabled", False)
+        new_status = not current_status
+        strategies[target_id]["enabled"] = new_status
             
         # Save back to file
         with open(strat_file, "w") as f:
             json.dump(config_data, f, indent=4)
             
         # Trigger bot reload if connected
-        message = f"Strategy switched to {target_id}"
+        status_text = "ENABLED" if new_status else "DISABLED"
+        message = f"Strategy {target_id} {status_text}"
+        
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
-            # Most bots reload config on certain triggers or we can force it
-            # If StrategyEngine has a reload_config method, we'd call it here
             if hasattr(bot, 'strategy_engine') and hasattr(bot.strategy_engine, 'load_config'):
                 bot.strategy_engine.load_config()
-                bot.add_log(f"🔄 Strategy switched to: {target_id} (Config Reloaded)")
+                bot.add_log(f"🔄 Strategy Updated: {target_id} -> {status_text} (Config Reloaded)")
                 message += " (Bot reloaded)"
             else:
-                bot.add_log(f"🔄 Strategy switched to: {target_id}")
+                bot.add_log(f"🔄 Strategy Updated: {target_id} -> {status_text}")
                 
-        return {"status": "success", "message": message, "active_strategy": target_id}
+        return {
+            "status": "success", 
+            "message": message, 
+            "strategy_id": target_id, 
+            "enabled": new_status
+        }
         
     except HTTPException:
         raise

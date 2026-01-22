@@ -37,7 +37,7 @@ module.exports = {
         },
         {
             name: 'novabot-frontend',
-            script: 'npm',
+            script: './frontend-v3/node_modules/next/dist/bin/next',
             args: 'start',
             cwd: './frontend-v3',
             env: {

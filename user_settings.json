@@ -10,10 +10,10 @@
     },
     "risk_defaults": {
         "max_positions": 1,
-        "daily_stop_loss": 50.0,
+        "daily_stop_loss": 50,
         "bot_persona": "Aggressive Day Trader",
         "risk_profile": "Balanced Growth",
-        "default_leverage": 3
+        "default_leverage": 5
     },
     "ai_config": {
         "model_name": "deepseek/deepseek-v3.2",
