@@ -1547,53 +1547,6 @@ async def ai_analysis(data: dict):
 
 # --- Settings Management ---
 
-@app.get("/api/settings/all")
-def get_all_settings():
-    """Get all editable settings sections"""
-    try:
-        return {
-            "notifications": bot_state.notifications,
-            "operations": bot_state.operations,
-            "risk_defaults": bot_state.risk_defaults,
-            "ai_config": bot_state.ai_config
-        }
-    except Exception as e:
-        logger.error(f"Error fetching settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/settings/update")
-def update_settings(request: Dict[str, Any]):
-    """Update a specific settings section"""
-    try:
-        section = request.get("section")
-        data = request.get("data")
-        
-        if not section or data is None:
-            raise HTTPException(status_code=400, detail="Missing 'section' or 'data'")
-        
-        valid_sections = ["notifications", "operations", "risk_defaults", "ai_config"]
-        if section not in valid_sections:
-            raise HTTPException(status_code=400, detail=f"Invalid section. Must be one of: {valid_sections}")
-        
-        # Update the section
-        setattr(bot_state, section, data)
-        bot_state.save_state()
-        
-        # 🔄 CRITICAL: Reload config to apply changes immediately
-        try:
-            import importlib
-            from app.core import config as config_module
-            importlib.reload(config_module)
-            logger.info(f"✅ Config reloaded after updating {section}")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not reload config: {e}")
-        
-        logger.info(f"✅ Updated settings section: {section}")
-        return {"status": "success", "section": section, "data": data}
-        
-    except Exception as e:
-        logger.error(f"Error updating settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Strategy Management ---
