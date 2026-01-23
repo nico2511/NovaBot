@@ -76,10 +76,7 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
     const availableTokens = (activeSymbol && !baseTokens.includes(activeSymbol))
         ? [activeSymbol, ...baseTokens]
         : baseTokens;
-    const [scanner, setScanner] = useState<ScannerSettings | null>(null);
-    const [global, setGlobal] = useState<GlobalSettings | null>(null);
-    const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
 
     // Sync with parent prop if provided, otherwise fallback to internal status
     useEffect(() => {
