@@ -1562,6 +1562,14 @@ async def update_settings(payload: dict):
                     bot.global_settings.update(data)
                     logger.info(f"🔄 Hot reload: global_settings.{section} updated")
             
+            # Save bot state to persist hot reload changes
+            try:
+                from app.core.state_manager import StateManager
+                StateManager.save_state(bot)
+                logger.info("💾 Bot state saved after hot reload")
+            except Exception as e:
+                logger.warning(f"Could not save bot state: {e}")
+            
         return {"status": "success", "message": f"Updated {section}"}
         
     except Exception as e:
