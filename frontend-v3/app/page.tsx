@@ -46,6 +46,15 @@ export default function Home() {
         {/* Dashboard Content */}
         {data && (
           <>
+            {/* Active Token Badge */}
+            <div className="flex justify-center mb-4">
+              <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-full px-6 py-2 flex items-center gap-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-gray-300">Active Token:</span>
+                <span className="text-lg font-bold text-white">{data.active_symbol || 'BTC'}</span>
+              </div>
+            </div>
+
             {/* Status Pill */}
             <div className="flex justify-center">
               <StatusPill isRunning={data.is_running} />
