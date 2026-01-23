@@ -49,15 +49,12 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
     const { data: scannerSettings, error: scannerError } = useSWR<ScannerSettings>(
         `${API_BASE_URL}/api/settings/scanner`, fetcher
     );
-    const { data: globalSettings, error: globalError } = useSWR<GlobalSettings>(
-        `${API_BASE_URL}/api/settings/global`, fetcher
-    );
+
     // Determine active symbol: prop > API status > local state
     const { data: status } = useSWR<BotStatus>(`${API_BASE_URL}/api/status`, fetcher);
 
     const [activeSymbol, setActiveSymbol] = useState(currentSymbol || '');
     const [scanner, setScanner] = useState<ScannerSettings | null>(null);
-    const [global, setGlobal] = useState<GlobalSettings | null>(null);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -91,10 +88,6 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
         if (scannerSettings) setScanner(scannerSettings);
     }, [scannerSettings]);
 
-    useEffect(() => {
-        if (globalSettings) setGlobal(globalSettings);
-    }, [globalSettings]);
-
     const handleSave = async () => {
         setSaving(true);
         setMessage(null);
@@ -110,16 +103,6 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
                 if (!res.ok) throw new Error('Failed to save scanner settings');
             }
 
-            // Save global settings
-            if (global) {
-                const res = await fetch(`${API_BASE_URL}/api/settings/global`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(global),
-                });
-                if (!res.ok) throw new Error('Failed to save global settings');
-            }
-
             // Change active symbol if modified
             if (status?.active_symbol !== activeSymbol) {
                 const res = await fetch(`${API_BASE_URL}/api/switch_symbol`, {
@@ -133,7 +116,6 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
             setMessage({ type: 'success', text: 'Settings saved successfully!' });
             mutate(`${API_BASE_URL}/api/status`);
             mutate(`${API_BASE_URL}/api/settings/scanner`);
-            mutate(`${API_BASE_URL}/api/settings/global`);
         } catch (err: any) {
             setMessage({ type: 'error', text: err.message || 'Failed to save' });
         } finally {
@@ -141,7 +123,7 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
         }
     };
 
-    if (!scanner || !global) {
+    if (!scanner) {
         return <div className="text-gray-500 p-4">Loading settings...</div>;
     }
 
