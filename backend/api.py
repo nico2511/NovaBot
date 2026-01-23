@@ -684,7 +684,7 @@ def update_global_settings(settings: GlobalSettingsModel):
         # Preserve lists if not provided or empty
         current = getattr(context_or_state, 'global_settings', {})
         
-        new_settings = settings.dict()
+        new_settings = settings.model_dump()
         
         # Ensure availability lists are preserved if missing in update
         if not new_settings.get('available_personas'):
@@ -752,7 +752,7 @@ def update_global_settings(settings: GlobalSettingsModel):
                  full_state = json.load(f)
             
              current_global = full_state.get("global_settings", {})
-             new_global = settings.dict()
+             new_global = settings.model_dump()
              
              # Preserve lists
              if not new_global.get('available_personas'):
@@ -802,7 +802,7 @@ def get_scanner_settings():
 @app.post("/api/settings/scanner")
 def update_scanner_settings(settings: ScannerSettingsModel):
     """Update scanner settings"""
-    new_settings = settings.dict()
+    new_settings = settings.model_dump()
     
     # Execute
     if bot_bridge and bot_bridge.is_connected():
