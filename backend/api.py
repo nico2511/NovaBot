@@ -1078,6 +1078,29 @@ async def get_market_metrics(symbol: str = "BTC"):
             "adx_quality": adx_quality
         }
     except Exception as e:
+        logger.error(f"Error in get_market_metrics: {e}", exc_info=True)
+        return {"error": str(e), "symbol": symbol}
+
+# --- Positions & Account Endpoints ---
+
+@app.get("/api/positions")
+async def get_positions():
+    """Get all open positions from Hyperliquid"""
+    try:
+        positions = hyperliquid_service.get_positions()
+        return {"positions": positions, "count": len(positions)}
+    except Exception as e:
+        logger.error(f"Error getting positions: {e}")
+        return {"positions": [], "error": str(e)}
+
+@app.get("/api/account/balance")
+async def get_account_balance():
+    """Get account balance from Hyperliquid"""
+    try:
+        balance = hyperliquid_service.get_account_balance()
+        return balance
+    except Exception as e:
+        logger.error(f"Error getting account balance: {e}")
         return {"error": str(e)}
 
 
