@@ -41,35 +41,50 @@ const RISK_PROFILES = ['Capital Preservation First', 'Balanced Growth', 'High Vo
 const TIMEFRAMES = ['15m', '1h', '4h', '1d'];
 const LEVERAGES = [1, 2, 3, 5, 10, 20];
 
-export default function ConfigPanel() {
+interface ConfigPanelProps {
+    currentSymbol?: string;
+}
+
+export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
     const { data: scannerSettings, error: scannerError } = useSWR<ScannerSettings>(
         `${API_BASE_URL}/api/settings/scanner`, fetcher
     );
     const { data: globalSettings, error: globalError } = useSWR<GlobalSettings>(
         `${API_BASE_URL}/api/settings/global`, fetcher
     );
+    // Determine active symbol: prop > API status > local state
     const { data: status } = useSWR<BotStatus>(`${API_BASE_URL}/api/status`, fetcher);
 
     // Dynamic Token List from /api/meta (universe array)
     const { data: meta } = useSWR<{ universe?: Array<{ name: string, isDelisted?: boolean }> }>(`${API_BASE_URL}/api/meta`, fetcher, { revalidateOnFocus: false });
 
     // Extract active (non-delisted) token names from universe
-    const availableTokens = meta?.universe
+    let availableTokens = meta?.universe
         ? meta.universe
             .filter(t => !t.isDelisted)
             .map(t => t.name)
             .sort()
         : FALLBACK_TOKENS;
 
-    const [activeSymbol, setActiveSymbol] = useState('');
+    // Ensure activeSymbol is always in the list (even if API fails or token not in universe yet)
+    if (activeSymbol && !availableTokens.includes(activeSymbol)) {
+        availableTokens = [activeSymbol, ...availableTokens];
+    }
+
+    const [activeSymbol, setActiveSymbol] = useState(currentSymbol || '');
     const [scanner, setScanner] = useState<ScannerSettings | null>(null);
     const [global, setGlobal] = useState<GlobalSettings | null>(null);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    // Sync with parent prop if provided, otherwise fallback to internal status
     useEffect(() => {
-        if (status?.active_symbol) setActiveSymbol(status.active_symbol);
-    }, [status]);
+        if (currentSymbol) {
+            setActiveSymbol(currentSymbol);
+        } else if (status?.active_symbol) {
+            setActiveSymbol(status.active_symbol);
+        }
+    }, [currentSymbol, status]);
 
     useEffect(() => {
         if (scannerSettings) setScanner(scannerSettings);

@@ -128,7 +128,7 @@ export default function Home() {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                <ConfigPanel />
+                <ConfigPanel currentSymbol={data.active_symbol} />
                 <AdvancedSettings />
               </div>
             )}
