@@ -112,7 +112,7 @@ export default function Home() {
                 {showConfig ? 'Hide Settings' : 'Show Settings'}
               </button>
               <a
-                href="/logs"
+                href="/activity-logs"
                 className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-4 block"
               >
                 View Full Logs →
