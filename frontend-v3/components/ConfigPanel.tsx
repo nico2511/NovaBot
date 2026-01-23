@@ -55,23 +55,27 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
     // Determine active symbol: prop > API status > local state
     const { data: status } = useSWR<BotStatus>(`${API_BASE_URL}/api/status`, fetcher);
 
+    const [activeSymbol, setActiveSymbol] = useState(currentSymbol || '');
+    const [scanner, setScanner] = useState<ScannerSettings | null>(null);
+    const [global, setGlobal] = useState<GlobalSettings | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
     // Dynamic Token List from /api/meta (universe array)
     const { data: meta } = useSWR<{ universe?: Array<{ name: string, isDelisted?: boolean }> }>(`${API_BASE_URL}/api/meta`, fetcher, { revalidateOnFocus: false });
 
     // Extract active (non-delisted) token names from universe
-    let availableTokens = meta?.universe
+    const baseTokens = meta?.universe
         ? meta.universe
             .filter(t => !t.isDelisted)
             .map(t => t.name)
             .sort()
         : FALLBACK_TOKENS;
 
-    // Ensure activeSymbol is always in the list (even if API fails or token not in universe yet)
-    if (activeSymbol && !availableTokens.includes(activeSymbol)) {
-        availableTokens = [activeSymbol, ...availableTokens];
-    }
-
-    const [activeSymbol, setActiveSymbol] = useState(currentSymbol || '');
+    // Ensure activeSymbol is always in the list
+    const availableTokens = (activeSymbol && !baseTokens.includes(activeSymbol))
+        ? [activeSymbol, ...baseTokens]
+        : baseTokens;
     const [scanner, setScanner] = useState<ScannerSettings | null>(null);
     const [global, setGlobal] = useState<GlobalSettings | null>(null);
     const [saving, setSaving] = useState(false);
