@@ -1067,16 +1067,16 @@ async def get_market_metrics(symbol: str = "BTC"):
         
         rsi = float(Indicators.rsi(df['close'], 14).iloc[-1])
         
-        return {
+        return sanitize_for_json({
             "symbol": symbol,
-            "current_price": current_price,
-            "rsi": rsi,
-            "adx": adx,
-            "volume_24h": volume_24h,
-            "rvol": rvol,
-            "trend_aligned": trend_aligned,
+            "current_price": float(current_price),
+            "rsi": float(rsi),
+            "adx": float(adx),
+            "volume_24h": float(volume_24h),
+            "rvol": float(rvol),
+            "trend_aligned": bool(trend_aligned),
             "adx_quality": adx_quality
-        }
+        })
     except Exception as e:
         logger.error(f"Error in get_market_metrics: {e}", exc_info=True)
         return {"error": str(e), "symbol": symbol}
