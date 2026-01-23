@@ -623,20 +623,38 @@ def switch_symbol(data: dict):
 
 @app.get("/api/settings/global", response_model=GlobalSettingsModel)
 def get_global_settings():
-    """Get global bot settings (Personas, Risk, etc.)"""
-    # 1. Try Live Bot Context
+    """Get global bot settings from user_settings.json"""
+    # 1. Try Live Bot Context (for real-time values)
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         if hasattr(bot, 'global_settings'):
             return bot.global_settings
             
-    # 2. Fallback to persisted state
+    # 2. Read from user_settings.json (Source of Truth)
     try:
-        if os.path.exists(os.path.join(BASE_DIR, "bot_state.json")):
-            with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f:
-                state = json.load(f)
-                if "global_settings" in state:
-                    return state["global_settings"]
+        settings = load_user_settings()
+        
+        # Build global_settings from user_settings structure
+        risk_defaults = settings.get("risk_defaults", {})
+        operations = settings.get("operations", {})
+        ai_config = settings.get("ai_config", {})
+        
+        return {
+            "max_positions": risk_defaults.get("max_positions", 1),
+            "daily_stop_loss": risk_defaults.get("daily_stop_loss", 50.0),
+            "trading_timeframe": operations.get("trading_timeframe", "15m"),
+            "bot_persona": risk_defaults.get("bot_persona", "Conservative Scalper"),
+            "risk_profile": risk_defaults.get("risk_profile", "Capital Preservation First"),
+            "ai_thresholds": {
+                "high": ai_config.get("conf_threshold_high", 101),
+                "medium": ai_config.get("conf_threshold_medium", 55),
+                "low": ai_config.get("conf_threshold_low", 101)
+            },
+            "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
+            "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
+            "default_leverage": risk_defaults.get("default_leverage", 1),
+            "default_margin_type": risk_defaults.get("default_margin_type", "ISOLATED")
+        }
     except Exception as e:
         logger.error(f"Error loading global settings: {e}")
 
@@ -757,20 +775,18 @@ def update_global_settings(settings: GlobalSettingsModel):
 
 @app.get("/api/settings/scanner", response_model=ScannerSettingsModel)
 def get_scanner_settings():
-    """Get scanner settings"""
-    # 1. Try Live Bot Context
+    """Get scanner settings from user_settings.json"""
+    # 1. Try Live Bot Context (for real-time values)
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         if hasattr(bot, 'scanner_settings'):
             return bot.scanner_settings
             
-    # 2. Fallback to persisted state
+    # 2. Read from user_settings.json (Source of Truth)
     try:
-        if os.path.exists(os.path.join(BASE_DIR, "bot_state.json")):
-            with open(os.path.join(BASE_DIR, "bot_state.json"), "r") as f:
-                state = json.load(f)
-                if "scanner_settings" in state:
-                    return state["scanner_settings"]
+        settings = load_user_settings()
+        if "scanner" in settings:
+            return settings["scanner"]
     except Exception as e:
         logger.error(f"Error loading scanner settings: {e}")
 
@@ -1435,12 +1451,34 @@ def load_user_settings():
     return {}
 
 def save_user_settings(settings):
+    """Save settings with atomic write to prevent corruption"""
+    import shutil
+    temp_file = f"{SETTINGS_FILE}.tmp"
+    backup_file = f"{SETTINGS_FILE}.bak"
+    
     try:
-        with open(SETTINGS_FILE, "w") as f:
+        # Create backup if file exists
+        if os.path.exists(SETTINGS_FILE):
+            shutil.copy2(SETTINGS_FILE, backup_file)
+        
+        # Write to temp file with fsync
+        with open(temp_file, "w") as f:
             json.dump(settings, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # Atomic rename
+        os.replace(temp_file, SETTINGS_FILE)
+        logger.info(f"✅ Settings saved atomically to {SETTINGS_FILE}")
         return True
     except Exception as e:
-        logger.error(f"Error saving user_settings.json: {e}")
+        logger.error(f"❌ Error saving user_settings.json: {e}")
+        # Clean up temp file if it exists
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
         return False
 
 @app.get("/api/settings/all")
@@ -1487,17 +1525,42 @@ async def update_settings(payload: dict):
         settings[section] = data
         
         # Save to File
-        save_user_settings(settings)
+        if not save_user_settings(settings):
+            raise HTTPException(status_code=500, detail="Failed to save settings")
+        
+        logger.info(f"✅ Settings updated: {section}")
             
         # Update Live Bot (Hot Reload)
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
+            
+            # Update specific bot attributes based on section
             if section == "risk_defaults":
-                 bot.max_positions = int(data.get("max_positions", bot.max_positions))
-                 
-            # Also update global_settings if it exists on bot for backward compat
+                bot.max_positions = int(data.get("max_positions", bot.max_positions))
+                if hasattr(bot, 'risk_manager'):
+                    bot.risk_manager.max_positions = bot.max_positions
+                logger.info(f"🔄 Hot reload: max_positions = {bot.max_positions}")
+                    
+            elif section == "scanner":
+                if hasattr(bot, 'scanner_settings'):
+                    bot.scanner_settings.update(data)
+                    logger.info(f"🔄 Hot reload: scanner_settings updated")
+                    
+            elif section == "ai_config":
+                # Reload AI thresholds
+                if hasattr(bot, 'ai_thresholds'):
+                    bot.ai_thresholds = {
+                        "high": data.get("conf_threshold_high", 101),
+                        "medium": data.get("conf_threshold_medium", 55),
+                        "low": data.get("conf_threshold_low", 101)
+                    }
+                    logger.info(f"🔄 Hot reload: AI thresholds updated")
+                    
+            # Update global_settings for backward compatibility
             if hasattr(bot, 'global_settings'):
-                 bot.global_settings.update(data)
+                if section in ["risk_defaults", "operations", "ai_config"]:
+                    bot.global_settings.update(data)
+                    logger.info(f"🔄 Hot reload: global_settings.{section} updated")
             
         return {"status": "success", "message": f"Updated {section}"}
         
