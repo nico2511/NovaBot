@@ -1,0 +1,32 @@
+{
+    "notifications": {
+        "discord_webhook_alerts": "https://discordapp.com/api/webhooks/1452757882469875813/G33zEWM9L-tGUIqXarRHsP8tlw3wTUd_MHpPxCDC89rKct763PjuUuo5UYTorW5zU3ie",
+        "discord_webhook_logs": "https://discordapp.com/api/webhooks/1452757882469875813/G33zEWM9L-tGUIqXarRHsP8tlw3wTUd_MHpPxCDC89rKct763PjuUuo5UYTorW5zU3ie"
+    },
+    "operations": {
+        "log_level": "INFO",
+        "auto_start_trading": true,
+        "trading_timeframe": "15m"
+    },
+    "risk_defaults": {
+        "max_positions": 1,
+        "daily_stop_loss": 50,
+        "bot_persona": "Aggressive Day Trader",
+        "risk_profile": "Balanced Growth",
+        "default_leverage": 5
+    },
+    "ai_config": {
+        "model_name": "deepseek/deepseek-v3.2",
+        "call_cooldown": 2,
+        "conf_threshold_high": 101,
+        "conf_threshold_medium": 55,
+        "conf_threshold_low": 35
+    },
+    "scanner": {
+        "enabled": false,
+        "interval": 15,
+        "min_score": 75,
+        "auto_switch": false,
+        "gamification_enabled": true
+    }
+}

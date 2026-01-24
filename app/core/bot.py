@@ -599,19 +599,18 @@ class BotContext:
             if current_vol and avg_vol and avg_vol > 0:
                 vol_ratio = (current_vol / avg_vol) * 100
                 if vol_ratio < 20:
-                    return f"HARD VETO: Volume Dead ({vol_ratio:.1f}% of avg) @ {price:.2f}"
-
             return None
         except Exception as e:
             print(f"⚠️ Veto Check Error: {e}")
             return None
+    def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict, bypass_cooldown: bool = False):
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
         # GUARD: Only enforce if trading is ENABLED (Real Trading)
         if not self.trading_enabled:
              return
 
         # COOLDOWN: Skip verification if we just synced (prevent infinite loop)
-        if self._last_sltp_sync_time:
+        if not bypass_cooldown and self._last_sltp_sync_time:
             elapsed = (pd.Timestamp.now() - self._last_sltp_sync_time).total_seconds()
             if elapsed < self._sltp_sync_cooldown:
                 return  # Too soon, wait for cooldown
@@ -845,12 +844,15 @@ class BotContext:
                              self.add_log(f"🤖 Strategy {strategy_name} updated TP to {custom_updates['tp']}")
                              
                         if changed:
+                            self._verify_and_enforce_sl_tp(symbol, self.active_trade, bypass_cooldown=True) # FORCE SYNC
                             StateManager.save_state(self)
 
         # 2. Default Smart Trailing (Fallback)
         # Only run default logic if strategy didn't handle it
         if not handled_by_strategy:
-            self._update_trailing_stops(trade, current_price)
+            if self._update_trailing_stops(trade, current_price):
+                 self.add_log(f"🔄 Trailing Stop Updated. Enforcing on Exchange...")
+                 self._verify_and_enforce_sl_tp(symbol, self.active_trade, bypass_cooldown=True) # FORCE SYNC
 
         # 3. Local Local Exit Check (Universal safety net)
         # Even if strategy handled logic, we still respect the committed SL/TP triggers here
@@ -1683,17 +1685,17 @@ class BotContext:
             is_divergent = (sl_diff > TP_SL_RECALIBRATION_THRESHOLD_PCT) or (tp_diff > TP_SL_RECALIBRATION_THRESHOLD_PCT)
             
             if not is_divergent:
-                self.add_log(f"✅ Audit: Orders aligned. No update needed.")
-                return "UNCHANGED", "Orders are aligned."
+                self.add_log(f"✅ Audit: Orders aligned locally. Verifying exchange...")
+                # return "UNCHANGED", "Orders are aligned."  <-- REMOVED to force verification
+            else:
+                self.add_log(f"⚠️ Audit: Divergence detected (Price: {current_price:.2f}). Updating to SL: {ideal_sl:.2f} | TP: {ideal_tp:.2f}")
             
-            self.add_log(f"⚠️ Audit: Divergence detected (Price: {current_price:.2f}). Updating to SL: {ideal_sl:.2f} | TP: {ideal_tp:.2f}")
-            
-            with self.trade_lock:
-                self.active_trade["sl"] = ideal_sl
-                self.active_trade["tp"] = ideal_tp
+                with self.trade_lock:
+                    self.active_trade["sl"] = ideal_sl
+                    self.active_trade["tp"] = ideal_tp
             
             # Force verification immediately to sync with exchange
-            self._verify_and_enforce_sl_tp(symbol, self.active_trade)
+            self._verify_and_enforce_sl_tp(symbol, self.active_trade, bypass_cooldown=True)
             StateManager.save_state(self)
             
             return "UPDATED", f"Orders recalibrated to SL: {ideal_sl:.2f}, TP: {ideal_tp:.2f}"

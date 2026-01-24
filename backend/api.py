@@ -149,6 +149,10 @@ if ROUTES_AVAILABLE:
     # app.include_router(scanner_router, prefix="/api", tags=["scanner"])
     print("✅ Scanner routes registered (DISABLED DEBUG)")
 
+    from backend.routes.analysis import router as analysis_router
+    app.include_router(analysis_router, prefix="/api", tags=["analysis"])
+    print("✅ Analysis routes registered")
+
 # ==========================================
 # HELPER CLASSES & FUNCTIONS
 # ==========================================
@@ -1188,7 +1192,7 @@ async def force_breakeven(_: bool = Depends(verify_api_key)):
         bot.active_trade["sl"] = breakeven_price
         bot.active_trade["breakeven_active"] = True
         bot.add_log(f"🛡️ BREAKEVEN: Moving SL to {breakeven_price:.4f}")
-        bot._verify_and_enforce_sl_tp(symbol, bot.active_trade)
+        bot._verify_and_enforce_sl_tp(symbol, bot.active_trade, bypass_cooldown=True)
         StateManager.save_state(bot)
         
         return {"status": "success", "message": f"SL moved to {breakeven_price:.4f}"}

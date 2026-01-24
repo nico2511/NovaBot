@@ -4,6 +4,7 @@ import StatusPill from '@/components/StatusPill';
 import PnLCard from '@/components/PnLCard';
 import ControlButtons from '@/components/ControlButtons';
 import CopilotCard from '@/components/CopilotCard';
+import PositionCopilot from '@/components/PositionCopilot';
 import ConfigPanel from '@/components/ConfigPanel';
 import ActivePosition from '@/components/ActivePosition';
 import ActivePositionsList from '@/components/ActivePositionsList';
@@ -58,6 +59,11 @@ export default function Home() {
             {/* Status Pill */}
             <div className="flex justify-center">
               <StatusPill isRunning={data.is_running} />
+            </div>
+
+            {/* Position Copilot (New) */}
+            <div className="w-full">
+              <PositionCopilot />
             </div>
 
             {/* PnL Card */}

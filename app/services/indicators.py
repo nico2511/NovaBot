@@ -109,6 +109,25 @@ class Indicators:
             'BBU': upper
         }, index=close.index)
 
+    @staticmethod
+    def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+        """
+        Moving Average Convergence Divergence
+        Returns DataFrame with columns: 'MACD', 'MACDh', 'MACDs'
+        """
+        fast_ema = Indicators.ema(close, length=fast)
+        slow_ema = Indicators.ema(close, length=slow)
+        
+        macd_line = fast_ema - slow_ema
+        signal_line = Indicators.ema(macd_line, length=signal)
+        histogram = macd_line - signal_line
+        
+        return pd.DataFrame({
+            'MACD': macd_line,
+            'MACDh': histogram,
+            'MACDs': signal_line
+        }, index=close.index)
+
 
 # ────────────────────────────────────────────────
 #   API style pandas_ta (for strategy compatibility)
@@ -132,6 +151,9 @@ class TaAdapter:
 
     def bbands(self, close, length=20, std=2.0):
         return Indicators.bbands(close, length, std)
+
+    def macd(self, close, fast=12, slow=26, signal=9):
+        return Indicators.macd(close, fast, slow, signal)
 
 
 # Singleton – usage: from app.services.indicators import ta; ta.rsi(df['close'])
