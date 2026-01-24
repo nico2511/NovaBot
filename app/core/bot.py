@@ -599,6 +599,8 @@ class BotContext:
             if current_vol and avg_vol and avg_vol > 0:
                 vol_ratio = (current_vol / avg_vol) * 100
                 if vol_ratio < 20:
+                    return f"HARD VETO: Low Volume ({vol_ratio:.1f}% avg) @ {price:.2f}"
+            
             return None
         except Exception as e:
             print(f"⚠️ Veto Check Error: {e}")
