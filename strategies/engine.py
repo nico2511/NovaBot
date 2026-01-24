@@ -151,7 +151,7 @@ class StrategyEngine:
             strat_type = params.get("type")
             
             # FIX: Logic for Strategy Selection
-            if regime == "TREND" and strat_type == "trend":
+            if (regime == "TREND" or regime == "TREND_BEAR_STRONG") and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
                 
             elif regime == "RANGE":
