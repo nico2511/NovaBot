@@ -1,0 +1,118 @@
+{
+    "workflow_version": "1.2.0",
+    "timestamps": {
+        "started": "2026-01-13T17:55:39+01:00",
+        "last_updated": "2026-01-13T18:22:00+01:00",
+        "completed": "2026-01-13T18:22:00+01:00"
+    },
+    "mode": "initial_scan",
+    "scan_level": "deep",
+    "project_root": "c:\\Users\\User\\Desktop\\novabot",
+    "output_folder": "c:\\Users\\User\\Desktop\\novabot\\_bmad-output\\project_knowledge",
+    "completed_steps": [
+        {
+            "step": "step_1",
+            "status": "completed",
+            "timestamp": "2026-01-13T17:58:00+01:00",
+            "summary": "Classified as Monolith with 1 parts"
+        },
+        {
+            "step": "step_2",
+            "status": "completed",
+            "timestamp": "2026-01-13T17:59:00+01:00",
+            "summary": "Found 9 existing docs"
+        },
+        {
+            "step": "step_3",
+            "status": "completed",
+            "timestamp": "2026-01-13T18:03:00+01:00",
+            "summary": "Tech stack: FastAPI on Python"
+        },
+        {
+            "step": "step_4",
+            "status": "completed",
+            "timestamp": "2026-01-13T18:08:00+01:00",
+            "summary": "Conditional analysis complete, 3 files written (API, Models, Components)"
+        },
+        {
+            "step": "step_5",
+            "status": "completed",
+            "timestamp": "2026-01-13T18:13:00+01:00",
+            "summary": "Source tree documented"
+        },
+        {
+            "step": "step_6",
+            "status": "completed",
+            "timestamp": "2026-01-13T18:18:00+01:00",
+            "summary": "Dev/deployment guides written"
+        },
+        {
+            "step": "step_7",
+            "status": "completed",
+            "timestamp": "2026-01-13T18:22:00+01:00",
+            "summary": "Index generated. Workflow complete."
+        }
+    ],
+    "current_step": "completed",
+    "findings": {
+        "project_classification": "Monolith Python Backend",
+        "project_types": [
+            {
+                "part_id": "root",
+                "project_type_id": "backend",
+                "display_name": "Python Backend"
+            }
+        ],
+        "existing_docs": [
+            "c:\\Users\\User\\Desktop\\novabot\\README.md",
+            "c:\\Users\\User\\Desktop\\novabot\\project-context.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\CONTEXT.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\HOW_TO_CREATE_STRATEGY.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\README.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\SETUP_GUIDE.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\STRATEGIES.md",
+            "c:\\Users\\User\\Desktop\\novabot\\docs\\TRADING_PROFILES.md"
+        ],
+        "technology_stack": [
+            {
+                "part_id": "root",
+                "primary_framework": "FastAPI",
+                "language": "Python",
+                "key_dependencies": [
+                    "fastapi",
+                    "uvicorn",
+                    "pydantic",
+                    "numpy",
+                    "pandas",
+                    "eth_account",
+                    "hyperliquid-python-sdk",
+                    "openai"
+                ],
+                "architecture_pattern": "Service/API-centric"
+            }
+        ],
+        "architecture_pattern": {
+            "root": "Service/API-centric"
+        },
+        "outputs_generated": [
+            "api-contracts-backend.md",
+            "data-models-backend.md",
+            "component-inventory-backend.md",
+            "source-tree-analysis.md",
+            "deployment-guide.md",
+            "development-guide.md",
+            "index.md"
+        ]
+    },
+    "outputs_generated": [
+        "project-scan-report.json",
+        "api-contracts-backend.md",
+        "data-models-backend.md",
+        "component-inventory-backend.md",
+        "source-tree-analysis.md",
+        "deployment-guide.md",
+        "development-guide.md",
+        "index.md"
+    ],
+    "resume_instructions": "Workflow Completed"
+}

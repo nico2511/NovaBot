@@ -1,75 +1,55 @@
-# Development Guide
+# Development & Deployment Guide
 
-## Environment Setup
+## Prerequisites
+- **Python**: 3.10+
+- **Node.js**: 18+ (for Frontend)
+- **PM2**: Process Manager (`npm install -g pm2`)
 
-### 1. Requirements
-- **Python**: 3.10 or higher
-- **Node.js**: 18+ (for PM2 management)
-- **Git**: For version control
+## 🚀 Quick Start
+ The project includes a master script that handles setup and startup:
 
-### 2. Installation
-Clone the repository and enter the directory:
 ```bash
-git clone https://github.com/nico2511/NovaBot.git
-cd NovaBot
+./start_integrated.sh
 ```
+**This script acts as a "One-Click" launcher:**
+1.  Creates/Activates Python virtual environment (`.venv`)
+2.  Installs Python dependencies (`requirements.txt`)
+3.  Builds the Frontend (`frontend-v3`) with `npm install` & `npm run build`
+4.  Starts both Backend and Frontend using PM2
 
-### 3. Virtual Environment
-It is strictly recommended to use a virtual environment to avoid dependency conflicts.
+## Manual Setup
 
-**Windows (PowerShell):**
-```powershell
+### 1. Backend (Python)
+```bash
+# Create venv
 python -m venv .venv
-.\.venv\Scripts\Activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Install deps
 pip install -r requirements.txt
 ```
 
-**Linux/WSL:**
+### 2. Frontend (Next.js)
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cd frontend-v3
+npm install
+npm run dev  # accessible at http://localhost:3000
 ```
 
-### 4. Configuration
-Duplicate `.env.template` to `.env` and fill in your keys:
+## 🏗️ Production Deployment
+The project uses **PM2** for process management.
+
+**Configuration:** `ecosystem.config.js`
+
+| App Name | Port | Entry Script |
+| :--- | :--- | :--- |
+| `novabot-backend` | **8001** | `backend/api.py` |
+| `novabot-frontend` | **3000** | `next start` |
+
+**Control Commands:**
 ```bash
-cp .env.template .env
+pm2 status
+pm2 logs
+pm2 restart all
+pm2 stop all
 ```
-Key variables:
-- `HL_ACCOUNT_ADDRESS`: Your Hyperliquid Wallet Address
-- `HL_PRIVATE_KEY`: Your Wallet Private Key (Keep Secret!)
-- `OPENROUTER_API_KEY`: For AI Analysis features
-
-## Running Locally
-
-### Backend (FastAPI + Bot Engine)
-To run the bot logic and API:
-```bash
-# Ensure venv is active
-python main_nextjs.py
-```
-This starts:
-- REST API on `http://localhost:8001`
-- Trading Bot Loop (in background thread)
-
-### Strategy Development
-Strategies are located in `strategies/`.
-To add a new strategy:
-1. Create a file in `strategies/` (e.g., `my_strategy.py`).
-2. Inherit from `BaseStrategy`.
-3. Implement `analyze()` method.
-4. Register it in `strategies.json` configuration.
-
-## Testing
-Unit tests are located in `utils/tests/`.
-Run tests via:
-```bash
-python -m pytest utils/tests/
-# OR
-pytest
-```
-
-## Common Commands
-- **Linting**: `flake8 app/`
-- **Dependency Update**: `pip freeze > requirements.txt` (Be careful with cross-platform compatibility)
