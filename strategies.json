@@ -76,7 +76,7 @@
             }
         },
         "smart_trend": {
-            "enabled": false,
+            "enabled": true,
             "type": "trend",
             "description": "Smart Trend V3 - Plus stricte sur vrai trend, moins de faux en range",
             "display_conditions": [

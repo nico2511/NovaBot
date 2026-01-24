@@ -62,9 +62,10 @@ class StrategySmartTrend(BaseStrategy):
         self.adx_threshold = params.get("adx_threshold", 28)
         self.rsi_min = params.get("rsi_min", 38)
         self.rsi_max = params.get("rsi_max", 70)
-        self.pullback_tolerance = params.get("pullback_tolerance", 0.01)  # Optimized to 1.0% width
+        self.pullback_tolerance = params.get("pullback_tolerance", 0.0025)  # Tightened from 1.0% to 0.25%
         self.bos_lookback = params.get("bos_lookback", 3)
         self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
+        self.volume_multiplier = params.get("volume_multiplier", 1.3)
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
@@ -118,24 +119,39 @@ class StrategySmartTrend(BaseStrategy):
             self.entry_direction = None
             return None
         
-        # Check for setup
-        # LONG Setup: Conditions assouplies
-        long_trend = close_15m > ema_50 or (close_15m > ema_21 and ema_21 > ema_50)
+        # LONG Setup: Conditions plus strictes
+        # 1. EMA Alignment: Fast > Slow > Trend
+        long_ema_align = ema_21 > ema_50
+        long_trend = close_15m > ema_50 and long_ema_align
+        
+        # 2. Pullback Zone: Toucher l'EMA 21 avec précision
         long_pullback = (low_15m <= ema_21 * (1 + self.pullback_tolerance) and 
                         low_15m >= ema_21 * (1 - self.pullback_tolerance))
         
         if long_trend and long_pullback:
-            self.looking_for_entry = True
-            self.entry_direction = "LONG"
+            # Volume Check (15m)
+            if 'volume' in df.columns:
+                avg_vol = df['volume'].iloc[-22:-2].mean()
+                if df['volume'].iloc[-2] >= avg_vol * self.volume_multiplier:
+                    self.looking_for_entry = True
+                    self.entry_direction = "LONG"
         
-        # SHORT Setup: Conditions assouplies
-        short_trend = close_15m < ema_50 or (close_15m < ema_21 and ema_21 < ema_50)
+        # SHORT Setup: Conditions plus strictes
+        # 1. EMA Alignment
+        short_ema_align = ema_21 < ema_50
+        short_trend = close_15m < ema_50 and short_ema_align
+        
+        # 2. Pullback Zone
         short_pullback = (high_15m >= ema_21 * (1 - self.pullback_tolerance) and 
                          high_15m <= ema_21 * (1 + self.pullback_tolerance))
         
         if short_trend and short_pullback:
-            self.looking_for_entry = True
-            self.entry_direction = "SHORT"
+            # Volume Check (15m)
+            if 'volume' in df.columns:
+                avg_vol = df['volume'].iloc[-22:-2].mean()
+                if df['volume'].iloc[-2] >= avg_vol * self.volume_multiplier:
+                    self.looking_for_entry = True
+                    self.entry_direction = "SHORT"
         
         # Cancel if trend broken
         if self.entry_direction == "LONG" and close_15m < ema_50 and ema_21 < ema_50:
@@ -165,6 +181,16 @@ class StrategySmartTrend(BaseStrategy):
         if self.entry_direction == "LONG":
             high_of_last_n = last_n_1m['high'].max()
             if close_1m > high_of_last_n:
+                # 1m Volume Filter
+                avg_vol_1m = df_1m['volume'].iloc[-12:-2].mean()
+                if df_1m['volume'].iloc[-2] < avg_vol_1m * self.volume_multiplier:
+                    return None
+                
+                # 1m RSI Filter (Moins de sur-achat)
+                rsi_1m = ta.rsi(df_1m['close'], length=14).iloc[-2]
+                if rsi_1m > 70:
+                    return None
+                
                 # Find swing low for SL
                 swing_low = df_1m.tail(10)['low'].min()
                 sl = swing_low - (self.sl_atr_mult * atr_15m)
@@ -180,13 +206,23 @@ class StrategySmartTrend(BaseStrategy):
                     "sl": sl,
                     "tp": tp,
                     "price": close_1m,
-                    "comment": f"Smart Trend V2: 15m Pullback + 1m BOS (R:R 1:{self.rr_ratio})"
+                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK)"
                 }
         
         # SHORT Trigger: Close < Low of last N
         elif self.entry_direction == "SHORT":
             low_of_last_n = last_n_1m['low'].min()
             if close_1m < low_of_last_n:
+                # 1m Volume Filter
+                avg_vol_1m = df_1m['volume'].iloc[-12:-2].mean()
+                if df_1m['volume'].iloc[-2] < avg_vol_1m * self.volume_multiplier:
+                    return None
+                
+                # 1m RSI Filter (Moins de sur-vente)
+                rsi_1m = ta.rsi(df_1m['close'], length=14).iloc[-2]
+                if rsi_1m < 30:
+                    return None
+                
                 # Find swing high for SL
                 swing_high = df_1m.tail(10)['high'].max()
                 sl = swing_high + (self.sl_atr_mult * atr_15m)
@@ -202,7 +238,7 @@ class StrategySmartTrend(BaseStrategy):
                     "sl": sl,
                     "tp": tp,
                     "price": close_1m,
-                    "comment": f"Smart Trend V2: 15m Pullback + 1m BOS (R:R 1:{self.rr_ratio})"
+                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK)"
                 }
         
         return None
@@ -228,21 +264,32 @@ class StrategySmartTrend(BaseStrategy):
         if 30 < rsi_15m < 70:
             progress += 10
         
-        # Trend (25%)
-        long_trend = close_15m > ema_50 or (close_15m > ema_21 and ema_21 > ema_50)
-        short_trend = close_15m < ema_50 or (close_15m < ema_21 and ema_21 < ema_50)
+        # Trend (25%) - Strict Alignment
+        long_ema_align = ema_21 > ema_50
+        short_ema_align = ema_21 < ema_50
+        
+        long_trend = close_15m > ema_50 and long_ema_align
+        short_trend = close_15m < ema_50 and short_ema_align
         
         if long_trend or short_trend:
             progress += 25
         
-        # Pullback (25%)
+        # Pullback (25%) - Tightened
         long_pullback = (low_15m <= ema_21 * (1 + self.pullback_tolerance) and 
                         low_15m >= ema_21 * (1 - self.pullback_tolerance))
         short_pullback = (high_15m >= ema_21 * (1 - self.pullback_tolerance) and 
                          high_15m <= ema_21 * (1 + self.pullback_tolerance))
         
         if long_pullback or short_pullback:
-            progress += 25
+            # Add Volume weighting to pullback progress
+            if 'volume' in df.columns:
+                avg_vol = df['volume'].iloc[-22:-2].mean()
+                if df['volume'].iloc[-1] >= avg_vol * self.volume_multiplier:
+                    progress += 25
+                else:
+                    progress += 10 # Half progress if volume weak
+            else:
+                progress += 25
         
         # Trigger (40%) - Requires 1m data
         if extra_data and "1m" in extra_data:
@@ -292,16 +339,19 @@ class StrategySmartTrend(BaseStrategy):
             conditions = []
             
             # 1. Trend Filter (Setup)
-            long_trend = close_15m > ema_50 or (close_15m > ema_21 and ema_21 > ema_50)
-            short_trend = close_15m < ema_50 or (close_15m < ema_21 and ema_21 < ema_50)
-            trend_ok = long_trend or short_trend
+            long_ema_align = ema_21 > ema_50
+            short_ema_align = ema_21 < ema_50
             
-            curr_trend = "Bullish" if long_trend else "Bearish" if short_trend else "Flat/Mixed"
+            long_trend_state = close_15m > ema_50 and long_ema_align
+            short_trend_state = close_15m < ema_50 and short_ema_align
+            trend_ok = long_trend_state or short_trend_state
+            
+            curr_trend = "Bullish" if long_trend_state else "Bearish" if short_trend_state else "Flat/Mixed"
             
             conditions.append({
                 "name": f"1. Trend ({curr_trend})",
                 "status": trend_ok,
-                "value": "Price vs EMA 21/50"
+                "value": "EMA Align OK" if trend_ok else "EMA Tangle"
             })
             
             # 2. Pullback Zone (Location)
