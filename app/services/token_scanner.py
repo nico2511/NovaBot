@@ -8,6 +8,7 @@ ENHANCEMENTS:
 - Funding rate veto (extreme rates filtered)
 - Dynamic MAX_TOKENS_TO_SCAN based on whitelist size
 - Per-token cache (5min) to avoid redundant analysis
+- Optimized for 5m Timeframe (Responsive)
 - ASSET_TIERS integration from gamification module
 """
 
@@ -49,9 +50,9 @@ class HyperliquidScanner:
         # Configuration thresholds
         self.min_volume_24h = 10_000_000  # $10M minimum
         self.min_open_interest = 5_000_000 # $5M minimum OI
-        self.min_atr_pct = 3.0  # Minimum volatility
-        self.max_atr_pct = 8.0  # Maximum volatility
-        self.min_momentum_pct = 5.0  # Minimum 24h change
+        self.min_atr_pct = 0.3  # Minimum volatility (Adjusted for 5m)
+        self.max_atr_pct = 4.0  # Maximum volatility (Adjusted for 5m)
+        self.min_momentum_pct = 2.0  # Minimum 24h change (Adjusted for 5m)
         self.max_spread_pct = 0.1  # Maximum bid/ask spread
     
     def _calculate_scan_limit(self, whitelist: List[str] = None) -> int:
@@ -224,8 +225,8 @@ class HyperliquidScanner:
         
         # Cache miss or stale - perform analysis
         try:
-            # Get 24h of 15m candles (96 candles)
-            df = self.hl_service.get_candles(symbol, "15m", limit=96)
+            # Get 24h of 5m candles (288 candles)
+            df = self.hl_service.get_candles(symbol, "5m", limit=288)
             
             if df.empty or len(df) < 20:
                 return None
@@ -244,26 +245,29 @@ class HyperliquidScanner:
             atr = tr.rolling(14).mean().iloc[-1]
             atr_pct = (atr / close.iloc[-1]) * 100
             
+            # Use iloc[-2] for stable technical analysis (Completed Candles)
+            stable_close = close.iloc[-2]
+            
             # Calculate RSI
             rsi_result = ta.rsi(close, length=14)
-            current_rsi = rsi_result.iloc[-1] if not rsi_result.empty else 50
+            current_rsi = rsi_result.iloc[-2] if not rsi_result.empty else 50
             
             # Calculate momentum (24h change)
             momentum_pct = ((close.iloc[-1] - close.iloc[0]) / close.iloc[0]) * 100
             
             # Calculate RVol (Relative Volume)
             vol_sma_20 = df['volume'].rolling(20).mean()
-            current_vol = df['volume'].iloc[-1]
-            rvol = current_vol / vol_sma_20.iloc[-1] if vol_sma_20.iloc[-1] > 0 else 0
+            current_vol = df['volume'].iloc[-2]
+            rvol = current_vol / vol_sma_20.iloc[-2] if vol_sma_20.iloc[-2] > 0 else 0
             
             # Calculate EMAs for Trend Alignment
             ema_9 = ta.ema(close, length=9)
             ema_20 = ta.ema(close, length=20)
             ema_50 = ta.ema(close, length=50)
             
-            current_ema_9 = ema_9.iloc[-1] if not ema_9.empty else 0
-            current_ema_20 = ema_20.iloc[-1] if not ema_20.empty else 0
-            current_ema_50 = ema_50.iloc[-1] if not ema_50.empty else 0
+            current_ema_9 = ema_9.iloc[-2] if not ema_9.empty else 0
+            current_ema_20 = ema_20.iloc[-2] if not ema_20.empty else 0
+            current_ema_50 = ema_50.iloc[-2] if not ema_50.empty else 0
             
             # Trend Alignment (Perfect Bullish OR Bearish)
             trend_aligned_bull = (current_ema_9 > current_ema_20 > current_ema_50)
@@ -271,26 +275,26 @@ class HyperliquidScanner:
             
             # Mean Reversion Risk
             if current_ema_20 > 0:
-                dist_ema_20_pct = ((close.iloc[-1] - current_ema_20) / current_ema_20) * 100
+                dist_ema_20_pct = ((stable_close - current_ema_20) / current_ema_20) * 100
             else:
                 dist_ema_20_pct = 0
                 
             # Trend Distance (Price vs MA200)
-            sma_200 = df['close'].rolling(200).mean().iloc[-1] if len(df) >= 200 else 0
+            sma_200 = df['close'].rolling(200).mean().iloc[-2] if len(df) >= 201 else 0
             if sma_200 == 0 and not ema_50.empty:
                 sma_200 = current_ema_50
             
             if sma_200 > 0:
-                dist_ma200_pct = ((close.iloc[-1] - sma_200) / sma_200) * 100
+                dist_ma200_pct = ((stable_close - sma_200) / sma_200) * 100
             else:
                 dist_ma200_pct = 0
 
             # Calculate ADX with directional components
             try:
                 adx_df = ta.adx(high, low, close, length=14)
-                current_adx = adx_df['ADX'].iloc[-1] if not adx_df.empty else 0
-                current_dmp = adx_df['DMP'].iloc[-1] if not adx_df.empty else 0
-                current_dmn = adx_df['DMN'].iloc[-1] if not adx_df.empty else 0
+                current_adx = adx_df['ADX'].iloc[-2] if not adx_df.empty else 0
+                current_dmp = adx_df['DMP'].iloc[-2] if not adx_df.empty else 0
+                current_dmn = adx_df['DMN'].iloc[-2] if not adx_df.empty else 0
             except:
                 current_adx = 0
                 current_dmp = 0
@@ -308,7 +312,7 @@ class HyperliquidScanner:
                 'rvol': rvol,
                 'dist_ema_20_pct': dist_ema_20_pct,
                 'dist_ma200_pct': dist_ma200_pct,
-                'current_price': close.iloc[-1]
+                'current_price': stable_close
             }
             
             # Cache the result
@@ -428,9 +432,9 @@ class HyperliquidScanner:
             
         # 5. Base Volatility (ATR)
         atr = analysis['atr_pct']
-        if 3.0 <= atr <= 10.0:
+        if 0.3 <= atr <= 3.0:
             score += 10
-        elif atr < 2.0:
+        elif atr < 0.1:
             score -= 10
             reasons.append(f"💤 Low Volatility ({atr:.1f}%) [-10]")
             

@@ -24,8 +24,8 @@
     },
     "scanner": {
         "enabled": false,
-        "interval": 15,
-        "min_score": 75,
+        "interval": 5,
+        "min_score": 70,
         "auto_switch": false,
         "gamification_enabled": true
     }
