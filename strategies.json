@@ -89,7 +89,7 @@
                 "adx_threshold": 28,
                 "rsi_min": 38,
                 "rsi_max": 70,
-                "pullback_tolerance": 0.01,
+                "pullback_tolerance": 0.0025,
                 "bos_lookback": 3,
                 "sl_atr_mult": 0.35,
                 "volume_multiplier": 1.3
