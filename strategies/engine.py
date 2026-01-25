@@ -19,7 +19,7 @@ try:
     from strategies.utils import should_panic_close
 except ImportError:
     print("⚠️ Warning: strategies.utils not found. Panic close disabled.")
-    def should_panic_close(strategy_name, df): return (False, "")
+    def should_panic_close(strategy_name, df, regime="RANGE"): return (False, "")
 
 import json
 
@@ -184,7 +184,7 @@ class StrategyEngine:
             # It does NOT generate SELL signals (that would be sent to AI for nothing)
             # Actual panic close of existing positions is handled in bot.py trade management
             try:
-                should_panic, panic_reason = should_panic_close(strat.name, df)
+                should_panic, panic_reason = should_panic_close(strat.name, df, regime=regime)
                 if should_panic:
                     print(f"🚨 KILL SWITCH: {strat.name} BLOCKED - {panic_reason}")
                     continue  # Skip this strategy entirely (no signal generation)

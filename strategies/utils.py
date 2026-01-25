@@ -7,7 +7,7 @@ Contains helper functions for strategy management and risk control.
 import pandas as pd
 
 
-def should_panic_close(strategy_name: str, current_df: pd.DataFrame) -> tuple[bool, str]:
+def should_panic_close(strategy_name: str, current_df: pd.DataFrame, regime: str = "RANGE") -> tuple[bool, str]:
     """
     Determine if a position should be panic-closed based on regime change.
     
@@ -16,16 +16,10 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame) -> tuple[bo
     Args:
         strategy_name: Name of the strategy that opened the position
         current_df: Current market data DataFrame with indicators
+        regime: Current market regime (e.g., "TREND", "RANGE", "TREND_BEAR_STRONG")
         
     Returns:
         (should_close: bool, reason: str)
-        
-    Examples:
-        >>> should_panic_close("bollinger_bounce", df_with_adx_35)
-        (True, "ADX breakout detected (35.2 > 30): Range strategy in trending market")
-        
-        >>> should_panic_close("scalp_ema_rsi", df_with_adx_35)
-        (False, "")
     """
     
     # KILL SWITCH 1: Bollinger Bounce in Trend
@@ -60,6 +54,10 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame) -> tuple[bo
         if 'ADX_14' in current_df.columns:
             current_adx = current_df['ADX_14'].iloc[-1]
             
+            # EXCEPTION: If we are in "TREND_BEAR_STRONG" (Crash), we might want to panic close BUYS (Reversion)
+            # But the strategy itself usually handles that.
+            # Here we just check if we are fighting a strong trend.
+            
             if current_adx > 30:
                 return (
                     True,
@@ -69,7 +67,9 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame) -> tuple[bo
     # KILL SWITCH 3: Trend Following in Range Collapse
     # =================================================
     # If a trend strategy is in a position and ADX drops below 20,
-    # the trend has died and we should exit before whipsaw
+    # the trend has died and we should exit before whipsaw.
+    # EXCEPTION: If regime is "TREND_BEAR_STRONG", it means engine detected a crash despite low ADX (lag).
+    # In that case, DO NOT kill trend strategies.
     
     trend_strategies = [
         "scalp_ema_rsi",
@@ -77,6 +77,11 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame) -> tuple[bo
     ]
     
     if strategy_name in trend_strategies:
+        # If Engine says it's a STRONG BEAR TREND (Waterfall), trust it over lagging ADX
+        if regime == "TREND_BEAR_STRONG":
+             # NO PANIC CLOSE during waterfall
+             return (False, "")
+
         if 'ADX_14' in current_df.columns:
             current_adx = current_df['ADX_14'].iloc[-1]
             
