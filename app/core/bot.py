@@ -580,13 +580,13 @@ class BotContext:
         try:
             price = market_context.get("current_price", 0)
             
-            # 1. RSI Veto (Tightened: 42 for SELL, 72 for BUY)
+            # 1. RSI Veto (Relaxed: 30 for SELL, 80 for BUY)
             rsi = market_context.get("rsi")
             if rsi is not None:
-                if signal == "BUY" and rsi > 72:
-                    return f"HARD VETO: RSI Overbought ({rsi:.1f} > 72) @ {price:.2f}"
-                if signal == "SELL" and rsi < 42:
-                    return f"HARD VETO: RSI Oversold ({rsi:.1f} < 42) @ {price:.2f}"
+                if signal == "BUY" and rsi > 80:
+                    return f"HARD VETO: RSI Overbought ({rsi:.1f} > 80) @ {price:.2f}"
+                if signal == "SELL" and rsi < 30:
+                    return f"HARD VETO: RSI Oversold ({rsi:.1f} < 30) @ {price:.2f}"
 
             # 2. ADX Extreme Veto (Trend Runaway Protection)
             adx = market_context.get("adx", 0)
