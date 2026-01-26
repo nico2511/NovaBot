@@ -399,17 +399,26 @@ class HyperliquidService:
             if orders:
                 # Place orders sequentially to ensure robust error handling per order
                 self.log(f"🚀 Placing {len(orders)} protection orders sequentially...")
+                total_success = 0
                 for o in orders:
                      try:
-                        self.log(f"   👉 Sending {o['order_type']['trigger']['tpsl'].upper()} Trigger Order...")
+                        tpsl_type = o['order_type']['trigger']['tpsl'].upper()
+                        self.log(f"   👉 Sending {tpsl_type} Trigger Order for {symbol} @ {o['order_type']['trigger']['triggerPx']}...")
                         resp = self.exchange.order(o["coin"], o["is_buy"], o["sz"], o["limit_px"], o["order_type"], o["reduce_only"])
-                        self.log(f"   ✅ Result: {resp}")
+                        
+                        if isinstance(resp, dict) and resp.get("status") == "ok":
+                            self.log(f"   ✅ {tpsl_type} Order Accepted by Exchange.")
+                            total_success += 1
+                        else:
+                            self.log(f"   ⚠️ {tpsl_type} Order rejected or error: {resp}", "WARNING")
                      except Exception as e_ord:
-                        self.log(f"   ❌ Order Failed: {e_ord}")
+                        self.log(f"   ❌ {tpsl_type} Order Failed Exception: {e_ord}", "ERROR")
 
+                return {"status": "success" if total_success > 0 else "error", "message": f"Placed {total_success}/{len(orders)} orders"}
                 
         except Exception as e:
-            self.log(f"⚠️ Failed to place protection orders: {e}")
+            self.log(f"⚠️ Failed to place protection orders: {e}", "ERROR")
+            return {"status": "error", "message": str(e)}
 
     def get_canonical_symbol(self, symbol: str) -> str:
         """

@@ -16,8 +16,21 @@ async def get_hyperliquid_candles(symbol: str = "BTC", interval: str = "15m", li
         
         # Calculate time range
         end_time = int(datetime.now().timestamp() * 1000)
-        # 15m = 900s, so limit candles * 900s
-        start_time = end_time - (limit * 15 * 60 * 1000)
+        # Calculate seconds per interval
+        intervals = {
+            "1m": 60,
+            "5m": 300,
+            "15m": 900,
+            "1h": 3600,
+            "4h": 14400,
+            "1d": 86400
+        }
+        seconds = intervals.get(interval, 900)
+        
+        # Calculate time range with 2x buffer to ensure indicators (EMA/MACD/RSI) stabilize
+        # We need at least 'limit' candles, but indicators need historical depth
+        time_range_ms = limit * seconds * 1000 * 2 
+        start_time = end_time - time_range_ms
         
         payload = {
             "type": "candleSnapshot",

@@ -101,7 +101,8 @@ class TradeRecorder:
                     writer = csv.writer(f)
                     writer.writerow(row)
             
-            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f} | Regime: {entry_indicators.get('regime', 'N/A')}")
+            reasoning_snippet = str(entry_indicators.get("ai_reasoning", "N/A"))[:100]
+            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f} | Reasoning: {reasoning_snippet}...")
             
         except Exception as e:
             print(f"❌ Failed to record trade: {e}")

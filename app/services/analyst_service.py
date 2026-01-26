@@ -175,49 +175,56 @@ class AnalystService:
             mid_macd = mid_term.get("macd", {}).get("crossover", "NEUTRAL")
             
             # Advice Logic
+            # Advice Logic
+            pnl_text = f"Profit ({pnl_roe:+.1f}%)" if pnl_roe > 0 else f"Drawdown ({pnl_roe:+.1f}%)"
+            
             if real_side == "BUY":
                 if mid_trend == "BEARISH":
                     advice = "CAUTION"
                     color = "orange"
-                    reason = "Trend is changing to Bearish"
+                    reason = f"Trend is changing to Bearish ({pnl_text})"
                     if mid_macd == "BEARISH":
-                        reason += " + MACD Bear Cross"
+                        reason += " + MACD Bear Cross. Trade strength weakening."
                         
-                    if mid_rsi < 30:
+                    if mid_rsi < 35:
                         advice = "DANGER"
                         color = "red"
-                        reason = "Bearish Trend + Oversold (Crash risk)"
+                        reason = f"Bearish Trend + Extreme Weakness ({pnl_text}). Potential for deeper crash."
                 elif mid_rsi > 80:
                      advice = "TAKE PROFIT"
                      color = "green"
-                     reason = "RSI Extremely High (>80)"
-                elif pnl_roe > 10 and mid_macd == "BULLISH":
+                     reason = f"RSI Extremely High ({mid_rsi:.1f}). Overextended growth ({pnl_text})."
+                elif pnl_roe > 5 and mid_macd == "BULLISH" and mid_trend == "BULLISH":
                      advice = "GOOD"
                      color = "green"
-                     reason = "Profitable & Trend Match"
+                     reason = f"Trade is very healthy. Momentum and Trend aligned ({pnl_text})."
+                else:
+                     reason = f"Trade still valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
                      
             else: # SELL
                 if mid_trend == "BULLISH":
                     advice = "CAUTION"
                     color = "orange"
-                    reason = "Trend is changing to Bullish"
+                    reason = f"Trend is changing to Bullish ({pnl_text})"
                     if mid_macd == "BULLISH":
-                        reason += " + MACD Bull Cross"
+                        reason += " + MACD Bull Cross. Resistance breaking."
 
-                    if mid_rsi > 70:
+                    if mid_rsi > 65:
                         advice = "DANGER"
                         color = "red"
-                        reason = "Bullish Trend + Overbought"
+                        reason = f"Bullish Trend + Near Overbought ({pnl_text}). Shorts under pressure."
                 elif mid_rsi < 20:
                      advice = "TAKE PROFIT"
                      color = "green"
-                     reason = "RSI Extremely Low (<20)"
+                     reason = f"RSI Extremely Low ({mid_rsi:.1f}). Oversold bounce potential ({pnl_text})."
+                else:
+                     reason = f"Trade still valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
 
             return {
                 "advice": advice,
                 "color": color,
                 "reason": reason,
-                "score": 85 if advice == "GOOD" else 50
+                "score": 85 if advice == "GOOD" else (40 if advice in ["CAUTION", "DANGER"] else 60)
             }
             
         except Exception as e:

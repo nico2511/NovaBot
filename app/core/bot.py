@@ -24,6 +24,8 @@ from app.core.asset_gamification import AssetGamification, AccountLevel
 from strategies.engine import StrategyEngine
 from app.services.ia import ia_service
 from app.services.indicators import Indicators
+from app.services.analyst_service import analyst_service
+from app.services.discord_service import discord_service
 from app.utils.data_processing import get_dynamic_context
 
 class BotContext:
@@ -98,6 +100,10 @@ class BotContext:
         
         # Startup synchronization flags
         self.startup_sync_done = False
+        
+        # Periodic Reporting Timers
+        self._last_copilot_report_time = None
+        self._copilot_report_interval = 600  # 10 minutes
         self._initial_position_analyzed = False
         
         # Candle analysis cache
@@ -119,6 +125,11 @@ class BotContext:
         
         # Cooldown tracking (anti-overtrading)
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
+        
+        # Data Persistence (Core)
+        self.trade_recorder = TradeRecorder()
+        self.signal_analysis_file = os.path.join(BASE_DIR, "data", "signal_analysis.json")
+        self._ensure_data_dir()
         
         # Load persisted state
         try:
@@ -419,6 +430,50 @@ class BotContext:
             "recent_closes": df['close'].tail(20).tolist() if not df.empty else [],
             **dynamic_ctx
         }
+
+    def _ensure_data_dir(self):
+        """Ensure data directory exists"""
+        data_dir = os.path.dirname(self.signal_analysis_file)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+
+    def _record_signal_analysis(self, sig: dict, ai_data: dict, approved: bool):
+        """Record AI signal analysis to a persistent JSON file for audit trail."""
+        try:
+            entry = {
+                "timestamp": pd.Timestamp.now().isoformat(),
+                "symbol": self.active_symbol,
+                "direction": sig.get("signal"),
+                "strategy": sig.get("strategy"),
+                "approved": approved,
+                "confidence": ai_data.get("confidence", 0),
+                "reasoning": ai_data.get("reasoning", "No reasoning provided"),
+                "risk_level": ai_data.get("risk_level", "UNKNOWN"),
+                "market_price": sig.get("price"),
+                "suggested_sl": ai_data.get("suggested_adjustments", {}).get("sl"),
+                "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp")
+            }
+            
+            # Read existing or init new
+            history = []
+            if os.path.exists(self.signal_analysis_file):
+                try:
+                    with open(self.signal_analysis_file, "r") as f:
+                        history = json.load(f)
+                except: history = []
+            
+            history.append(entry)
+            # Keep last 500 signals
+            if len(history) > 500:
+                history = history[-500:]
+            
+            with open(self.signal_analysis_file, "w") as f:
+                json.dump(history, f, indent=2)
+                
+            self.add_log(f"💾 Signal Analysis saved to history ({'Approved' if approved else 'Rejected'})")
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to record signal analysis: {e}")
+
 
     def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None, entry_indicators: dict = None):
         """ATOMIC ENTRY FLOW (Unified v2) - Now captures entry indicators for analysis"""
@@ -859,6 +914,72 @@ class BotContext:
         # 3. Local Local Exit Check (Universal safety net)
         # Even if strategy handled logic, we still respect the committed SL/TP triggers here
         self._check_local_exits(trade, symbol, current_price)
+        
+        # 4. Periodic Copilot Reporting (Every 10 min)
+        self._handle_periodic_copilot_report(trade)
+
+    def _handle_periodic_copilot_report(self, trade: dict):
+        """Handle periodic analysis report for active trades (Copilot logic)"""
+        now = time.time()
+        if self._last_copilot_report_time is None:
+            self._last_copilot_report_time = now
+            return
+            
+        elapsed = now - self._last_copilot_report_time
+        if elapsed >= self._copilot_report_interval:
+            self._last_copilot_report_time = now
+            symbol = trade["symbol"]
+            
+            async def run_async_report():
+                try:
+                    self.add_log(f"📊 Periodic Copilot Analysis for {symbol}...")
+                    
+                    # Get Market Sentiment
+                    sentiment = await analyst_service.analyze_market_sentiment(symbol)
+                    
+                    # Format position for AnalystService (expects dict with specific keys)
+                    # returnOnEquity is calculated here for simplicity
+                    entry = float(trade.get("entry", 0))
+                    curr = hyperliquid_service.get_current_price(symbol)
+                    side = trade.get("side", "BUY")
+                    pnl_raw = ((curr - entry) / entry) if side == "BUY" else ((entry - curr) / entry)
+                    
+                    pos_data = {
+                        "symbol": symbol,
+                        "side": side,
+                        "size": trade.get("size", 0),
+                        "returnOnEquity": pnl_raw
+                    }
+                    
+                    analysis = analyst_service.analyze_position(pos_data, sentiment)
+                    advice = analysis.get("advice", "HOLD")
+                    reason = analysis.get("reason", "N/A")
+                    
+                    # Notification Discord
+                    pnl_pct = pnl_raw * 100
+                    status_emoji = "📈" if pnl_pct > 0 else "📉"
+                    report_msg = (
+                        f"{status_emoji} **Trade Evolution: {symbol}** ({side})\n"
+                        f"💰 **PnL:** {pnl_pct:+.2f}%\n"
+                        f"🧠 **Copilot Advice:** {advice}\n"
+                        f"📝 **Reasoning:** {reason}\n"
+                        f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}"
+                    )
+                    
+                    # Send to Discord & Internal Logs
+                    discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
+                    self.add_log(f"📊 Copilot Report Sent: {advice} | PnL: {pnl_pct:.2f}%")
+                    
+                except Exception as e:
+                    self.add_log(f"⚠️ Periodic Report Failed: {e}")
+
+            # Run in background to avoid blocking trading loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(run_async_report())
+            except:
+                pass
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
@@ -1009,9 +1130,9 @@ class BotContext:
                         self.add_log(f"🕵️ SYNC: Adopting orphan position {position_symbol} into memory")
                         self._adopt_existing_position(main_position)
                     
-                    self.add_log("⏳ SYNC: Waiting 20 seconds for full synchronization...")
-                    time.sleep(20)
-                    self.add_log("✅ SYNC: Synchronization complete, ready for AI analysis")
+                self.add_log("⏳ SYNC: Waiting 2 seconds for full synchronization...")
+                time.sleep(2)
+                self.add_log("✅ SYNC: Synchronization complete, ready for AI analysis")
                     
                     try:
                         self.add_log(f"📊 Fetching market data for {self.active_symbol}...")
@@ -1201,16 +1322,22 @@ class BotContext:
                                         required_conf = config.AI_CONF_THRESHOLD_LOW
                                     
                                     if confidence >= required_conf:
-                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}% >= {required_conf}% for {risk_level} risk)", metadata=ai_data)
+                                        reason = ai_data.get('reasoning', 'No reason')
+                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
+                                        self._record_signal_analysis(sig, ai_data, True)
+                                        
                                         if ai_data.get("suggested_adjustments"):
                                             adj = ai_data["suggested_adjustments"]
                                             if adj.get("sl"): sig["sl"] = adj["sl"]
                                             if adj.get("tp"): sig["tp"] = adj["tp"]
                                     else:
                                         self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
+                                        self._record_signal_analysis(sig, ai_data, False)
                                         approved = False
                                 else:
-                                    self.add_log(f"❌ AI REJECTED: {ai_data.get('reasoning')}", metadata=ai_data)
+                                    reason = ai_data.get('reasoning', 'No reason')
+                                    self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
+                                    self._record_signal_analysis(sig, ai_data, False)
                             else:
                                 approved = True 
                         except:
@@ -1274,7 +1401,8 @@ class BotContext:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 
                 # Optimized Sleep Loop (Non-blocking)
-                sleep_duration = 10 if self.active_trade else (15 if signals else 60)
+                # Reduced from 60s to 10s for better responsiveness (detecting manual trades)
+                sleep_duration = 10 if self.active_trade else (15 if signals else 10)
                 self.add_log(f"⏸️ Next analysis in {sleep_duration}s...")
                 for _ in range(int(sleep_duration)):
                     if not self.is_running: break
@@ -1437,7 +1565,7 @@ class BotContext:
                     sl_p_api = max(0.001, sl_p_api)
                     tp_p_api = max(0.001, tp_p_api)
 
-                    hyperliquid_service.set_sl_tp(
+                    res = hyperliquid_service.set_sl_tp(
                         symbol=self.active_symbol,
                         entry_price=entry_price,
                         sl_percent=sl_p_api * 100,
@@ -1445,7 +1573,10 @@ class BotContext:
                         is_long=is_long,
                         quantity=size
                     )
-                    print(f"      ✅ SL/TP Orders Updated: SL {sl_price:.4f} | TP {tp_price:.4f}")
+                    if res.get("status") == "success":
+                        print(f"      ✅ SL/TP Orders Updated: SL {sl_price:.4f} | TP {tp_price:.4f}")
+                    else:
+                        print(f"      ⚠️ API Order Warning: {res.get('message')}")
                 except Exception as e:
                     print(f"      ⚠️ API Order Failed: {e}")
             else:
