@@ -1133,53 +1133,53 @@ class BotContext:
                 self.add_log("⏳ SYNC: Waiting 2 seconds for full synchronization...")
                 time.sleep(2)
                 self.add_log("✅ SYNC: Synchronization complete, ready for AI analysis")
+                
+                try:
+                    self.add_log(f"📊 Fetching market data for {self.active_symbol}...")
+                    df_sync = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
                     
-                    try:
-                        self.add_log(f"📊 Fetching market data for {self.active_symbol}...")
-                        df_sync = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+                    if not df_sync.empty:
+                        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                        for col in numeric_cols:
+                            if col in df_sync.columns:
+                                df_sync[col] = df_sync[col].astype(float)
                         
-                        if not df_sync.empty:
-                            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-                            for col in numeric_cols:
-                                if col in df_sync.columns:
-                                    df_sync[col] = df_sync[col].astype(float)
+                        self.strategy_engine.analyze(df_sync)
+                        self.latest_data = df_sync
+                        self.add_log("✅ Market data & indicators ready for AI")
+                    else:
+                        self.add_log("⚠️ Sync Warning: No candles received")
+                except Exception as e_data:
+                    self.add_log(f"⚠️ Sync Data Error: {e_data}")
+                
+                if not self._initial_position_analyzed:
+                    try:
+                        import json
+                        self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
+                        market_context = self._prepare_ai_context(position_data=main_position)
+                        ai_result = ia_service.analyze_position_risk(
+                            symbol=self.active_symbol,
+                            position_data=main_position,
+                            market_data=market_context
+                        )
+                        if ai_result:
+                            ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
+                            reasoning = ai_data.get('reasoning', 'Position analysée')
+                            risk_level = ai_data.get('risk_level', 'UNKNOWN')
+                            self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
+                            self.ai_cache[f"position_analysis_{self.active_symbol}"] = ai_data
+                            self.ai_cache["last_position_analysis"] = ai_data
+                            self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
                             
-                            self.strategy_engine.analyze(df_sync)
-                            self.latest_data = df_sync
-                            self.add_log("✅ Market data & indicators ready for AI")
-                        else:
-                            self.add_log("⚠️ Sync Warning: No candles received")
-                    except Exception as e_data:
-                        self.add_log(f"⚠️ Sync Data Error: {e_data}")
-                    
-                    if not self._initial_position_analyzed:
-                        try:
-                            import json
-                            self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
-                            market_context = self._prepare_ai_context(position_data=main_position)
-                            ai_result = ia_service.analyze_position_risk(
-                                symbol=self.active_symbol,
-                                position_data=main_position,
-                                market_data=market_context
-                            )
-                            if ai_result:
-                                ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
-                                reasoning = ai_data.get('reasoning', 'Position analysée')
-                                risk_level = ai_data.get('risk_level', 'UNKNOWN')
-                                self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
-                                self.ai_cache[f"position_analysis_{self.active_symbol}"] = ai_data
-                                self.ai_cache["last_position_analysis"] = ai_data
-                                self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
-                                
-                                if risk_level in ["HIGH", "CRITICAL"]:
-                                    discord_service.send_alert(
-                                        f"🤖 AI Analysis - {risk_level} RISK",
-                                        f"Symbol: {self.active_symbol}\n{reasoning}",
-                                        color="FF0000" if risk_level == "CRITICAL" else "FFA500"
-                                    )
-                            self._initial_position_analyzed = True
-                        except Exception as e:
-                            self.add_log(f"⚠️ Error in startup AI analysis: {e}")
+                            if risk_level in ["HIGH", "CRITICAL"]:
+                                discord_service.send_alert(
+                                    f"🤖 AI Analysis - {risk_level} RISK",
+                                    f"Symbol: {self.active_symbol}\n{reasoning}",
+                                    color="FF0000" if risk_level == "CRITICAL" else "FFA500"
+                                )
+                        self._initial_position_analyzed = True
+                    except Exception as e:
+                        self.add_log(f"⚠️ Error in startup AI analysis: {e}")
                 else:
                     self.add_log("ℹ️ SYNC: No positions found on Hyperliquid")
                     
