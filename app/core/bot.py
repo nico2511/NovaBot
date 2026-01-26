@@ -12,6 +12,9 @@ import json
 import pandas as pd
 from collections import deque
 
+# Root Directory Logic
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app.core.config import config
 from app.core.risk_manager import RiskManager
 from app.core.constants import *
