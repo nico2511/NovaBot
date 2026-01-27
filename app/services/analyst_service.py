@@ -127,6 +127,15 @@ class AnalystService:
             if rsi_status == "OVERBOUGHT": score -= 20 # Pullback risk
             if rsi_status == "OVERSOLD": score += 20   # Bounce chance
             
+            # Volume Influence
+            if vol_trend == "HIGH":
+                # Confirm movement strength
+                if score > 0: score += 10
+                elif score < 0: score -= 10
+            elif vol_trend == "LOW":
+                # Reduce conviction if volume is low
+                score = int(score * 0.7)
+
             # Final Sentiment Label
             label = "NEUTRAL"
             if score >= 30: label = "BULLISH"
