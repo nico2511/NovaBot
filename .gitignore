@@ -17,10 +17,10 @@ data/
 logs/
 
 # Helper output
-_bmad-output/
-_bmad/
-.claude/
-.agent/
+#_bmad-output/
+#_bmad/
+#.claude/
+#.agent/
 
 # OS
 .DS_Store

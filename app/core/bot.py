@@ -1088,8 +1088,19 @@ class BotContext:
                 except Exception as gam_err:
                     self.add_log(f"⚠️ Gamification check failed: {gam_err}")
             else:
-                target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
-                self.add_log(f"ℹ️ Gamification disabled. Using leverage: {target_leverage}x (default: {default_leverage}x)")
+                # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
+                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                
+                if risk_profile == "Capital Preservation First":
+                    target_leverage = 3
+                elif risk_profile == "Balanced Growth":
+                    target_leverage = 5
+                elif risk_profile == "High Volatility Hunter":
+                    target_leverage = 10
+                else:
+                    target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+                
+                self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
             
             if 'current_equity' in locals():
                 self.account_value = float(current_equity)
@@ -1354,7 +1365,34 @@ class BotContext:
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
                             
-                            size = self.risk_manager.calculate_position_size(entry_price, sl_price, equity)
+                            # DYNAMIC POSITION SIZING based on RISK PROFILE
+                            if not self.scanner_settings.get("gamification_enabled", True):
+                                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                                
+                                # Assign risk % constants based on profile
+                                risk_pct = 1.5 # Default (Conservative)
+                                if risk_profile == "Balanced Growth": risk_pct = 3.5
+                                elif risk_profile == "High Volatility Hunter": risk_pct = 7.0
+                                
+                                self.add_log(f"📏 SIZING: Using dynamic risk mode ({risk_profile}): {risk_pct}% risk")
+                                size = self.risk_manager.calculate_position_size(
+                                    price=entry_price,
+                                    sl_price=sl_price,
+                                    equity=equity,
+                                    method="risk_pct",
+                                    size_value=risk_pct
+                                )
+                            else:
+                                # Standard sizing (Fixed $20 Margin @ Target Leverage)
+                                current_leverage = int(self.scanner_settings.get("leverage", 5))
+                                size = self.risk_manager.calculate_position_size(
+                                    price=entry_price, 
+                                    sl_price=sl_price, 
+                                    equity=equity,
+                                    method="fixed",
+                                    size_value=20.0,
+                                    leverage=current_leverage
+                                )
                             # ---------------------------------------------------
                             # 2. EXECUTION LOGIC (Live)
                             # ---------------------------------------------------
