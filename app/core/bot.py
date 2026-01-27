@@ -143,7 +143,7 @@ class BotContext:
             
             try:
                 balance_data = hyperliquid_service.get_account_balance()
-                equity = balance_data.get("equity", 0) if balance_data.get("status") == "success" else 0
+                equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
                 gam = AssetGamification(equity)
                 
                 if gam.level == AccountLevel.GOBLIN:
@@ -1068,7 +1068,22 @@ class BotContext:
             default_margin_type = self.global_settings.get("default_margin_type", "Cross")
             
             # Read trading params from scanner_settings (centralized source) with fallbacks
-            requested_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+            requested_leverage = self.scanner_settings.get("leverage")
+            
+            # If leverage not explicitly set or set to 1 (likely default), derive from risk profile
+            if requested_leverage is None or int(requested_leverage) <= 1:
+                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                if risk_profile == "Capital Preservation First":
+                    requested_leverage = 3
+                elif risk_profile == "Balanced Growth":
+                    requested_leverage = 5
+                elif risk_profile == "High Volatility Hunter":
+                    requested_leverage = 10
+                else:
+                    requested_leverage = default_leverage
+            else:
+                requested_leverage = int(requested_leverage)
+
             margin_type = self.scanner_settings.get("margin_type", default_margin_type)
             is_cross = (margin_type == "Cross")
             
@@ -1077,7 +1092,7 @@ class BotContext:
             if gamification_active:
                 try:
                     balance_data = hyperliquid_service.get_account_balance()
-                    current_equity = balance_data.get("equity", 0.0) if balance_data.get("status") == "success" else 0.0
+                    current_equity = balance_data.get("total_equity", 0.0) if balance_data.get("status") == "success" else 0.0
                     gam = AssetGamification(current_equity)
                     max_leverage = gam.get_max_leverage()
                     
