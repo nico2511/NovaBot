@@ -1003,15 +1003,15 @@ class BotContext:
                 with self.trade_lock:
                     self.active_trade = {
                         "symbol": symbol,
-                        "side": "BUY" if float(pos["szi"]) > 0 else "SELL",
-                        "entry": float(pos["entryPx"]),
-                        "size": abs(float(pos["szi"])),
+                        "side": pos["side"], # Normalized: "BUY" or "SELL"
+                        "entry": float(pos["entry_price"]),
+                        "size": float(pos["size"]),
                         "sl": self.active_trade.get("sl", 0) if self.active_trade else 0,
                         "tp": self.active_trade.get("tp", 0) if self.active_trade else 0,
                         "strategy": self.active_trade.get("strategy", "Manual/Sync") if self.active_trade else "Manual (Sync)",
                         "timestamp": self.active_trade.get("timestamp", pd.Timestamp.now().isoformat()) if self.active_trade else pd.Timestamp.now().isoformat(),
-                        "pnl": float(pos["unrealizedPnl"]),
-                        "max_pnl": float(pos["unrealizedPnl"]),
+                        "pnl": float(pos["pnl"]),
+                        "max_pnl": float(pos["pnl"]),
                         "status": "OPEN",
                         "ai_analysis": self.active_trade.get("ai_analysis") if self.active_trade else None
                     }

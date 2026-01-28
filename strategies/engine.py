@@ -13,6 +13,7 @@ from strategies.bollinger_middle_bounce import BollingerMiddleBounceStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 from strategies.elastic_nibbler import ElasticNibblerStrategy
+from strategies.liquidity_lightning import LiquidityLightning
 
 # Import robuste pour Panic Close
 try:
@@ -50,6 +51,7 @@ class StrategyEngine:
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
             "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
+            "liquidity_lightning": LiquidityLightning(strats_config.get("liquidity_lightning")),
 
         }
 

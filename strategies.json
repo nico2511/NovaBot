@@ -184,6 +184,23 @@
                 "swing_confirmation_bars": 12,
                 "volume_multiplier": 1.25
             }
+        },
+        "liquidity_lightning": {
+            "enabled": true,
+            "type": "scalp_choc",
+            "description": "L'Éclair de Liquidité - Funnel v2 (180s Time Limit)",
+            "display_conditions": [
+                "Sweep 30-candle High/Low",
+                "Rejection Wick > 60%",
+                "Vol > 1.5x Avg OR OI Drop"
+            ],
+            "params": {
+                "lookback": 30,
+                "wick_threshold": 0.60,
+                "volume_multiplier": 1.5,
+                "min_rr": 1.0,
+                "time_limit_seconds": 180
+            }
         }
     }
 }

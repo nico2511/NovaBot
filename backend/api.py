@@ -390,7 +390,7 @@ async def get_status():
                 if bot.account_value > 0 and active_positions > 0:
                     # Calculate total position value
                     total_position_value = sum(
-                        abs(float(pos.get('szi', 0)) * float(pos.get('entryPx', 0))) 
+                        abs(float(pos.get('size', 0)) * float(pos.get('entry_price', 0))) 
                         for pos in open_positions_list
                     )
                     # Margin usage = (Position Value / Account Value) * 100
