@@ -188,7 +188,7 @@
         "liquidity_lightning": {
             "enabled": true,
             "type": "scalp_choc",
-            "description": "L'Éclair de Liquidité - Funnel v2 (180s Time Limit)",
+            "description": "Mean Reversion (False Breakout) - Chasse les excès de tendance et les ranges. Target: EMA20.",
             "display_conditions": [
                 "Sweep 30-candle High/Low",
                 "Rejection Wick > 60%",

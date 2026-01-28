@@ -162,8 +162,8 @@ class StrategyEngine:
                 elif strat_type == "reversion": # FIX: Reversion works in Range
                     active_strategies.append(self.strategies[name])
                     
-            elif strat_type == "sniper": # Sniper/FVG always active?
-                # Or maybe check if sniper specifically requested always active
+            elif strat_type == "sniper" or strat_type == "scalp_choc": 
+                # Sniper and Scalp Choc (Liquidity Lightning) are trigger-based, always check
                 active_strategies.append(self.strategies[name])
                 
             # If "reversion" was not caught by RANGE, check if it's meant to be active elsewhere?
