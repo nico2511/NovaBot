@@ -1567,23 +1567,59 @@ class BotContext:
                     
                     regime = "TREND" if adx > 25 else "RANGE"
                     
-                    atr = 0
-                    if 'ATRr_14' in df_15m.columns: atr = df_15m['ATRr_14'].iloc[-1]
-                    else: atr = float(Indicators.atr(df_15m['high'], df_15m['low'], df_15m['close'], 14).iloc[-1])
+                    if not hasattr(self, 'global_settings'):
+                        self.global_settings = {}
+                        
+                    risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                    print(f"      🛡️ Using Profile: {risk_profile}")
+
+                    # Profile Logic
+                    if risk_profile == "Capital Preservation First":
+                        base_sl_mult = 1.0  # Tight
+                        base_tp_rr = 2.0    # Conservative
+                    elif risk_profile == "High Volatility Hunter":
+                        base_sl_mult = 3.0  # Loose
+                        base_tp_rr = 4.0    # Aggressive
+                    else: # Balanced Growth
+                        base_sl_mult = 2.0  # Standard
+                        base_tp_rr = 2.5
                     
-                    sl_mult = 2.0 if regime == "TREND" else 1.2
-                    tp_rr = 2.5 if regime == "TREND" else 1.5
+                    sl_mult = base_sl_mult
+                    tp_rr = base_tp_rr
+                    
+                    # Trend adjustment
+                    if regime == "TREND":
+                         sl_mult *= 1.5 # Widen for trend noise
+                         
                     sl_dist = atr * sl_mult
                     
+                    # Fallback if ATR is dead (0)
+                    if sl_dist == 0:
+                        sl_dist = current_price * 0.02 # 2% default
+                    
+                    # --- SAFETY CLAMP (Absolut Hard Cap) ---
+                    # Prevent SL > 10% and TP > 20% distance regardless of profile/ATR
+                    MAX_SL_DIST = current_price * 0.10
+                    MAX_TP_DIST = current_price * 0.20
+                    
+                    if sl_dist > MAX_SL_DIST:
+                        print(f"      ⚠️ SL Clamp: Calculated {sl_dist:.4f} -> Limit {MAX_SL_DIST:.4f}")
+                        sl_dist = MAX_SL_DIST
+                        
+                    tp_dist = sl_dist * tp_rr
+                    if tp_dist > MAX_TP_DIST:
+                         tp_dist = MAX_TP_DIST
+                    # -------------------------------------------------------------
+
                     if side == "BUY":
                         sl_price = current_price - sl_dist
-                        tp_price = current_price + (sl_dist * tp_rr)
+                        tp_price = current_price + tp_dist
                     else:
                         sl_price = current_price + sl_dist
-                        tp_price = current_price - (sl_dist * tp_rr)
+                        tp_price = current_price - tp_dist
                         
-                    strategy_name = f"Manual ({regime} - Adopted)"
-                    adoption_metadata = {"adopted_at_boot": True, "method": "smart_calc", "regime": regime}
+                    strategy_name = f"Manual ({risk_profile} - Adopted)"
+                    adoption_metadata = {"adopted_at_boot": True, "method": "risk_profile_smart", "profile": risk_profile}
 
             except Exception as e:
                 print(f"   ⚠️ Analysis Failed: {e}. Using Fallback.")
@@ -1806,7 +1842,18 @@ class BotContext:
             try:
                 # 1. Strategy Intent
                 strategy_name = self.active_trade.get("strategy", "Unknown").lower()
+
+                # Get Risk Profile Multiplier Defaults
+                if not hasattr(self, 'global_settings'): self.global_settings = {}
+                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
                 
+                if risk_profile == "Capital Preservation First":
+                    sl_mult = 1.0; tp_mult = 2.0
+                elif risk_profile == "High Volatility Hunter":
+                    sl_mult = 3.0; tp_mult = 4.0
+                else: # Balanced
+                    sl_mult = 2.0; tp_mult = 3.0
+
                 # 2. Market Context (RSI)
                 rsi = 50.0
                 if df is not None and not df.empty:
@@ -1814,8 +1861,8 @@ class BotContext:
                 
                 if "scalp" in strategy_name:
                     # Scalping: Tighter stops, quicker targets
-                    sl_mult = 1.2
-                    tp_mult = 1.8
+                    sl_mult *= 0.6  # Tighter relative to profile
+                    tp_mult *= 0.6
                     
                     # Dynamic Trailing based on RSI Extension
                     # If we are winning and RSI is extended, tighten SL significantly
@@ -1828,41 +1875,63 @@ class BotContext:
                          
                 elif "trend" in strategy_name:
                      # Trend Following: Give room to breathe
-                     sl_mult = 3.0
-                     tp_mult = 5.0
+                     sl_mult *= 1.5
+                     tp_mult *= 1.6 # Reward risk
+            except Exception as e:
+                self.add_log(f"⚠️ Context Logic Error: {e}")
+                sl_mult = 2.0; tp_mult = 3.0
             except Exception as e:
                 self.add_log(f"⚠️ Context Logic Error: {e}")
                 sl_mult = 2.0; tp_mult = 3.0
             
-            MIN_DIST_PCT = 0.001 # 0.1% minimal buffer for scalping support
+            MIN_DIST_PCT = 0.001 # 0.1% minimal buffer
+            
+            # --- SAFETY CLAMP (Active Management Sanity Check) ---
+            ideal_sl_dist = atr_val * sl_mult
+            ideal_tp_dist = atr_val * tp_mult
+            
+            MAX_SL_DIST_PCT = 0.10 # 10% Max SL
+            MAX_TP_DIST_PCT = 0.20 # 20% Max TP (was causing +400% targets)
+            
+            if ideal_sl_dist > current_price * MAX_SL_DIST_PCT:
+                 self.add_log(f"🛡️ Safety Clamp: Limiting SL Calc ({ideal_sl_dist:.4f}) to 10%")
+                 ideal_sl_dist = current_price * MAX_SL_DIST_PCT
+                 
+            if ideal_tp_dist > current_price * MAX_TP_DIST_PCT:
+                 self.add_log(f"🛡️ Safety Clamp: Limiting TP Calc ({ideal_tp_dist:.4f}) to 20%")
+                 ideal_tp_dist = current_price * MAX_TP_DIST_PCT
+            # -----------------------------------------------------
             
             if side == "BUY":
                 # LONG: SL below Entry, TP above Entry
-                ideal_sl = entry_price - (atr_val * sl_mult)
-                ideal_tp = entry_price + (atr_val * tp_mult)
+                # Use Current Price as base for recalibration logic if intended to trail, 
+                # but standard is Entry Based. Let's stick to Entry based for consistency unless trailing.
+                
+                ideal_sl = entry_price - ideal_sl_dist
+                ideal_tp = entry_price + ideal_tp_dist
                 
                 # Validation: SL must be < Current Price
                 if ideal_sl >= current_price * (1 - MIN_DIST_PCT):
-                    self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) above current price ({current_price:.2f}). Adjusting.")
-                    ideal_sl = current_price * (1 - 0.002) # 0.2% below current
+                    # self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) above current price ({current_price:.2f}). Adjusting.") # Reduced noise
+                    ideal_sl = current_price * (1 - 0.005) # 0.5% below current
                 
                 # Validation: TP must be > Current Price
                 if ideal_tp <= current_price * (1 + MIN_DIST_PCT):
-                     ideal_tp = current_price * (1 + 0.002) # 0.2% above current
+                     ideal_tp = current_price * (1 + 0.005) 
 
             else:
                 # SHORT: SL above Entry, TP below Entry
-                ideal_sl = entry_price + (atr_val * sl_mult)
-                ideal_tp = entry_price - (atr_val * tp_mult)
+                ideal_sl = entry_price + ideal_sl_dist
+                ideal_tp = entry_price - ideal_tp_dist
                 
                 # Validation: SL must be > Current Price
                 if ideal_sl <= current_price * (1 + MIN_DIST_PCT):
-                    self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) below current price ({current_price:.2f}). Adjusting.")
-                    ideal_sl = current_price * (1 + 0.002) # 0.2% above current
+                    # self.add_log(f"⚠️ Ideal SL ({ideal_sl:.2f}) below current price ({current_price:.2f}). Adjusting.")
+                    ideal_sl = current_price * (1 + 0.005) 
                     
                 # Validation: TP must be < Current Price
                 if ideal_tp >= current_price * (1 - MIN_DIST_PCT):
-                     ideal_tp = current_price * (1 - 0.002) # 0.2% below current
+                     ideal_tp = current_price * (1 - 0.005)
 
             current_sl = float(self.active_trade.get("sl") or 0)
             current_tp = float(self.active_trade.get("tp") or 0)
