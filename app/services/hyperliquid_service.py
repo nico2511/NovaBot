@@ -318,35 +318,60 @@ class HyperliquidService:
         
         return self._meta_cache
 
+    def _infer_price_decimals(self, current_price: float) -> int:
+        """
+        Intelligently infer price decimals based on current price magnitude.
+        Maintains ~4-5 significant figures for precision across all price ranges.
+        
+        Examples:
+            BTC (95000) -> 0 decimals (95000)
+            ETH (3500) -> 1 decimal (3500.5)
+            SOL (150) -> 2 decimals (150.25)
+            HYPE (25) -> 3 decimals (25.123)
+            WIF (0.5) -> 4 decimals (0.5123)
+            FARTCOIN (0.30) -> 5 decimals (0.30591)
+        """
+        if current_price >= 1000:
+            return 0
+        elif current_price >= 100:
+            return 1
+        elif current_price >= 10:
+            return 2
+        elif current_price >= 1:
+            return 3
+        elif current_price >= 0.1:
+            return 4
+        elif current_price >= 0.01:
+            return 5
+        else:
+            return 6  # Micro-caps
+
     def _get_precision(self, symbol: str):
-        """Get precision for size and price from metadata (Live or Cache)"""
+        """Get precision for size and price from metadata + dynamic inference"""
         meta = self._fetch_metadata()
         
-        # 1. Try to find in Universe
+        # 1. Try to find in Universe for szDecimals
         if meta and "universe" in meta:
-            # Map of Price Precisions (Tick Size Decimals) - Manual overrides
-            # TODO: Fetch this dynamically if API exposes it later
-            PRICE_PRECISION_MAP = {
-                "BTC": 0, 
-                "ETH": 1, 
-                "SOL": 2, 
-                "HYPE": 4, 
-                "WIF": 4,
-                "PEPE": 6
-            }
-            
             for asset in meta["universe"]:
                 if asset["name"] == symbol:
-                    # Use manual map or fallback to 5 (which is safe for small alts but bad for BTC)
-                    # Actually, 5 is OFTEN safe, but for BTC huge numbers causes issues?
-                    # Let's use get(symbol, 4) to be safe generally, but 1 for BTC.
-                    p_prec = PRICE_PRECISION_MAP.get(symbol, 4) 
-                    return asset["szDecimals"], p_prec
+                    sz_decimals = asset["szDecimals"]
+                    
+                    # Get current price for dynamic precision inference
+                    try:
+                        current_price = self.get_current_price(symbol)
+                        if current_price > 0:
+                            price_decimals = self._infer_price_decimals(current_price)
+                        else:
+                            price_decimals = 4  # Safe fallback
+                    except:
+                        price_decimals = 4  # Safe fallback if price fetch fails
+                    
+                    return sz_decimals, price_decimals
         
-        # 2. Fallback Map for Majors
-        FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1}
+        # 2. Fallback Map for Size Decimals (if metadata lookup fails)
+        FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1, "FARTCOIN": 1}
         self.log(f"⚠️ Metadata lookup failed for {symbol}. Using fallback precision.")
-        return FALLBACK_SZ.get(symbol, 2), 4 # Conservative default 
+        return FALLBACK_SZ.get(symbol, 2), 4  # Conservative default 
 
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
@@ -406,11 +431,35 @@ class HyperliquidService:
                         self.log(f"   👉 Sending {tpsl_type} Trigger Order for {symbol} @ {o['order_type']['trigger']['triggerPx']}...")
                         resp = self.exchange.order(o["coin"], o["is_buy"], o["sz"], o["limit_px"], o["order_type"], o["reduce_only"])
                         
+                        # DEEP RESPONSE VALIDATION (Ported from execute_order)
+                        success = False
+                        error_reason = "Unknown Error"
+                        
                         if isinstance(resp, dict) and resp.get("status") == "ok":
-                            self.log(f"   ✅ {tpsl_type} Order Accepted by Exchange.")
+                            response_data = resp.get("response", {})
+                            data_inner = response_data.get("data", {})
+                            statuses = data_inner.get("statuses", [])
+                            
+                            if not statuses:
+                                # Sometimes response might be empty list if nothing happened? But usually contains status.
+                                success = True 
+                            else:
+                                # Check the first status (since we send 1 by 1 here)
+                                status = statuses[0]
+                                if isinstance(status, dict) and status.get("error"):
+                                    error_reason = status["error"]
+                                    success = False
+                                else:
+                                    success = True
+                        else:
+                            error_reason = f"API Status: {resp.get('status') if isinstance(resp, dict) else resp}"
+                            
+                        if success:
+                            self.log(f"   ✅ {tpsl_type} Order CONFIRMED by Exchange.")
                             total_success += 1
                         else:
-                            self.log(f"   ⚠️ {tpsl_type} Order rejected or error: {resp}", "WARNING")
+                            self.log(f"   ❌ {tpsl_type} Order REJECTED: {error_reason}", "ERROR")
+                            
                      except Exception as e_ord:
                         self.log(f"   ❌ {tpsl_type} Order Failed Exception: {e_ord}", "ERROR")
 
