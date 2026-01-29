@@ -201,6 +201,27 @@
                 "min_rr": 1.0,
                 "time_limit_seconds": 180
             }
+        },
+        "sniper_precision_trend": {
+            "enabled": true,
+            "type": "trend",
+            "description": "SNIPER - Precision Trend MTF V3 – Pullback EMA21 strict + BOS 1m + Capital Preservation First",
+            "display_conditions": [
+                "Trend Alignment EMA21/50 + ADX > 28 Rising",
+                "Pullback EMA21 < 0.25%",
+                "RSI 38-70 + Volume > 1.3x",
+                "1m BOS Trigger"
+            ],
+            "params": {
+                "rr_ratio": 2.0,
+                "adx_threshold": 28,
+                "rsi_min": 38,
+                "rsi_max": 70,
+                "pullback_tolerance": 0.0025,
+                "bos_lookback": 3,
+                "sl_atr_mult": 0.35,
+                "volume_multiplier": 1.3
+            }
         }
     }
 }

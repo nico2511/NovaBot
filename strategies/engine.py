@@ -14,6 +14,7 @@ from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 from strategies.elastic_nibbler import ElasticNibblerStrategy
 from strategies.liquidity_lightning import LiquidityLightning
+from strategies.sniper_precision_trend import SniperPrecisionTrend
 
 # Import robuste pour Panic Close
 try:
@@ -52,6 +53,7 @@ class StrategyEngine:
             "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
             "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
             "liquidity_lightning": LiquidityLightning(strats_config.get("liquidity_lightning")),
+            "sniper_precision_trend": SniperPrecisionTrend(strats_config.get("sniper_precision_trend")),
 
         }
 
