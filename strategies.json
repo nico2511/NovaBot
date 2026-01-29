@@ -44,7 +44,9 @@
                 "bb_period": 20,
                 "bb_std": 3.0,
                 "rsi_period": 14,
-                "volume_multiplier": 1.9,
+                "rsi_oversold": 26,
+                "rsi_overbought": 74,
+                "volume_multiplier": 1.40,
                 "adx_threshold": 28,
                 "min_rr": 1.6,
                 "sl_atr_mult": 1.5,
@@ -64,9 +66,9 @@
             "params": {
                 "rsi_period": 14,
                 "ema_period": 20,
-                "oversold_rsi": 32,
-                "overbought_rsi": 68,
-                "extension_pct": 0.035,
+                "oversold_rsi": 28,
+                "overbought_rsi": 72,
+                "extension_pct": 0.028,
                 "adx_threshold": 38,
                 "min_rr": 1.5,
                 "volume_multiplier": 1.35
@@ -123,9 +125,9 @@
             "params": {
                 "bb_period": 20,
                 "bb_std": 2.2,
-                "adx_threshold": 21,
+                "adx_threshold": 26,
                 "ema50_slope_threshold": 0.007,
-                "kill_zone_percent": 0.14,
+                "kill_zone_percent": 0.20,
                 "min_candle_atr_multiple": 1.15,
                 "volume_multiplier": 1.2,
                 "min_rr": 1.5
@@ -161,9 +163,9 @@
                 "Volume > 1.35×"
             ],
             "params": {
-                "liq_grab_lookback": 18,
+                "liq_grab_lookback": 16,
                 "min_rr": 1.6,
-                "volume_multiplier": 1.35,
+                "volume_multiplier": 1.20,
                 "adx_extreme_limit": 58
             }
         },
@@ -195,9 +197,9 @@
                 "Vol > 1.5x Avg OR OI Drop"
             ],
             "params": {
-                "lookback": 30,
-                "wick_threshold": 0.60,
-                "volume_multiplier": 1.5,
+                "lookback": 22,
+                "wick_threshold": 0.48,
+                "volume_multiplier": 1.30,
                 "min_rr": 1.0,
                 "time_limit_seconds": 180
             }
