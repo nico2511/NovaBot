@@ -53,7 +53,7 @@ class AnalystService:
         
         for tf, df in zip(self.timeframes, candles_list):
             if isinstance(df, pd.DataFrame) and not df.empty:
-                results[tf] = self._calculate_sentiment(df)
+                results[tf] = self.calculate_sentiment(df)
             else:
                 results[tf] = {"sentiment": "UNKNOWN", "score": 0, "reason": "No Data"}
         
@@ -86,8 +86,8 @@ class AnalystService:
         results["history"] = self.history
         return results
 
-    def _calculate_sentiment(self, df: pd.DataFrame) -> dict:
-        """Calculate sentiment for a single timeframe"""
+    def calculate_sentiment(self, df: pd.DataFrame) -> dict:
+        """Calculate sentiment for a single timeframe (Public helper)"""
         try:
             close = df['close'].iloc[-1]
             

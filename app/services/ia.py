@@ -273,6 +273,7 @@ Technical Indicators (Dynamic):
 - RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] (15m Change: {ctx.get('rsi_slope', 0):+.1f})
 - Volume: {ctx.get('vol_current', 'N/A')} [{ctx.get('vol_trend', '')}] (15m Change: {ctx.get('vol_slope', 0):+.1f}%)
 - ADX: {ctx.get('adx_val', 'N/A')} (Slope: {ctx.get('adx_slope', 0):+.1f})
+- MACD (12,26,9): Line {ctx.get('macd_line', 'N/A')} | Signal {ctx.get('macd_signal', 'N/A')} | Hist {ctx.get('macd_hist', 'N/A')}
 - Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}%)
 
 Bollinger Bands (20, 2.0):
@@ -296,7 +297,11 @@ Fibonacci Levels (from Swing):
 
 Key Levels:
 - Swing High: ${ctx.get('swing_high', 'N/A')}
+- Swing High: ${ctx.get('swing_high', 'N/A')}
 - Swing Low: ${ctx.get('swing_low', 'N/A')}
+
+=== COPILOT SENTIMENT (MTF) ===
+{ctx.get('mtf_sentiment', 'N/A')}
 
 Volume:
 - Current: {ctx.get('current_volume', 'N/A')}

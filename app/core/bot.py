@@ -261,6 +261,18 @@ class BotContext:
             adx_value = float(adx_df['ADX'].iloc[-1])
         except Exception:
             pass
+            
+        # === ENHANCED CONTEXT: MACD ===
+        macd_line = 0
+        macd_signal = 0
+        macd_hist = 0
+        try:
+             macd_df = Indicators.macd(df['close'])
+             macd_line = float(macd_df['MACD'].iloc[-1])
+             macd_signal = float(macd_df['MACDs'].iloc[-1])
+             macd_hist = float(macd_df['MACDh'].iloc[-1])
+        except Exception: 
+            pass
 
         # FIX: Regime definition aligned with Architecture (ADX > 25 = TREND)
         regime = "TREND" if adx_value > 25 else "RANGE"
@@ -268,9 +280,12 @@ class BotContext:
         # Market Bias maintained via EMA alignment
         market_bias = "BULLISH" if ema_20 > ema_50 else "BEARISH"
         
-        # Add ADX to dynamic context
+        # Add ADX and MACD to dynamic context
         dynamic_ctx = get_dynamic_context(df)
         dynamic_ctx['adx'] = round(adx_value, 2)
+        dynamic_ctx['macd_line'] = round(macd_line, 4)
+        dynamic_ctx['macd_signal'] = round(macd_signal, 4)
+        dynamic_ctx['macd_hist'] = round(macd_hist, 4)
         
         # === ENHANCED CONTEXT: Bollinger Bands ===
         bb_period = 20
@@ -434,6 +449,33 @@ class BotContext:
             **dynamic_ctx
         }
 
+    def _fetch_mtf_sentiment(self, symbol: str) -> str:
+        """Fetch and calculate Multi-Timeframe Sentiment (Copilot) synchronously"""
+        try:
+            summary_parts = []
+            timeframes = ["5m", "1h", "4h"]
+            
+            self.add_log("🧠 Fetching Copilot MTF Context...")
+            
+            for tf in timeframes:
+                # Fetch candles synchronously
+                df = hyperliquid_service.get_candles(symbol, interval=tf, limit=100)
+                
+                if df is not None and not df.empty:
+                    # Use AnalystService logic (Shared)
+                    res = analyst_service.calculate_sentiment(df)
+                    sentiment = res.get("sentiment", "N/A")
+                    score = res.get("score", 0)
+                    summary_parts.append(f"{tf}: {sentiment} (Score {score})")
+                else:
+                    summary_parts.append(f"{tf}: N/A")
+            
+            return " | ".join(summary_parts)
+            
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to fetch MTF sentiment: {e}")
+            return "Multi-Timeframe Data Unavailable"
+
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
         data_dir = os.path.dirname(self.signal_analysis_file)
@@ -453,8 +495,8 @@ class BotContext:
                 "reasoning": ai_data.get("reasoning", "No reasoning provided"),
                 "risk_level": ai_data.get("risk_level", "UNKNOWN"),
                 "market_price": sig.get("price"),
-                "suggested_sl": ai_data.get("suggested_adjustments", {}).get("sl"),
-                "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp")
+                "suggested_sl": ai_data.get("suggested_adjustments", {}).get("sl") or sig.get("sl"),
+                "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp") or sig.get("tp")
             }
             
             # Read existing or init new
@@ -1320,6 +1362,8 @@ class BotContext:
                                     continue
                         
                         market_context = self._prepare_ai_context()
+                        # Inject Copilot MTF Sentiment
+                        market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
                         strat_name = sig.get('strategy')
                         strat_obj = self.strategy_engine.strategies.get(strat_name)
                         strategy_persona = getattr(strat_obj, 'AI_PERSONA', None)
