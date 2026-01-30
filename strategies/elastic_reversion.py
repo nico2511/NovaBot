@@ -65,7 +65,7 @@ class ElasticReversionStrategy(BaseStrategy):
         params = self.config.get("params", {})
         ema_len = params.get("ema_period", 20)
         rsi_len = params.get("rsi_period", 14)
-        ext_pct = params.get("extension_pct", 0.04)
+        ext_pct = params.get("extension_pct", 0.032)
         
         rsi_col = f'RSI_{rsi_len}'
         ema_col = f'EMA_{ema_len}'
@@ -111,12 +111,12 @@ class ElasticReversionStrategy(BaseStrategy):
             
             # Short Setup (Overbought)
             # RSI > 80 AND Price > EMA + 4%
-            is_setup_short = (p_rsi > params.get("overbought_rsi", 80)) and \
+            is_setup_short = (p_rsi > params.get("overbought_rsi", 76)) and \
                              (p_close > p_ema * (1 + ext_pct))
             
             # Long Setup (Oversold)
             # RSI < 20 AND Price < EMA - 4%
-            is_setup_long = (p_rsi < params.get("oversold_rsi", 20)) and \
+            is_setup_long = (p_rsi < params.get("oversold_rsi", 24)) and \
                             (p_close < p_ema * (1 - ext_pct))
 
             # Logging Setups (Debug / Info)

@@ -46,7 +46,7 @@ class InstitutionalScalp(BaseStrategy):
         self.add_indicators(df)
 
         params = self.config.get("params", {})
-        lookback = params.get("liq_grab_lookback", 20)
+        lookback = params.get("liq_grab_lookback", 18)
         atr_col = "ATRr_14"
 
         if atr_col not in df.columns:
@@ -75,11 +75,11 @@ class InstitutionalScalp(BaseStrategy):
         # BULLISH LIQUIDITY GRAB
         if low < recent_low and close > recent_low:
             candle_range = high - low
-            if candle_range > 0 and (close - low) / candle_range > 0.5:
+            if candle_range > 0 and (close - low) / candle_range > 0.42:
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
                 # Comparing partial volume to full average is mathematically incorrect
-                vol_mult = params.get("volume_multiplier", 1.5)
+                vol_mult = params.get("volume_multiplier", 1.35)
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
@@ -110,10 +110,10 @@ class InstitutionalScalp(BaseStrategy):
         # BEARISH LIQUIDITY GRAB
         if high > recent_high and close < recent_high:
             candle_range = high - low
-            if candle_range > 0 and (high - close) / candle_range > 0.5:
+            if candle_range > 0 and (high - close) / candle_range > 0.42:
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
-                vol_mult = params.get("volume_multiplier", 1.5)
+                vol_mult = params.get("volume_multiplier", 1.35)
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles

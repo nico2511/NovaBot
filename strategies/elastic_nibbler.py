@@ -118,7 +118,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         lower_band = bb_lower.iloc[-1]
         
         # PARAMS
-        entry_vol_mult = self.params.get("volume_multiplier", 2.2) # Updated name
+        entry_vol_mult = self.params.get("volume_multiplier", 1.8) # Compromise from 2.2 to 1.8
         adx_limit = self.params.get("adx_threshold", 25) # Updated name
         
         # 2. Conditions
@@ -158,8 +158,8 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         ]
             
         # D. LONG Setup
-        # Price < BB Lower AND RSI < 20
-        if current_close < lower_band and current_rsi < 20 and is_vol_spike:
+        # Price < BB Lower AND RSI < 24 (Compromise)
+        if current_close < lower_band and current_rsi < 24 and is_vol_spike:
             sl_price = current_close - sl_distance
             tp_price = current_close + tp_distance
             return {
@@ -177,8 +177,8 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
             }
             
         # E. SHORT Setup
-        # Price > BB Upper AND RSI > 80
-        if current_close > upper_band and current_rsi > 80 and is_vol_spike:
+        # Price > BB Upper AND RSI > 76 (Compromise)
+        if current_close > upper_band and current_rsi > 76 and is_vol_spike:
             sl_price = current_close + sl_distance
             tp_price = current_close - tp_distance
             return {

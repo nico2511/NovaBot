@@ -40,7 +40,7 @@ class BollingerBounceStrategy(BaseStrategy):
         self.bb_std = self.params.get("bb_std", 2.15)  # Match strategies.json
         
         # --- Config Params ---
-        self.adx_threshold = self.params.get("adx_threshold", 22)  # Updated: Range-only (ADX < 22)
+        self.adx_threshold = self.params.get("adx_threshold", 25)  # Compromise: Range-only (ADX < 25)
         self.adx_period = self.params.get("adx_period", 14)
         
         self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.008)  # Match strategies.json 
@@ -49,8 +49,8 @@ class BollingerBounceStrategy(BaseStrategy):
         self.min_rr = self.params.get("min_rr", 1.5)  # Updated: From 1.0 to 1.5 for better risk management
         
         # New Params
-        self.kill_zone_percent = self.params.get("kill_zone_percent", 0.12)
-        self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.2)
+        self.kill_zone_percent = self.params.get("kill_zone_percent", 0.16)
+        self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.1)
         self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
         self.sl_atr_mult = self.params.get("sl_atr_mult", 1.0)  # SL distance in ATR
     
