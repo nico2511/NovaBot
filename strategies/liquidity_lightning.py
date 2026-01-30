@@ -94,13 +94,13 @@ class LiquidityLightning(BaseStrategy):
             if close <= period_low:
                 return None # Failed Snap Back
                 
-        if wick_pct <= 0.60:
+        if wick_pct <= 0.48:
             return None # ÉTAGE 2 FAILED (Wick too small: {wick_pct:.2f})
 
         # --- FUNNEL ÉTAGE 3 : LA CONFIRMATION (Liquidité) ---
         # Condition : Pic de volume (>50% de la moyenne) OU baisse OI (Not implemented yet).
         
-        vol_surge = volume > (vol_avg * 1.5)
+        vol_surge = volume > (vol_avg * 1.28)
         
         # Placeholder for OI check if data available
         oi_drop = False 

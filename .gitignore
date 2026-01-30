@@ -13,14 +13,16 @@ bot_state.json.bak
 bot_state.json.tmp
 token_meta_cache.json
 bot_activity.log
+user_settings.json
+user_settings.json.bak
 data/
 logs/
 
 # Helper output
-#_bmad-output/
-#_bmad/
-#.claude/
-#.agent/
+_bmad-output/
+_bmad/
+.claude/
+.agent/
 
 # OS
 .DS_Store
