@@ -181,6 +181,27 @@ def sanitize_for_json(obj):
         return obj.isoformat()
     return obj
 
+def load_user_settings_file():
+    """Load settings from user_settings.json"""
+    try:
+        path = os.path.join(BASE_DIR, "user_settings.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading user_settings.json: {e}")
+    return {}
+
+def save_user_settings_file(settings):
+    """Save settings to user_settings.json"""
+    try:
+        path = os.path.join(BASE_DIR, "user_settings.json")
+        with open(path, "w") as f:
+            json.dump(settings, f, indent=4)
+        print("✅ user_settings.json updated")
+    except Exception as e:
+        logger.error(f"Error saving user_settings.json: {e}")
+
 class BotState:
     def __init__(self):
         self.is_running = False
@@ -684,6 +705,35 @@ def get_global_settings():
 def update_global_settings(settings: GlobalSettingsModel):
     """Update global bot settings"""
     
+    # 1. Update user_settings.json (Source of Truth)
+    try:
+        full_settings = load_user_settings_file()
+        new_flat = settings.model_dump()
+        
+        # operations
+        if "operations" not in full_settings: full_settings["operations"] = {}
+        full_settings["operations"]["trading_timeframe"] = new_flat.get("trading_timeframe", "15m")
+        
+        # risk_defaults
+        if "risk_defaults" not in full_settings: full_settings["risk_defaults"] = {}
+        full_settings["risk_defaults"]["max_positions"] = new_flat.get("max_positions", 1)
+        full_settings["risk_defaults"]["daily_stop_loss"] = new_flat.get("daily_stop_loss", 50.0)
+        full_settings["risk_defaults"]["bot_persona"] = new_flat.get("bot_persona", "Conservative Scalper")
+        full_settings["risk_defaults"]["risk_profile"] = new_flat.get("risk_profile", "Capital Preservation First")
+        full_settings["risk_defaults"]["default_leverage"] = new_flat.get("default_leverage", 1)
+        full_settings["risk_defaults"]["default_margin_type"] = new_flat.get("default_margin_type", "ISOLATED")
+
+        # ai_config
+        if "ai_config" not in full_settings: full_settings["ai_config"] = {}
+        thresholds = new_flat.get("ai_thresholds", {})
+        full_settings["ai_config"]["conf_threshold_high"] = thresholds.get("high", 101)
+        full_settings["ai_config"]["conf_threshold_medium"] = thresholds.get("medium", 55)
+        full_settings["ai_config"]["conf_threshold_low"] = thresholds.get("low", 101)
+
+        save_user_settings_file(full_settings)
+    except Exception as e:
+        logger.error(f"Failed to sync global settings to file: {e}")
+
     def update_logic(context_or_state):
         # Preserve lists if not provided or empty
         current = getattr(context_or_state, 'global_settings', {})
@@ -808,7 +858,15 @@ def update_scanner_settings(settings: ScannerSettingsModel):
     """Update scanner settings"""
     new_settings = settings.model_dump()
     
-    # Execute
+    # 1. Update user_settings.json (Source of Truth for reboot)
+    try:
+        current_file_settings = load_user_settings_file()
+        current_file_settings["scanner"] = new_settings
+        save_user_settings_file(current_file_settings)
+    except Exception as e:
+        logger.error(f"Failed to sync scanner settings to file: {e}")
+
+    # 2. Update Runtime State
     if bot_bridge and bot_bridge.is_connected():
         bot = bot_bridge.get_bot_context()
         bot.scanner_settings = new_settings
@@ -819,7 +877,7 @@ def update_scanner_settings(settings: ScannerSettingsModel):
         except Exception as e:
             return {"status": "error", "message": f"Save failed: {e}"}
     else:
-        # Standalone update
+        # Standalone state update
         try:
              state_file = os.path.join(BASE_DIR, "bot_state.json")
              with open(state_file, "r") as f:
