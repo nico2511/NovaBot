@@ -1323,7 +1323,8 @@ class BotContext:
                 # --- OPEN INTEREST INTEGRATION (Historical Accumulation) ---
                 try:
                     current_oi = hyperliquid_service.get_open_interest(self.active_symbol)
-                    current_time = pd.Timestamp.now()
+                    # FIX: Use UTC timestamp to match candle data
+                    current_time = pd.Timestamp.now(tz='UTC')
                     
                     # Store in history
                     self.oi_history.append({"time": current_time, "oi": current_oi})
@@ -1332,12 +1333,18 @@ class BotContext:
                     oi_df = pd.DataFrame(list(self.oi_history))
                     oi_df.set_index('time', inplace=True)
                     
-                    # Resample to align with 15m candles (take last value in bin)
-                    # We reindex to match df_15m index to map it correctly
-                    # First, ensure matching timezones/types
+                    # Resample to align with 15m candles
                     if not oi_df.empty:
+                         # Normalize timezones for reindex stability
+                         if df_15m.index.tz is None:
+                             # If candles are naive, make OI naive (strip UTC)
+                             oi_df.index = oi_df.index.tz_convert(None)
+                         else:
+                             # If candles are aware, ensure OI is aware (already is UTC)
+                             # Convert to target tz just in case
+                             oi_df.index = oi_df.index.tz_convert(df_15m.index.tz)
+
                          # Forward fill to map our sparse observations to the candles
-                         # We use reindex with method='ffill' onto the candle index
                          oi_aligned = oi_df.reindex(df_15m.index, method='ffill')
                          
                          df_15m['open_interest'] = oi_aligned['oi']
