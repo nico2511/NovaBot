@@ -86,8 +86,8 @@
             "params": {
                 "min_rr": 1.65,
                 "adx_threshold": 23,
-                "rsi_min": 36,
-                "rsi_max": 72,
+                "rsi_min": 28,
+                "rsi_max": 75,
                 "pullback_tolerance": 0.011,
                 "bos_lookback": 3,
                 "sl_atr_mult": 0.4,
