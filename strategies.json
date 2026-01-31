@@ -224,6 +224,29 @@
                 "sl_atr_mult": 0.35,
                 "volume_multiplier": 1.3
             }
+        },
+        "gamma_bear_vortex": {
+            "enabled": true,
+            "type": "trend_continuation",
+            "description": "Short Continuation: Trend Bear + Vortex + Gamma Pin + OI",
+            "display_conditions": [
+                "Bear Trend (ADX > 25)",
+                "Vortex Bearish (VI- > VI+)",
+                "Gamma Pin (Low Vol + High ADX) OR Breakdown",
+                "OI Increasing or Stable"
+            ],
+            "params": {
+                "ema_visual_period": 50,
+                "adx_min": 25,
+                "vortex_period": 14,
+                "vortex_threshold": 1.05,
+                "bb_std": 2.0,
+                "gamma_pin_width": 0.015,
+                "adx_gamma_trigger": 35,
+                "sl_atr_mult": 1.5,
+                "tp_atr_mult": 2.5,
+                "require_oi_growth": true
+            }
         }
     }
 }
