@@ -1353,8 +1353,9 @@ class BotContext:
                          if df_15m['open_interest'].isnull().all():
                              df_15m['open_interest'] = current_oi
                          else:
-                             df_15m['open_interest'].fillna(method='ffill', inplace=True)
-                             df_15m['open_interest'].fillna(current_oi, inplace=True) # Fallback
+                             # FIX: Pandas 3.0+ deprecation of fillna(method=...)
+                             df_15m['open_interest'] = df_15m['open_interest'].ffill()
+                             df_15m['open_interest'] = df_15m['open_interest'].fillna(current_oi) # Fallback
                          
                          # --- CALCULATE OI INDICATORS (User Requested) ---
                          # 1. % Variation OI
