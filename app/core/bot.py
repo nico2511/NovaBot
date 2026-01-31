@@ -129,6 +129,9 @@ class BotContext:
         # Cooldown tracking (anti-overtrading)
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
         
+        # Open Interest History (InMemory)
+        self.oi_history = deque(maxlen=2000) # Keep ~2 days of history at 15m intervals roughly (or more)
+        
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
         self.signal_analysis_file = os.path.join(BASE_DIR, "data", "signal_analysis.json")
@@ -446,6 +449,7 @@ class BotContext:
             "tp_distance": round(tp_distance, 2) if tp_distance else None,
             "rr_ratio": rr_ratio,
             "recent_closes": df['close'].tail(20).tolist() if not df.empty else [],
+            "open_interest": hyperliquid_service.get_open_interest(self.active_symbol),
             **dynamic_ctx
         }
 
@@ -1315,6 +1319,55 @@ class BotContext:
                     continue
                 
                 self.latest_data = df_15m
+                
+                # --- OPEN INTEREST INTEGRATION (Historical Accumulation) ---
+                try:
+                    current_oi = hyperliquid_service.get_open_interest(self.active_symbol)
+                    current_time = pd.Timestamp.now()
+                    
+                    # Store in history
+                    self.oi_history.append({"time": current_time, "oi": current_oi})
+                    
+                    # Create OI DataFrame from history
+                    oi_df = pd.DataFrame(list(self.oi_history))
+                    oi_df.set_index('time', inplace=True)
+                    
+                    # Resample to align with 15m candles (take last value in bin)
+                    # We reindex to match df_15m index to map it correctly
+                    # First, ensure matching timezones/types
+                    if not oi_df.empty:
+                         # Forward fill to map our sparse observations to the candles
+                         # We use reindex with method='ffill' onto the candle index
+                         oi_aligned = oi_df.reindex(df_15m.index, method='ffill')
+                         
+                         df_15m['open_interest'] = oi_aligned['oi']
+                         
+                         # Fill initial NaNs with current if needed (fast start)
+                         if df_15m['open_interest'].isnull().all():
+                             df_15m['open_interest'] = current_oi
+                         else:
+                             df_15m['open_interest'].fillna(method='ffill', inplace=True)
+                             df_15m['open_interest'].fillna(current_oi, inplace=True) # Fallback
+                         
+                         # --- CALCULATE OI INDICATORS (User Requested) ---
+                         # 1. % Variation OI
+                         df_15m['OI_Change_Pct'] = df_15m['open_interest'].pct_change() * 100
+                         
+                         # 2. Moyenne Mobile OI (MA20)
+                         df_15m['OI_MA20'] = df_15m['open_interest'].rolling(window=20).mean()
+                         
+                         # 3. Ratio OI actuel / MA
+                         df_15m['OI_vs_MA'] = df_15m['open_interest'] / df_15m['OI_MA20']
+                         
+                         # 4. Divergence Prix vs OI
+                         # (Price Chg Prev Candle - OI Chg Current Candle)? 
+                         # User formula: (df['close'].pct_change() * 100).shift(1) - df['OI_Change_Pct']
+                         # This implies: If price went UP yesterday but OI drops today -> Divergence?
+                         # Let's stick to the requested formula strictly.
+                         df_15m['OI_Divergence'] = (df_15m['close'].pct_change() * 100).shift(1) - df_15m['OI_Change_Pct']
+                         
+                except Exception as e:
+                    self.add_log(f"⚠️ OI Processing Error: {e}")
                 
                 result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m, "symbol": self.active_symbol})
                 self.active_strategies = result.get('strategies', [])

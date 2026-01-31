@@ -12,20 +12,20 @@
         "max_positions": 1,
         "daily_stop_loss": 50,
         "bot_persona": "Aggressive Day Trader",
-        "risk_profile": "Balanced Growth",
+        "risk_profile": "High Volatility Hunter",
         "default_leverage": 5
     },
     "ai_config": {
         "model_name": "deepseek/deepseek-v3.2",
         "call_cooldown": 2,
-        "conf_threshold_high": 101,
+        "conf_threshold_high": 95,
         "conf_threshold_medium": 55,
         "conf_threshold_low": 35
     },
     "scanner": {
         "enabled": false,
-        "interval": 15,
-        "min_score": 75,
+        "interval": 5,
+        "min_score": 70,
         "auto_switch": false,
         "gamification_enabled": true
     }

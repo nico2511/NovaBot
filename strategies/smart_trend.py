@@ -75,6 +75,15 @@ class StrategySmartTrend(BaseStrategy):
         df['RSI_14'] = ta.rsi(df['close'], length=14)
         return df
     
+    def get_oi_comment(self, df):
+        if 'OI_Change_Pct' in df.columns:
+            oi = df['OI_Change_Pct'].iloc[-1]
+            if oi > 0.05: return f"+ OI Grid ({oi:.2f}%)"
+            if oi < -0.05: return f"- OI Exhaust ({oi:.2f}%)"
+        return ""
+
+
+    
     def generate_signal(self, df, extra_data=None):
         """
         Args:
@@ -206,7 +215,7 @@ class StrategySmartTrend(BaseStrategy):
                     "sl": sl,
                     "tp": tp,
                     "price": close_1m,
-                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK)"
+                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK) {self.get_oi_comment(df)}".strip()
                 }
         
         # SHORT Trigger: Close < Low of last N
@@ -238,7 +247,7 @@ class StrategySmartTrend(BaseStrategy):
                     "sl": sl,
                     "tp": tp,
                     "price": close_1m,
-                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK)"
+                    "comment": f"Smart Trend V3: 15m Setup + 1m Trigger (Vol OK, RSI OK) {self.get_oi_comment(df)}".strip()
                 }
         
         return None

@@ -374,6 +374,61 @@ class HyperliquidService:
         return FALLBACK_SZ.get(symbol, 2), 4  # Conservative default 
 
     @standard_operation
+    def get_open_interest(self, symbol: str) -> float:
+        """
+        Fetch Open Interest (OI) in USD for a symbol.
+        Uses a 60s cache to verify hitting rate limits on the heavy 'metaAndAssetCtxs' endpoint.
+        """
+        # Initialize cache if needed
+        if not hasattr(self, "_oi_cache"):
+            self._oi_cache = {"time": 0, "data": {}}
+            
+        # Check Cache validity (60s)
+        now = time.time()
+        if now - self._oi_cache["time"] < 60:
+            cached_val = self._oi_cache["data"].get(symbol)
+            if cached_val is not None:
+                return cached_val
+                
+        # Fetch Fresh Data
+        try:
+            # self.info.meta_and_asset_ctxs() returns (meta, asset_ctxs)
+            # This is a blocking call via Python SDK
+            meta, asset_ctxs = self.info.meta_and_asset_ctxs()
+            
+            # Map symbol to universe index
+            universe = meta.get("universe", [])
+            
+            # Update cache for ALL symbols found (bulk update efficiency)
+            new_cache_data = {}
+            target_oi = 0.0
+            
+            for idx, asset in enumerate(universe):
+                coin_name = asset["name"]
+                if idx < len(asset_ctxs):
+                    ctx = asset_ctxs[idx]
+                    # OI = openInterest (in contracts) * oraclePx (price)
+                    oi_contracts = float(ctx.get("openInterest", 0))
+                    oracle_px = float(ctx.get("oraclePx", 0))
+                    oi_usd = oi_contracts * oracle_px
+                    
+                    new_cache_data[coin_name] = oi_usd
+                    
+                    if coin_name == symbol:
+                        target_oi = oi_usd
+            
+            # Update self cache
+            self._oi_cache["time"] = now
+            self._oi_cache["data"] = new_cache_data
+            
+            return target_oi
+            
+        except Exception as e:
+            self.log(f"⚠️ Failed to fetch OI: {e}")
+            # Return cached value if available (even if expired), else 0
+            return self._oi_cache.get("data", {}).get(symbol, 0.0)
+
+    @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
         try:

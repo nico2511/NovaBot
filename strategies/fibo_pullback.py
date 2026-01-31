@@ -108,6 +108,14 @@ class StrategyFiboPullback(BaseStrategy):
         # Check ADX for both directions
         if adx < self.adx_threshold:
             return None
+            
+        # GUARD CLAUSE: OI Counter-Trend Risk
+        # "Confirm pullback if OI stable/decreasing."
+        # If OI Spikes (>1.5%) during valid pullback zone, it implies Strong Counter-Trend Interest -> Reversal Risk.
+        if 'OI_Change_Pct' in df.columns:
+            oi_chg = df['OI_Change_Pct'].iloc[-2]
+            if oi_chg > 1.5: # User: "stable or decreasing". 1.5% is a significant increase.
+                return None 
 
         # ============================================
         # DECISION: LONG OR SHORT?

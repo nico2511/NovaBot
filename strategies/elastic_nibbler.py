@@ -136,6 +136,14 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         if adx > adx_limit:
             return None
         
+        # C. OI Filter (Squeeze Protection)
+        # "Skip si OI augmente fortement en oversold"
+        if 'OI_Change_Pct' in df.columns:
+            oi_chg = df['OI_Change_Pct'].iloc[-1] # Current candle
+            max_oi_spike = self.params.get("max_oi_spike_pct", 1.5)
+            if oi_chg > max_oi_spike:
+                return None # Squeeze Risk
+        
         # C. BB Width Filter - Skip dead ranges (Grok Phase 2)
         bb_width_pct = (upper_band - lower_band) / current_close * 100
         min_bb_width = self.params.get("min_bb_width_pct", 0.7)  # 0.7% minimum (Optimized)

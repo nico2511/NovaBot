@@ -105,6 +105,15 @@ class ElasticReversionStrategy(BaseStrategy):
                     # Note: adx_threshold renamed from adx_limit for standardization
                     return None  # Trend too strong (Runaway), skip mean reversion
 
+            # GUARD CLAUSE: OI Squeeze Protection (User Request)
+            # If OI spikes > 2% while RSI is extreme, it's likely a Squeeze/Waterfall -> STAY OUT
+            # "Skip si OI augmente fortement en oversold (risque squeeze contre toi)."
+            if 'OI_Change_Pct' in df.columns:
+                oi_chg = df['OI_Change_Pct'].iloc[-2]
+                max_oi_spike = params.get("max_oi_spike_pct", 1.5) # 1.5% spike in 15m is huge
+                if oi_chg > max_oi_spike:
+                     return None # OI Squeeze Risk
+
             # ==========================================
             # 1. SETUP LOGIC (Checked on Previous Candle P)
             # ==========================================
