@@ -1517,6 +1517,42 @@ async def get_logs(limit: int = 50):
     return {"logs": logs, "total": len(logs)}
 
 
+@app.get("/api/sentiment-history")
+async def get_sentiment_history():
+    """Get sentiment history from sentiment_history.json"""
+    try:
+        sentiment_file = os.path.join(BASE_DIR, "data", "sentiment_history.json")
+        if os.path.exists(sentiment_file):
+            with open(sentiment_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Return in reverse chronological order (newest first)
+                if isinstance(data, list):
+                    data.reverse()
+                return data
+        return []
+    except Exception as e:
+        logger.error(f"Error loading sentiment_history.json: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load sentiment history: {str(e)}")
+
+
+@app.get("/api/signal-analysis")
+async def get_signal_analysis():
+    """Get signal analysis from signal_analysis.json"""
+    try:
+        signal_file = os.path.join(BASE_DIR, "data", "signal_analysis.json")
+        if os.path.exists(signal_file):
+            with open(signal_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Return in reverse chronological order (newest first)
+                if isinstance(data, list):
+                    data.reverse()
+                return data
+        return []
+    except Exception as e:
+        logger.error(f"Error loading signal_analysis.json: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load signal analysis: {str(e)}")
+
+
 
 # --- Settings & Gamification ---
 

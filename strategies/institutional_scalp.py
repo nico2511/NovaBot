@@ -101,8 +101,6 @@ class InstitutionalScalp(BaseStrategy):
                         return None
                 
                 comment = "Bullish Liquidity Grab"
-                if 'OI_Change_Pct' in df.columns and df['OI_Change_Pct'].iloc[-2] > 0.5:
-                    comment += " + OI Spike"
                 
                 return {
                     "signal": "BUY",
@@ -139,8 +137,6 @@ class InstitutionalScalp(BaseStrategy):
                         return None
                 
                 comment = "Bearish Liquidity Grab"
-                if 'OI_Change_Pct' in df.columns and df['OI_Change_Pct'].iloc[-2] > 0.5:
-                    comment += " + OI Spike"
 
                 return {
                     "signal": "SELL",

@@ -53,6 +53,8 @@ class AnalystService:
         
         for tf, df in zip(self.timeframes, candles_list):
             if isinstance(df, pd.DataFrame) and not df.empty:
+                # Attach symbol metadata to df for OI/Funding fetch
+                df.symbol = symbol
                 results[tf] = self.calculate_sentiment(df)
             else:
                 results[tf] = {"sentiment": "UNKNOWN", "score": 0, "reason": "No Data"}
@@ -158,6 +160,24 @@ class AnalystService:
                 },
                 "details": f"RSI {round(rsi,1)} | MACD {('Bull' if macd_val > macd_signal else 'Bear')}"
             }
+            
+            # Add Open Interest and Funding Rate (Global Market Context)
+            try:
+                from app.services.hyperliquid_service import hyperliquid_service
+                # Get symbol from df metadata if available, or default to BTC
+                symbol = getattr(df, 'symbol', 'BTC')
+                
+                oi = hyperliquid_service.get_open_interest(symbol)
+                funding = hyperliquid_service.get_funding_rate(symbol)
+                
+                sentiment_data["open_interest"] = round(oi, 2)
+                sentiment_data["funding_rate"] = round(funding, 4)
+            except Exception as e:
+                print(f"⚠️ Failed to fetch OI/Funding: {e}")
+                sentiment_data["open_interest"] = 0
+                sentiment_data["funding_rate"] = 0
+            
+            return sentiment_data
         except Exception as e:
             return {"sentiment": "ERROR", "score": 0, "reason": str(e)}
 

@@ -275,6 +275,7 @@ Technical Indicators (Dynamic):
 - ADX: {ctx.get('adx_val', 'N/A')} (Slope: {ctx.get('adx_slope', 0):+.1f})
 - MACD (12,26,9): Line {ctx.get('macd_line', 'N/A')} | Signal {ctx.get('macd_signal', 'N/A')} | Hist {ctx.get('macd_hist', 'N/A')}
 - Open Interest: ${int(ctx.get('open_interest', 0)):,}
+- Funding Rate: {ctx.get('funding_rate', 0):.4f}% ({"Longs pay Shorts" if ctx.get('funding_rate', 0) > 0 else "Shorts pay Longs" if ctx.get('funding_rate', 0) < 0 else "Neutral"})
 - Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}%)
 
 Bollinger Bands (20, 2.0):

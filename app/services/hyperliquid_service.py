@@ -428,6 +428,64 @@ class HyperliquidService:
             # Return cached value if available (even if expired), else 0
             return self._oi_cache.get("data", {}).get(symbol, 0.0)
 
+    @lightweight_operation
+    def get_funding_rate(self, symbol: str) -> float:
+        """
+        Get current funding rate for a symbol (cached 60s).
+        
+        Returns funding rate as a percentage (e.g., 0.01 = 0.01%).
+        Positive = longs pay shorts, Negative = shorts pay longs.
+        """
+        # Check cache first (60s TTL)
+        now = time.time()
+        if hasattr(self, '_funding_cache'):
+            if now - self._funding_cache.get("time", 0) < 60:
+                cached_rate = self._funding_cache.get("data", {}).get(symbol)
+                if cached_rate is not None:
+                    return cached_rate
+        else:
+            self._funding_cache = {"time": 0, "data": {}}
+        
+        try:
+            # Fetch meta and funding data
+            meta = self.info.meta()
+            universe = meta.get("universe", [])
+            
+            # Find symbol index
+            symbol_idx = None
+            for idx, asset in enumerate(universe):
+                if asset["name"] == symbol:
+                    symbol_idx = idx
+                    break
+            
+            if symbol_idx is None:
+                self.log(f"⚠️ Symbol {symbol} not found in universe")
+                return 0.0
+            
+            # Get funding data from meta_and_asset_ctxs
+            meta_and_ctxs = self.info.meta_and_asset_ctxs()
+            asset_ctxs = meta_and_ctxs[1]  # [1] = asset contexts
+            
+            if symbol_idx < len(asset_ctxs):
+                ctx = asset_ctxs[symbol_idx]
+                # Funding rate is in the context as "funding"
+                funding_rate = float(ctx.get("funding", 0.0))
+                
+                # Update cache
+                self._funding_cache["time"] = now
+                if "data" not in self._funding_cache:
+                    self._funding_cache["data"] = {}
+                self._funding_cache["data"][symbol] = funding_rate
+                
+                return funding_rate
+            
+            return 0.0
+            
+        except Exception as e:
+            self.log(f"⚠️ Failed to fetch funding rate: {e}")
+            # Return cached value if available, else 0
+            return self._funding_cache.get("data", {}).get(symbol, 0.0)
+
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""

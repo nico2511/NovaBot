@@ -98,22 +98,12 @@ class LiquidityLightning(BaseStrategy):
             return None # ÉTAGE 2 FAILED (Wick too small: {wick_pct:.2f})
 
         # --- FUNNEL ÉTAGE 3 : LA CONFIRMATION (Liquidité) ---
-        # Condition : Pic de volume (>50% de la moyenne) OU Spike OI (>0.5%)
-        # "boost confidence si OI spike sur le sweep"
+        # Condition : Pic de volume (>50% de la moyenne)
         
         vol_surge = volume > (vol_avg * 1.28)
-        
-        oi_spike = False 
-        if 'OI_Change_Pct' in df.columns:
-            # Check current or prev candle for OI spike
-            curr_oi_chg = df['OI_Change_Pct'].iloc[-2]
-            if curr_oi_chg > 0.5: # 0.5% spike
-                oi_spike = True
-            elif df['OI_Change_Pct'].iloc[-3] > 0.5: # Or previous
-                oi_spike = True
                 
-        if not (vol_surge or oi_spike):
-            return None # ÉTAGE 3 FAILED (No institutional force - Vol or OI needed)
+        if not vol_surge:
+            return None # ÉTAGE 3 FAILED (No institutional force)
 
         # --- FUNNEL ÉTAGE 4 : LA RENTABILITÉ (Calcul R/R) ---
         # Action : Mesurer distance Entrée -> EMA 20 (Objectif) vs Entrée -> Bas de mèche (Stop).
