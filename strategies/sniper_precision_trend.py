@@ -15,7 +15,7 @@ class SniperPrecisionTrend(BaseStrategy):
     - Trend Filter: Price > EMA 50 OR (Price > EMA 21 AND EMA 21 > EMA 50)
     - Pullback Zone: Price touches EMA 21 (tolerance configurable)
     - RSI Filter: 38-70 (optimal range, rejects extremes)
-    - ADX Filter: > 28 (trend strength) AND rising
+    - ADX Filter: > 25 (trend strength) AND rising
     - Volume: > 1.3x average (buyer/seller interest)
     
     Trigger (1m):
@@ -29,7 +29,7 @@ class SniperPrecisionTrend(BaseStrategy):
     - Capital risk: 1-2% max per trade
     
     Checklist (from Master Prompt):
-    1. Trend sain et aligné (EMA + ADX) ?
+    1. Trend sain et aligné (EMA + ADX > 25) ?
     2. Pullback valide (zone + volume decrease/increase) ?
     3. RSI optimal, pas d'extrêmes ?
     4. Trigger BOS confirmé sans FOMO, avec volume/RSI 1m OK ?
@@ -49,10 +49,10 @@ class SniperPrecisionTrend(BaseStrategy):
     
     RULES OF ENGAGEMENT:
     1. VALIDATE THE TREND: Ensure price is mostly above EMA 50. If price is failing below EMA 50, 
-       reject LONG signals. ADX must be > 28 AND rising (not crashing).
+       reject LONG signals. ADX must be > 25 AND rising (not crashing).
     
-    2. CHECK THE PULLBACK: We enter on touches of EMA 21. Verify this is a "bounce" and not a "crash" 
-       through the line. Volume should decrease on pullback and increase on bounce.
+    2. CHECK THE PULLBACK: We enter on touches of EMA 21 (Tolerance < 0.5%). Verify this is a "bounce" 
+       and not a "crash" through the line. Volume should decrease on pullback and increase on bounce.
     
     3. RSI CHECK: We want RSI between 40 and 65 for optimal entry.
        - If RSI > 75: REJECT (Too hot, wait for cool off)
@@ -64,8 +64,8 @@ class SniperPrecisionTrend(BaseStrategy):
     5. TRIGGER CONFIRMATION: 1m Break of Structure (BOS) must be clean, with volume spike and RSI not extreme.
     
     CHECKLIST (Answer OUI/NON before approval):
-    - Trend sain et aligné (EMA + ADX) ?
-    - Pullback valide (zone + volume) ?
+    - Trend sain et aligné (EMA + ADX > 25) ?
+    - Pullback valide (zone < 0.5% + volume) ?
     - RSI optimal (38-70 on 15m) ?
     - Trigger BOS confirmé (1m) ?
     - R:R >= 2:1 ?
@@ -86,10 +86,10 @@ class SniperPrecisionTrend(BaseStrategy):
         # Params from config (with defaults from master prompt)
         params = self.config.get("params", {})
         self.rr_ratio = params.get("rr_ratio", 2.0)  # 2:1 R:R minimum
-        self.adx_threshold = params.get("adx_threshold", 28)
+        self.adx_threshold = params.get("adx_threshold", 25) # Lowered from 28 to 25 (Balanced)
         self.rsi_min = params.get("rsi_min", 38)
         self.rsi_max = params.get("rsi_max", 70)
-        self.pullback_tolerance = params.get("pullback_tolerance", 0.0025)  # 0.25%
+        self.pullback_tolerance = params.get("pullback_tolerance", 0.005)  # Relaxed from 0.0025 to 0.005 (0.5%)
         self.bos_lookback = params.get("bos_lookback", 3)
         self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
         self.volume_multiplier = params.get("volume_multiplier", 1.3)

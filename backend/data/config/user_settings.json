@@ -1,0 +1,21 @@
+{
+    "operations": {
+        "trading_timeframe": "15m",
+        "auto_start_trading": true
+    },
+    "risk_defaults": {
+        "max_positions": 1,
+        "daily_stop_loss": 50.0,
+        "bot_persona": "Aggressive Day Trader",
+        "risk_profile": "High Volatility Hunter",
+        "default_leverage": 1,
+        "default_margin_type": "ISOLATED"
+    },
+    "ai_config": {
+        "conf_threshold_high": 95,
+        "conf_threshold_medium": 55,
+        "conf_threshold_low": 35
+    },
+    "scanner": {},
+    "notifications": {}
+}
