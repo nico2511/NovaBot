@@ -43,8 +43,8 @@ class ScannerJob:
             return
         
         self.is_running = True
-        # Initialize last_scan_time to NOW so the first scan respects the interval delay
-        self.last_scan_time = time.time()
+        # Initialize last_scan_time to 0 so the first scan runs IMMEDIATELY
+        self.last_scan_time = 0
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
         print("🔍 ScannerJob started")
