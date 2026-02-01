@@ -191,6 +191,22 @@ def health_check():
     }
 
 
+# Restore missing /api/meta endpoint for Frontend
+@app.get("/api/meta")
+def get_meta():
+    """Get exchange metadata (universe of tokens)"""
+    try:
+        from app.services.hyperliquid_service import hyperliquid_service
+        # Fetch metadata (cached or fresh)
+        meta = hyperliquid_service._fetch_metadata()
+        if not meta:
+             return {"universe": []}
+        return meta
+    except Exception as e:
+        logger.error(f"Error serving /api/meta: {e}")
+        return {"universe": []}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
