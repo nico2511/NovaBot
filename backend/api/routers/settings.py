@@ -24,8 +24,18 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
             if "notifications" not in live_settings:
                 settings = storage.storage_service.load_settings()
                 live_settings["notifications"] = settings.get("notifications", {})
+                
+            # Ensure ai_thresholds are present
+            if "ai_thresholds" not in live_settings:
+                 settings = storage.storage_service.load_settings() if 'settings' not in locals() else settings
+                 ai_config = settings.get("ai_config", {})
+                 live_settings["ai_thresholds"] = {
+                    "high": ai_config.get("conf_threshold_high", 101),
+                    "medium": ai_config.get("conf_threshold_medium", 55),
+                    "low": ai_config.get("conf_threshold_low", 101)
+                }
             return live_settings
-            
+
         # 2. Read from storage (Source of Truth)
         settings = storage.storage_service.load_settings()
         
@@ -65,7 +75,8 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
             "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
             "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
             "default_leverage": 1,
-            "default_margin_type": "ISOLATED"
+            "default_margin_type": "ISOLATED",
+            "notifications": {}
         }
 
 
@@ -286,7 +297,7 @@ def update_legacy_settings(
             model = ScannerSettingsModel(**data)
             return update_scanner_settings(model, bot)
             
-        elif section in ["risk_defaults", "operations", "ai_config"]:
+        elif section in ["risk_defaults", "operations", "ai_config", "notifications"]:
             # These map to GlobalSettings
             # We need to fetch current global, patch it, and save
             current = get_global_settings(bot)
@@ -314,7 +325,6 @@ def update_legacy_settings(
                  
             elif section == "notifications":
                 # Patch notifications
-                # Since data is the notifications dict itself
                 current["notifications"] = data
 
             # Save
@@ -322,6 +332,17 @@ def update_legacy_settings(
                 # Ensure all required fields exist with defaults if missing
                 if "auto_start_trading" not in current: current["auto_start_trading"] = False
                 if "notifications" not in current: current["notifications"] = {}
+                
+                # Critical Fix: Ensure ai_thresholds exists
+                if "ai_thresholds" not in current:
+                    current["ai_thresholds"] = {
+                        "high": 101, "medium": 55, "low": 101
+                    }
+                
+                # Clean up legacy keys that might confuse Pydantic
+                keys_to_remove = [k for k in current.keys() if k not in GlobalSettingsModel.model_fields]
+                for k in keys_to_remove:
+                    del current[k]
                 
                 model = GlobalSettingsModel(**current)
                 return update_global_settings(model, bot)
