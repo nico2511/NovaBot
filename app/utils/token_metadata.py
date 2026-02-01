@@ -237,7 +237,7 @@ class TokenMetadata:
 
 
 # Global singleton instance
-token_metadata = TokenMetadata()
+token_metadata = TokenMetadata("data/cache/token_meta_cache.json")
 
 
 # Convenience functions for backward compatibility

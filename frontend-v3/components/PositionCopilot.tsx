@@ -53,6 +53,11 @@ interface AnalysisResponse {
     };
     positions_analysis: PositionAnalysis[];
     global_advice: string;
+    market_data?: {
+        funding_rate: number;
+        open_interest: number;
+        funding_rate_hourly_pct: number;
+    };
 }
 
 export default function PositionCopilot() {
@@ -200,6 +205,45 @@ export default function PositionCopilot() {
                         </div>
                     );
                 })}
+            </div>
+
+            {/* Market Data Grid (OI & Funding) */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-gray-900/30 border border-gray-800 rounded-lg p-3 flex justify-between items-center">
+                    <div>
+                        <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Funding Rate (1h)</div>
+                        <div className={`text-sm font-bold font-mono ${!data.market_data?.funding_rate ? 'text-gray-400' : data.market_data.funding_rate > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {data.market_data?.funding_rate_hourly_pct
+                                ? `${data.market_data.funding_rate_hourly_pct.toFixed(4)}%`
+                                : '0.0000%'}
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Annualized</div>
+                        <div className="text-xs text-gray-400 font-mono">
+                            {data.market_data?.funding_rate_hourly_pct
+                                ? `${(data.market_data.funding_rate_hourly_pct * 24 * 365).toFixed(1)}%`
+                                : '0.0%'}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-gray-900/30 border border-gray-800 rounded-lg p-3 flex justify-between items-center">
+                    <div>
+                        <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Open Interest</div>
+                        <div className="text-sm font-bold font-mono text-blue-400">
+                            {data.market_data?.open_interest
+                                ? `$${(data.market_data.open_interest / 1000000).toFixed(2)}M`
+                                : '$0.00M'}
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Status</div>
+                        <div className="text-xs text-gray-400">
+                            Tracking
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Historical Context & Analysis Footer */}

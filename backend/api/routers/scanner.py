@@ -2,27 +2,12 @@
 API endpoint for token scanner
 """
 
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter
 from app.services.token_scanner import HyperliquidScanner
-import numpy as np
+from backend.utils.helpers import sanitize_for_json
 
-router = APIRouter()
-
-def sanitize_for_json(obj):
-    """Convert numpy types to native Python types for JSON serialization"""
-    if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [sanitize_for_json(item) for item in obj]
-    elif isinstance(obj, (np.integer, np.int64, np.int32)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float64, np.float32)):
-        return float(obj)
-    elif isinstance(obj, (np.bool_, bool)):
-        return bool(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    return obj
+router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
 @router.get("/scanner/opportunities")
 async def get_opportunities(top_n: int = 10):

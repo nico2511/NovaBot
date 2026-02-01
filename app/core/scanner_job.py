@@ -242,10 +242,15 @@ class ScannerJob:
             # Format price with appropriate decimals
             price_str = format_price_for_notification(opp.get('current_price', 0))
             
+            # Format advanced metrics
+            funding_rate = opp.get('funding', 0) * 100
+            oi_val = opp.get('open_interest', 0) / 1_000_000 # Millions
+            
             description += (
                 f"**{i+1}. {opp['symbol']}** {stars}\n"
                 f"Score: **{opp['score']:.0f}** | Trend: {trend_icon} | Vol: ${opp['volume_24h']/1e6:.1f}M\n"
                 f"Price: {price_str} | `Adx: {opp.get('adx', 0):.1f}` | `Rsi: {opp['rsi']:.0f}`\n"
+                f"`Funding: {funding_rate:.4f}%` | `OI: ${oi_val:.1f}M`\n"
             )
             
             # Add Reasons if available

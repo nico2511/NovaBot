@@ -278,7 +278,7 @@ class HyperliquidService:
         """Fetch and cache exchange metadata for precision (Persistent Cache)"""
         import json
         import os
-        CACHE_FILE = "token_meta_cache.json"
+        CACHE_FILE = "data/cache/token_meta_cache.json"
 
         # 1. Check in-memory cache
         if hasattr(self, "_meta_cache") and self._meta_cache:

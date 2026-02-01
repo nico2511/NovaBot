@@ -9,8 +9,8 @@ load_dotenv()
 def _load_bot_state_settings():
     """Load settings from user_settings.json if available, otherwise use .env defaults"""
     try:
-        # Priority: user_settings.json (Dedicated config)
-        config_file = Path("user_settings.json")
+        # Priority: data/config/user_settings.json (Dedicated config)
+        config_file = Path("data/config/user_settings.json")
         if config_file.exists():
              with open(config_file, 'r') as f:
                 return json.load(f)

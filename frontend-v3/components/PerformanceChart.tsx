@@ -182,8 +182,13 @@ export default function PerformanceChart() {
             <div className="mt-4 grid grid-cols-3 gap-4 border-t border-neutral-900/50 pt-4">
                 <div className="text-center">
                     <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1">Total PnL</div>
-                    <div className={cn("text-sm font-mono font-bold", filteredData.length > 0 && filteredData[filteredData.length - 1].value >= 0 ? "text-emerald-400" : "text-red-400")}>
-                        {filteredData.length > 0 ? `$${filteredData[filteredData.length - 1].value.toFixed(2)}` : '---'}
+                    <div className={cn("text-sm font-mono font-bold", filteredData.length > 0 && (filteredData[filteredData.length - 1].value - filteredData[0].value) >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {filteredData.length > 0 ? (
+                            <>
+                                {(filteredData[filteredData.length - 1].value - filteredData[0].value) >= 0 ? '+' : ''}
+                                ${(filteredData[filteredData.length - 1].value - filteredData[0].value).toFixed(2)}
+                            </>
+                        ) : '---'}
                     </div>
                 </div>
                 <div className="text-center border-l border-neutral-800">

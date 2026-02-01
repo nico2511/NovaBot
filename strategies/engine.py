@@ -65,10 +65,10 @@ class StrategyEngine:
 
     def load_config(self):
         try:
-            with open("strategies.json", "r") as f:
+            with open("data/config/strategies.json", "r") as f:
                 self.config = json.load(f)
         except Exception as e:
-            print(f"Error loading strategies.json: {e}")
+            print(f"Error loading data/config/strategies.json: {e}")
             self.config = {}
 
     def analyze(self, df: pd.DataFrame, extra_data=None):

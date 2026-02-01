@@ -88,7 +88,12 @@ class BotContext:
             "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
             "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
             "default_leverage": config.DEFAULT_LEVERAGE,
-            "default_margin_type": "ISOLATED"
+            "default_margin_type": "ISOLATED",
+            "auto_start_trading": config.AUTO_START_TRADING,
+            "notifications": {
+                "discord_webhook_alerts": config.DISCORD_WEBHOOK_ALERTS,
+                "discord_webhook_logs": config.DISCORD_WEBHOOK_LOGS
+            }
         }
         
         # AI Commentary Cache
@@ -425,6 +430,17 @@ class BotContext:
             if sl_distance and tp_distance and sl_distance > 0:
                 rr_ratio = round(tp_distance / sl_distance, 2)
         
+        # === ENHANCED CONTEXT: Open Interest & Funding ===
+        funding_rate = 0.0
+        try:
+            funding_rate = hyperliquid_service.get_funding_rate(self.active_symbol)
+        except Exception: pass
+            
+        # Extract OI Metrics calculated in trading_loop
+        oi_change_pct = float(df['OI_Change_Pct'].iloc[-1]) if 'OI_Change_Pct' in df.columns else 0.0
+        oi_divergence = float(df['OI_Divergence'].iloc[-1]) if 'OI_Divergence' in df.columns else 0.0
+        oi_vs_ma = float(df['OI_vs_MA'].iloc[-1]) if 'OI_vs_MA' in df.columns else 0.0
+        
         return {
             "symbol": self.active_symbol,
             "current_price": current_price,
@@ -450,23 +466,52 @@ class BotContext:
             "rr_ratio": rr_ratio,
             "recent_closes": df['close'].tail(20).tolist() if not df.empty else [],
             "open_interest": hyperliquid_service.get_open_interest(self.active_symbol),
+            "funding_rate": funding_rate,
+            "oi_change_15m": round(oi_change_pct, 4),
+            "oi_divergence": round(oi_divergence, 4),
+            "oi_sentiment": "ACCUMULATION" if oi_vs_ma > 1.05 and funding_rate > 0 else "DISTRIBUTION" if oi_vs_ma < 0.95 else "NEUTRAL",
             **dynamic_ctx
         }
 
+    async def _update_market_analysis(self):
+        """Update market sentiment analysis in cache (Background Task)"""
+        try:
+            symbol = self.active_symbol
+            self.add_log(f"🧠 Updating Market Sentiment for {symbol}...")
+            
+            # This is an async call to AnalystService
+            sentiment = await analyst_service.analyze_market_sentiment(symbol)
+            
+            if sentiment:
+                self.ai_cache["last_market_analysis"] = sentiment
+                self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now()
+                self.add_log(f"🧠 Market Sentiment Updated: {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}")
+            
+        except Exception as e:
+            self.add_log(f"⚠️ Market analysis update failed: {e}")
+
     def _fetch_mtf_sentiment(self, symbol: str) -> str:
         """Fetch and calculate Multi-Timeframe Sentiment (Copilot) synchronously"""
+        # If we have it in cache and it's fresh (< 15 min), use it
+        cache = self.ai_cache.get("last_market_analysis")
+        cache_time = self.ai_cache.get("last_market_analysis_time")
+        
+        if cache and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
+            parts = []
+            for tf in ["5m", "1h", "4h"]:
+                s = cache.get(tf, {})
+                parts.append(f"{tf}: {s.get('sentiment', 'N/A')} (Score {s.get('score', 0)})")
+            return " | ".join(parts)
+
         try:
             summary_parts = []
             timeframes = ["5m", "1h", "4h"]
             
-            self.add_log("🧠 Fetching Copilot MTF Context...")
+            self.add_log("🧠 Fetching Copilot MTF Context (Live)...")
             
             for tf in timeframes:
-                # Fetch candles synchronously
                 df = hyperliquid_service.get_candles(symbol, interval=tf, limit=100)
-                
                 if df is not None and not df.empty:
-                    # Use AnalystService logic (Shared)
                     res = analyst_service.calculate_sentiment(df)
                     sentiment = res.get("sentiment", "N/A")
                     score = res.get("score", 0)
@@ -489,6 +534,7 @@ class BotContext:
     def _record_signal_analysis(self, sig: dict, ai_data: dict, approved: bool):
         """Record AI signal analysis to a persistent JSON file for audit trail."""
         try:
+            # Base entry
             entry = {
                 "timestamp": pd.Timestamp.now().isoformat(),
                 "symbol": self.active_symbol,
@@ -503,8 +549,74 @@ class BotContext:
                 "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp") or sig.get("tp")
             }
             
+            # Enrich with market context for retrospective analysis
+            try:
+                # 1. Technical Indicators from latest_data
+                if not self.latest_data.empty:
+                    last_row = self.latest_data.iloc[-1]
+                    entry["indicators"] = {
+                        "rsi": round(float(last_row.get("rsi", 0)), 2),
+                        "adx": round(float(last_row.get("adx", 0)), 2),
+                        "ema20": round(float(last_row.get("ema20", 0)), 6),
+                        "ema50": round(float(last_row.get("ema50", 0)), 6),
+                        "bb_upper": round(float(last_row.get("bb_upper", 0)), 6),
+                        "bb_middle": round(float(last_row.get("bb_middle", 0)), 6),
+                        "bb_lower": round(float(last_row.get("bb_lower", 0)), 6),
+                        "volume_ratio": round(float(last_row.get("volume_ratio", 0)), 2),
+                        "macd": round(float(last_row.get("macd", 0)), 6),
+                        "macd_signal": round(float(last_row.get("macd_signal", 0)), 6),
+                        "macd_hist": round(float(last_row.get("macd_hist", 0)), 6)
+                    }
+                
+                # 2. Market Regime from latest_analysis
+                if self.latest_analysis:
+                    entry["regime"] = {
+                        "type": self.latest_analysis.get("regime", "UNKNOWN"),
+                        "bias": self.latest_analysis.get("bias", "NEUTRAL")
+                    }
+                
+                # 3. Copilot Sentiment (from AI cache)
+                if self.ai_cache.get("last_market_analysis"):
+                    market_sentiment = self.ai_cache["last_market_analysis"]
+                    entry["copilot_sentiment"] = {
+                        "5m": {
+                            "sentiment": market_sentiment.get("5m", {}).get("sentiment", "UNKNOWN"),
+                            "score": market_sentiment.get("5m", {}).get("score", 0),
+                            "rsi": market_sentiment.get("5m", {}).get("rsi", 0)
+                        },
+                        "1h": {
+                            "sentiment": market_sentiment.get("1h", {}).get("sentiment", "UNKNOWN"),
+                            "score": market_sentiment.get("1h", {}).get("score", 0),
+                            "rsi": market_sentiment.get("1h", {}).get("rsi", 0),
+                            "trend": market_sentiment.get("1h", {}).get("trend", "UNKNOWN")
+                        },
+                        "4h": {
+                            "sentiment": market_sentiment.get("4h", {}).get("sentiment", "UNKNOWN"),
+                            "score": market_sentiment.get("4h", {}).get("score", 0),
+                            "rsi": market_sentiment.get("4h", {}).get("rsi", 0)
+                        }
+                    }
+                
+                # 4. Funding & OI if available (from latest market data fetch)
+                try:
+                    from backend.market_data import get_current_price
+                    market_info = get_current_price(self.active_symbol)
+                    if market_info:
+                        entry["market_data"] = {
+                            "funding_rate": market_info.get("funding_rate"),
+                            "open_interest": market_info.get("open_interest")
+                        }
+                except: pass
+                
+            except Exception as ctx_err:
+                self.add_log(f"⚠️ Failed to enrich signal context: {ctx_err}")
+            
             # Read existing or init new
             history = []
+            data_dir = os.path.dirname(self.signal_analysis_file)
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir, exist_ok=True)
+                
             if os.path.exists(self.signal_analysis_file):
                 try:
                     with open(self.signal_analysis_file, "r") as f:
@@ -519,7 +631,7 @@ class BotContext:
             with open(self.signal_analysis_file, "w") as f:
                 json.dump(history, f, indent=2)
                 
-            self.add_log(f"💾 Signal Analysis saved to history ({'Approved' if approved else 'Rejected'})")
+            self.add_log(f"💾 Signal Analysis saved to history ({'Approved' if approved else 'Rejected'}) with full market context")
         except Exception as e:
             self.add_log(f"⚠️ Failed to record signal analysis: {e}")
 
@@ -979,6 +1091,16 @@ class BotContext:
             self._last_copilot_report_time = now
             symbol = trade["symbol"]
             
+            def run_async_report_sync():
+                """Bridge to run async report in bot thread"""
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(run_async_report())
+                    loop.close()
+                except Exception as e:
+                    self.add_log(f"⚠️ run_async_report_sync Error: {e}")
+
             async def run_async_report():
                 try:
                     self.add_log(f"📊 Periodic Copilot Analysis for {symbol}...")
@@ -986,13 +1108,20 @@ class BotContext:
                     # Get Market Sentiment
                     sentiment = await analyst_service.analyze_market_sentiment(symbol)
                     
-                    # Format position for AnalystService (expects dict with specific keys)
-                    # returnOnEquity is calculated here for simplicity
+                    # Format position for AnalystService
                     entry = float(trade.get("entry", 0))
                     curr = hyperliquid_service.get_current_price(symbol)
                     side = trade.get("side", "BUY")
                     pnl_raw = ((curr - entry) / entry) if side == "BUY" else ((entry - curr) / entry)
                     
+                    # Fetch Advanced Metrics
+                    funding_rate = 0.0
+                    oi = 0.0
+                    try:
+                        funding_rate = hyperliquid_service.get_funding_rate(symbol)
+                        oi = hyperliquid_service.get_open_interest(symbol)
+                    except: pass
+
                     pos_data = {
                         "symbol": symbol,
                         "side": side,
@@ -1001,6 +1130,17 @@ class BotContext:
                     }
                     
                     analysis = analyst_service.analyze_position(pos_data, sentiment)
+                    
+                    # --- UPDATE CACHE FOR FRONTEND ---
+                    self.ai_cache["last_market_analysis"] = sentiment
+                    self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now()
+                    self.ai_cache["last_position_analysis"] = {
+                        "symbol": symbol,
+                        "size": trade.get("size", 0),
+                        "analysis": analysis
+                    }
+                    self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
+                    
                     advice = analysis.get("advice", "HOLD")
                     reason = analysis.get("reason", "N/A")
                     
@@ -1012,7 +1152,8 @@ class BotContext:
                         f"💰 **PnL:** {pnl_pct:+.2f}%\n"
                         f"🧠 **Copilot Advice:** {advice}\n"
                         f"📝 **Reasoning:** {reason}\n"
-                        f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}"
+                        f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
+                        f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
                     )
                     
                     # Send to Discord & Internal Logs
@@ -1022,13 +1163,8 @@ class BotContext:
                 except Exception as e:
                     self.add_log(f"⚠️ Periodic Report Failed: {e}")
 
-            # Run in background to avoid blocking trading loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(run_async_report())
-            except:
-                pass
+            # Run in separate thread or use current loop if possible
+            threading.Thread(target=run_async_report_sync, daemon=True).start()
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
@@ -1292,6 +1428,40 @@ class BotContext:
                 if acc_data.get("status") == "success":
                    self.account_value = float(acc_data.get("total_equity", 0))
             except: pass
+            
+            # --- PERIODIC MARKET ANALYSIS (For Copilot when flat) ---
+            try:
+                # Update Daily PnL Snapshot every hour
+                if not hasattr(self, "_last_pnl_sync") or (time.time() - self._last_pnl_sync) > 3600:
+                    self.add_log("🔄 Triggering Daily PnL Sync Task...")
+                    def sync_pnl():
+                        try:
+                            hyperliquid_service.get_daily_pnl()
+                        except Exception as e:
+                            self.add_log(f"⚠️ PnL Sync Error: {e}")
+                    
+                    threading.Thread(target=sync_pnl, daemon=True).start()
+                    self._last_pnl_sync = time.time()
+
+                # Run market analysis every 15 minutes or if cache is empty
+                last_market_time = self.ai_cache.get("last_market_analysis_time")
+                if not last_market_time or (pd.Timestamp.now() - last_market_time).total_seconds() > 900:
+                    self.add_log("🧠 Triggering Background Market Analysis Refresh...")
+                    def refresh_market():
+                        try:
+                            # Create a new loop for this one-off background task in the thread
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(self._update_market_analysis())
+                            loop.close()
+                        except Exception as e:
+                            self.add_log(f"⚠️ refresh_market Error: {e}")
+                    
+                    threading.Thread(target=refresh_market, daemon=True).start()
+                    # Prevent multiple starts before first completion (temporary debounce)
+                    self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now() 
+            except: pass
+            # --------------------------------------------------------
             
             try:
                 if self.active_trade:

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { ArrowLeft, TrendingUp, TrendingDown, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, CheckCircle, XCircle, AlertTriangle, Download } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -84,17 +84,29 @@ export default function SignalAnalysisPage() {
         <main className="min-h-screen p-4 md:p-8">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
-                <div className="flex items-center gap-4 mb-6">
-                    <Link
-                        href="/"
-                        className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors"
-                    >
-                        <ArrowLeft className="w-5 h-5 text-gray-400" />
-                    </Link>
-                    <div>
-                        <h1 className="text-2xl font-bold text-white">Signal Analysis</h1>
-                        <p className="text-gray-500 text-sm">Trading signals and AI decision history</p>
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/"
+                            className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors"
+                        >
+                            <ArrowLeft className="w-5 h-5 text-gray-400" />
+                        </Link>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white">Signal Analysis</h1>
+                            <p className="text-gray-500 text-sm">Trading signals and AI decision history</p>
+                        </div>
                     </div>
+
+                    {/* Download Button */}
+                    <a
+                        href={`${API_BASE_URL}/api/signal-analysis/download`}
+                        download="signal_analysis.json"
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export JSON
+                    </a>
                 </div>
 
                 {/* Filters */}

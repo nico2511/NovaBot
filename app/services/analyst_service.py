@@ -20,25 +20,38 @@ class AnalystService:
         self.history = self._load_history()
     
     def _load_history(self):
-        if os.path.exists(HISTORY_FILE):
-            try:
-                with open(HISTORY_FILE, 'r') as f:
-                    return json.load(f)
-            except:
-                return []
+        """Load history using StorageService if available"""
+        try:
+            from backend.services.storage import storage_service
+            if storage_service:
+                return storage_service.load_sentiment_history()
+        except:
+            pass
         return []
 
     def _save_history(self, entry):
+        """Save history using StorageService if available"""
         # Keep last 100 entries
         self.history.append(entry)
         if len(self.history) > 100:
             self.history = self.history[-100:]
             
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+        try:
+            from backend.services.storage import storage_service
+            if storage_service:
+                storage_service.save_sentiment_history(self.history)
+                return
+        except:
+            pass
         
-        with open(HISTORY_FILE, 'w') as f:
-            json.dump(self.history, f)
+        # Fallback to local file if service not initialized (Bot standalone mode)
+        try:
+            HISTORY_FILE = "data/analysis/sentiment_history.json"
+            os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+            with open(HISTORY_FILE, 'w') as f:
+                json.dump(self.history, f)
+        except:
+            pass
 
     async def analyze_market_sentiment(self, symbol: str) -> dict:
         """
@@ -160,24 +173,6 @@ class AnalystService:
                 },
                 "details": f"RSI {round(rsi,1)} | MACD {('Bull' if macd_val > macd_signal else 'Bear')}"
             }
-            
-            # Add Open Interest and Funding Rate (Global Market Context)
-            try:
-                from app.services.hyperliquid_service import hyperliquid_service
-                # Get symbol from df metadata if available, or default to BTC
-                symbol = getattr(df, 'symbol', 'BTC')
-                
-                oi = hyperliquid_service.get_open_interest(symbol)
-                funding = hyperliquid_service.get_funding_rate(symbol)
-                
-                sentiment_data["open_interest"] = round(oi, 2)
-                sentiment_data["funding_rate"] = round(funding, 4)
-            except Exception as e:
-                print(f"⚠️ Failed to fetch OI/Funding: {e}")
-                sentiment_data["open_interest"] = 0
-                sentiment_data["funding_rate"] = 0
-            
-            return sentiment_data
         except Exception as e:
             return {"sentiment": "ERROR", "score": 0, "reason": str(e)}
 

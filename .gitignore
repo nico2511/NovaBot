@@ -6,21 +6,22 @@ venv/
 .venv/
 .env
 
-# Logs and State
-*.log
+# Data & State Files
+data/
+logs/
 bot_state.json
 bot_state.json.bak
 bot_state.json.tmp
-token_meta_cache.json
+daily_pnl_snapshot.json
 bot_activity.log
-user_settings.json
-user_settings.json.bak
-data/
-logs/
+
+# Artifacts & Brain
+.gemini/
+brain/
 
 # Helper output
-#_bmad-output/
-#_bmad/
+_bmad-output/
+_bmad/
 .claude/
 .agent/
 
