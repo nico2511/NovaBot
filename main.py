@@ -45,19 +45,9 @@ try:
     # 3. Secure Bridge Disconnected State first
     # (Just in case something accesses it early)
     
-    # 4. Start Trading Loop in Background Thread
-    def run_bot_loop():
-        logger.info("🚀 Starting Trading Loop thread...")
-        try:
-            bot.is_running = True
-            bot.trading_loop()
-        except Exception as e:
-            logger.error(f"❌ Critical Bot Error: {e}")
-            import traceback
-            traceback.print_exc()
-
-    bot_thread = threading.Thread(target=run_bot_loop, daemon=True, name="BotEngine")
-    bot_thread.start()
+    # 4. Start Bot (Standard Method)
+    logger.info("🚀 Starting Bot Engine...")
+    bot.start()
     
     # 5. Connect Bridge
     logger.info("🔗 Connecting API Bridge...")

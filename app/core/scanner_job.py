@@ -47,7 +47,7 @@ class ScannerJob:
         self.last_scan_time = 0
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
-        print("🔍 ScannerJob started")
+        self.bot.add_log("🔍 ScannerJob started (Thread launched)")
 
     def stop(self):
         self.is_running = False
@@ -55,7 +55,7 @@ class ScannerJob:
             try:
                 self.thread.join(timeout=2)
             except: pass
-        print("⏹️ ScannerJob stopped")
+        self.bot.add_log("⏹️ ScannerJob stopped")
     
     def _get_scan_context(self) -> Tuple[Optional[List[str]], str]:
         """
@@ -94,6 +94,7 @@ class ScannerJob:
         return whitelist, log_message
 
     def _run_loop(self):
+        self.bot.add_log("🔍 Scanner Loop Entered")
         while self.is_running:
             try:
                 # Check settings
@@ -104,19 +105,26 @@ class ScannerJob:
                 auto_switch = settings.get('auto_switch', False)
 
                 if not enabled:
+                    self.bot.add_log(f"🔍 Scanner LOOP: Skipping (Enabled={enabled})")
                     time.sleep(10)
                     continue
 
                 # CIRCUIT BREAKER: Pause Scanner if Bot is in Focus Mode
                 if getattr(self.bot, 'is_focus_mode', False):
+                    self.bot.add_log("🔍 Scanner LOOP: Skipping (Focus Mode)")
                     time.sleep(10) 
                     continue
 
                 # Check interval
                 now = time.time()
-                if now - self.last_scan_time < (interval_minutes * 60):
+                elapsed = now - self.last_scan_time
+                required = interval_minutes * 60
+                if elapsed < required:
+                    # self.bot.add_log(f"🔍 Scanner LOOP: Waiting (Elapsed {elapsed:.0f}s < {required}s)") # Too spammy
                     time.sleep(10)
                     continue
+
+                self.bot.add_log(f"🔍 Scanner LOOP: Triggering Scan! (Elapsed {elapsed:.0f}s >= {required}s)")
 
                 # RUN SCAN
                 self.last_scan_time = now
