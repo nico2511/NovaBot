@@ -7,7 +7,8 @@ venv/
 .env
 
 # Data & State Files
-#data/
+data/*
+!data/config/
 logs/
 bot_state.json
 bot_state.json.bak
