@@ -19,8 +19,8 @@ data/
 logs/
 
 # Helper output
-!_bmad-output/
-!_bmad/
+#_bmad-output/
+#_bmad/
 .claude/
 .agent/
 

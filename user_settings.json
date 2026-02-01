@@ -27,6 +27,9 @@
         "interval": 5,
         "min_score": 70,
         "auto_switch": false,
-        "gamification_enabled": true
+        "gamification_enabled": true,
+        "max_funding_long": 0.001,
+        "min_funding_short": -0.001,
+        "funding_filter_enabled": true
     }
 }

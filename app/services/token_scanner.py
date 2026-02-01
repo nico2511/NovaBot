@@ -32,11 +32,7 @@ class HyperliquidScanner:
     CACHE_DURATION = 300  # 5 minutes global cache
     TOKEN_CACHE_DURATION = 300  # 5 minutes per-token cache
     
-    # Funding rate veto thresholds
-    MAX_FUNDING_LONG = 0.001  # 0.1% (extreme bullish funding = risky long)
-    MIN_FUNDING_SHORT = -0.001  # -0.1% (extreme bearish funding = risky short)
-    
-    def __init__(self):
+    def __init__(self, max_funding_long=0.001, min_funding_short=-0.001, funding_filter_enabled=True):
         self.info = Info(skip_ws=True)
         self.hl_service = HyperliquidService()
         
@@ -46,6 +42,11 @@ class HyperliquidScanner:
         
         # Per-token analysis cache (NEW)
         self._token_cache = {}  # {symbol: {'data': {...}, 'timestamp': float}}
+        
+        # Funding rate veto thresholds (CONFIGURABLE)
+        self.max_funding_long = max_funding_long  # Default: 0.1% (extreme bullish funding = risky long)
+        self.min_funding_short = min_funding_short  # Default: -0.1% (extreme bearish funding = risky short)
+        self.funding_filter_enabled = funding_filter_enabled
         
         # Configuration thresholds
         self.min_volume_24h = 10_000_000  # $10M minimum
@@ -341,21 +342,22 @@ class HyperliquidScanner:
         
         # --- KILL SWITCHES (Veto) ---
         
-        # 1. Funding Rate Veto (NEW)
+        # 1. Funding Rate Veto (CONFIGURABLE)
         funding = token_data.get('funding', 0)
         
-        # Extreme positive funding = too crowded long (risky to enter long)
-        if funding > self.MAX_FUNDING_LONG:
-            return {
-                'score': 0, 
-                'reasons': [f"⛔ Funding Veto: Extreme Long Crowding ({funding*100:.3f}% > 0.1%)"],
-                'max_score': 100
-            }
-        
-        # Extreme negative funding = too crowded short (risky to enter short)
-        # For now we focus on longs, but this could be used for short strategies
-        if funding < self.MIN_FUNDING_SHORT:
-            print(f"   ⚠️ {token_data['symbol']}: Extreme short funding ({funding*100:.3f}%) - potential short squeeze")
+        if self.funding_filter_enabled:
+            # Extreme positive funding = too crowded long (risky to enter long)
+            if funding > self.max_funding_long:
+                return {
+                    'score': 0, 
+                    'reasons': [f"⛔ Funding Veto: Extreme Long Crowding ({funding*100:.3f}% > {self.max_funding_long*100:.3f}%)"],
+                    'max_score': 100
+                }
+            
+            # Extreme negative funding = too crowded short (risky to enter short)
+            # For now we focus on longs, but this could be used for short strategies
+            if funding < self.min_funding_short:
+                print(f"   ⚠️ {token_data['symbol']}: Extreme short funding ({funding*100:.3f}%) - potential short squeeze")
         
         # 2. RSI Extreme (Overbought)
         if analysis['rsi'] > 75:

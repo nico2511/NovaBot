@@ -23,7 +23,15 @@ class ScannerJob:
         self.is_running = False
         self.thread = None
         self.last_scan_time = 0
-        self.scanner = HyperliquidScanner()
+        
+        # Initialize scanner with funding rate settings from bot context
+        scanner_settings = getattr(bot_context, 'scanner_settings', {})
+        self.scanner = HyperliquidScanner(
+            max_funding_long=scanner_settings.get('max_funding_long', 0.001),
+            min_funding_short=scanner_settings.get('min_funding_short', -0.001),
+            funding_filter_enabled=scanner_settings.get('funding_filter_enabled', True)
+        )
+        
         self.last_results = []  # Store last scan results for UI
         self.is_scanning = False  # Status flag
         

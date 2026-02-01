@@ -13,6 +13,9 @@ interface ScannerSettings {
     min_score: number;
     auto_switch: boolean;
     gamification_enabled: boolean;
+    max_funding_long: number;
+    min_funding_short: number;
+    funding_filter_enabled: boolean;
 }
 
 interface GlobalSettings {
@@ -195,6 +198,51 @@ export default function ConfigPanel({ currentSymbol }: ConfigPanelProps) {
                             className="w-full"
                         />
                     </label>
+
+                    {/* Funding Rate Filter */}
+                    <div className="border-t border-neutral-800 pt-3 mt-3">
+                        <label className="flex items-center justify-between mb-3">
+                            <span>Funding Filter</span>
+                            <input
+                                type="checkbox"
+                                checked={scanner.funding_filter_enabled}
+                                onChange={(e) => setScanner({ ...scanner, funding_filter_enabled: e.target.checked })}
+                                className="w-5 h-5 rounded"
+                            />
+                        </label>
+
+                        {scanner.funding_filter_enabled && (
+                            <div className="space-y-3 pl-4 border-l-2 border-neutral-700">
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-xs text-gray-400">Max Funding (Long): {(scanner.max_funding_long * 100).toFixed(3)}%</span>
+                                    <input
+                                        type="range"
+                                        min="0.0001"
+                                        max="0.005"
+                                        step="0.0001"
+                                        value={scanner.max_funding_long}
+                                        onChange={(e) => setScanner({ ...scanner, max_funding_long: parseFloat(e.target.value) })}
+                                        className="w-full"
+                                    />
+                                    <span className="text-xs text-gray-500">Reject longs when funding &gt; this threshold</span>
+                                </label>
+
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-xs text-gray-400">Min Funding (Short): {(scanner.min_funding_short * 100).toFixed(3)}%</span>
+                                    <input
+                                        type="range"
+                                        min="-0.005"
+                                        max="-0.0001"
+                                        step="0.0001"
+                                        value={scanner.min_funding_short}
+                                        onChange={(e) => setScanner({ ...scanner, min_funding_short: parseFloat(e.target.value) })}
+                                        className="w-full"
+                                    />
+                                    <span className="text-xs text-gray-500">Reject shorts when funding &lt; this threshold</span>
+                                </label>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

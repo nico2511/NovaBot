@@ -123,6 +123,18 @@ export default function Home() {
               >
                 View Full Logs →
               </a>
+              <a
+                href="/sentiment-history"
+                className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-4 block"
+              >
+                Sentiment History →
+              </a>
+              <a
+                href="/signal-analysis"
+                className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-4 block"
+              >
+                Signal Analysis →
+              </a>
             </div>
 
             {/* Config Panel (Collapsible) */}
