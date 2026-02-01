@@ -318,12 +318,24 @@ def update_legacy_settings(
                 current["notifications"] = data
 
             # Save
-            model = GlobalSettingsModel(**current)
-            return update_global_settings(model, bot)
+            try:
+                # Ensure all required fields exist with defaults if missing
+                if "auto_start_trading" not in current: current["auto_start_trading"] = False
+                if "notifications" not in current: current["notifications"] = {}
+                
+                model = GlobalSettingsModel(**current)
+                return update_global_settings(model, bot)
+            except Exception as validation_error:
+                logger.error(f"Validation Error creating GlobalSettingsModel: {validation_error}")
+                # Log the actual data causing the issue for debugging
+                logger.error(f"Current data payload: {current}")
+                raise HTTPException(status_code=422, detail=f"Validation Error: {str(validation_error)}")
             
         else:
              return {"status": "ignored", "message": f"Section {section} not editable via API"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Legacy update failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
