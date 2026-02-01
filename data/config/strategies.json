@@ -1,0 +1,252 @@
+{
+    "market_regime": {
+        "adx_threshold_trend": 24,
+        "adx_threshold_range": 22,
+        "adx_threshold_chop": 18,
+        "volatility_threshold_low": 0.008,
+        "volatility_threshold_high": 0.025,
+        "timeframe_main": "15m",
+        "timeframe_trigger": "5m"
+    },
+    "strategies": {
+        "scalp_ema_rsi": {
+            "enabled": true,
+            "type": "trend",
+            "description": "EMA cross + RSI momentum – assoupli en faible ADX",
+            "display_conditions": [
+                "EMA Cross (9/21)",
+                "RSI Momentum (48-72 Bull / 28-52 Bear)",
+                "ADX > 22 + Volume > 1.25x"
+            ],
+            "params": {
+                "ema_fast": 9,
+                "ema_slow": 21,
+                "rsi_period": 14,
+                "rsi_overbought": 70,
+                "rsi_oversold": 30,
+                "adx_threshold": 20,
+                "min_rr": 1.3,
+                "sl_atr_mult": 1.15,
+                "volume_multiplier": 1.25
+            }
+        },
+        "elastic_nibbler": {
+            "enabled": true,
+            "type": "reversion_extreme",
+            "description": "Scalp extrême sur surachat/survente – très sélectif",
+            "display_conditions": [
+                "BB 3.0 SD breakout",
+                "RSI <22 / >78",
+                "Volume > 1.9x + ADX < 28"
+            ],
+            "params": {
+                "timeframe": "5m",
+                "bb_period": 20,
+                "bb_std": 3.0,
+                "rsi_period": 14,
+                "rsi_oversold": 26,
+                "rsi_overbought": 74,
+                "volume_multiplier": 1.40,
+                "adx_threshold": 28,
+                "min_rr": 1.6,
+                "sl_atr_mult": 1.5,
+                "activation_pnl_pct": 0.004,
+                "secure_pnl_pct": 0.0007
+            }
+        },
+        "elastic_reversion": {
+            "enabled": true,
+            "type": "reversion",
+            "description": "Reversion sur extension – garde ADX < 38",
+            "display_conditions": [
+                "RSI <24 / >76",
+                "Price >4.5% from EMA20",
+                "ADX < 38"
+            ],
+            "params": {
+                "rsi_period": 14,
+                "ema_period": 20,
+                "oversold_rsi": 28,
+                "overbought_rsi": 72,
+                "extension_pct": 0.028,
+                "adx_threshold": 38,
+                "min_rr": 1.5,
+                "volume_multiplier": 1.35
+            }
+        },
+        "smart_trend": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Trend MTF – seuil ADX assoupli + tolérance pullback augmentée",
+            "display_conditions": [
+                "Trend Alignment EMA21/50",
+                "Micro BOS (5m)",
+                "Pullback < 1.1%"
+            ],
+            "params": {
+                "min_rr": 1.65,
+                "adx_threshold": 25,
+                "rsi_min": 28,
+                "rsi_max": 75,
+                "pullback_tolerance": 0.011,
+                "bos_lookback": 3,
+                "sl_atr_mult": 0.4,
+                "volume_multiplier": 1.2
+            }
+        },
+        "smart_mean_reversion": {
+            "enabled": true,
+            "type": "trend_dip",
+            "description": "Dip buyer en trend – plus permissif sur RSI",
+            "display_conditions": [
+                "RSI 32-58 en uptrend",
+                "ROC > -12%",
+                "ADX > 23"
+            ],
+            "params": {
+                "rsi_period": 14,
+                "roc_period": 8,
+                "rsi_threshold": 32,
+                "roc_floor": -12.0,
+                "min_rr": 1.55,
+                "adx_threshold": 23,
+                "volume_multiplier": 1.25
+            }
+        },
+        "bollinger_bounce": {
+            "enabled": true,
+            "type": "range",
+            "description": "Range agressif – ADX très bas + kill zone élargie",
+            "display_conditions": [
+                "ADX < 21",
+                "Kill Zone ~14%",
+                "Candle > 1.15× ATR"
+            ],
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.3,
+                "adx_threshold": 22,
+                "ema50_slope_threshold": 0.007,
+                "kill_zone_percent": 0.20,
+                "min_candle_atr_multiple": 1.15,
+                "volume_multiplier": 1.2,
+                "min_rr": 1.5
+            }
+        },
+        "bollinger_middle_bounce": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Pullback middle band – seuil ADX assoupli",
+            "display_conditions": [
+                "EMA20 > EMA50",
+                "ADX > 23",
+                "Middle band touch ±0.25%"
+            ],
+            "params": {
+                "bb_period": 20,
+                "bb_std": 2.0,
+                "ema_trend_short": 20,
+                "ema_trend_long": 50,
+                "adx_threshold": 25,
+                "rsi_min": 35,
+                "volume_multiplier": 1.2,
+                "min_rr": 1.75
+            }
+        },
+        "institutional_scalp": {
+            "enabled": true,
+            "type": "liquidity",
+            "description": "Liquidity grab – lookback un peu plus long",
+            "display_conditions": [
+                "Sweep 18-bar range",
+                "Wick > 38%",
+                "Volume > 1.35×"
+            ],
+            "params": {
+                "liq_grab_lookback": 16,
+                "min_rr": 1.6,
+                "volume_multiplier": 1.20,
+                "adx_extreme_limit": 58
+            }
+        },
+        "fibo_pullback": {
+            "enabled": true,
+            "type": "trend",
+            "description": "Fibonacci continuation – ADX un peu plus bas",
+            "display_conditions": [
+                "EMA200 + ADX > 23",
+                "Fibo 50-78.6%",
+                "Volume > 1.25×"
+            ],
+            "params": {
+                "ema_period": 200,
+                "adx_threshold": 23,
+                "swing_lookback": 40,
+                "min_rr": 1.6,
+                "swing_confirmation_bars": 12,
+                "volume_multiplier": 1.25
+            }
+        },
+        "liquidity_lightning": {
+            "enabled": true,
+            "type": "scalp_choc",
+            "description": "Mean Reversion (False Breakout) - Chasse les excès de tendance et les ranges. Target: EMA20.",
+            "display_conditions": [
+                "Sweep 30-candle High/Low",
+                "Rejection Wick > 60%",
+                "Vol > 1.5x Avg OR OI Drop"
+            ],
+            "params": {
+                "lookback": 22,
+                "wick_threshold": 0.48,
+                "volume_multiplier": 1.30,
+                "min_rr": 1.0,
+                "time_limit_seconds": 180
+            }
+        },
+        "sniper_precision_trend": {
+            "enabled": true,
+            "type": "trend",
+            "description": "SNIPER - Precision Trend MTF V3 – Pullback EMA21 strict + BOS 1m + Capital Preservation First",
+            "display_conditions": [
+                "Trend Alignment EMA21/50 + ADX > 28 Rising",
+                "Pullback EMA21 < 0.25%",
+                "RSI 38-70 + Volume > 1.3x",
+                "1m BOS Trigger"
+            ],
+            "params": {
+                "rr_ratio": 2.0,
+                "adx_threshold": 28,
+                "rsi_min": 38,
+                "rsi_max": 70,
+                "pullback_tolerance": 0.0025,
+                "bos_lookback": 3,
+                "sl_atr_mult": 0.35,
+                "volume_multiplier": 1.3
+            }
+        },
+        "gamma_bear_vortex": {
+            "enabled": true,
+            "type": "trend_continuation",
+            "description": "Short Continuation: Trend Bear + Vortex + Gamma Pin + OI",
+            "display_conditions": [
+                "Bear Trend (ADX > 25)",
+                "Vortex Bearish (VI- > VI+)",
+                "Gamma Pin (Low Vol + High ADX) OR Breakdown",
+                "OI Increasing or Stable"
+            ],
+            "params": {
+                "ema_visual_period": 50,
+                "adx_min": 25,
+                "vortex_period": 14,
+                "vortex_threshold": 1.05,
+                "bb_std": 2.0,
+                "gamma_pin_width": 0.015,
+                "adx_gamma_trigger": 35,
+                "sl_atr_mult": 1.5,
+                "tp_atr_mult": 2.5,
+                "require_oi_growth": true
+            }
+        }
+    }
+}
