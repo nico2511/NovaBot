@@ -16,12 +16,17 @@ const TIMEFRAMES = [
 export default function PerformanceChart() {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<IChartApi | null>(null);
-    const [rawData, setRawData] = useState<{ time: number; value: number }[]>([]);
-    const [selectedTimeframe, setSelectedTimeframe] = useState('ALL');
+    const { data: equityData } = useSWR(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/equity-history`,
+        (url: string) => fetch(url).then(res => res.json()),
+        { refreshInterval: 5000 }
+    );
 
     useEffect(() => {
-        api.getEquityHistory().then(setRawData).catch(console.error);
-    }, []);
+        if (equityData) {
+            setRawData(equityData);
+        }
+    }, [equityData]);
 
     const filteredData = rawData.filter(d => {
         if (selectedTimeframe === 'ALL') return true;

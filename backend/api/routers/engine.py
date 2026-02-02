@@ -17,39 +17,18 @@ def get_status(bot=Depends(get_bot_context)):
     """Get comprehensive bot status including positions, balance, and settings"""
     try:
         # Get current positions
-        positions = []
-        if hasattr(bot, 'hyperliquid') and bot.hyperliquid:
-            try:
-                user_state = bot.hyperliquid.info.user_state(bot.hyperliquid.account_address)
-                asset_positions = user_state.get("assetPositions", [])
-                
-                for pos in asset_positions:
-                    position_data = pos.get("position", {})
-                    coin = position_data.get("coin", "UNKNOWN")
-                    szi = position_data.get("szi", "0")
-                    entry_px = position_data.get("entryPx")
-                    
-                    if float(szi) != 0:
-                        positions.append({
-                            "symbol": coin,
-                            "size": float(szi),
-                            "side": "LONG" if float(szi) > 0 else "SHORT",
-                            "entry_price": float(entry_px) if entry_px else 0,
-                            "unrealized_pnl": float(position_data.get("unrealizedPnl", 0)),
-                            "leverage": float(position_data.get("leverage", {}).get("value", 1))
-                        })
-            except Exception as e:
-                logger.error(f"Error fetching positions: {e}")
+        # Get current positions via Service (Fixes missing attribute issue)
+        from app.services.hyperliquid_service import hyperliquid_service
+        positions = hyperliquid_service.get_positions()
         
         # Get account balance
         balance = 0.0
-        if hasattr(bot, 'hyperliquid') and bot.hyperliquid:
-            try:
-                user_state = bot.hyperliquid.info.user_state(bot.hyperliquid.account_address)
-                margin_summary = user_state.get("marginSummary", {})
-                balance = float(margin_summary.get("accountValue", 0))
-            except Exception as e:
-                logger.error(f"Error fetching balance: {e}")
+        try:
+            balance_data = hyperliquid_service.get_account_balance()
+            if balance_data.get("status") == "success":
+                balance = balance_data.get("total_equity", 0.0)
+        except Exception as e:
+            logger.error(f"Error fetching balance: {e}")
         
         # Build status response
         return {

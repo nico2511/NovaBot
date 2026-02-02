@@ -265,16 +265,30 @@ def download_signal_analysis():
     """Download signal analysis JSON file"""
     try:
         from backend.services.storage import storage_service
+        import json
+        
         file_path = storage_service.analysis_dir / "signal_analysis.json"
         
+        # Create empty file if not exists
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Signal analysis file not found")
+            logger.info("ℹ️ Signal analysis file not found, creating empty one for download.")
+            try:
+                # Ensure parent dir exists
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, "w", encoding='utf-8') as f:
+                    json.dump([], f)
+            except Exception as e:
+                logger.error(f"Failed to create empty signal analysis file: {e}")
+                # Fallback to 404 if we can't create it
+                raise HTTPException(status_code=404, detail="Signal analysis file not found and could not be created")
         
         return FileResponse(
             path=str(file_path),
             filename="signal_analysis.json",
             media_type="application/json"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error downloading signal analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -285,16 +299,30 @@ def download_sentiment_history():
     """Download sentiment history JSON file"""
     try:
         from backend.services.storage import storage_service
+        import json
+        
         file_path = storage_service.analysis_dir / "sentiment_history.json"
         
+        # Create empty file if not exists
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Sentiment history file not found")
+            logger.info("ℹ️ Sentiment history file not found, creating empty one for download.")
+            try:
+                # Ensure parent dir exists
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(file_path, "w", encoding='utf-8') as f:
+                    json.dump([], f)
+            except Exception as e:
+                logger.error(f"Failed to create empty sentiment history file: {e}")
+                # Fallback to 404 if we can't create it
+                raise HTTPException(status_code=404, detail="Sentiment history file not found and could not be created")
         
         return FileResponse(
             path=str(file_path),
             filename="sentiment_history.json",
             media_type="application/json"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error downloading sentiment history: {e}")
         raise HTTPException(status_code=500, detail=str(e))

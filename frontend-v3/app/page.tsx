@@ -86,8 +86,7 @@ export default function Home() {
               maxDrawdown={data.max_drawdown || 0}
             />
 
-            {/* Visual Token Analysis */}
-            <MarketAnalysis analysis={data.market_analysis || {}} />
+
 
             {/* Co-pilot Card (AI Reasoning) */}
             <CopilotCard />
