@@ -35,6 +35,10 @@ echo "🏗️  Building Next.js Frontend (frontend-v3)..."
 cd frontend-v3
 npm install --no-audit --prefer-offline
 npm run build
+if [ $? -ne 0 ]; then
+    echo "❌ Build failed! Aborting deployment."
+    exit 1
+fi
 cd ..
 
 # Check PM2 availability
