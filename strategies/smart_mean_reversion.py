@@ -156,127 +156,152 @@ class SmartMeanReversionStrategy(BaseStrategy):
         return None
 
     def calculate_progress(self, df, extra_data=None):
-        """Calculate how close we are to triggering a signal (0-100%)."""
-        if df is None or df.empty or len(df) < 30:
-            return 0
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Regime (Trend & ADX)
+        2. Dip Zone (RSI & Position)
+        3. Trigger (Reversal Candle)
+        """
+        if df is None or df.empty or len(df) < 50:
+             return {
+                "strategy": "Smart Mean Rev",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
-            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-2]
-            c_close = df['close'].iloc[-2]
-            c_bbl = df['BBL'].iloc[-2]
-            p_close = df['close'].iloc[-3]
-            
-            rsi_threshold = params.get("rsi_threshold", 30)
-            roc_floor = params.get("roc_floor", -15.0)
-            
-            progress = 0
-            
-            # 1. RSI Oversold (30 points)
-            if c_rsi < rsi_threshold:
-                progress += 30
-            elif c_rsi < 40:
-                # Scale: 40 -> 0%, 30 -> 100%
-                progress += int(30 * (40 - c_rsi) / 10)
-            
-            # 2. ROC Safety (25 points)
-            if c_roc > roc_floor:
-                progress += 25
-            elif c_roc > -25:
-                # Scale: -25 -> 0%, -15 -> 100%
-                progress += int(25 * (c_roc + 25) / 10)
-            
-            # 3. BB Position (25 points)
-            if c_close < c_bbl:
-                progress += 25
-            else:
-                # Distance to lower band
-                dist_pct = ((c_close - c_bbl) / c_bbl) * 100
-                if dist_pct < 2:
-                    progress += int(25 * (2 - dist_pct) / 2)
-            
-            # 4. Stabilization (20 points)
-            if c_close > p_close:
-                progress += 20
-            
-            return min(100, progress)
-        except:
-            return 0
-
-    def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI - Diagnostic Card (FUNNEL LOGIC)"""
-        if df is None or df.empty or len(df) < 30:
-            return []
-        
-        try:
-            self.add_indicators(df)
-            params = self.config.get("params", {})
-            
-            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
-            c_roc = df[f'ROC_{params.get("roc_period", 10)}'].iloc[-1]
+            # Pointers
             c_close = df['close'].iloc[-1]
-            c_bbl = df['BBL'].iloc[-1]
-            p_close = df['close'].iloc[-2]
+            c_open = df['open'].iloc[-1]
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            ema_200 = df['EMA_200'].iloc[-1] if 'EMA_200' in df.columns else ta.ema(df['close'], length=200).iloc[-1]
+            ema_50 = df['EMA_50'].iloc[-1] if 'EMA_50' in df.columns else ta.ema(df['close'], length=50).iloc[-1]
             
-            rsi_threshold = params.get("rsi_threshold", 30)
-            roc_floor = params.get("roc_floor", -15.0)
+            # --- Stage 1: Trend Regime ---
+            adx_val = 0
+            if 'ADX_14' in df.columns:
+                adx_val = df['ADX_14'].iloc[-1]
             
-            conditions = []
+            adx_ok = adx_val > params.get("adx_threshold", 25)
             
-            # 1. Setup (RSI < 30) - GATEKEEPER
-            rsi_ok = c_rsi < rsi_threshold
-            conditions.append({
-                "name": "1. Setup (RSI < 30)",
-                "status": rsi_ok,
-                "value": f"{c_rsi:.1f}"
+            # Check Trend Alignment
+            is_uptrend = c_close > ema_200 and c_close > ema_50
+            is_downtrend = c_close < ema_200 and c_close < ema_50
+            
+            s1_status = "WAIT"
+            s1_details = "Choppy / Weak Trend"
+            
+            if adx_ok:
+                if is_uptrend:
+                    s1_status = "BULLISH"
+                    s1_details = f"Strong Uptrend (ADX {adx_val:.0f})"
+                elif is_downtrend:
+                    s1_status = "BEARISH"
+                    s1_details = f"Strong Downtrend (ADX {adx_val:.0f})"
+            else:
+                 s1_details = f"ADX Low ({adx_val:.0f} < 25)"
+
+            stages = []
+            stages.append({
+                "name": "1. Trend Regime",
+                "status": "PASS" if (s1_status in ["BULLISH", "BEARISH"]) else "WAIT",
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": 25, "op": ">"}
+                }
             })
             
-            # 2. Safety (ROC > -15%) - DEPENDS ON SETUP
-            if not rsi_ok:
-                conditions.append({
-                    "name": "2. Safety (ROC > -15%)",
-                    "status": False,
-                    "value": "Waiting for Setup..."
-                })
-                roc_ok = False # Enforce failure cascade
-            else:
-                roc_ok = c_roc > roc_floor
-                conditions.append({
-                    "name": "2. Safety (ROC > -15%)",
-                    "status": roc_ok,
-                    "value": f"{c_roc:.1f}%"
-                })
+            # --- Stage 2: Dip Zone (RSI) ---
+            # Long: RSI 40-55
+            # Short: RSI 45-60
             
-            # 3. Trigger (Stabilization) - DEPENDS ON SETUP & SAFETY
-            if not rsi_ok or not roc_ok:
-                 conditions.append({
-                    "name": "3. Trigger (BB + Green)",
-                    "status": False,
-                    "value": "Waiting for conditions..."
-                })
-            else:
-                # Price under BB Lower AND Green Candle
-                bb_ok = c_close < c_bbl
-                stab_ok = c_close > p_close
-                trigger_ok = bb_ok and stab_ok
-                
-                trigger_val = "Waiting..."
-                if not bb_ok: trigger_val = "Price above Lower Band"
-                elif not stab_ok: trigger_val = "Falling (Red Candle)"
-                elif trigger_ok: trigger_val = "Stabilized"
-                
-                conditions.append({
-                    "name": "3. Trigger (BB + Green)",
-                    "status": trigger_ok,
-                    "value": trigger_val
-                })
+            s2_status = "WAIT"
+            s2_details = f"RSI {c_rsi:.1f} (Neutral)"
             
-            return conditions
+            in_buy_zone = 40 <= c_rsi <= 55
+            in_sell_zone = 45 <= c_rsi <= 60
+            
+            if s1_status == "BULLISH":
+                if in_buy_zone:
+                    s2_status = "READY"
+                    s2_details = "RSI in Buy Zone (40-55)"
+                elif c_rsi < 40:
+                    s2_status = "OVERSOLD" 
+                    s2_details = f"RSI {c_rsi:.1f} (Warning < 40)"
+                else: 
+                     s2_details = f"RSI {c_rsi:.1f} (Req 40-55)"
+                     
+            elif s1_status == "BEARISH":
+                if in_sell_zone:
+                    s2_status = "READY"
+                    s2_details = "RSI in Sell Zone (45-60)"
+                elif c_rsi > 60:
+                     s2_status = "OVERBOUGHT"
+                     s2_details = f"RSI {c_rsi:.1f} (Warning > 60)"
+                else:
+                     s2_details = f"RSI {c_rsi:.1f} (Req 45-60)"
+
+            stages.append({
+                "name": "2. Dip Zone",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "rsi": {"value": round(c_rsi, 1), "threshold": "Zone", "op": "in"}
+                }
+            })
+            
+            # --- Stage 3: Trigger (Candle Color) ---
+            s3_status = "WAIT"
+            s3_details = "Waiting for setup..."
+            
+            if s2_status == "READY":
+                if s1_status == "BULLISH":
+                    # Require Green Candle (Close > Open)
+                    if c_close > c_open:
+                        s3_status = "TRIGGER!"
+                        s3_details = "Bullish Candle Formed"
+                    else:
+                        s3_details = "Waiting for Green Candle"
+                elif s1_status == "BEARISH":
+                    # Require Red Candle (Close < Open)
+                    if c_close < c_open:
+                        s3_status = "TRIGGER!"
+                        s3_details = "Bearish Candle Formed"
+                    else:
+                        s3_details = "Waiting for Red Candle"
+                        
+            stages.append({
+                "name": "3. Reversal Trigger",
+                "status": s3_status,
+                "details": s3_details
+            })
+            
+            # Score
+            score = 0
+            if s1_status in ["BULLISH", "BEARISH"]: score += 30
+            if s2_status == "READY": score += 40
+            if s3_status == "TRIGGER!": score += 30
+            
+            return {
+                "strategy": "Smart Mean Rev",
+                "score": score,
+                "stages": stages
+            }
+
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+            return {
+                "strategy": "Smart Mean Rev",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
+
+    def check_conditions(self, df, extra_data=None):
+        return []
 
     
     def get_threshold_comparisons(self, df, extra_data=None):

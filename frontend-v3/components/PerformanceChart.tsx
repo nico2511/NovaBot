@@ -2,6 +2,7 @@
 
 import { createChart, ColorType, IChartApi, AreaSeries, UTCTimestamp } from 'lightweight-charts';
 import { useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { TrendingUp, Calendar } from 'lucide-react';
@@ -17,13 +18,16 @@ export default function PerformanceChart() {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<IChartApi | null>(null);
     const { data: equityData } = useSWR(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/equity-history`,
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/history/equity`,
         (url: string) => fetch(url).then(res => res.json()),
         { refreshInterval: 5000 }
     );
 
+    const [rawData, setRawData] = useState<any[]>([]);
+    const [selectedTimeframe, setSelectedTimeframe] = useState('24H');
+
     useEffect(() => {
-        if (equityData) {
+        if (equityData && Array.isArray(equityData)) {
             setRawData(equityData);
         }
     }, [equityData]);
@@ -190,8 +194,7 @@ export default function PerformanceChart() {
                     <div className={cn("text-sm font-mono font-bold", filteredData.length > 0 && (filteredData[filteredData.length - 1].value - filteredData[0].value) >= 0 ? "text-emerald-400" : "text-red-400")}>
                         {filteredData.length > 0 ? (
                             <>
-                                {(filteredData[filteredData.length - 1].value - filteredData[0].value) >= 0 ? '+' : ''}
-                                ${(filteredData[filteredData.length - 1].value - filteredData[0].value).toFixed(2)}
+                                {(filteredData.length > 1 ? (filteredData[filteredData.length - 1].value - filteredData[0].value) : 0).toFixed(2)}
                             </>
                         ) : '---'}
                     </div>
@@ -199,7 +202,8 @@ export default function PerformanceChart() {
                 <div className="text-center border-l border-neutral-800">
                     <div className="text-[10px] text-neutral-500 uppercase tracking-wider mb-1">Trades</div>
                     <div className="text-sm font-mono font-bold text-neutral-300">
-                        {filteredData.length}
+                        {/* Mock trade count or fetch from API if available */}
+                        {filteredData.length > 0 ? filteredData.length - 1 : 0}
                     </div>
                 </div>
                 <div className="text-center border-l border-neutral-800">

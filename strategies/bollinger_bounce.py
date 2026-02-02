@@ -203,86 +203,134 @@ class BollingerBounceStrategy(BaseStrategy):
         except Exception as e:
             return None
     
-    def calculate_progress(self, df: pd.DataFrame, extra_data=None) -> int:
-        """Visual progress bar logic."""
-        if df is None or df.empty: return 0
+    def calculate_progress(self, df: pd.DataFrame, extra_data=None):
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (Regime Check)
+        2. Filter (Kill Zone & RSI)
+        3. Trigger (Candle & Vol)
+        """
+        if df is None or df.empty or len(df) < 60:
+             return {
+                "strategy": "Bollinger Bounce",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
+        
         try:
-            # 1. Range Validity (30%)
-            is_range, _ = self.is_ranging(df)
-            if not is_range: return 0
-            progress = 30
+            # 1. Regime Check
+            is_range, reason = self.is_ranging(df)
             
-            # 2. Proximity to Bands (70%)
-            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            price = df['close'].iloc[-1]
-            bbl = bb['BBL'].iloc[-1]
-            bbu = bb['BBU'].iloc[-1]
-            width = bbu - bbl
-            
-            # Position dans le range (0 = bas, 1 = haut)
-            pos = (price - bbl) / width
-            
-            # Si on est proche de 0 (bas) ou 1 (haut), le progrès augmente
-            # 0.5 (milieu) = 0 points supp
-            dist_from_middle = abs(pos - 0.5) * 2 # 0 à 1
-            
-            # On mappe ça sur les 70 points restants
-            progress += int(dist_from_middle * 70)
-            
-            return min(100, progress)
-        except:
-            return 0
-    
-    def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """UI Conditions - Standardized Diagnostic Card"""
-        if df is None or df.empty: return []
-        try:
-            conditions = []
-            
-            # 1. Regime (Range)
+            # ADX for metrics
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=self.adx_period)
-            adx = adx_res['ADX'].iloc[-1]
-            adx_ok = adx < self.adx_threshold
+            current_adx = adx_res['ADX'].iloc[-2]
             
-            conditions.append({
+            s1_status = "PASS" if is_range else "WAIT"
+            s1_details = reason
+            
+            stages = []
+            stages.append({
                 "name": "1. Regime (Range)",
-                "status": adx_ok,
-                "value": f"ADX: {adx:.1f}"
+                "status": s1_status,
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(current_adx, 1), "threshold": self.adx_threshold, "op": "<"}
+                }
             })
             
-            # 2. Zone (Kill Zone)
+            # 2. Filter (Kill Zone)
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            price = df['close'].iloc[-1]
-            width = bb['BBU'].iloc[-1] - bb['BBL'].iloc[-1]
-            kill_zone = width * self.kill_zone_percent
+            current_price = df['close'].iloc[-1]
+            bb_upper = bb['BBU'].iloc[-1]
+            bb_lower = bb['BBL'].iloc[-1]
+            bb_width = bb_upper - bb_lower
             
-            dist_lower = price - bb['BBL'].iloc[-1]
-            dist_upper = bb['BBU'].iloc[-1] - price
+            kill_zone_size = bb_width * self.kill_zone_percent
+            upper_trigger_zone = bb_upper - kill_zone_size
+            lower_trigger_zone = bb_lower + kill_zone_size
             
-            # Logic: In zone if close to either band
-            in_zone = dist_lower < kill_zone or dist_upper < kill_zone
+            # Check RSI
+            rsi = ta.rsi(df['close'], length=14)
+            current_rsi = rsi.iloc[-1]
             
-            conditions.append({
-                "name": f"2. Location (Kill Zone)",
-                "status": in_zone,
-                "value": "Near Band" if in_zone else "Mid-Range"
+            in_buy_zone = current_price <= lower_trigger_zone
+            in_sell_zone = current_price >= upper_trigger_zone
+            
+            s2_status = "WAIT"
+            s2_details = "Mid-Range: No Zone"
+            
+            if in_buy_zone:
+                if current_rsi <= 45: # Relaxed check for monitoring visual
+                    s2_status = "READY (BUY)"
+                    s2_details = f"In Buy Zone (RSI {current_rsi:.1f})"
+                else: 
+                     s2_details = f"In Buy Zone but RSI High ({current_rsi:.1f})"
+            elif in_sell_zone:
+                 if current_rsi >= 55:
+                    s2_status = "READY (SELL)"
+                    s2_details = f"In Sell Zone (RSI {current_rsi:.1f})"
+                 else:
+                    s2_details = f"In Sell Zone but RSI Low ({current_rsi:.1f})"
+
+            stages.append({
+                "name": "2. Kill Zone",
+                "status": s2_status,
+                "details": s2_details,
+                 "metrics": {
+                    "dist_lower": {"value": round(current_price - lower_trigger_zone, 2), "threshold": 0, "op": "<"},
+                    "dist_upper": {"value": round(upper_trigger_zone - current_price, 2), "threshold": 0, "op": "<"}
+                }
             })
             
-            # 3. Trigger (Candle)
+            # 3. Trigger
+            # We need a rejection candle (wick or reversal)
+            # This is hard to predict on the *forming* candle, but we monitor the *potential*
+            
             atr = ta.atr(df['high'], df['low'], df['close'], length=self.atr_period)
             current_atr = atr.iloc[-1]
             current_range = df['high'].iloc[-1] - df['low'].iloc[-1]
-            size_ok = current_range >= (current_atr * self.min_candle_atr_multiple)
             
-            conditions.append({
-                "name": f"3. Trigger (Vol > {self.min_candle_atr_multiple}x ATR)",
-                "status": size_ok,
-                "value": f"{current_range/current_atr:.1f}x"
+            is_significant = current_range >= (current_atr * self.min_candle_atr_multiple)
+            
+            s3_status = "WAIT"
+            s3_details = "Waiting for volatility..."
+            
+            if s2_status.startswith("READY"):
+                if is_significant:
+                    s3_status = "POTENTIAL"
+                    s3_details = f"Volatile Candle ({current_range/current_atr:.1f}x ATR)"
+                else:
+                    s3_details = f"Low Volatility ({current_range/current_atr:.1f}x ATR)"
+            
+            stages.append({
+                "name": "3. Rejection Trigger",
+                "status": s3_status,
+                "details": s3_details
             })
             
-            return conditions
+            # Score
+            score = 0
+            if s1_status == "PASS": score += 30
+            if "READY" in s2_status: score += 40
+            if s3_status == "POTENTIAL": score += 30
+            
+            return {
+                "strategy": "Bollinger Bounce",
+                "score": score,
+                "stages": stages
+            }
+            
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+             return {
+                "strategy": "Bollinger Bounce",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
+
+    def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
+        return []
     
     def get_threshold_comparisons(self, df: pd.DataFrame, extra_data=None) -> Dict:
         """Get detailed threshold comparisons for Parameters section"""

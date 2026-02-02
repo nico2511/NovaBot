@@ -264,111 +264,148 @@ class StrategyFiboPullback(BaseStrategy):
         }
     
     def calculate_progress(self, df, extra_data=None):
-        """Calculate progress (0-100%)"""
-        if df.empty or len(df) < 200: return 0
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (Trend & ADX)
+        2. Setup (Swing & Retracement)
+        3. Trigger (Volume)
+        """
+        if df is None or df.empty or len(df) < 60:
+             return {
+                "strategy": "Fibo Pullback",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
+        
         try:
+            # 1. Context (Trend + ADX)
             self.add_indicators(df)
-            current_price = df['close'].iloc[-2]
-            ema_200 = df['EMA_200'].iloc[-2]
-            adx = df['ADX_14'].iloc[-2]
+            # Use -1 for monitoring current state
+            current_price = df['close'].iloc[-1]
+            ema_200 = df['EMA_200'].iloc[-1]
+            adx = df['ADX_14'].iloc[-1]
             
-            progress = 0
+            is_bullish = current_price > ema_200
+            is_bearish = current_price < ema_200
+            adx_ok = adx >= self.adx_threshold
             
-            # Trend (20%) + ADX (20%)
-            # LONG or SHORT
-            if (current_price > ema_200) or (current_price < ema_200):
-                 progress += 20
-            if adx >= self.adx_threshold:
-                 progress += 20
-                 
-            # Note: Hard to detect precise swing progress without full logic duplication
-            # Assuming if Trend+ADX ok, we are 40% there.
-            return progress
-        except: return 0
+            s1_status = "WAIT"
+            s1_details = "Neutral / Weak"
+            
+            if adx_ok:
+                if is_bullish:
+                    s1_status = "BULLISH"
+                    s1_details = f"Uptrend (ADX {adx:.1f})"
+                elif is_bearish:
+                    s1_status = "BEARISH"
+                    s1_details = f"Downtrend (ADX {adx:.1f})"
+            else:
+                s1_details = f"Weak ADX ({adx:.1f})"
+            
+            stages = []
+            stages.append({
+                "name": "1. Trend Context",
+                "status": "PASS" if s1_status in ["BULLISH", "BEARISH"] else "WAIT",
+                "details": s1_details,
+                 "metrics": {
+                    "adx": {"value": round(adx, 1), "threshold": self.adx_threshold, "op": ">="}
+                }
+            })
+            
+            # 2. Setup (Swing Retracement)
+            # This requires scanning for swings. We can reuse a simplified version of generate_signal logic.
+            
+            s2_status = "WAIT"
+            s2_details = "No Valid Swing"
+            
+            # We need valid swing logic. 
+            # Reimplementing simplified check:
+            if s1_status != "WAIT":
+                # Need at least 50 bars
+                lookback = self.swing_lookback + self.swing_confirmation_bars
+                subset = df.iloc[-(lookback+20):-1] # Exclude current for swing finding? 
+                # Actually, swing high must be old.
+                
+                # Check closest significant High/Low
+                # Simplified: Current Price vs 50-period range
+                range_high = subset['high'].max()
+                range_low = subset['low'].min()
+                diff = range_high - range_low
+                
+                if diff > 0:
+                     if s1_status == "BULLISH":
+                         retrace = (range_high - current_price) / diff
+                         # Zone: 0.5 to 0.786
+                         if 0.5 <= retrace <= 0.786:
+                             s2_status = "READY"
+                             s2_details = f"In Golden Zone ({retrace*100:.1f}%)"
+                         elif retrace < 0.5:
+                             s2_details = f"Shallow Dip ({retrace*100:.1f}%)"
+                         else:
+                             s2_details = f"Deep Dip ({retrace*100:.1f}%)"
+                             
+                     elif s1_status == "BEARISH":
+                         retrace = (current_price - range_low) / diff
+                         if 0.5 <= retrace <= 0.786:
+                             s2_status = "READY"
+                             s2_details = f"In Golden Zone ({retrace*100:.1f}%)"
+                         elif retrace < 0.5:
+                             s2_details = f"Shallow Rally ({retrace*100:.1f}%)"
+                         else:
+                             s2_details = f"Deep Rally ({retrace*100:.1f}%)"
+
+            stages.append({
+                "name": "2. Fibo Zone (50-78%)",
+                "status": s2_status,
+                "details": s2_details
+            })
+            
+            # 3. Trigger (Volume)
+            avg_vol = df['volume'].rolling(20).mean().iloc[-1]
+            current_vol = df['volume'].iloc[-1]
+            
+            vol_ratio = current_vol / avg_vol if avg_vol > 0 else 0
+            vol_ok = vol_ratio >= self.volume_multiplier
+            
+            s3_status = "WAIT"
+            s3_details = f"Vol Ratio: {vol_ratio:.1f}x"
+            
+            if s2_status == "READY":
+                if vol_ok:
+                    s3_status = "TRIGGER!"
+                    s3_details = f"Volume Spike ({vol_ratio:.1f}x)"
+                else:
+                    s3_details = f"Low Volume ({vol_ratio:.1f}x)"
+            
+            stages.append({
+                "name": "3. Volume Trigger",
+                "status": s3_status,
+                "details": s3_details
+            })
+            
+            # Score
+            score = 0
+            if s1_status in ["BULLISH", "BEARISH"]: score += 30
+            if s2_status == "READY": score += 40
+            if s3_status == "TRIGGER!": score += 30
+            
+            return {
+                "strategy": "Fibo Pullback",
+                "score": score,
+                "stages": stages
+            }
+
+        except Exception as e:
+            return {
+                "strategy": "Fibo Pullback",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
 
     def check_conditions(self, df, extra_data=None):
-        """Diagnostic Card Conditions - Full Funnel Visibility"""
-        if df.empty: return []
-        try:
-            self.add_indicators(df)
-            current_price = df['close'].iloc[-2]
-            ema_200 = df['EMA_200'].iloc[-2]
-            adx = df['ADX_14'].iloc[-2]
-            
-            is_bull = current_price > ema_200
-            trend_txt = "Bullish" if is_bull else "Bearish"
-            
-            conditions = [
-                {"name": f"1. Trend ({trend_txt})", "status": True, "value": "Price vs EMA200"},
-                {"name": "2. ADX > 20", "status": adx >= self.adx_threshold, "value": f"{adx:.1f}"}
-            ]
-
-            # Swing Check
-            confirmed_end = -self.swing_confirmation_bars
-            confirmed_start = -(self.swing_lookback + self.swing_confirmation_bars)
-            confirmed_df = df.iloc[confirmed_start:confirmed_end].copy()
-            
-            has_swing = False
-            swing_info = "Waiting..."
-            in_zone = False
-            retrace_pct = 0.0
-            
-            if len(confirmed_df) >= 20:
-                if is_bull:
-                    high_idx = confirmed_df['high'].idxmax()
-                    low_idx = confirmed_df.loc[:high_idx]['low'].idxmin() # Low before High
-                    swing_h = confirmed_df.loc[high_idx, 'high']
-                    swing_l = confirmed_df.loc[low_idx, 'low']
-                    if swing_h > swing_l:
-                        has_swing = True
-                        diff = swing_h - swing_l
-                        retrace_pct = (swing_h - current_price) / diff * 100
-                        in_zone = 50 <= retrace_pct <= 78.6
-                        swing_info = f"Retrace: {retrace_pct:.1f}%"
-                else:
-                    low_idx = confirmed_df['low'].idxmin()
-                    high_idx = confirmed_df.loc[:low_idx]['high'].idxmax() # High before Low
-                    swing_l = confirmed_df.loc[low_idx, 'low']
-                    swing_h = confirmed_df.loc[high_idx, 'high']
-                    if swing_l < swing_h:
-                        has_swing = True
-                        diff = swing_h - swing_l
-                        retrace_pct = (current_price - swing_l) / diff * 100 # Upward retrace
-                        in_zone = 50 <= retrace_pct <= 78.6
-                        swing_info = f"Retrace: {retrace_pct:.1f}%"
-
-            conditions.append({
-                "name": "3. Swing Structure",
-                "status": has_swing,
-                "value": swing_info if has_swing else "Searching..."
-            })
-            
-            conditions.append({
-                "name": "4. Fibo Zone (50-78%)",
-                "status": in_zone,
-                "value": f"{retrace_pct:.1f}%" if has_swing else "--"
-            })
-
-            # Volume Check
-            vol_ok = False
-            vol_txt = "Low"
-            if 'volume' in df.columns:
-                cur_vol = df['volume'].iloc[-2]
-                avg_vol = df['volume'].iloc[-22:-2].mean()
-                if avg_vol > 0:
-                    ratio = cur_vol / avg_vol
-                    vol_ok = ratio >= self.volume_multiplier
-                    vol_txt = f"{ratio:.1f}x"
-            
-            conditions.append({
-                "name": "5. Volume Trigger",
-                "status": vol_ok,
-                "value": vol_txt
-            })
-            
-            return conditions
-        except Exception as e: 
-            return [{"name": "Error", "status": False, "value": str(e)}]
+        return []
 
     def get_threshold_comparisons(self, df, extra_data=None):
         """Detailed parameters for UI"""

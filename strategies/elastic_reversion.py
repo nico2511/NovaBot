@@ -220,104 +220,187 @@ class ElasticReversionStrategy(BaseStrategy):
         return None
 
     def calculate_progress(self, df, extra_data=None):
-        """Calculate how close we are to triggering a signal (0-100%)."""
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (ADX Safety)
+        2. Setup (Extension & RSI)
+        3. Trigger (Reversal)
+        """
         if df is None or df.empty or len(df) < 50:
-            return 0
+            return {
+                "strategy": "Elastic Reversion",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
             self.add_indicators(df)
             params = self.config.get("params", {})
             
-            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-3]
-            c_close = df['close'].iloc[-2]
-            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
-            ext_pct = params.get("extension_pct", 0.04)
+            # Pointers: P (Setup Candidate), C (Trigger Candidate)
+            # We want to show "how close is C to triggering?" or "Is P a valid setup?"
+            # Actually, monitoring is usually on the *forming* candle or the *just closed* candle.
+            # Let's assess the *current* state (iloc[-1]) as the potential Setup or Trigger.
             
-            progress = 0
+            # Since this strategy looks for Setup on P and Trigger on C, 
+            # we will display the status of the "Current Potential Trade".
             
-            # 1. RSI Proximity (40 points)
-            # For LONG: RSI < 20 is ideal
-            if p_rsi < 20:
-                progress += 40
-            elif p_rsi < 30:
-                # Linear scale: 30 -> 0%, 20 -> 100%
-                progress += int(40 * (30 - p_rsi) / 10)
+            c_close = df['close'].iloc[-1]
+            c_high = df['high'].iloc[-1]
+            c_low = df['low'].iloc[-1]
+            c_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-1]
+            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-1]
             
-            # 2. Price Extension (30 points)
-            # For LONG: Price < EMA - 4% is ideal
-            price_vs_ema = (c_close - c_ema) / c_ema
-            target_ext = -ext_pct  # -0.04 for long
+            ext_pct = params.get("extension_pct", 0.032)
             
-            if price_vs_ema <= target_ext:
-                progress += 30
-            elif price_vs_ema < 0:
-                # Approaching: scale from 0% to -4%
-                progress += int(30 * abs(price_vs_ema) / ext_pct)
+            # --- Stage 1: Context (Safety) ---
+            # ADX < 50
+            adx_val = 0
+            if 'ADX_14' in df.columns:
+                adx_val = df['ADX_14'].iloc[-1]
+                
+            s1_status = "PASS"
+            s1_details = f"ADX {adx_val:.1f} (Safe)"
+            if adx_val > 50:
+                s1_status = "FAIL"
+                s1_details = f"ADX {adx_val:.1f} (Too volatile)"
+                
+            stages = []
+            stages.append({
+                "name": "1. Safety (ADX)",
+                "status": s1_status,
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": 50, "op": "<"}
+                }
+            })
             
-            # 3. Momentum (30 points)
-            # Check if RSI is turning up (delta > 0)
-            if len(df) > 3:
-                rsi_delta = self.get_rsi_delta(df)
-                if rsi_delta > 0:
-                    progress += 30
-                elif rsi_delta > -5:
-                    progress += int(30 * (5 + rsi_delta) / 5)
+            # --- Stage 2: Setup (Elasticity) ---
+            # Long Setup: Price < EMA*(1-ext) AND RSI < 20
+            # Short Setup: Price > EMA*(1+ext) AND RSI > 80
             
-            return min(100, progress)
-        except:
-            return 0
+            # Calculate distances
+            dist_pct = (c_close - c_ema) / c_ema
+            
+            # Thresholds
+            long_ext_thresh = -ext_pct
+            short_ext_thresh = ext_pct
+            
+            rsi_long_thresh = params.get("oversold_rsi", 24)
+            rsi_short_thresh = params.get("overbought_rsi", 76)
+            
+            s2_status = "WAIT"
+            s2_details = "Neutral Zone"
+            
+            # Long Check
+            is_long_ext = dist_pct < long_ext_thresh
+            is_long_rsi = c_rsi < rsi_long_thresh
+            
+            # Short Check
+            is_short_ext = dist_pct > short_ext_thresh
+            is_short_rsi = c_rsi > rsi_short_thresh
+            
+            if is_long_ext or is_long_rsi:
+                if is_long_ext and is_long_rsi:
+                    s2_status = "READY (LONG)"
+                    s2_details = "Oversold + Extended"
+                elif is_long_ext:
+                    s2_status = "PARTIAL"
+                    s2_details = f"Extended ({dist_pct*100:.2f}%) but RSI High"
+                else:
+                    s2_status = "PARTIAL"
+                    s2_details = f"RSI Low ({c_rsi:.1f}) but Expecting Ext"
+            
+            elif is_short_ext or is_short_rsi:
+                if is_short_ext and is_short_rsi:
+                    s2_status = "READY (SHORT)"
+                    s2_details = "Overbought + Extended"
+                elif is_short_ext:
+                    s2_status = "PARTIAL"
+                    s2_details = f"Extended ({dist_pct*100:.2f}%) but RSI Low"
+                else:
+                    s2_status = "PARTIAL"
+                    s2_details = f"RSI High ({c_rsi:.1f}) but Expecting Ext"
+            
+            stages.append({
+                "name": "2. Elastic Setup",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "dist": {"value": round(dist_pct*100, 2), "threshold": round(ext_pct*100, 2), "op": "abs >"},
+                    "rsi": {"value": round(c_rsi, 1), "threshold": "20/80", "op": "limit"}
+                }
+            })
+            
+            # --- Stage 3: Trigger ---
+            # Reversal check
+            # We look at the Previous candle (P) to see if it WAS a setup, and if Current (C) IS a reversal.
+            # But here `c_close` is `iloc[-1]`. Let's assume `iloc[-1]` is the Potential Trigger.
+            # So we check if `iloc[-2]` was a setup.
+            
+            p_close = df['close'].iloc[-2]
+            p_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
+            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-2]
+            
+            p_dist_pct = (p_close - p_ema) / p_ema
+            
+            was_long_setup = (p_dist_pct < long_ext_thresh) and (p_rsi < rsi_long_thresh)
+            was_short_setup = (p_dist_pct > short_ext_thresh) and (p_rsi > rsi_short_thresh)
+            
+            s3_status = "WAIT"
+            s3_details = "Waiting for Setup..."
+            
+            if was_long_setup:
+                # Need Close > Prev High
+                p_high = df['high'].iloc[-2]
+                if c_close > p_high:
+                    s3_status = "TRIGGER!"
+                    s3_details = "Reversal (Close > Prev High)"
+                else:
+                    s3_status = "WAIT"
+                    s3_details = f"Need Close > {p_high:.2f}"
+            
+            elif was_short_setup:
+                # Need Close < Prev Low
+                p_low = df['low'].iloc[-2]
+                if c_close < p_low:
+                    s3_status = "TRIGGER!"
+                    s3_details = "Reversal (Close < Prev Low)"
+                else:
+                    s3_status = "WAIT"
+                    s3_details = f"Need Close < {p_low:.2f}"
+
+            stages.append({
+                "name": "3. Reversal Trigger",
+                "status": s3_status,
+                "details": s3_details
+            })
+            
+            # Score
+            score = 0
+            if s1_status == "PASS": score += 20
+            if "READY" in s2_status: score += 40
+            elif s2_status == "PARTIAL": score += 20
+            if s3_status == "TRIGGER!": score += 40
+            
+            return {
+                "strategy": "Elastic Reversion",
+                "score": score,
+                "stages": stages
+            }
+
+        except Exception as e:
+             return {
+                "strategy": "Elastic Reversion",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
 
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI - Simple names only"""
-        if df is None or df.empty or len(df) < 50:
-            return []
-        
-        try:
-            self.add_indicators(df)
-            params = self.config.get("params", {})
-            
-            p_rsi = df[f'RSI_{params.get("rsi_period", 14)}'].iloc[-3]
-            c_close = df['close'].iloc[-2]
-            p_close = df['close'].iloc[-3]
-            p_high = df['high'].iloc[-3]
-            c_ema = df[f'EMA_{params.get("ema_period", 20)}'].iloc[-2]
-            ext_pct = params.get("extension_pct", 0.04)
-            
-            conditions = []
-            
-            # 1. Setup (RSI + Extension)
-            # RSI Oversold Check
-            rsi_ok = p_rsi < 20
-            # Price Extension Check (Dist from EMA)
-            price_vs_ema_pct = ((c_close - c_ema) / c_ema) * 100
-            ext_ok = price_vs_ema_pct < -(ext_pct * 100)
-            
-            setup_ok = rsi_ok and ext_ok
-            
-            conditions.append({
-                "name": "1. Setup (RSI<20 + Ext)",
-                "status": setup_ok,
-                "value": f"RSI:{p_rsi:.1f}, Ext:{price_vs_ema_pct:.1f}%"
-            })
-            
-            # 2. Trigger (Reversal)
-            trigger_ok = c_close > p_high
-            trigger_val = "Waiting for Reversal..."
-            
-            if trigger_ok:
-                trigger_val = "Close > Prev High"
-            elif setup_ok:
-                trigger_val = f"Need > {p_high:.2f}"
-                
-            conditions.append({
-                "name": "2. Trigger (Reversal)",
-                "status": trigger_ok,
-                "value": trigger_val
-            })
-            
-            return conditions
-        except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+        # Legacy method kept for safety, but calculate_progress is preferred
+        return []
     
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""

@@ -161,6 +161,146 @@ class LiquidityLightning(BaseStrategy):
             }
         }
 
+    def calculate_progress(self, df, extra_data=None):
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (Volatility)
+        2. Setup (Liquidity Sweep)
+        3. Trigger (Volume & Snapback)
+        """
+        if df is None or df.empty or len(df) < 50:
+             return {
+                "strategy": "Liq. Lightning",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
+        
+        try:
+            self.add_indicators(df)
+            
+            # Use current forming candle for visual purposes, or last completed?
+            # Let's use current forming to show potential.
+            current = df.iloc[-1]
+            prev_candles = df.iloc[-31:-1] # 30 previous completed
+            
+            period_high = prev_candles['high'].max()
+            period_low = prev_candles['low'].min()
+            
+            # 1. Context (Volatility Watch)
+            # Maybe check if we are outside EMA bands? Or just Range size?
+            # Strategy doesn't have explicit context filter other than 30-period lookback.
+            # Let's use distance to EMA as "Context"
+            
+            ema_20 = df['EMA_20'].iloc[-1]
+            dist_ema = abs(current['close'] - ema_20) / ema_20
+            
+            s1_status = "PASS"
+            s1_details = f"EMA Dist: {dist_ema*100:.2f}%"
+            
+            stages = []
+            stages.append({
+                "name": "1. Volatility Context",
+                "status": s1_status,
+                "details": s1_details,
+                 "metrics": {
+                    "dist_ema": {"value": round(dist_ema*100, 2), "threshold": 0, "op": ">"}
+                }
+            })
+            
+            # 2. Setup (Sweep)
+            high = current['high']
+            low = current['low']
+            
+            is_sweep_high = high > period_high
+            is_sweep_low = low < period_low
+            
+            s2_status = "WAIT"
+            s2_details = "Inside Range"
+            
+            if is_sweep_high:
+                s2_status = "READY (BEAR)"
+                s2_details = "Sweeping Highs"
+            elif is_sweep_low:
+                s2_status = "READY (BULL)"
+                s2_details = "Sweeping Lows"
+            else:
+                 # Proximity
+                 dist_h = (period_high - high) / period_high
+                 dist_l = (low - period_low) / period_low
+                 if dist_h < 0.002: s2_details = "Near Highs"
+                 elif dist_l < 0.002: s2_details = "Near Lows"
+
+            stages.append({
+                "name": "2. Liquidity Sweep",
+                "status": s2_status,
+                "details": s2_details
+            })
+            
+            # 3. Trigger (Snapback & Vol)
+            s3_status = "WAIT"
+            s3_details = "Waiting for snapback..."
+            
+            if "READY" in s2_status:
+                current_vol = current['volume']
+                avg_vol = df['Vol_Avg_20'].iloc[-1]
+                vol_ok = current_vol > (avg_vol * 1.0) # Lower threshold for forming candle
+                
+                candle_range = high - low
+                wick_pct = 0
+                
+                if s2_status == "READY (BEAR)":
+                    upper_wick = high - max(current['open'], current['close'])
+                    if candle_range > 0: wick_pct = upper_wick / candle_range
+                    
+                    if current['close'] < period_high: # Snapback
+                        if vol_ok:
+                             s3_status = "POTENTIAL"
+                             s3_details = f"Snapback + Vol ({wick_pct:.0%} Wick)"
+                        else:
+                             s3_details = "Snapback, Low Vol"
+                    else:
+                        s3_details = "Above High (Breakout?)"
+                        
+                elif s2_status == "READY (BULL)":
+                    lower_wick = min(current['open'], current['close']) - low
+                    if candle_range > 0: wick_pct = lower_wick / candle_range
+                    
+                    if current['close'] > period_low:
+                         if vol_ok:
+                             s3_status = "POTENTIAL"
+                             s3_details = f"Snapback + Vol ({wick_pct:.0%} Wick)"
+                         else:
+                             s3_details = "Snapback, Low Vol"
+                    else:
+                         s3_details = "Below Low (Breakdown?)"
+
+            stages.append({
+                "name": "3. Lightning Trigger",
+                "status": s3_status,
+                "details": s3_details
+            })
+            
+            # Score
+            score = 0
+            if s1_status == "PASS": score += 20
+            if "READY" in s2_status: score += 40
+            if s3_status == "POTENTIAL": score += 40
+            
+            return {
+                "strategy": "Liq. Lightning",
+                "score": score,
+                "stages": stages
+            }
+            
+        except Exception as e:
+             return {
+                "strategy": "Liq. Lightning",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
+
     def manage_trade(self, trade, current_price, df=None, extra_data=None):
         """
         Gestion de sortie spécifique :

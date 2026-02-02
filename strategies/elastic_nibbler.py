@@ -294,6 +294,147 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         return updates if updates else {}
 
     def calculate_progress(self, df, extra_data=None):
-        # Visual progress (closeness to band)
-        # normalized 0-100
-        return 0 
+        """
+        Returns detailed progress of the strategy triggers for monitoring.
+        Stages:
+        1. Context (ADX, BB Width) - Is the market environment right?
+        2. Price Extension (Bollinger) - Is price at the extremes?
+        3. Trigger (RSI, Volume) - Is the reversal signal valid?
+        """
+        try:
+            # Re-calculate indicators (duplicated from generate_signal for isolation)
+            # This ensures monitoring doesn't interfere with main loop if implemented differently
+            # But ideally we'd reuse calculated values. For now, re-calc is safer for stateless monitor.
+            
+            close = df['close']
+            high = df['high']
+            low = df['low']
+            volume = df['volume']
+            
+            # --- 1. Indicators ---
+            bb_period = self.params.get("bb_period", 20)
+            bb_std = self.params.get("bb_std", 3.0)
+            bb_df = ta.bbands(close, length=bb_period, std=bb_std)
+            upper = bb_df['BBU'].iloc[-1]
+            lower = bb_df['BBL'].iloc[-1]
+            
+            rsi = ta.rsi(close, length=self.params.get("rsi_period", 14)).iloc[-1]
+            
+            vol_avg = ta.sma(volume, length=50).iloc[-1]
+            current_vol = volume.iloc[-1]
+            
+            adx_df = ta.adx(high, low, close, length=14)
+            adx = adx_df['ADX'].iloc[-1]
+            
+            current_price = close.iloc[-1]
+            bb_width_pct = (upper - lower) / current_price * 100
+            
+            # --- Thresholds ---
+            adx_limit = self.params.get("adx_threshold", 25)
+            min_bb_width = self.params.get("min_bb_width_pct", 0.7)
+            entry_vol_mult = self.params.get("volume_multiplier", 1.8)
+            
+            # --- Stage Logic ---
+            stages = []
+            
+            # Stage 1: Context (Filter)
+            # Status: PASS if ADX < Limit AND BB Width > Min
+            s1_pass = (adx < adx_limit) and (bb_width_pct > min_bb_width)
+            s1_details = f"ADX: {adx:.1f} (Max {adx_limit}) | Width: {bb_width_pct:.2f}% (Min {min_bb_width}%)"
+            stages.append({
+                "name": "1. Market Regime",
+                "status": "PASS" if s1_pass else "FAIL",
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(adx, 1), "threshold": adx_limit, "op": "<"},
+                    "bb_width": {"value": round(bb_width_pct, 2), "threshold": min_bb_width, "op": ">"}
+                }
+            })
+            
+            # Stage 2: Price Extension (Bollinger)
+            # Check proximity to bands. 
+            # If Price < Lower (Long Setup) OR Price > Upper (Short Setup)
+            dist_lower = ((current_price - lower) / lower) * 100
+            dist_upper = ((current_price - upper) / upper) * 100
+            
+            is_below_lower = current_price < lower
+            is_above_upper = current_price > upper
+            
+            s2_status = "NEUTRAL"
+            s2_details = "Price inside bands"
+            
+            if is_below_lower:
+                s2_status = "READY (LONG)"
+                s2_details = f"Price BELOW Lower Band ({dist_lower:.2f}%)"
+            elif is_above_upper:
+                s2_status = "READY (SHORT)"
+                s2_details = f"Price ABOVE Upper Band (+{dist_upper:.2f}%)"
+            else:
+                # Proximity warning (e.g. within 0.5%)
+                if abs(dist_lower) < 0.5: s2_details = f"Approaching Lower ({dist_lower:.2f}%)"
+                elif abs(dist_upper) < 0.5: s2_details = f"Approaching Upper (+{dist_upper:.2f}%)"
+            
+            stages.append({
+                "name": "2. Price Extension",
+                "status": s2_status if (is_below_lower or is_above_upper) else "WAIT",
+                "details": s2_details,
+                 "metrics": {
+                    "dist_lower": {"value": round(dist_lower, 2), "threshold": 0, "op": "<"},
+                    "dist_upper": {"value": round(dist_upper, 2), "threshold": 0, "op": ">"}
+                }
+            })
+            
+            # Stage 3: Trigger (RSI & Volume)
+            # Dependent on Stage 2 Direction
+            s3_status = "WAIT"
+            s3_details = []
+            
+            vol_ratio = current_vol / vol_avg if vol_avg > 0 else 0
+            is_vol_ok = (vol_ratio > entry_vol_mult) and (vol_ratio < 5.0)
+            
+            if is_below_lower: # LONG Context
+                is_rsi_ok = rsi < 24
+                s3_details.append(f"RSI: {rsi:.1f} (Req < 24)")
+            elif is_above_upper: # SHORT Context
+                is_rsi_ok = rsi > 76
+                s3_details.append(f"RSI: {rsi:.1f} (Req > 76)")
+            else:
+                is_rsi_ok = False
+                s3_details.append(f"RSI: {rsi:.1f} (Wait for Band)")
+
+            s3_details.append(f"Vol: {vol_ratio:.1f}x (Req > {entry_vol_mult}x)")
+            
+            if is_vol_ok and is_rsi_ok:
+                s3_status = "TRIGGER!"
+            elif is_vol_ok or is_rsi_ok:
+                s3_status = "PARTIAL"
+            
+            stages.append({
+                "name": "3. Trigger",
+                "status": s3_status,
+                "details": " | ".join(s3_details),
+                "metrics": {
+                    "rsi": {"value": round(rsi, 1), "threshold": "24/76", "op": "extremes"},
+                    "volume": {"value": round(vol_ratio, 2), "threshold": entry_vol_mult, "op": ">"}
+                }
+            })
+            
+            # Overall Readiness Score (0-100)
+            score = 0
+            if s1_pass: score += 20
+            if is_below_lower or is_above_upper: score += 40
+            if is_rsi_ok: score += 20
+            if is_vol_ok: score += 20
+            
+            return {
+                "strategy": "Elastic Nibbler",
+                "score": score,
+                "stages": stages
+            }
+            
+        except Exception as e:
+            return {
+                "strategy": "Elastic Nibbler",
+                "error": str(e),
+                "stages": []
+            } 

@@ -24,7 +24,7 @@ brain/
 _bmad-output/
 _bmad/
 .claude/
-.agent/
+#.agent/
 
 # OS
 .DS_Store

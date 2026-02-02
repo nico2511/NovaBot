@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.api.dependencies import get_bot_context
 from pydantic import BaseModel
 import logging
+import pandas as pd
 
 logger = logging.getLogger("EngineRouter")
 
@@ -248,6 +249,68 @@ def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
             raise HTTPException(status_code=404, detail=f"Strategy {strat_id} not found")
     except HTTPException:
         raise
+@router.get("/strategies/monitor")
+def monitor_strategies(bot=Depends(get_bot_context)):
+    """Get real-time monitoring data for all strategies"""
+    try:
+        if not hasattr(bot, 'latest_data') or bot.latest_data.empty:
+            return {"status": "waiting", "message": "No market data available yet"}
+
+        # Get Regime
+        regime = "UNKNOWN"
+        try:
+             # Try to get from AI cache first
+            if hasattr(bot, 'latest_analysis') and bot.latest_analysis:
+                regime = bot.latest_analysis.get("regime", "UNKNOWN")
+            
+            # Fallback to ADX calculation if needed
+            if regime == "UNKNOWN" and 'ADX_14' in bot.latest_data.columns:
+                 adx = bot.latest_data['ADX_14'].iloc[-1]
+                 regime = "TREND" if adx > 25 else "RANGE"
+        except: pass
+
+        results = []
+        if hasattr(bot, 'strategy_engine'):
+            df = bot.latest_data
+            
+            # Use active strategies or all enabled strategies?
+            # Let's iterate over ALL strategies in the engine to see even inactive ones
+            for name, strategy in bot.strategy_engine.strategies.items():
+                try:
+                    # Only check enabled strategies
+                    config = strategy.config if hasattr(strategy, 'config') else {}
+                    if not config.get("enabled", False):
+                        continue
+                        
+                    progress = strategy.calculate_progress(df)
+                    
+                    # Ensure progress is a dict
+                    if isinstance(progress, (int, float)):
+                         progress = {
+                             "strategy": name,
+                             "score": progress,
+                             "stages": []
+                         }
+                    elif not isinstance(progress, dict):
+                         progress = {"strategy": name, "error": "Invalid progress format"}
+                    
+                    # Enhance with config data
+                    progress['type'] = config.get("type", "unknown").lower()
+                    
+                    results.append(progress)
+                except Exception as e:
+                    results.append({
+                        "strategy": name,
+                        "error": str(e),
+                        "type": "unknown"
+                    })
+                    
+        return {
+            "timestamp": pd.Timestamp.now().isoformat(),
+            "symbol": bot.active_symbol,
+            "regime": regime,
+            "strategies": results
+        }
     except Exception as e:
-        logger.error(f"Error selecting strategy: {e}")
+        logger.error(f"Error monitoring strategies: {e}")
         raise HTTPException(status_code=500, detail=str(e))

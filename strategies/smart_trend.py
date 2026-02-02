@@ -332,80 +332,146 @@ class StrategySmartTrend(BaseStrategy):
         return min(100, progress)
 
 
-    def check_conditions(self, df, extra_data=None):
-        """Detailed conditions for UI - Diagnostic Card"""
-        if df.empty or len(df) < 50: return []
+    def calculate_progress(self, df, extra_data=None):
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Setup (Trend & Pullback)
+        2. Filter (RSI & Volume)
+        3. Trigger (1m Logic)
+        """
+        if df.empty or len(df) < 50:
+            return {
+                "strategy": "Smart Trend",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
+            # Re-calc 15m context
             self.add_indicators(df)
             
-            # 15m Values
             close_15m = df['close'].iloc[-1]
+            low_15m = df['low'].iloc[-1]
+            high_15m = df['high'].iloc[-1]
             ema_21 = df['EMA_21'].iloc[-1]
             ema_50 = df['EMA_50'].iloc[-1]
             rsi_15m = df['RSI_14'].iloc[-1]
             
-            conditions = []
+            # --- Stage 1: Trend Setup ---
+            # Long: Close > EMA50 & EMA21 > EMA50
+            # Short: Close < EMA50 & EMA21 < EMA50
             
-            # 1. Trend Filter (Setup)
             long_ema_align = ema_21 > ema_50
             short_ema_align = ema_21 < ema_50
             
-            long_trend_state = close_15m > ema_50 and long_ema_align
-            short_trend_state = close_15m < ema_50 and short_ema_align
-            trend_ok = long_trend_state or short_trend_state
+            long_trend = close_15m > ema_50 and long_ema_align
+            short_trend = close_15m < ema_50 and short_ema_align
             
-            curr_trend = "Bullish" if long_trend_state else "Bearish" if short_trend_state else "Flat/Mixed"
+            s1_status = "NEUTRAL"
+            s1_details = "Trend Undefined"
             
-            conditions.append({
-                "name": f"1. Trend ({curr_trend})",
-                "status": trend_ok,
-                "value": "EMA Align OK" if trend_ok else "EMA Tangle"
+            if long_trend:
+                s1_status = "BULLISH"
+                s1_details = "Bullish Trend (Above EMA50)"
+            elif short_trend:
+                s1_status = "BEARISH"
+                s1_details = "Bearish Trend (Below EMA50)"
+                
+            stages = []
+            stages.append({
+                "name": "1. Trend Setup",
+                "status": "PASS" if (long_trend or short_trend) else "WAIT",
+                "details": s1_details,
+                "metrics": {
+                    "ema_gap": {"value": round(abs(ema_21 - ema_50), 2), "threshold": 0, "op": ">"}
+                }
             })
             
-            # 2. Pullback Zone (Location)
-            # Check proximity to EMA 21
-            dist_ema21 = abs(close_15m - ema_21) / ema_21
-            in_zone = dist_ema21 <= self.pullback_tolerance
+            # --- Stage 2: Pullback Zone ---
+            # Check proximity to EMA 21 (The "Value Zone")
+            dist_ema21_pct = (close_15m - ema_21) / ema_21 * 100
+            abs_dist = abs(dist_ema21_pct)
             
-            conditions.append({
-                "name": "2. Pullback Zone (EMA 21)",
-                "status": in_zone,
-                "value": f"Dist: {dist_ema21*100:.2f}%"
+            # Tolerance is typically ~0.25%
+            in_zone = abs_dist <= (self.pullback_tolerance * 100)
+            
+            s2_status = "WAIT"
+            s2_details = f"Dist to EMA21: {dist_ema21_pct:.3f}%"
+            
+            if in_zone:
+                s2_status = "READY"
+                s2_details = "IN ZONE (Touching EMA21)"
+            elif abs_dist < (self.pullback_tolerance * 200): # Nearby (2x tolerance)
+                s2_status = "NEAR"
+                s2_details = f"Approaching EMA21 ({dist_ema21_pct:.3f}%)"
+                
+            stages.append({
+                "name": "2. Pullback Zone",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "dist_pct": {"value": round(dist_ema21_pct, 4), "threshold": self.pullback_tolerance*100, "op": "within"}
+                }
             })
-
-            # 3. RSI Filter (Filter)
+            
+            # --- Stage 3: Filters (RSI) ---
+            # RSI 30-70
             rsi_ok = 30 < rsi_15m < 70
-            conditions.append({
-                "name": "3. RSI Filter (30-70)",
-                "status": rsi_ok,
-                "value": f"{rsi_15m:.1f}"
+            
+            stages.append({
+                "name": "3. RSI Logic",
+                "status": "PASS" if rsi_ok else "FAIL",
+                "details": f"RSI {rsi_15m:.1f} (Req: 30-70)",
+                "metrics": {
+                    "rsi": {"value": round(rsi_15m, 1), "threshold": "30-70", "op": "between"}
+                }
             })
             
-            # 4. Trigger (1m BOS)
-            trigger_status = False
-            trigger_val = "Waiting for Zone..."
+            # --- Stage 4: Trigger (1m BOS) ---
+            # Only relevant if in zone
+            s4_status = "WAIT"
+            s4_details = "Waiting for zone..."
             
             if extra_data and "1m" in extra_data:
                 df_1m = extra_data["1m"]
-                if not df_1m.empty and len(df_1m) >= (self.bos_lookback + 2):
-                    close_1m = df_1m['close'].iloc[-1]
-                    trigger_val = "Scanning 1m..."
-                    if self.looking_for_entry:
-                        trigger_status = False # Waiting for breakout
-                        trigger_val = f"Monitoring {self.entry_direction} BOS"
-                    elif trend_ok and in_zone:
-                         trigger_val = "Ready for Setup"
-            
-            conditions.append({
-                "name": "4. Trigger (1m BOS)",
-                "status": trigger_status, 
-                "value": trigger_val
+                if not df_1m.empty and len(df_1m) > 5:
+                    if s2_status == "READY":
+                        s4_status = "SCANNING"
+                        s4_details = "Monitoring 1m candles..."
+                        # Check BOS logic if we wanted to be precise, 
+                        # but just showing "Scanning" is enough for the user to know it's active.
+                    else:
+                        s4_details = "1m Data Available (Standby)"
+            else:
+                s4_details = "No 1m Data"
+
+            stages.append({
+                "name": "4. 1m Trigger",
+                "status": s4_status,
+                "details": s4_details
             })
             
-            return conditions
+            # Score
+            score = 0
+            if long_trend or short_trend: score += 30
+            if in_zone: score += 40
+            elif s2_status == "NEAR": score += 20
+            if rsi_ok: score += 10
+            if s4_status == "SCANNING": score += 20
+            
+            return {
+                "strategy": "Smart Trend",
+                "score": score,
+                "stages": stages
+            }
+
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+            return {
+                "strategy": "Smart Trend",
+                "error": str(e),
+                "stages": []
+            }
 
     
     def analyze_trend_structure(self, df):

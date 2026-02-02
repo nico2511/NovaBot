@@ -280,169 +280,125 @@ class SniperPrecisionTrend(BaseStrategy):
         return None
 
     def calculate_progress(self, df, extra_data=None):
-        """Calculate progress: Trend (25%) + Pullback (25%) + RSI (10%) + Trigger (40%)"""
-        if df.empty or len(df) < 50:
-            return 0
-        
-        self.add_indicators(df)
-        
-        # Get latest 15m values
-        close_15m = df['close'].iloc[-1]
-        low_15m = df['low'].iloc[-1]
-        high_15m = df['high'].iloc[-1]
-        ema_21 = df['EMA_21'].iloc[-1]
-        ema_50 = df['EMA_50'].iloc[-1]
-        rsi_15m = df['RSI_14'].iloc[-1]
-        
-        progress = 0
-        
-        # RSI Filter (10%)
-        if self.rsi_min < rsi_15m < self.rsi_max:
-            progress += 10
-        
-        # Trend (25%) - Strict Alignment
-        long_ema_align = ema_21 > ema_50
-        short_ema_align = ema_21 < ema_50
-        
-        long_trend = close_15m > ema_50 and long_ema_align
-        short_trend = close_15m < ema_50 and short_ema_align
-        
-        if long_trend or short_trend:
-            progress += 25
-        
-        # Pullback (25%)
-        long_pullback = (low_15m <= ema_21 * (1 + self.pullback_tolerance) and 
-                        low_15m >= ema_21 * (1 - self.pullback_tolerance))
-        short_pullback = (high_15m >= ema_21 * (1 - self.pullback_tolerance) and 
-                         high_15m <= ema_21 * (1 + self.pullback_tolerance))
-        
-        if long_pullback or short_pullback:
-            # Add Volume weighting
-            if 'volume' in df.columns:
-                avg_vol = df['volume'].iloc[-22:-2].mean()
-                if df['volume'].iloc[-1] >= avg_vol * self.volume_multiplier:
-                    progress += 25
-                else:
-                    progress += 10  # Half progress if volume weak
-            else:
-                progress += 25
-        
-        # Trigger (40%) - Requires 1m data
-        if extra_data and "1m" in extra_data:
-            df_1m = extra_data["1m"]
-            if not df_1m.empty and len(df_1m) >= (self.bos_lookback + 1):
-                current_1m = df_1m.iloc[-1]
-                last_n_1m = df_1m.iloc[-(self.bos_lookback + 1):-1]
-                
-                close_1m = current_1m['close']
-                high_of_last_n = last_n_1m['high'].max()
-                low_of_last_n = last_n_1m['low'].min()
-                
-                # Distance to trigger
-                if long_trend and long_pullback:
-                    distance_to_trigger = (close_1m - high_of_last_n) / high_of_last_n
-                    if distance_to_trigger > 0:
-                        progress += 40  # Triggered
-                    else:
-                        # Partial progress based on proximity
-                        proximity = max(0, 1 + (distance_to_trigger * 100))
-                        progress += int(40 * proximity)
-                
-                elif short_trend and short_pullback:
-                    distance_to_trigger = (low_of_last_n - close_1m) / low_of_last_n
-                    if distance_to_trigger > 0:
-                        progress += 40  # Triggered
-                    else:
-                        proximity = max(0, 1 + (distance_to_trigger * 100))
-                        progress += int(40 * proximity)
-        
-        return min(100, progress)
-
-    def check_conditions(self, df, extra_data=None):
-        """Detailed conditions for UI - SNIPER Checklist"""
-        if df.empty or len(df) < 50:
-            return []
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (Trend & RSI)
+        2. Setup (Pullback Zone)
+        3. Trigger (1m BOS)
+        """
+        if df is None or df.empty or len(df) < 50:
+             return {
+                "strategy": "Sniper Trend",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
             self.add_indicators(df)
             
-            # 15m Values
-            close_15m = df['close'].iloc[-1]
-            ema_21 = df['EMA_21'].iloc[-1]
-            ema_50 = df['EMA_50'].iloc[-1]
-            rsi_15m = df['RSI_14'].iloc[-1]
+            # 1. Context (Trend & RSI)
+            current = df.iloc[-1]
+            ema_21 = current['EMA_21']
+            ema_50 = current['EMA_50']
+            rsi = current['RSI_14']
             
-            conditions = []
+            long_trend = current['close'] > ema_50 and ema_21 > ema_50
+            short_trend = current['close'] < ema_50 and ema_21 < ema_50
             
-            # 1. Trend sain et aligné (EMA + ADX)
-            long_ema_align = ema_21 > ema_50
-            short_ema_align = ema_21 < ema_50
+            rsi_ok = self.rsi_min < rsi < self.rsi_max
             
-            long_trend_state = close_15m > ema_50 and long_ema_align
-            short_trend_state = close_15m < ema_50 and short_ema_align
-            trend_ok = long_trend_state or short_trend_state
+            s1_status = "WAIT"
+            s1_details = "No Clear Trend"
             
-            curr_trend = "Bullish" if long_trend_state else "Bearish" if short_trend_state else "Flat/Mixed"
-            
-            # Check ADX
-            adx_status = "?"
-            if 'ADX_14' in df.columns:
-                adx_val = df['ADX_14'].iloc[-1]
-                adx_status = f"ADX {adx_val:.1f}"
-            
-            conditions.append({
-                "name": f"1. Trend sain ({curr_trend})",
-                "status": trend_ok,
-                "value": adx_status
+            if long_trend:
+                s1_status = "BULLISH"
+                s1_details = f"Uptrend (RSI {rsi:.1f})"
+            elif short_trend:
+                s1_status = "BEARISH"
+                s1_details = f"Downtrend (RSI {rsi:.1f})"
+                
+            if not rsi_ok:
+                s1_details += " - RSI Extreme"
+                
+            stages = []
+            stages.append({
+                "name": "1. Trend Context",
+                "status": "PASS" if (long_trend or short_trend) else "WAIT",
+                "details": s1_details, # Should include RSI info
+                 "metrics": {
+                    "rsi": {"value": round(rsi, 1), "threshold": f"{self.rsi_min}-{self.rsi_max}", "op": "in"}
+                }
             })
             
-            # 2. Pullback valide (zone + volume)
-            dist_ema21 = abs(close_15m - ema_21) / ema_21
-            in_zone = dist_ema21 <= self.pullback_tolerance
+            # 2. Setup (Pullback)
+            # Check proximity to EMA 21
+            dist_pct = abs(current['close'] - ema_21) / ema_21
+            in_zone = dist_pct <= self.pullback_tolerance
             
-            vol_status = "?"
-            if 'volume' in df.columns:
-                avg_vol = df['volume'].iloc[-22:-2].mean()
-                vol_ratio = df['volume'].iloc[-1] / avg_vol if avg_vol > 0 else 0
-                vol_status = f"Vol {vol_ratio:.2f}x"
+            s2_status = "WAIT"
+            s2_details = f"Dist: {dist_pct*100:.2f}%"
             
-            conditions.append({
-                "name": "2. Pullback valide (EMA21)",
-                "status": in_zone,
-                "value": f"Dist {dist_ema21*100:.2f}% | {vol_status}"
-            })
-
-            # 3. RSI optimal (38-70)
-            rsi_ok = self.rsi_min < rsi_15m < self.rsi_max
-            conditions.append({
-                "name": f"3. RSI optimal ({self.rsi_min}-{self.rsi_max})",
-                "status": rsi_ok,
-                "value": f"{rsi_15m:.1f}"
+            if in_zone:
+                s2_status = "READY"
+                s2_details = f"In Zone ({dist_pct*100:.2f}%)"
+            
+            stages.append({
+                "name": "2. Pullback Zone",
+                "status": s2_status,
+                "details": s2_details,
+                 "metrics": {
+                    "dist": {"value": round(dist_pct*100, 2), "threshold": self.pullback_tolerance*100, "op": "<"}
+                }
             })
             
-            # 4. Trigger BOS confirmé (1m)
-            trigger_status = False
-            trigger_val = "Waiting for Zone..."
+            # 3. Trigger (1m BOS)
+            s3_status = "WAIT"
+            s3_details = "Waiting for 1m..."
             
+            if s2_status == "READY":
+                 # We need to know if we are looking for entry
+                 if self.looking_for_entry:
+                     s3_details = f"Hunting {self.entry_direction} Trigger..."
+                     s3_status = "HUNTING"
+                 else:
+                     s3_details = "Setup forming..."
+            
+            # Check 1m data if available for more detail
             if extra_data and "1m" in extra_data:
                 df_1m = extra_data["1m"]
-                if not df_1m.empty and len(df_1m) >= (self.bos_lookback + 2):
-                    trigger_val = "Scanning 1m..."
-                    if self.looking_for_entry:
-                        trigger_status = False
-                        trigger_val = f"Monitoring {self.entry_direction} BOS"
-                    elif trend_ok and in_zone:
-                        trigger_val = "Ready for Setup"
-            
-            conditions.append({
-                "name": "4. Trigger BOS (1m)",
-                "status": trigger_status,
-                "value": trigger_val
+                if not df_1m.empty:
+                    last_1m = df_1m.iloc[-1]
+                    s3_details += f" (1m Close: {last_1m['close']:.2f})"
+
+            stages.append({
+                "name": "3. 1m Trigger",
+                "status": s3_status,
+                "details": s3_details
             })
             
-            return conditions
+            # Score
+            score = 0
+            if s1_status in ["BULLISH", "BEARISH"] and rsi_ok: score += 30
+            if s2_status == "READY": score += 30
+            if s3_status == "HUNTING": score += 40
+            
+            return {
+                "strategy": "Sniper Trend",
+                "score": score,
+                "stages": stages
+            }
+            
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+             return {
+                "strategy": "Sniper Trend",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
+
+    def check_conditions(self, df, extra_data=None):
+        return []
 
     def get_threshold_comparisons(self, df, extra_data=None):
         """Get detailed threshold comparisons for Parameters section"""

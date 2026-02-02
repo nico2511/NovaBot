@@ -148,98 +148,155 @@ class ScalpEmaRsi(BaseStrategy):
         return None
 
     def calculate_progress(self, df, extra_data=None):
-        """Calculate progress based on EMA convergence. Capped at 95% unless signal active."""
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (EMA Trend)
+        2. Filter (RSI & Volume)
+        3. Trigger (Crossover Event)
+        """
         if df.empty or len(df) < 200:
-            return 0
-        try:
-            self.add_indicators(df)
-            params = self.config.get("params", {})
-            ema_fast = df[f"EMA_{params.get('ema_fast', 9)}"].iloc[-1]
-            ema_slow = df[f"EMA_{params.get('ema_slow', 21)}"].iloc[-1]
-            close = df['close'].iloc[-1]
-            trend = df['EMA_200'].iloc[-1]
-            rsi = df[f"RSI_{params.get('rsi_period', 14)}"].iloc[-1]
-            
-            # EMA distance (50 points) - favors convergence
-            ema_diff_pct = abs(ema_fast - ema_slow) / ema_slow * 100
-            ema_progress = max(0, min(50, 50 * (1 - ema_diff_pct / 0.5)))
-            
-            # Trend alignment (25 points)
-            trend_progress = 25 if (close > trend and ema_fast > ema_slow) or (close < trend and ema_fast < ema_slow) else 0
-            
-            # RSI zone (25 points)
-            rsi_progress = 25 if (50 < rsi < 70) or (30 < rsi < 50) else 0
-            
-            total_progress = min(100, int(ema_progress + trend_progress + rsi_progress))
-            
-            # No cap needed - if all conditions met, show 100% and signal will trigger
-            return total_progress 
-        except:
-            return 0
-
-    def check_conditions(self, df, extra_data=None):
-        """Detailed conditions for UI - Diagnostic Card"""
-        if df.empty or len(df) < 200: return []
+            return {
+                "strategy": "Scalp EMA RSI",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
-            self.add_indicators(df)
+            # Re-calc indicators just for monitoring snapshot
             params = self.config.get("params", {})
             ema_fast_len = params.get("ema_fast", 9)
             ema_slow_len = params.get("ema_slow", 21)
             rsi_len = params.get("rsi_period", 14)
+
+            # Recalculate basic series needed for last candle
+            # (In production, we might want to optimize this to not re-calc full series)
+            ema_fast_s = ta.ema(df['close'], length=ema_fast_len)
+            ema_slow_s = ta.ema(df['close'], length=ema_slow_len)
+            ema_200_s = ta.ema(df['close'], length=200)
+            rsi_s = ta.rsi(df['close'], length=rsi_len)
             
-            # Get values (Use ILOC -1 for UI display - current state)
-            fast = df[f"EMA_{ema_fast_len}"].iloc[-1]
-            slow = df[f"EMA_{ema_slow_len}"].iloc[-1]
+            # Use iloc[-1] for "current forming state" monitoring
+            # Use iloc[-2] for "confirmed signal" monitoring?
+            # User wants "progress", so usually live price (iloc[-1]) is better to see it approaching.
+            
+            current_fast = ema_fast_s.iloc[-1]
+            current_slow = ema_slow_s.iloc[-1]
+            current_200 = ema_200_s.iloc[-1]
+            current_rsi = rsi_s.iloc[-1]
             close = df['close'].iloc[-1]
-            trend = df['EMA_200'].iloc[-1]
-            rsi = df[f"RSI_{rsi_len}"].iloc[-1]
             
-            conditions = []
+            # --- Stage 1: Context (Trend) ---
+            # Bullish Context: Close > 200 EMA
+            # Bearish Context: Close < 200 EMA
+            is_bull_context = close > current_200
+            is_bear_context = close < current_200
             
-            # 1. EMA State
-            is_bull_aligned = fast > slow
-            is_bear_aligned = fast < slow
-            ema_diff = abs(fast - slow)
-            
-            state_val = "Bullish" if is_bull_aligned else "Bearish"
-            
-            conditions.append({
-                "name": f"1. EMA Alignment ({state_val})",
-                "status": True, 
-                "value": f"Diff: {ema_diff:.2f}"
-            })
-            
-            # 2. Trend Filter
-            is_trend_bull = close > trend
-            is_trend_bear = close < trend
-            
-            # Strategy requires trend match
-            trend_ok = (is_bull_aligned and is_trend_bull) or (is_bear_aligned and is_trend_bear)
-            
-            conditions.append({
-                "name": f"2. Trend Filter (EMA 200)",
-                "status": trend_ok,
-                "value": "Above" if is_trend_bull else "Below"
-            })
-            
-            # 3. RSI Filter
-            rsi_ok = (50 < rsi < 70) or (30 < rsi < 50)
-            
-            if is_bull_aligned:
-                target_range = "50-70"
-            else:
-                target_range = "30-50"
+            s1_status = "NEUTRAL"
+            s1_details = "Price near 200 EMA"
+            if is_bull_context:
+                s1_status = "BULLISH"
+                s1_details = "Price ABOVE 200 EMA"
+            elif is_bear_context:
+                s1_status = "BEARISH"
+                s1_details = "Price BELOW 200 EMA"
                 
-            conditions.append({
-                "name": f"3. RSI Filter ({target_range})",
-                "status": rsi_ok, 
-                "value": f"{rsi:.1f}"
+            stages = []
+            stages.append({
+                "name": "1. Trend Context",
+                "status": "PASS" if (is_bull_context or is_bear_context) else "WAIT",
+                "details": s1_details,
+                "metrics": {
+                    "price": {"value": close, "threshold": round(current_200, 2), "op": "vs EMA200"}
+                }
             })
             
-            return conditions
+            # --- Stage 2: Filter (RSI) ---
+            # Bull req: 50 < RSI < 70 (approx from code 52-68)
+            # Bear req: 30 < RSI < 50 (approx from code 32-48)
+            
+            rsi_ok = False
+            rsi_details = f"RSI {current_rsi:.1f} (Neutral)"
+            
+            if is_bull_context:
+                if 52 < current_rsi < 68:
+                    rsi_ok = True
+                    rsi_details = f"RSI {current_rsi:.1f} (Target: 52-68)"
+                else:
+                    rsi_details = f"RSI {current_rsi:.1f} (Req: 52-68)"
+            elif is_bear_context:
+                if 32 < current_rsi < 48:
+                    rsi_ok = True
+                    rsi_details = f"RSI {current_rsi:.1f} (Target: 32-48)"
+                else:
+                    rsi_details = f"RSI {current_rsi:.1f} (Req: 32-48)"
+
+            stages.append({
+                "name": "2. RSI Filter",
+                "status": "PASS" if rsi_ok else "WAIT",
+                "details": rsi_details,
+                "metrics": {
+                    "rsi": {"value": round(current_rsi, 1), "threshold": "Zone", "op": "in"}
+                }
+            })
+            
+            # --- Stage 3: Trigger (EMA Cross) ---
+            # We look at the convergence.
+            # Bull Trigger: Fast crosses ABOVE Slow
+            # Bear Trigger: Fast crosses BELOW Slow
+            
+            ema_dist_pct = (current_fast - current_slow) / current_slow * 100
+            s3_status = "WAIT"
+            s3_details = f"Gap: {ema_dist_pct:.3f}%"
+            
+            if is_bull_context:
+                # We want Fast > Slow.
+                if current_fast > current_slow:
+                    s3_status = "TRIGGER!" # Valid state (already crossed)
+                    s3_details = "Fast > Slow (Golden)"
+                elif current_fast < current_slow:
+                    # Approaching?
+                    if abs(ema_dist_pct) < 0.1:
+                        s3_status = "READY (LONG)"
+                        s3_details = "Approaching Cross Up"
+            elif is_bear_context:
+                 # We want Fast < Slow
+                if current_fast < current_slow:
+                    s3_status = "TRIGGER!" # Valid state
+                    s3_details = "Fast < Slow (Death)"
+                elif current_fast > current_slow:
+                    if abs(ema_dist_pct) < 0.1:
+                        s3_status = "READY (SHORT)"
+                        s3_details = "Approaching Cross Down"
+
+            stages.append({
+                "name": "3. EMA Cross",
+                "status": s3_status,
+                "details": s3_details,
+                "metrics": {
+                    "gap": {"value": round(ema_dist_pct, 4), "threshold": 0, "op": "cross"}
+                }
+            })
+            
+            # Score
+            score = 0
+            if is_bull_context or is_bear_context: score += 30
+            if rsi_ok: score += 30
+            if s3_status == "TRIGGER!": score += 40
+            elif "READY" in s3_status: score += 20
+            
+            return {
+                "strategy": "Scalp EMA RSI",
+                "score": score,
+                "stages": stages
+            }
+
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+             return {
+                "strategy": "Scalp EMA RSI",
+                "error": str(e),
+                "stages": []
+            }
 
     
     def get_threshold_comparisons(self, df, extra_data=None):

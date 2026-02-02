@@ -156,7 +156,7 @@ export default function PositionCopilot() {
                     <p className="text-gray-500 text-xs mt-1">Multi-Timeframe Sentiment Analysis v2</p>
                 </div>
 
-                {activePos && (
+                {activePos && activePos.analysis && (
                     <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${getAdviceStyle(activePos.analysis.advice)}`}>
                         {activePos.analysis.advice === 'DANGER' ? <AlertTriangle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                         <div className="flex flex-col items-end">
@@ -249,7 +249,7 @@ export default function PositionCopilot() {
             {/* Historical Context & Analysis Footer */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {/* Context/Reasoning Footer */}
-                {activePos && (
+                {activePos && activePos.analysis && (
                     <div className="md:col-span-3 bg-gray-900/50 rounded-lg p-3 border border-gray-800 text-sm flex items-start gap-3">
                         <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500"></div>
                         <div className="text-gray-300">

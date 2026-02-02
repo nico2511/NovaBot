@@ -5,7 +5,7 @@
     },
     "operations": {
         "log_level": "INFO",
-        "auto_start_trading": true,
+        "auto_start_trading": false,
         "trading_timeframe": "15m"
     },
     "risk_defaults": {
@@ -23,10 +23,10 @@
         "conf_threshold_low": 35
     },
     "scanner": {
-        "enabled": true,
+        "enabled": false,
         "interval": 5,
         "min_score": 60,
-        "auto_switch": true,
+        "auto_switch": false,
         "gamification_enabled": false,
         "max_funding_long": 0.001,
         "min_funding_short": -0.001,

@@ -210,91 +210,137 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
         except Exception as e:
             return None
 
-    def calculate_progress(self, df: pd.DataFrame, extra_data=None) -> int:
-        """Visual progress bar logic."""
-        if df is None or df.empty: return 0
+    def calculate_progress(self, df: pd.DataFrame, extra_data=None):
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (Trend & ADX)
+        2. Setup (Middle Band Pullback)
+        3. Trigger (Confirmation Candle)
+        """
+        if df is None or df.empty or len(df) < 60:
+             return {
+                "strategy": "Bollinger Middle",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
+        
         try:
-            # 1. Trend Presence (50%)
-            trend_dir, _ = self.check_trend(df)
-            if trend_dir == 0: return 0
-            progress = 50
+            # 1. Trend Presence
+            trend_dir, reason = self.check_trend(df)
             
-            # 2. Proximity to Middle Band (50%)
-            bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            mb = bb['BBM'].iloc[-1]
-            price = df['close'].iloc[-1]
-            
-            dist_pct = abs(price - mb) / mb
-            
-            # Closer is better. If < 0.5% away, max score.
-            if dist_pct < 0.005:
-                progress += 50
-            elif dist_pct < 0.015:
-                progress += 30
-            elif dist_pct < 0.03:
-                progress += 10
-            
-            return min(100, progress)
-        except:
-            return 0
-
-    def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
-        """UI Conditions - Standardized Diagnostic Card"""
-        if df is None or df.empty: return []
-        try:
-            conditions = []
-            
-            # 1. Trend
-            trend_dir, trend_reason = self.check_trend(df)
-            conditions.append({
-                "name": "1. Trend Status",
-                "status": trend_dir != 0,
-                "value": trend_reason
+            s1_status = "WAIT"
+            s1_details = reason
+            if trend_dir == 1:
+                s1_status = "pass_bull" # Custom status for internal logic if needed, or just "PASS"
+                s1_details = "Uptrend (EMA20 > EMA50)"
+            elif trend_dir == -1:
+                s1_status = "pass_bear"
+                s1_details = "Downtrend (EMA20 < EMA50)"
+                
+            stages = []
+            stages.append({
+                "name": "1. Trend Context",
+                "status": "PASS" if trend_dir != 0 else "WAIT",
+                "details": s1_details
             })
             
             # 2. Middle Band Interaction
             bb = ta.bbands(df['close'], length=self.bb_period, std=self.bb_std)
-            msg = "No Interaction"
-            status = False
+            mb = bb['BBM'].iloc[-1]
+            price = df['close'].iloc[-1]
+            
+            # Check proximity (0.5% default for "close")
+            dist_pct = (price - mb) / mb
+            is_close = abs(dist_pct) < 0.005
+            
+            s2_status = "WAIT"
+            s2_details = f"Distance: {dist_pct*100:+.2f}%"
             
             if trend_dir != 0:
-                mb = bb['BBM'].iloc[-1]
-                price = df['close'].iloc[-1]
-                dist = (price - mb) / mb * 100
-                
-                # Check for "Touch" within 0.2%
-                if abs(dist) < 0.2:
-                    msg = f"Touching Middle Band ({dist:+.2f}%)"
-                    status = True
+                if is_close:
+                    s2_status = "READY"
+                    s2_details = f"Touching Middle Band ({dist_pct*100:+.2f}%)"
                 else:
-                    msg = f"Distance: {dist:+.2f}%"
-            
-            conditions.append({
-                "name": "2. Middle Band Touch",
-                "status": status,
-                "value": msg
+                    # Provide directional hint
+                    if trend_dir == 1 and dist_pct > 0:
+                         s2_details = f"Above MB (+{dist_pct*100:.2f}%) - Waiting for dip"
+                    elif trend_dir == -1 and dist_pct < 0:
+                         s2_details = f"Below MB ({dist_pct*100:.2f}%) - Waiting for rally"
+
+            stages.append({
+                "name": "2. Pullback Setup",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "dist": {"value": round(dist_pct*100, 2), "threshold": 0.5, "op": "abs <"}
+                }
             })
             
-            # 3. Momentum
+            # 3. Trigger (Confirmation)
+            # Need volume and correct candle color
+            
+            avg_volume = df['volume'].rolling(20).mean().iloc[-1]
+            current_volume = df['volume'].iloc[-1]
+            volume_ok = current_volume >= (avg_volume * self.volume_multiplier)
+            
             rsi = ta.rsi(df['close'], length=14).iloc[-1]
-            cond_name = "3. RSI Momentum"
-            cond_val = f"RSI: {rsi:.1f}"
-            cond_status = False
             
-            if trend_dir == 1:
-                cond_status = rsi > self.rsi_min
-            elif trend_dir == -1:
-                cond_status = rsi < (100 - self.rsi_min)
-                
-            conditions.append({
-                "name": cond_name,
-                "status": cond_status,
-                "value": cond_val
+            s3_status = "WAIT"
+            s3_details = "Waiting for bounce..."
+            
+            if s2_status == "READY":
+                if trend_dir == 1:
+                    # Need Green Candle + Volume + RSI
+                    is_green = df['close'].iloc[-1] > df['open'].iloc[-1]
+                    if is_green:
+                        if volume_ok:
+                             s3_status = "TRIGGER!"
+                             s3_details = f"Green Candle + Vol ({current_volume/avg_volume:.1f}x)"
+                        else:
+                             s3_details = "Green Candle, Low Vol"
+                    else:
+                        s3_details = "Waiting for Green Candle"
+                elif trend_dir == -1:
+                    # Need Red Candle + Volume + RSI
+                    is_red = df['close'].iloc[-1] < df['open'].iloc[-1]
+                    if is_red:
+                         if volume_ok:
+                             s3_status = "TRIGGER!"
+                             s3_details = f"Red Candle + Vol ({current_volume/avg_volume:.1f}x)"
+                         else:
+                             s3_details = "Red Candle, Low Vol"
+                    else:
+                         s3_details = "Waiting for Red Candle"
+                         
+            stages.append({
+                "name": "3. Confirmation",
+                "status": s3_status,
+                "details": s3_details
             })
             
-            return conditions
+            # Score
+            score = 0
+            if trend_dir != 0: score += 30
+            if s2_status == "READY": score += 40
+            if s3_status == "TRIGGER!": score += 30
+            
+            return {
+                "strategy": "Bollinger Middle",
+                "score": score,
+                "stages": stages
+            }
+            
         except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+            return {
+                "strategy": "Bollinger Middle",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
+
+    def check_conditions(self, df: pd.DataFrame, extra_data=None) -> List[Dict]:
+        return []
 
     def get_threshold_comparisons(self, df: pd.DataFrame, extra_data=None) -> Dict:
         """Get detailed threshold comparisons for Parameters section"""

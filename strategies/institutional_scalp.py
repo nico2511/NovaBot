@@ -148,120 +148,158 @@ class InstitutionalScalp(BaseStrategy):
         return None
     
     def calculate_progress(self, df, extra_data=None):
-        """Calculate proximity to liquidity grab signal"""
+        """
+        Returns detailed progress stages for monitoring.
+        Stages:
+        1. Context (ADX Safety)
+        2. Setup (Liquidity Grab)
+        3. Trigger (Reversal Candle)
+        """
         if df is None or df.empty or len(df) < 30:
-            return 0
+            return {
+                "strategy": "Inst. Scalp",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "FAIL", "details": "Not enough data"}]
+            }
         
         try:
             self.add_indicators(df)
             params = self.config.get("params", {})
             lookback = params.get("liq_grab_lookback", 20)
             
+            # Use confirmed candle for analysis to match signal logic?
+            # Signal logic uses iloc[-2]. Let's monitor the *current forming* situation relative to history.
+            # Current = iloc[-1].
+            
             current = df.iloc[-1]
             close = current['close']
             high = current['high']
             low = current['low']
             
-            recent = df.tail(lookback + 1)
-            recent_high = recent['high'].iloc[:-1].max()
-            recent_low = recent['low'].iloc[:-1].min()
+            recent = df.iloc[-(lookback+1):-1] # Exclude current
+            recent_high = recent['high'].max()
+            recent_low = recent['low'].min()
             
-            progress = 0
+            # 1. Context (ADX Safety)
+            # We want ADX < Limit (defaults to 60)
+            adx_val = 0
+            if 'ADX_14' in df.columns:
+                adx_val = df['ADX_14'].iloc[-1]
             
-            # Check proximity to recent high/low
-            distance_to_high = abs(high - recent_high) / recent_high
-            distance_to_low = abs(low - recent_low) / recent_low
+            adx_limit = params.get("adx_extreme_limit", 60)
+            s1_status = "PASS"
+            s1_details = f"ADX {adx_val:.1f} (Safe)"
+            if adx_val > adx_limit:
+                 s1_status = "FAIL"
+                 s1_details = f"ADX {adx_val:.1f} (Too Volatile)"
             
-            if distance_to_high < 0.01 or distance_to_low < 0.01:
-                progress += 50
-            elif distance_to_high < 0.02 or distance_to_low < 0.02:
-                progress += 30
+            stages = []
+            stages.append({
+                "name": "1. Safety (ADX)",
+                "status": s1_status,
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": adx_limit, "op": "<"}
+                }
+            })
             
-            # Check for wick formation
-            candle_range = high - low
-            if candle_range > 0:
-                upper_wick = (high - max(close, current['open'])) / candle_range
-                lower_wick = (min(close, current['open']) - low) / candle_range
-                
-                if upper_wick > 0.4 or lower_wick > 0.4:
-                    progress += 30
+            # 2. Setup (Proximity to Liquidity)
+            # Are we near High or Low?
+            dist_high = (high - recent_high) / recent_high
+            dist_low = (low - recent_low) / recent_low
             
-            return min(100, progress)
-        except:
-            return 0
+            # If we pierced the level, distance is negative (overshoot) or close to 0
+            # Let's verify "Grab" potential: price went beyond level?
+            
+            grab_high = high > recent_high
+            grab_low = low < recent_low
+            
+            s2_status = "WAIT"
+            s2_details = "Mid-Range"
+            
+            if grab_high:
+                s2_status = "READY (BEAR)"
+                s2_details = "Pierced Recent High"
+            elif grab_low:
+                s2_status = "READY (BULL)"
+                s2_details = "Pierced Recent Low"
+            else:
+                # Check proximity
+                if abs(dist_high) < 0.005:
+                     s2_details = f"Near High ({dist_high*100:.2f}%)"
+                elif abs(dist_low) < 0.005:
+                     s2_details = f"Near Low ({dist_low*100:.2f}%)"
+            
+            stages.append({
+                "name": "2. Liquidity Level",
+                "status": s2_status,
+                "details": s2_details
+            })
+            
+            # 3. Trigger (Reversal + Wick)
+            # Need Close inside range (Reversal) + Volume + Wick
+            
+            s3_status = "WAIT"
+            s3_details = "Waiting for rejection..."
+            
+            if "READY" in s2_status:
+                candle_range = high - low
+                if candle_range > 0:
+                    upper_wick = (high - max(close, current['open'])) / candle_range
+                    lower_wick = (min(close, current['open']) - low) / candle_range
+                    
+                    if s2_status == "READY (BEAR)":
+                        # Need Bearish Reversal (Close < Low) -> Wait, logic is Close < Recent High
+                        reclaimed = close < recent_high
+                        if reclaimed:
+                             if upper_wick > 0.4:
+                                 s3_status = "POTENTIAL"
+                                 s3_details = f"Bearish Reclaim + Wick ({upper_wick*100:.0f}%)"
+                             else:
+                                 s3_details = "Bearish Reclaim, Weak Wick"
+                        else:
+                             s3_details = "Above High (Breakout?)"
+                             
+                    elif s2_status == "READY (BULL)":
+                        # Need Bullish Reversal (Close > Recent Low)
+                        reclaimed = close > recent_low
+                        if reclaimed:
+                             if lower_wick > 0.4:
+                                 s3_status = "POTENTIAL"
+                                 s3_details = f"Bullish Reclaim + Wick ({lower_wick*100:.0f}%)"
+                             else:
+                                 s3_details = "Bullish Reclaim, Weak Wick"
+                        else:
+                             s3_details = "Below Low (Breakdown?)"
+
+            stages.append({
+                "name": "3. Rejection Wick",
+                "status": s3_status,
+                "details": s3_details
+            })
+            
+            # Score
+            score = 0
+            if s1_status == "PASS": score += 20
+            if "READY" in s2_status: score += 40
+            if s3_status == "POTENTIAL": score += 40
+            
+            return {
+                "strategy": "Inst. Scalp",
+                "score": score,
+                "stages": stages
+            }
+
+        except Exception as e:
+            return {
+                "strategy": "Inst. Scalp",
+                "score": 0,
+                "error": str(e),
+                "stages": []
+            }
     
     def check_conditions(self, df, extra_data=None):
-        """Check detailed conditions for UI - Diagnostic Card"""
-        if df is None or df.empty or len(df) < 30:
-            return []
-        
-        try:
-            self.add_indicators(df)
-            params = self.config.get("params", {})
-            lookback = params.get("liq_grab_lookback", 20)
-            
-            current = df.iloc[-1]
-            close = current['close']
-            high = current['high']
-            low = current['low']
-            
-            recent = df.tail(lookback + 1)
-            recent_high = recent['high'].iloc[:-1].max()
-            recent_low = recent['low'].iloc[:-1].min()
-            
-            conditions = []
-            
-            # 1. Proximity (Level)
-            dist_high = abs(high - recent_high) / recent_high
-            dist_low = abs(low - recent_low) / recent_low
-            
-            at_high = dist_high < 0.01
-            at_low = dist_low < 0.01
-            
-            is_near = at_high or at_low
-            
-            conditions.append({
-                "name": "1. Proximity (Liquidity Level)",
-                "status": is_near,
-                "value": "Near High" if at_high else "Near Low" if at_low else "Mid-Range"
-            })
-            
-            # 2. Wick (Indecision)
-            candle_range = high - low
-            has_wick = False
-            wick_txt = "No Wick"
-            
-            if candle_range > 0:
-                upper_wick = (high - max(close, current['open'])) / candle_range
-                lower_wick = (min(close, current['open']) - low) / candle_range
-                
-                has_wick = upper_wick > 0.4 or lower_wick > 0.4
-                if upper_wick > 0.4: wick_txt = "Upper Wick"
-                elif lower_wick > 0.4: wick_txt = "Lower Wick"
-                
-            conditions.append({
-                "name": "2. Wick Formation (>40%)",
-                "status": has_wick,
-                "value": wick_txt
-            })
-            
-            # 3. Trigger (Reversal)
-            bullish_reversal = low < recent_low and close > recent_low
-            bearish_reversal = high > recent_high and close < recent_high
-            
-            rev_status = "None"
-            if bullish_reversal: rev_status = "Bullish Reclaim"
-            elif bearish_reversal: rev_status = "Bearish Reclaim"
-            
-            conditions.append({
-                "name": "3. Trigger (Level Reclaim)",
-                "status": bullish_reversal or bearish_reversal,
-                "value": rev_status
-            })
-            
-            return conditions
-        except Exception as e:
-            return [{"name": "Error", "status": False, "value": str(e)}]
+        return []
 
     
     def get_threshold_comparisons(self, df, extra_data=None):

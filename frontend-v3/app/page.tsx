@@ -26,6 +26,29 @@ export default function Home() {
   const hasConnectionError = !!error;
   const [showConfig, setShowConfig] = useState(false);
 
+  // Calculate Live Daily PnL (Realized + Unrealized)
+  const calculateLivePnL = () => {
+    if (!data) return 0;
+
+    // Realized PnL (from backend)
+    const realized = data.daily_pnl || 0;
+
+    // Unrealized PnL (from open positions)
+    const unrealized = (data.open_positions || []).reduce((total: number, pos: any) => {
+      let pnl = 0;
+      if (typeof pos.pnl === 'number') pnl = pos.pnl;
+      else if (typeof pos.unrealized_pnl === 'number') pnl = pos.unrealized_pnl;
+      else if (typeof pos.pnl === 'string') pnl = parseFloat(pos.pnl);
+      else if (typeof pos.unrealized_pnl === 'string') pnl = parseFloat(pos.unrealized_pnl);
+
+      return total + (isNaN(pnl) ? 0 : pnl);
+    }, 0);
+
+    return realized + unrealized;
+  };
+
+  const liveDailyPnL = calculateLivePnL();
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 md:p-8 bg-[#0a0a0a] text-white">
       <div className="w-full max-w-2xl space-y-6">
@@ -66,9 +89,9 @@ export default function Home() {
               <PositionCopilot />
             </div>
 
-            {/* PnL Card */}
+            {/* PnL Card - LIVE Update */}
             <PnLCard
-              dailyPnL={data.daily_pnl}
+              dailyPnL={liveDailyPnL}
               activePositions={data.active_positions}
               lastUpdated={data.last_updated}
             />
@@ -133,6 +156,12 @@ export default function Home() {
                 className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-4 block"
               >
                 Signal Analysis →
+              </a>
+              <a
+                href="/strategies"
+                className="text-sm text-blue-500 hover:text-blue-400 transition-colors underline underline-offset-4 block font-bold"
+              >
+                Strategy Monitor (Live) →
               </a>
             </div>
 
