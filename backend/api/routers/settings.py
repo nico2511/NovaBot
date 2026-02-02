@@ -304,23 +304,23 @@ def update_legacy_settings(
             
             # Patching logic
             if section == "risk_defaults":
-                current["max_positions"] = data.get("max_positions", current["max_positions"])
-                current["daily_stop_loss"] = data.get("daily_stop_loss", current["daily_stop_loss"])
-                current["bot_persona"] = data.get("bot_persona", current["bot_persona"])
-                current["risk_profile"] = data.get("risk_profile", current["risk_profile"])
-                current["default_leverage"] = data.get("default_leverage", current["default_leverage"])
-                current["default_margin_type"] = data.get("default_margin_type", current["default_margin_type"])
+                current["max_positions"] = data.get("max_positions", current.get("max_positions", 1))
+                current["daily_stop_loss"] = data.get("daily_stop_loss", current.get("daily_stop_loss", 50.0))
+                current["bot_persona"] = data.get("bot_persona", current.get("bot_persona", "Conservative Scalper"))
+                current["risk_profile"] = data.get("risk_profile", current.get("risk_profile", "Capital Preservation First"))
+                current["default_leverage"] = data.get("default_leverage", current.get("default_leverage", 1))
+                current["default_margin_type"] = data.get("default_margin_type", current.get("default_margin_type", "ISOLATED"))
                 
             elif section == "operations":
-                current["trading_timeframe"] = data.get("trading_timeframe", current["trading_timeframe"])
+                current["trading_timeframe"] = data.get("trading_timeframe", current.get("trading_timeframe", "15m"))
                 current["auto_start_trading"] = data.get("auto_start_trading", current.get("auto_start_trading", False))
             
             elif section == "ai_config":
                  # Patch thresholds
                  thresholds = current.get("ai_thresholds", {})
-                 thresholds["high"] = data.get("conf_threshold_high", thresholds.get("high"))
-                 thresholds["medium"] = data.get("conf_threshold_medium", thresholds.get("medium"))
-                 thresholds["low"] = data.get("conf_threshold_low", thresholds.get("low"))
+                 thresholds["high"] = data.get("conf_threshold_high", thresholds.get("high", 101))
+                 thresholds["medium"] = data.get("conf_threshold_medium", thresholds.get("medium", 55))
+                 thresholds["low"] = data.get("conf_threshold_low", thresholds.get("low", 101))
                  current["ai_thresholds"] = thresholds
                  
             elif section == "notifications":

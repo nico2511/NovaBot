@@ -249,21 +249,36 @@ class ScalpEmaRsi(BaseStrategy):
             s3_status = "WAIT"
             s3_details = f"Gap: {ema_dist_pct:.3f}%"
             
+            # Check for FRESH crossover (on live candle iloc[-1] or last closed iloc[-2])
+            # We use iloc[-2] vs [-3] for confirmed, and [-1] vs [-2] for live
+            
+            # Live Cross (Forming)
+            is_live_bull_cross = (ema_fast_s.iloc[-2] <= ema_slow_s.iloc[-2]) and (current_fast > current_slow)
+            is_live_bear_cross = (ema_fast_s.iloc[-2] >= ema_slow_s.iloc[-2]) and (current_fast < current_slow)
+            
             if is_bull_context:
                 # We want Fast > Slow.
-                if current_fast > current_slow:
-                    s3_status = "TRIGGER!" # Valid state (already crossed)
-                    s3_details = "Fast > Slow (Golden)"
+                if is_live_bull_cross:
+                     s3_status = "TRIGGER!" 
+                     s3_details = "Cross UP Detected (Live)"
+                elif current_fast > current_slow:
+                     # Already crossed / aligned
+                     s3_status = "ALIGNED"
+                     s3_details = "Fast > Slow (Trend Active)"
                 elif current_fast < current_slow:
                     # Approaching?
                     if abs(ema_dist_pct) < 0.1:
                         s3_status = "READY (LONG)"
                         s3_details = "Approaching Cross Up"
+                        
             elif is_bear_context:
                  # We want Fast < Slow
-                if current_fast < current_slow:
-                    s3_status = "TRIGGER!" # Valid state
-                    s3_details = "Fast < Slow (Death)"
+                if is_live_bear_cross:
+                     s3_status = "TRIGGER!" 
+                     s3_details = "Cross DOWN Detected (Live)"
+                elif current_fast < current_slow:
+                     s3_status = "ALIGNED"
+                     s3_details = "Fast < Slow (Trend Active)"
                 elif current_fast > current_slow:
                     if abs(ema_dist_pct) < 0.1:
                         s3_status = "READY (SHORT)"
@@ -282,8 +297,14 @@ class ScalpEmaRsi(BaseStrategy):
             score = 0
             if is_bull_context or is_bear_context: score += 30
             if rsi_ok: score += 30
-            if s3_status == "TRIGGER!": score += 40
-            elif "READY" in s3_status: score += 20
+            
+            # Trigger = 100%, Aligned = 60-80% (Missed entry but good context)
+            if s3_status == "TRIGGER!": 
+                score += 40
+            elif s3_status == "ALIGNED":
+                score += 10 # Only small boost for being aligned, as entry is passed
+            elif "READY" in s3_status: 
+                score += 20
             
             return {
                 "strategy": "Scalp EMA RSI",

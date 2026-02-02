@@ -10,10 +10,11 @@
     },
     "risk_defaults": {
         "max_positions": 1,
-        "daily_stop_loss": 50,
+        "daily_stop_loss": 50.0,
         "bot_persona": "Aggressive Day Trader",
         "risk_profile": "High Volatility Hunter",
-        "default_leverage": 5
+        "default_leverage": 1,
+        "default_margin_type": "ISOLATED"
     },
     "ai_config": {
         "model_name": "deepseek/deepseek-v3.2",
@@ -23,10 +24,10 @@
         "conf_threshold_low": 35
     },
     "scanner": {
-        "enabled": false,
+        "enabled": true,
         "interval": 5,
         "min_score": 60,
-        "auto_switch": false,
+        "auto_switch": true,
         "gamification_enabled": false,
         "max_funding_long": 0.001,
         "min_funding_short": -0.001,
