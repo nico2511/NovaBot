@@ -15,6 +15,7 @@ from strategies.fibo_pullback import StrategyFiboPullback
 from strategies.elastic_nibbler import ElasticNibblerStrategy
 from strategies.liquidity_lightning import LiquidityLightning
 from strategies.sniper_precision_trend import SniperPrecisionTrend
+from strategies.gamma_bear_vortex import GammaBearVortex
 
 # Import robuste pour Panic Close
 try:
@@ -35,7 +36,7 @@ class StrategyEngine:
         
         
         # Initialize strategies with their specific config
-        strats_config = self.config.get("strategies", {})
+        strats_config = self.config
         
         self.strategies = {
             # Active strategies
@@ -54,7 +55,7 @@ class StrategyEngine:
             "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
             "liquidity_lightning": LiquidityLightning(strats_config.get("liquidity_lightning")),
             "sniper_precision_trend": SniperPrecisionTrend(strats_config.get("sniper_precision_trend")),
-
+            "gamma_bear_vortex": GammaBearVortex(strats_config.get("gamma_bear_vortex")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
@@ -148,7 +149,8 @@ class StrategyEngine:
         
         # 3. Select Strategies
         active_strategies = []
-        for name, params in self.config.get("strategies", {}).items():
+        for name, params in self.config.items():
+            if not isinstance(params, dict): continue # Skip non-dict meta keys if any
             if not params.get("enabled"):
                 continue
             

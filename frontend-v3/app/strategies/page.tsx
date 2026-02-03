@@ -90,12 +90,12 @@ export default function StrategiesPage() {
                                         const type = strat.type || 'unknown';
 
                                         // Universal types always show
-                                        if (['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning'].includes(type)) return true;
+                                        if (['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning', 'scalp'].includes(type)) return true;
 
                                         if (regime === 'TREND') {
-                                            return ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback'].includes(type);
+                                            return ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback', 'scalp'].includes(type);
                                         } else if (regime === 'RANGE') {
-                                            return ['range', 'reversion', 'reversion_extreme'].includes(type);
+                                            return ['range', 'reversion', 'reversion_extreme', 'scalp'].includes(type);
                                         }
 
                                         // If unknown regime, show all
@@ -108,10 +108,10 @@ export default function StrategiesPage() {
                                         // Check if ALL got filtered out
                                         const regime = data.regime || 'UNKNOWN';
                                         const type = s.type || 'unknown';
-                                        const isUniversal = ['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning'].includes(type);
+                                        const isUniversal = ['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning', 'scalp'].includes(type);
                                         if (isUniversal) return false;
-                                        if (regime === 'TREND' && ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback'].includes(type)) return false;
-                                        if (regime === 'RANGE' && ['range', 'reversion', 'reversion_extreme'].includes(type)) return false;
+                                        if (regime === 'TREND' && ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback', 'scalp'].includes(type)) return false;
+                                        if (regime === 'RANGE' && ['range', 'reversion', 'reversion_extreme', 'scalp'].includes(type)) return false;
                                         return true;
                                     }) && (
                                             <div className="col-span-full text-center py-20 bg-gray-900/30 rounded-xl border border-gray-800 border-dashed">

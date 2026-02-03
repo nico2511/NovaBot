@@ -207,8 +207,7 @@ def get_strategies(bot=Depends(get_bot_context)):
         
         if config_path.exists():
             with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                strategy_metadata = config.get("strategies", {})
+                strategy_metadata = json.load(f)
         
         strategies = []
         if hasattr(bot, 'strategy_engine'):
@@ -216,10 +215,18 @@ def get_strategies(bot=Depends(get_bot_context)):
                 # Get metadata from strategies.json
                 meta = strategy_metadata.get(name, {})
                 
+                # Check if enabled in bot memory (source of truth for runtime)
+                # But fallback to config if not set
+                is_enabled = False
+                if hasattr(strategy, 'config'):
+                    is_enabled = strategy.config.get("enabled", False)
+                elif hasattr(strategy, 'active'):
+                    is_enabled = strategy.active
+                
                 strategies.append({
                     "id": name,
                     "name": name,
-                    "enabled": meta.get("enabled", True),
+                    "enabled": is_enabled,
                     "type": meta.get("type", "unknown").upper(),
                     "description": meta.get("description", "No description")
                 })
@@ -234,21 +241,48 @@ class StrategySelectRequest(BaseModel):
 
 @router.post("/config/strategy-select")
 def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
-    """Select active strategy"""
+    """Toggle strategy enabled state"""
     try:
         strat_id = data.strategy_id
         if hasattr(bot, 'strategy_engine') and strat_id in bot.strategy_engine.strategies:
-            bot.active_strategy_name = strat_id
-            bot.add_log(f"🧠 Strategy Switched: {strat_id}")
+            strategy = bot.strategy_engine.strategies[strat_id]
+            
+            # Toggle enabled state
+            current_state = strategy.config.get("enabled", False)
+            new_state = not current_state
+            strategy.config["enabled"] = new_state
+            strategy.config["active"] = new_state # Sync active/enabled
+            
+            # Update persistence (strategies.json)
+            import json
+            from pathlib import Path
+            config_path = Path("data/config/strategies.json")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    full_config = json.load(f)
+                
+                if strat_id in full_config:
+                    full_config[strat_id]["enabled"] = new_state
+                    full_config[strat_id]["active"] = new_state
+                    
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        json.dump(full_config, f, indent=4)
+                        
+            bot.add_log(f"🧠 Strategy Toggled: {strat_id} -> {'ENABLED' if new_state else 'DISABLED'}")
+            
             return {
                 "status": "success",
-                "message": f"Strategy switched to {strat_id}",
-                "active_strategy": strat_id
+                "message": f"Strategy {strat_id} {'enabled' if new_state else 'disabled'}",
+                "active_strategy": strat_id,
+                "enabled": new_state
             }
         else:
             raise HTTPException(status_code=404, detail=f"Strategy {strat_id} not found")
     except HTTPException:
         raise
+    except Exception as e:
+        logger.error(f"Error toggling strategy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 @router.get("/strategies/monitor")
 def monitor_strategies(bot=Depends(get_bot_context)):
     """Get real-time monitoring data for all strategies"""
