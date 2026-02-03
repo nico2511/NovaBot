@@ -612,13 +612,11 @@ class BotContext:
                 
                 # 4. Funding & OI if available (from latest market data fetch)
                 try:
-                    from backend.market_data import get_current_price
-                    market_info = get_current_price(self.active_symbol)
-                    if market_info:
-                        entry["market_data"] = {
-                            "funding_rate": market_info.get("funding_rate"),
-                            "open_interest": market_info.get("open_interest")
-                        }
+                    # Logic improved: Use the bot's own service (Sync)
+                    entry["market_data"] = {
+                        "funding_rate": hyperliquid_service.get_funding_rate(self.active_symbol),
+                        "open_interest": hyperliquid_service.get_open_interest(self.active_symbol)
+                    }
                 except: pass
                 
             except Exception as ctx_err:

@@ -29,10 +29,20 @@ class SafeOrderManager:
         if not symbol:
             return False
 
-        # 1. Check existing orders
+        # 1. Check existing orders (Robust check for both camelCase and snake_case)
         open_orders = self.hl.get_open_orders(symbol)
-        has_sl = any(o.get("order_type", {}).get("trigger", {}).get("tpsl") == "sl" for o in open_orders)
-        has_tp = any(o.get("order_type", {}).get("trigger", {}).get("tpsl") == "tp" for o in open_orders)
+        
+        has_sl = False
+        has_tp = False
+        
+        for o in open_orders:
+            # Check both 'orderType' (API) and 'order_type' (SDK/Mock)
+            order_type = o.get("orderType") or o.get("order_type") or {}
+            trigger = order_type.get("trigger") or {}
+            tpsl = trigger.get("tpsl")
+            
+            if tpsl == "sl": has_sl = True
+            if tpsl == "tp": has_tp = True
         
         if has_sl and has_tp:
             return False # Already safe
