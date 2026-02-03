@@ -1,12 +1,5 @@
 [
   {
-    "timestamp": 1769411946.0724022,
-    "symbol": "SUI",
-    "sentiment": "BEARISH",
-    "score": -55,
-    "details": "RSI 54.7 | MACD Bear"
-  },
-  {
     "timestamp": 1769421378.939672,
     "symbol": "HYPE",
     "sentiment": "BEARISH",
@@ -698,5 +691,12 @@
     "sentiment": "NEUTRAL",
     "score": -17,
     "details": "RSI 60.5 | MACD Bull"
+  },
+  {
+    "timestamp": 1770137348.1954267,
+    "symbol": "BTC",
+    "sentiment": "BEARISH",
+    "score": -35,
+    "details": "RSI 39.3 | MACD Bull"
   }
 ]

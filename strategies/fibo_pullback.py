@@ -59,14 +59,14 @@ class StrategyFiboPullback(BaseStrategy):
         # Configurable Parameters - Read from params block in strategies.json
         params = self.config.get('params', {})
         self.ema_period = params.get('ema_period', 200)
-        self.adx_threshold = params.get('adx_threshold', 18)
+        self.adx_threshold = params.get('adx_threshold', 22) # CHANGED 2026-02: 18 -> 22 (More strict Trend)
         self.swing_lookback = params.get('swing_lookback', 35)
         self.swing_confirmation_bars = params.get('swing_confirmation_bars', 10)
         self.min_rr = params.get('min_rr', 1.5)
-        self.volume_multiplier = params.get('volume_multiplier', 1.3)
+        self.volume_multiplier = params.get('volume_multiplier', 1.2) # CHANGED 2026-02: 1.3 -> 1.2
         
         # Fibonacci Levels (FIXED: Wider zone)
-        self.fibo_entry_min = 0.50   # 50% retracement
+        self.fibo_entry_min = 0.382  # CHANGED 2026-02: 0.50 -> 0.382 (Wider zone)
         self.fibo_entry_max = 0.786  # 78.6% retracement (golden zone)
         self.fibo_sl_level = 0.786   # 78.6% for SL placement
     

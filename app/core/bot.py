@@ -31,6 +31,10 @@ from app.services.analyst_service import analyst_service
 from app.services.discord_service import discord_service
 from app.utils.data_processing import get_dynamic_context
 
+# Hardening Phase 0
+from app.services.safe_order_manager import SafeOrderManager
+from app.services.position_reconciler import PositionReconciler
+
 class BotContext:
     """Main bot context"""
     def __init__(self):
@@ -139,7 +143,13 @@ class BotContext:
         
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
-        self.signal_analysis_file = os.path.join(BASE_DIR, "data", "signal_analysis.json")
+        
+        # Phase 0 Hardening Services
+        self.safe_order_manager = SafeOrderManager(hyperliquid_service)
+        self.position_reconciler = PositionReconciler(hyperliquid_service, self.safe_order_manager)
+        
+
+        self.signal_analysis_file = os.path.abspath(os.path.join(BASE_DIR, "data", "analysis", "signal_analysis.json"))
         self._ensure_data_dir()
         
         # Load persisted state
@@ -544,6 +554,9 @@ class BotContext:
                 "confidence": ai_data.get("confidence", 0),
                 "reasoning": ai_data.get("reasoning", "No reasoning provided"),
                 "risk_level": ai_data.get("risk_level", "UNKNOWN"),
+                "risk_score": ai_data.get("risk_score"),
+                "decisive_factors": ai_data.get("decisive_factors", []),
+                "rejection_reason_category": ai_data.get("rejection_reason_category"),
                 "market_price": sig.get("price"),
                 "suggested_sl": ai_data.get("suggested_adjustments", {}).get("sl") or sig.get("sl"),
                 "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp") or sig.get("tp")
@@ -630,6 +643,8 @@ class BotContext:
             
             with open(self.signal_analysis_file, "w") as f:
                 json.dump(history, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
                 
             self.add_log(f"💾 Signal Analysis saved to history ({'Approved' if approved else 'Rejected'}) with full market context")
         except Exception as e:
@@ -706,6 +721,9 @@ class BotContext:
                         }
                         self.risk_manager.record_trade_open()
                         StateManager.save_state(self)
+                        # Force Sync to ensure state consistency
+                        self._sync_state(silent=False)
+
                     
                     discord_service.send_alert(
                         f"🚀 ENTERED {side} {symbol}",
@@ -779,6 +797,8 @@ class BotContext:
                              self.risk_manager.record_trade_close(pnl_usdc)
                              self.active_trade = None
                              StateManager.save_state(self)
+                             self._sync_state(silent=False)
+
                      return True
                 else:
                     self.add_log(f"⚠️ Close appeared successful but position remains: {remaining['size']}")
@@ -1166,78 +1186,128 @@ class BotContext:
             # Run in separate thread or use current loop if possible
             threading.Thread(target=run_async_report_sync, daemon=True).start()
 
+    def _sync_state(self, silent=True):
+        """Unified State Synchronization (Stateless Truth)"""
+        try:
+            positions = hyperliquid_service.get_positions()
+            # Filter for active positions (size != 0)
+            active_positions = [p for p in positions if float(p.get("size", 0)) != 0]
+            
+            if active_positions:
+                pos = active_positions[0] # Focus on first position
+                symbol = pos["symbol"]
+                
+                # 1. Symbol Sync
+                if self.active_symbol != symbol:
+                    if not silent: self.add_log(f"⚠️ SYNC: Switching context {self.active_symbol} -> {symbol}")
+                    self.switch_active_symbol(symbol)
+                
+                # 2. State Sync
+                if not self.active_trade:
+                    # New Position Detected (Adoption)
+                    if not silent: self.add_log(f"🕵️ SYNC: Adopting orphan position {symbol}")
+                    self._adopt_existing_position(pos)
+                else:
+                    # Update Existing State
+                    with self.trade_lock:
+                        # Only update if changed prevents spam?
+                        # But PnL changes every tick.
+                        self.active_trade["pnl"] = float(pos["pnl"])
+                        self.active_trade["size"] = float(pos["size"])
+                        # We don't save state every tick to avoid IO spam, only on significant events?
+                        # Or maybe save occasionally.
+                        # For now, keep memory updated.
+            else:
+                # No active positions on exchange
+                if self.active_trade:
+                    # Position Closed externally OR Sync Mismatch
+                    if not silent: self.add_log(f"🕵️ SYNC: Position {self.active_symbol} closed externally. Analyzing closure...")
+                    
+                    try:
+                        # 1. Fetch recent history from Exchange to find the closing details
+                        #    We need the REAL exit price and PnL to record it accurately.
+                        recent_trades = hyperliquid_service.get_trade_history(limit=10)
+                        closing_trade = None
+                        
+                        # Find the most recent trade for this symbol
+                        for t in recent_trades:
+                            if t['coin'] == self.active_symbol:
+                                closing_trade = t
+                                break
+                        
+                        if closing_trade:
+                            exit_price = float(closing_trade.get("px", 0))
+                            pnl_val = float(closing_trade.get("pnl", 0)) # Hyperliquid basic history might not have realized Pnl immediately available in this endpoint often
+                            # Actually get_trade_history usually returns fills. 
+                            # If it's a fill, pnl might not be there. We might need to estimate PnL if missing.
+                            # But let's try to trust the fill or just use exit price.
+                            
+                            entry_price = float(self.active_trade.get("entry_price", 0))
+                            size = float(self.active_trade.get("size", 0))
+                            side = self.active_trade.get("side")
+                            
+                            # Recalculate PnL if not provided strictly
+                            if pnl_val == 0 and entry_price > 0:
+                                if side == "BUY":
+                                    pnl_val = (exit_price - entry_price) * size
+                                else:
+                                    pnl_val = (entry_price - exit_price) * size
+
+                            if not silent: self.add_log(f"📝 SYNC: Found closing trade (Exit: {exit_price}, PnL: {pnl_val:.2f})")
+                            
+                            self.trade_recorder.add_trade({
+                                  "symbol": self.active_symbol,
+                                  "strategy": self.active_trade.get("strategy", "Unknown"),
+                                  "side": side,
+                                  "entry_price": entry_price,
+                                  "exit_price": exit_price,
+                                  "size": size,
+                                  "pnl": pnl_val,
+                                  "pnl_usdc": pnl_val, 
+                                  "exit_reason": "External/Sync Close",
+                                  "exit_time": pd.Timestamp.now().isoformat(),
+                                  "entry_indicators": self.active_trade.get("entry_indicators", {})
+                            })
+                        else:
+                             if not silent: self.add_log(f"⚠️ SYNC: Could not find recent closing trade in history. Recording based on current price.")
+                             # Fallback: Record with current market price
+                             curr_price = hyperliquid_service.get_current_price(self.active_symbol)
+                             entry_price = float(self.active_trade.get("entry_price", 0))
+                             size = float(self.active_trade.get("size", 0))
+                             side = self.active_trade.get("side")
+                             pnl_val = (curr_price - entry_price) * size if side == "BUY" else (entry_price - curr_price) * size
+                             
+                             self.trade_recorder.add_trade({
+                                  "symbol": self.active_symbol,
+                                  "strategy": self.active_trade.get("strategy", "Unknown"),
+                                  "side": side,
+                                  "entry_price": entry_price,
+                                  "exit_price": curr_price,
+                                  "size": size,
+                                  "pnl": pnl_val,
+                                  "pnl_usdc": pnl_val, 
+                                  "exit_reason": "External/Sync Close (Estimated)",
+                                  "exit_time": pd.Timestamp.now().isoformat(),
+                                  "entry_indicators": self.active_trade.get("entry_indicators", {})
+                            })
+
+                    except Exception as rec_err:
+                        if not silent: self.add_log(f"⚠️ SYNC: Failed to record zombie trade: {rec_err}")
+
+                    # 2. Clear State
+                    with self.trade_lock:
+                        self.active_trade = None
+                        StateManager.save_state(self)
+
+        except Exception as e:
+            if not silent: self.add_log(f"⚠️ Sync Error: {e}")
+
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
         self.add_log("🔄 FORCE SYNC: Initiated by User")
-        
-        try:
-            positions = hyperliquid_service.get_positions()
-            
-            if positions:
-                pos = positions[0]
-                symbol = pos["symbol"]
-                
-                if self.active_symbol != symbol:
-                    self.active_symbol = symbol
-                    StateManager.save_state(self)
-                    self.add_log(f"✅ SYNC: Symbol corrected to {symbol}")
-                
-                with self.trade_lock:
-                    self.active_trade = {
-                        "symbol": symbol,
-                        "side": pos["side"], # Normalized: "BUY" or "SELL"
-                        "entry": float(pos["entry_price"]),
-                        "size": float(pos["size"]),
-                        "sl": self.active_trade.get("sl", 0) if self.active_trade else 0,
-                        "tp": self.active_trade.get("tp", 0) if self.active_trade else 0,
-                        "strategy": self.active_trade.get("strategy", "Manual/Sync") if self.active_trade else "Manual (Sync)",
-                        "timestamp": self.active_trade.get("timestamp", pd.Timestamp.now().isoformat()) if self.active_trade else pd.Timestamp.now().isoformat(),
-                        "pnl": float(pos["pnl"]),
-                        "max_pnl": float(pos["pnl"]),
-                        "status": "OPEN",
-                        "ai_analysis": self.active_trade.get("ai_analysis") if self.active_trade else None
-                    }
-                    StateManager.save_state(self)
-                self.add_log(f"✅ SYNC: Trade state updated for {symbol}")
-                
-                def run_analysis():
-                    self.add_log(f"⏳ SYNC: Waiting 5s before AI analysis for data stability...")
-                    time.sleep(5)
-                    try:
-                        self.add_log(f"🤖 FORCE SYNC: Running AI Analysis on {symbol}")
-                        df = hyperliquid_service.get_candles(symbol, "15m", 50)
-                        if not df.empty:
-                            ai_result = ia_service.analyze_position_risk(
-                                symbol=symbol,
-                                position_data=pos,
-                                market_data={"close": float(df['close'].iloc[-1]), "regime": "UNKNOWN"}
-                            )
-                            if ai_result:
-                                ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
-                                
-                                self.ai_cache[f"position_analysis_{symbol}"] = ai_data
-                                self.ai_cache["last_position_analysis"] = ai_data
-                                
-                                with self.trade_lock:
-                                    if self.active_trade:
-                                        self.active_trade["ai_analysis"] = ai_data
-                                
-                                self.add_log(f"✅ AI Analysis Updated: {ai_data.get('risk_level')}")
-                    except Exception as e:
-                        self.add_log(f"⚠️ AI Force Sync Failed: {e}")
+        result = self._sync_state(silent=False)
+        return {"status": "success", "message": "Resync initiated"}
 
-                threading.Thread(target=run_analysis, daemon=True).start()
-                return {"status": "success", "message": "Sync and Analysis started"}
-            else:
-                with self.trade_lock:
-                    self.active_trade = None
-                    StateManager.save_state(self)
-                self.add_log("ℹ️ FORCE SYNC: No positions found. State cleared.")
-                return {"status": "success", "message": "State cleared (No position)"}
-                
-        except Exception as e:
-            self.add_log(f"❌ FORCE SYNC Failed: {e}")
-            return {"status": "error", "message": str(e)}
 
     def _enforce_leverage(self):
         """Enforce leverage based on Gamification and Settings"""
@@ -1317,90 +1387,28 @@ class BotContext:
         # STARTUP SYNC
         if not self.startup_sync_done:
             self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
-            
             if self.trading_enabled:
-                self._enforce_leverage()
+                 self._enforce_leverage()
             
-            try:
-                self.add_log("🔄 INITIAL SYNC: Checking Hyperliquid for existing positions...")
-                real_positions = hyperliquid_service.get_positions()
-                
-                if real_positions:
-                    main_position = real_positions[0]
-                    position_symbol = main_position["symbol"]
-                    
-                    self.add_log(f"✅ SYNC: Found position on Hyperliquid: {position_symbol}")
-                    
-                    if self.active_symbol != position_symbol:
-                        self.add_log(f"⚠️ SYNC: Symbol mismatch detected!")
-                        old_symbol = self.active_symbol
-                        self.switch_active_symbol(position_symbol)
-                        self.add_log(f"✅ SYNC: Symbol switched from {old_symbol} to {position_symbol}")
-                    
-                    if not self.active_trade:
-                        self.add_log(f"🕵️ SYNC: Adopting orphan position {position_symbol} into memory")
-                        self._adopt_existing_position(main_position)
-                    
-                    self.add_log("⏳ SYNC: Waiting 2 seconds for full synchronization...")
-                    time.sleep(2)
-                    self.add_log("✅ SYNC: Synchronization complete, ready for AI analysis")
-                    
-                    try:
-                        self.add_log(f"📊 Fetching market data for {self.active_symbol}...")
-                        df_sync = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
-                        
-                        if not df_sync.empty:
-                            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-                            for col in numeric_cols:
-                                if col in df_sync.columns:
-                                    df_sync[col] = df_sync[col].astype(float)
-                            
-                            self.strategy_engine.analyze(df_sync)
-                            self.latest_data = df_sync
-                            self.add_log("✅ Market data & indicators ready for AI")
-                        else:
-                            self.add_log("⚠️ Sync Warning: No candles received")
-                    except Exception as e_data:
-                        self.add_log(f"⚠️ Sync Data Error: {e_data}")
-                    
-                    if not self._initial_position_analyzed:
-                        try:
-                            import json
-                            self.add_log(f"🤖 Running AI analysis on {position_symbol} position...")
-                            market_context = self._prepare_ai_context(position_data=main_position)
-                            ai_result = ia_service.analyze_position_risk(
-                                symbol=self.active_symbol,
-                                position_data=main_position,
-                                market_data=market_context
-                            )
-                            if ai_result:
-                                ai_data = json.loads(ai_result) if isinstance(ai_result, str) else ai_result
-                                reasoning = ai_data.get('reasoning', 'Position analysée')
-                                risk_level = ai_data.get('risk_level', 'UNKNOWN')
-                                self.add_log(f"🤖 IA Startup ({risk_level}): {reasoning}")
-                                self.ai_cache[f"position_analysis_{self.active_symbol}"] = ai_data
-                                self.ai_cache["last_position_analysis"] = ai_data
-                                self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
-                                
-                                if risk_level in ["HIGH", "CRITICAL"]:
-                                    discord_service.send_alert(
-                                        f"🤖 AI Analysis - {risk_level} RISK",
-                                        f"Symbol: {self.active_symbol}\n{reasoning}",
-                                        color="FF0000" if risk_level == "CRITICAL" else "FFA500"
-                                    )
-                            self._initial_position_analyzed = True
-                        except Exception as e:
-                            self.add_log(f"⚠️ Error in startup AI analysis: {e}")
-                else:
-                    self.add_log("ℹ️ SYNC: No positions found on Hyperliquid")
-                    
-            except Exception as e:
-                self.add_log(f"⚠️ SYNC Error: {e}")
-            
+            # Initial Synchro
+            self._sync_state(silent=False)
             self.startup_sync_done = True
             self.add_log("✅ STARTUP SYNC: Complete")
-        
+            self.add_log("🕵️ Starting Position Reconciler...")
+            
         while self.is_running:
+            try:
+                # 1. Reconciliation & State Sync (The Heartbeat)
+                # Run reconciler (fixes SL/TP)
+                if hasattr(self, 'position_reconciler'):
+                    self.position_reconciler.run_tick()
+                
+                # Check Exchange State (Adopt/Close) - Every 2s?
+                if int(time.time()) % 2 == 0: 
+                    self._sync_state(silent=True)
+            except Exception as tick_err:
+                self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
+
             # Dynamic Leverage & Gamification Enforcement
             if self.trading_enabled and not self._leverage_synced:
                 self._enforce_leverage()

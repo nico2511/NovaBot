@@ -75,11 +75,12 @@ class InstitutionalScalp(BaseStrategy):
         # BULLISH LIQUIDITY GRAB
         if low < recent_low and close > recent_low:
             candle_range = high - low
-            if candle_range > 0 and (close - low) / candle_range > 0.42:
+            # CHANGED 2026-02: Relaxed wick ratio 0.42 -> 0.35
+            if candle_range > 0 and (close - low) / candle_range > 0.35:
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
                 # Comparing partial volume to full average is mathematically incorrect
-                vol_mult = params.get("volume_multiplier", 1.35)
+                vol_mult = params.get("volume_multiplier", 1.25) # CHANGED 2026-02: 1.35 -> 1.25
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
@@ -96,11 +97,11 @@ class InstitutionalScalp(BaseStrategy):
                 reward = abs(tp - close)
                 if risk > 0:
                     rr = reward / risk
-                    min_rr = params.get("min_rr", 1.2)
+                    min_rr = params.get("min_rr", 1.2) # Keeping 1.2 as it's scalp
                     if rr < min_rr:
                         return None
                 
-                comment = "Bullish Liquidity Grab"
+                comment = "Bullish Liquidity Grab (V2)"
                 
                 return {
                     "signal": "BUY",
@@ -112,10 +113,11 @@ class InstitutionalScalp(BaseStrategy):
         # BEARISH LIQUIDITY GRAB
         if high > recent_high and close < recent_high:
             candle_range = high - low
-            if candle_range > 0 and (high - close) / candle_range > 0.42:
+            # CHANGED 2026-02: Relaxed wick ratio 0.42 -> 0.35
+            if candle_range > 0 and (high - close) / candle_range > 0.35:
                 # PHASE 2: Volume Spike Filter
                 # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
-                vol_mult = params.get("volume_multiplier", 1.35)
+                vol_mult = params.get("volume_multiplier", 1.25) # CHANGED 2026-02
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles

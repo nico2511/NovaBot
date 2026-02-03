@@ -85,14 +85,14 @@ class SniperPrecisionTrend(BaseStrategy):
         
         # Params from config (with defaults from master prompt)
         params = self.config.get("params", {})
-        self.rr_ratio = params.get("rr_ratio", 2.0)  # 2:1 R:R minimum
-        self.adx_threshold = params.get("adx_threshold", 25) # Lowered from 28 to 25 (Balanced)
+        self.rr_ratio = params.get("rr_ratio", 1.6)  # CHANGED 2026-02: 2.0 -> 1.6 (More hits)
+        self.adx_threshold = params.get("adx_strong_trend", 28) # Updated param name and value
         self.rsi_min = params.get("rsi_min", 38)
-        self.rsi_max = params.get("rsi_max", 70)
-        self.pullback_tolerance = params.get("pullback_tolerance", 0.005)  # Relaxed from 0.0025 to 0.005 (0.5%)
+        self.rsi_max = params.get("rsi_pullback_limit", 60) # CHANGED 2026-02: 70 -> 60 (Stricter pullback)
+        self.pullback_tolerance = params.get("pullback_tolerance", 0.005)  
         self.bos_lookback = params.get("bos_lookback", 3)
         self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
-        self.volume_multiplier = params.get("volume_multiplier", 1.3)
+        self.volume_multiplier = params.get("volume_confirmation_mult", 1.1) # CHANGED 2026-02: 1.3 -> 1.1
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""

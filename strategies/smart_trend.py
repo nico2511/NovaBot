@@ -58,12 +58,12 @@ class StrategySmartTrend(BaseStrategy):
         
         # Params from config (with defaults)
         params = self.config.get("params", {})
-        self.rr_ratio = params.get("min_rr", 1.7) # Renamed from min_rr to rr_ratio for consistency
-        self.adx_threshold = params.get("adx_threshold", 28)
-        self.rsi_min = params.get("rsi_min", 38)
+        self.rr_ratio = params.get("min_rr", 1.5) # CHANGED 2026-02: 1.7 -> 1.5
+        self.adx_threshold = params.get("adx_threshold", 20) # CHANGED 2026-02: 28 -> 20
+        self.rsi_min = params.get("rsi_min", 30) # V2 Relaxed
         self.rsi_max = params.get("rsi_max", 70)
-        self.pullback_tolerance = params.get("pullback_tolerance", 0.0025)  # Tightened from 1.0% to 0.25%
-        self.bos_lookback = params.get("bos_lookback", 3)
+        self.pullback_tolerance = params.get("pullback_tolerance", 0.02)  # CHANGED 2026-02: 0.25% -> 2.0% (Large zone)
+        self.bos_lookback = params.get("bos_lookback", 2)
         self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
         self.volume_multiplier = params.get("volume_multiplier", 1.3)
     

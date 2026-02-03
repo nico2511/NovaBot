@@ -45,8 +45,9 @@ class GammaBearVortex(BaseStrategy):
         
         # Trend
         self.ema_visual_period = params.get("ema_visual_period", 50) # Trend Baseline
-        self.adx_min = params.get("adx_min", 25) # Minimum trend strength
-        
+        self.adx_min = params.get("adx_min", 20) # CHANGED 2026-02: 25 -> 20 (Wider Trend)
+        self.rsi_max_oversold = params.get("rsi_max_oversold", 40) # New param: Avoid shorting if RSI < 40 (Oversold)
+
         # Vortex
         self.vortex_period = params.get("vortex_period", 14)
         self.vortex_threshold = params.get("vortex_threshold", 1.05) # VI- must be > 1.05
@@ -60,6 +61,7 @@ class GammaBearVortex(BaseStrategy):
         # OI
         self.require_oi_growth = params.get("require_oi_growth", True)
         self.oi_spike_threshold = params.get("oi_spike_threshold", 0.5) # 0.5% growth
+        self.volume_bear_mult = params.get("volume_bear_mult", 1.2) # New V2 param
         
         # Risk
         self.sl_atr_mult = params.get("sl_atr_mult", 1.5)
@@ -131,6 +133,11 @@ class GammaBearVortex(BaseStrategy):
         # ADX > Min
         if curr['ADX_14'] < self.adx_min: return None
         
+        # New V2 Filter: RSI Oversold Check (Don't short the hole)
+        rsi = ta.rsi(df['close'], length=14).iloc[-2]
+        if rsi < self.rsi_max_oversold: # RSI < 40?
+            return None # Oversold, dangerous to short
+            
         # 2. Trigger: Vortex
         # VI- > VI+ (Bearish) AND VI- > Threshold
         # We want a Fresh Cross or Sustained Strong Mode?
@@ -141,6 +148,18 @@ class GammaBearVortex(BaseStrategy):
         vi_bearish = (curr['VI_neg'] > curr['VI_pos']) and (curr['VI_neg'] > self.vortex_threshold)
         
         if not vi_bearish: return None
+        
+        # New V2 Filter: Volume Confirmation
+        # Bearish Continuation needs Volume?
+        if 'volume' in df.columns:
+            curr_vol = df['volume'].iloc[-2]
+            avg_vol = df['volume'].iloc[-22:-2].mean()
+            if curr_vol < (avg_vol * self.volume_bear_mult):
+                 pass # For now, just a soft check, or should we filter? 
+                 # User spec said "Volume Vendeur Dominant (1.2x)"
+                 # Let's enforce it unless Gamma Pin is active (Low Volatility)
+                 if not (curr['BB_Width'] < self.gamma_pin_width):
+                     return None
         
         # 3. Gamma Pin Logic (The Accelerator)
         # Condition: Low Volatility (Pin) + High ADX = Tension

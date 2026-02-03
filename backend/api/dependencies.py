@@ -1,17 +1,10 @@
-"""
-FastAPI Dependencies for NovaBot API
-Provides dependency injection for bot context and other shared resources
-"""
-from typing import Optional
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
 from backend.bot_bridge import bot_bridge
-
 
 def get_bot_context():
     """
-    Dependency to get bot context from bot_bridge.
-    Strict enforcement: Raises 503 if bot is not connected.
-    Use this for operations that REQUIRE the bot engine.
+    Dependency to get bot context. 
+    Raises 503 if not connected (Bridge not ready or Bot not started).
     """
     if not bot_bridge or not bot_bridge.is_connected():
         raise HTTPException(
@@ -20,13 +13,12 @@ def get_bot_context():
         )
     return bot_bridge.get_bot_context()
 
-
 def get_bot_context_optional():
     """
-    Dependency to get bot context optionally.
-    Returns None if bot is not connected.
-    Use this for operations that can degrade gracefully (e.g. settings).
+    Dependency to get bot context if available, else None.
+    Does NOT raise 503.
     """
     if not bot_bridge or not bot_bridge.is_connected():
         return None
     return bot_bridge.get_bot_context()
+

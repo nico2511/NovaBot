@@ -216,15 +216,15 @@ Market Data:
 Respond ONLY with valid JSON (no markdown) containing:
 - risk_level: (LOW, MEDIUM, HIGH)
 - trend: (BULLISH, BEARISH, NEUTRAL, RANGE)
-- summary: A 2-sentence analysis in FRENCH
-- reasoning: A list of 3 key factors (in FRENCH)
+- summary: A 2-sentence analysis in ENGLISH
+- reasoning: A list of 3 key factors (in ENGLISH)
 
 Example:
 {{
   "risk_level": "MEDIUM",
   "trend": "BULLISH",
-  "summary": "Le marché montre une tendance haussière avec un RSI équilibré. La volatilité reste modérée.",
-  "reasoning": ["RSI à 55 indique un momentum sain", "Prix au-dessus de l'EMA20", "Volume en hausse de 20%"]
+  "summary": "The market shows a bullish trend with balanced RSI. Volatility remains moderate.",
+  "reasoning": ["RSI at 55 indicates healthy momentum", "Price above EMA20", "Volume up 20%"]
 }}
 """
         result = self._call_ai_generic(prompt)
@@ -315,17 +315,19 @@ Approve the signal ONLY if:
 2. Entry price is at a logical technical level (support/resistance, EMA, etc.)
 3. SL/TP placement is reasonable based on market structure
 4. Volume supports the move
-5. RSI is not in extreme territory against the signal direction
-6. Overall risk/reward is favorable
+5. Hard Constraints (e.g. Min R:R) are respected
 
-Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, etc.)
+Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, bad R:R, etc.)
 
 === REQUIRED OUTPUT ===
-Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
+Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
 {{
   "approved": true|false,
   "confidence": <0-100>,
-  "reasoning": "brief 2-3 sentence explanation in FRENCH",
+  "risk_score": <1-10>,
+  "reasoning": "brief 2-3 sentence explanation in ENGLISH",
+  "decisive_factors": ["factor 1", "factor 2"],
+  "rejection_reason_category": "See System Prompt ENUM" | null,
   "risk_level": "LOW|MEDIUM|HIGH",
   "suggested_adjustments": {{
     "sl": <price or null>,
@@ -343,9 +345,63 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
             result = self._call_ai_generic(prompt)
         
         if "error" not in result:
+            # === CODE-LEVEL HARD CONSTRAINTS (Double-Check) ===
+            # We trust, but verify. If AI misses a hard constraint (like R:R), we override it.
+            result = self._enforce_hard_constraints(signal_data, result, config.RISK_PROFILE)
+            
+            # --- LOGGING V2 IMPROVEMENTS ---
+            is_approved = result.get("approved", False)
+            conf = result.get("confidence", 0)
+            reason = result.get("reasoning", "No reasoning")
+            factors = result.get("decisive_factors", [])
+            reject_cat = result.get("rejection_reason_category")
+            
+            log_icon = "✅" if is_approved else "❌"
+            print(f"{log_icon} AI VALIDATION: {symbol} | Conf: {conf}% | {reason[:100]}...")
+            if factors:
+                print(f"   Key Factors: {', '.join(factors[:3])}")
+            if not is_approved and reject_cat:
+                print(f"   Rejection Category: {reject_cat}")
+
             self._set_cache(key, result, ttl_minutes=1)
         
         return result
+
+    def _enforce_hard_constraints(self, signal: Dict[str, Any], ai_result: Dict[str, Any], risk_profile: str) -> Dict[str, Any]:
+        """
+        Mechanically enforce hard constraints (like R:R) to prevent AI hallucinations.
+        """
+        # Only check if AI approved the trade
+        if not ai_result.get("approved"):
+            return ai_result
+            
+        try:
+            from app.core.prompts import RISK_PARAMS_MAP
+            
+            # 1. Check Risk:Reward
+            entry = float(signal.get("price", 0))
+            sl = float(ai_result.get("suggested_adjustments", {}).get("sl") or signal.get("sl", 0))
+            tp = float(ai_result.get("suggested_adjustments", {}).get("tp") or signal.get("tp", 0))
+            
+            if entry > 0 and sl > 0 and tp > 0:
+                risk = abs(entry - sl)
+                reward = abs(tp - entry)
+                
+                if risk > 0:
+                    rr_ratio = reward / risk
+                    min_rr = RISK_PARAMS_MAP.get(risk_profile, {}).get("min_rr", 1.5)
+                    
+                    if rr_ratio < min_rr:
+                        print(f"🛑 [HARD CONSTRAINT] R:R Violation detected! Calculated: {rr_ratio:.2f} < Min: {min_rr}")
+                        ai_result["approved"] = False
+                        ai_result["rejection_reason_category"] = "BAD_RR"
+                        ai_result["reasoning"] = f"CRITICAL: Calculated R:R ({rr_ratio:.2f}) is below minimum requirement ({min_rr}) for {risk_profile}. Trade Rejected."
+                        ai_result["risk_score"] = 9 # Validating a bad R:R is high risk behavior
+        
+        except Exception as e:
+            print(f"⚠️ Failed to verify hard constraints: {e}")
+            
+        return ai_result
     
     def analyze_active_position(
         self,
@@ -421,11 +477,11 @@ Analyze the position and provide:
 NOTE: If BreakEven is already ACTIVE, do NOT recommend moving to BreakEven again.
 
 === REQUIRED OUTPUT ===
-Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
+Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
 {{
   "risk_level": "LOW|MEDIUM|HIGH|CRITICAL",
   "recommendation": "HOLD|TIGHTEN_SL|MOVE_TO_BREAKEVEN|TAKE_PROFIT|CLOSE_NOW",
-  "reasoning": "2-3 sentence explanation in FRENCH",
+  "reasoning": "2-3 sentence explanation in ENGLISH",
   "suggested_sl": <price or null>,
   "suggested_tp": <price or null>,
   "confidence": <0-100>
@@ -452,7 +508,7 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in FRENCH:
         Respond ONLY with valid JSON (no markdown):
         {{
             "sentiment": "BULLISH|BEARISH|NEUTRAL",
-            "summary": "Brief 1-sentence market summary in FRENCH",
+            "summary": "Brief 1-sentence market summary in ENGLISH",
             "key_levels": ["support level", "resistance level"]
         }}
         """

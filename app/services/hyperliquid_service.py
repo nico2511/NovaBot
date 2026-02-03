@@ -487,6 +487,20 @@ class HyperliquidService:
             return self._funding_cache.get("data", {}).get(symbol, 0.0)
 
     @standard_operation
+    def get_open_orders(self, symbol: str = None) -> list:
+        """Get open orders, optionally filtered by symbol"""
+        try:
+            orders = self.info.open_orders(config.HL_ACCOUNT_ADDRESS)
+            if symbol:
+                # Canonicalize symbol
+                symbol = self.get_canonical_symbol(symbol)
+                return [o for o in orders if o["coin"] == symbol]
+            return orders
+        except Exception as e:
+            self.log(f"⚠️ Failed to fetch open orders: {e}")
+            return []
+
+    @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
         try:

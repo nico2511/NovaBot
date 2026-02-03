@@ -19,22 +19,36 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
     try:
         # 1. Try Live Bot Context (for real-time values)
         if bot and hasattr(bot, 'global_settings') and bot.global_settings:
-            live_settings = bot.global_settings.copy()
-            # Ensure notifications are present in the response
-            if "notifications" not in live_settings:
-                settings = storage.storage_service.load_settings()
-                live_settings["notifications"] = settings.get("notifications", {})
-                
-            # Ensure ai_thresholds are present
-            if "ai_thresholds" not in live_settings:
-                 settings = storage.storage_service.load_settings() if 'settings' not in locals() else settings
-                 ai_config = settings.get("ai_config", {})
-                 live_settings["ai_thresholds"] = {
+            # Flatten structure to match GlobalSettingsModel
+            risk = bot.global_settings.get("risk_defaults", {})
+            ops = bot.global_settings.get("operations", {})
+            ai_config = bot.global_settings.get("ai_config", {})
+            notifications = bot.global_settings.get("notifications", {})
+            
+            # Ensure notifications fallback to disk if empty (rare)
+            if not notifications:
+                 settings = storage.storage_service.load_settings()
+                 notifications = settings.get("notifications", {})
+
+            return {
+                "max_positions": risk.get("max_positions", 1),
+                "daily_stop_loss": risk.get("daily_stop_loss", 50.0),
+                "trading_timeframe": ops.get("trading_timeframe", "15m"),
+                "bot_persona": risk.get("bot_persona", "Conservative Scalper"),
+                "risk_profile": risk.get("risk_profile", "Capital Preservation First"),
+                "ai_thresholds": {
                     "high": ai_config.get("conf_threshold_high", 101),
                     "medium": ai_config.get("conf_threshold_medium", 55),
                     "low": ai_config.get("conf_threshold_low", 101)
-                }
-            return live_settings
+                },
+                "available_personas": risk.get("available_personas", ["Conservative Scalper", "Aggressive Day Trader", "Sniper"]),
+                "available_risk_profiles": risk.get("available_risk_profiles", ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]),
+                "default_leverage": risk.get("default_leverage", 1),
+                "default_margin_type": risk.get("default_margin_type", "ISOLATED"),
+                "auto_start_trading": ops.get("auto_start_trading", False),
+                "notifications": notifications
+            }
+
 
         # 2. Read from storage (Source of Truth)
         settings = storage.storage_service.load_settings()
@@ -116,25 +130,17 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
         
         # 2. Update Runtime State (if bot connected)
         if bot:
-            current = getattr(bot, 'global_settings', {})
-            new_settings_dict = settings.model_dump()
+            # Assign the NESTED structure (not the flat model dump)
+            bot.global_settings = full_settings
             
-            # Preserve lists
-            if not new_settings_dict.get('available_personas'):
-                new_settings_dict['available_personas'] = current.get('available_personas', ["Conservative Scalper", "Aggressive Day Trader", "Sniper"])
-                
-            if not new_settings_dict.get('available_risk_profiles'):
-                 new_settings_dict['available_risk_profiles'] = current.get('available_risk_profiles', ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"])
-
-            bot.global_settings = new_settings_dict
             bot.add_log(f"⚙️ Global Settings Updated: Persona={settings.bot_persona}, Risk={settings.risk_profile}")
 
             # 3. Trigger Leverage Sync if needed
             try:
                 from app.services.hyperliquid_service import hyperliquid_service
                 
-                leverage = int(new_settings_dict.get("default_leverage", 1))
-                margin_type = new_settings_dict.get("default_margin_type", "ISOLATED")
+                leverage = int(new_flat.get("default_leverage", 1))
+                margin_type = new_flat.get("default_margin_type", "ISOLATED")
                 is_cross = (margin_type.upper() == "CROSS")
                 symbol = bot.active_symbol
                 

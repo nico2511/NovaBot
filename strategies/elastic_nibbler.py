@@ -86,9 +86,9 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         low = df['low']
         volume = df['volume']
         
-        # Bollinger Bands (20, 3.0) - Note: User asked for 3.0 SD
-        bb_period = self.params.get("bb_period", 20)
-        bb_std = self.params.get("bb_std", 3.0)
+        # Bollinger Bands (20, 2.2) - CHANGED 2026-02: Relaxed 3.0 -> 2.2
+        bb_period = self.params.get("bb_length", 20)
+        bb_std = self.params.get("bb_std", 2.2)
         
         bb_df = ta.bbands(close, length=bb_period, std=bb_std)
         bb_upper = bb_df['BBU']
@@ -118,7 +118,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         lower_band = bb_lower.iloc[-1]
         
         # PARAMS
-        entry_vol_mult = self.params.get("volume_multiplier", 1.8) # Compromise from 2.2 to 1.8
+        entry_vol_mult = self.params.get("volume_multiplier", 1.5) # CHANGED 2026-02: 1.8 -> 1.5
         adx_limit = self.params.get("adx_threshold", 25) # Updated name
         
         # 2. Conditions
@@ -132,13 +132,13 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
             return None
         
         # B. ADX Filter (Skip if trend is too strong)
-        # User said: "Skip si ADX > 25"
+        # User said: "Skip si ADX > 25" -- Keeping 25 as hard limit for Nibbler
         if adx > adx_limit:
             return None
         
         # C. BB Width Filter - Skip dead ranges (Grok Phase 2)
         bb_width_pct = (upper_band - lower_band) / current_close * 100
-        min_bb_width = self.params.get("min_bb_width_pct", 0.7)  # 0.7% minimum (Optimized)
+        min_bb_width = self.params.get("min_bb_width_pct", 0.5)  # CHANGED 2026-02: 0.7 -> 0.5
         if bb_width_pct < min_bb_width:
             return None
         
@@ -146,7 +146,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         # SL reduced to 1.5 (was 1.8), TP increased to 2.0 (was 1.2)
         # User requested 1.4 / 2.2 for final
         sl_atr_mult = self.params.get("sl_atr_mult", 1.4)
-        tp_atr_mult = self.params.get("tp_atr_mult", 2.2)
+        tp_atr_mult = self.params.get("tp_atr_mult", 2.0)
         
         sl_distance = atr * sl_atr_mult
         tp_distance = atr * tp_atr_mult
@@ -158,8 +158,10 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         ]
             
         # D. LONG Setup
-        # Price < BB Lower AND RSI < 24 (Compromise)
-        if current_close < lower_band and current_rsi < 24 and is_vol_spike:
+        # Price < BB Lower AND RSI < 28 (Compromise)
+        # CHANGED 2026-02: RSI 24 -> 28
+        rsi_min = self.params.get("rsi_min", 28)
+        if current_close < lower_band and current_rsi < rsi_min and is_vol_spike:
             sl_price = current_close - sl_distance
             tp_price = current_close + tp_distance
             return {
@@ -168,7 +170,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
                 "sl": sl_price,
                 "tp": tp_price,
                 "metadata": {
-                    "reason": f"BB Breakout (Low) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
+                    "reason": f"BB Breakout (Low V2) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
                     "adx": adx,
                     "atr": atr,
                     "bb_width": bb_width_pct,
@@ -177,8 +179,10 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
             }
             
         # E. SHORT Setup
-        # Price > BB Upper AND RSI > 76 (Compromise)
-        if current_close > upper_band and current_rsi > 76 and is_vol_spike:
+        # Price > BB Upper AND RSI > 72 (Compromise)
+        # CHANGED 2026-02: RSI 76 -> 72
+        rsi_max = self.params.get("rsi_max", 72)
+        if current_close > upper_band and current_rsi > rsi_max and is_vol_spike:
             sl_price = current_close + sl_distance
             tp_price = current_close - tp_distance
             return {
@@ -187,7 +191,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
                 "sl": sl_price,
                 "tp": tp_price,
                 "metadata": {
-                    "reason": f"BB Breakout (High) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
+                    "reason": f"BB Breakout (High V2) + RSI {current_rsi:.1f} + Vol {current_vol/current_vol_avg:.1f}x",
                     "adx": adx,
                     "atr": atr,
                     "bb_width": bb_width_pct,

@@ -93,16 +93,11 @@ class ElasticReversionStrategy(BaseStrategy):
             
             if pd.isna(p_ema) or pd.isna(p_rsi): return None
             
-            # GUARD CLAUSE: Elasticity limit (ADX < 50)
-            # We want to catch extension, but not stand in front of a freight train (ADX > 50)
+            # GUARD CLAUSE: Elasticity limit (ADX < 60)
+            # CHANGED 2026-02: Relaxed 50 -> 60
             if 'ADX_14' in df.columns:
                 current_adx = df['ADX_14'].iloc[-2]
-            # GUARD CLAUSE: Elasticity limit (ADX < 50)
-            # We want to catch extension, but not stand in front of a freight train (ADX > 50)
-            if 'ADX_14' in df.columns:
-                current_adx = df['ADX_14'].iloc[-2]
-                if current_adx > 50:
-                    # Note: adx_threshold renamed from adx_limit for standardization
+                if current_adx > 60:
                     return None  # Trend too strong (Runaway), skip mean reversion
 
             # ==========================================
@@ -110,13 +105,15 @@ class ElasticReversionStrategy(BaseStrategy):
             # ==========================================
             
             # Short Setup (Overbought)
-            # RSI > 80 AND Price > EMA + 4%
-            is_setup_short = (p_rsi > params.get("overbought_rsi", 76)) and \
+            # RSI > 75 AND Price > EMA + 4%
+            # CHANGED 2026-02: RSI 76 -> 75
+            is_setup_short = (p_rsi > params.get("overbought_rsi", 75)) and \
                              (p_close > p_ema * (1 + ext_pct))
             
             # Long Setup (Oversold)
-            # RSI < 20 AND Price < EMA - 4%
-            is_setup_long = (p_rsi < params.get("oversold_rsi", 24)) and \
+            # RSI < 25 AND Price < EMA - 4%
+            # CHANGED 2026-02: RSI 24 -> 25
+            is_setup_long = (p_rsi < params.get("oversold_rsi", 25)) and \
                             (p_close < p_ema * (1 - ext_pct))
 
             # Logging Setups (Debug / Info)
@@ -158,9 +155,11 @@ class ElasticReversionStrategy(BaseStrategy):
                 rr_ratio = reward / risk
                 
                 # RSI Delta Check (momentum filter)
-                rsi_delta = self.get_rsi_delta(df)
-                
-                if rr_ratio >= params.get("min_rr", 1.5):
+                rsi_delta = df[rsi_col].iloc[-1] - df[rsi_col].iloc[-2] # Simplified delta
+
+                # Min RR 1.3 (Relaxed from 1.5)
+                # CHANGED 2026-02: 1.5 -> 1.3
+                if rr_ratio >= params.get("min_rr", 1.3):
                     # Soft Entry: Prefer RSI Delta < 0 for Short (Momentum turning down)
                     # But since this is Reversion, simply repassing < 75 is the main trigger.
                     # We can use Delta for commentary.

@@ -35,6 +35,7 @@ try:
     logger.info("📦 Importing Core Components...")
     from app.core.config import config
     from app.core.bot import BotContext
+
     from backend.api.main import app
     from backend.bot_bridge import bot_bridge
     

@@ -55,11 +55,11 @@ class ScalpEmaRsi(BaseStrategy):
         
         if trend_col not in df.columns or atr_col not in df.columns: return None
         
-        # GUARD CLAUSE: Trend Following only in Trend (ADX > 25)
-        # STRICTER: 25 -> 28 if desired, sticking to 25 for now but strictly enforced
+        # GUARD CLAUSE: Trend Following only in Trend (ADX > 20)
+        # CHANGED 2026-02: Relaxed 25 -> 20
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
-            if current_adx < 25:
+            if current_adx < 20: 
                 return None  # No trend, skip trend following strategy
 
         # Values (Use iloc[-2] for signal stability / avoiding repainting)
@@ -73,7 +73,7 @@ class ScalpEmaRsi(BaseStrategy):
         
         # Calculate Slope (Simple percent change)
         trend_slope = (current_trend - prev_trend) / prev_trend * 100
-        min_slope = params.get("min_trend_slope", 0.01) # Minimum 0.01% slope required
+        min_slope = params.get("min_trend_slope", 0.005) # CHANGED 2026-02: Relaxed 0.01 -> 0.005
         
         current_rsi = df[rsi_col].iloc[-2]
         close = df['close'].iloc[-2] # Closed price of previous candle
@@ -89,13 +89,14 @@ class ScalpEmaRsi(BaseStrategy):
         if is_bullish_cross:
             # Additional Filters (Optimized 2026)
             if close > current_trend and trend_slope > min_slope:  # Above 200 EMA AND Slope Positive
-                # Asymmetric RSI Bull: 52 - 68
-                if 52 < current_rsi < 68:  
+                # Asymmetric RSI Bull: 50 - 75 (Widened)
+                # CHANGED 2026-02: 52-68 -> 50-75
+                if 50 < current_rsi < 75:  
                     # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * params.get("volume_multiplier", 1.5):
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15): # CHANGED 2026-02: 1.5 -> 1.15
                             return None  # Insufficient volume
                     
                     # Check RR
@@ -107,12 +108,12 @@ class ScalpEmaRsi(BaseStrategy):
                     risk = abs(close - sl)
                     reward = abs(tp - close)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.5):
+                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.4): # CHANGED 2026-02: 1.5 -> 1.4
                         return {
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": f"EMA Bullish Cross (Strict V2) + Vol {params.get('volume_multiplier', 1.5)}x"
+                            "comment": f"EMA Bullish Cross (V2026 Refacto) + Vol {params.get('volume_multiplier', 1.15)}x"
                         }
                 
         # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
@@ -120,13 +121,14 @@ class ScalpEmaRsi(BaseStrategy):
         
         if is_bearish_cross:
             if close < current_trend and trend_slope < -min_slope:  # Below 200 EMA AND Slope Negative
-                # Asymmetric RSI Bear: 32 - 48
-                if 32 < current_rsi < 48:
+                # Asymmetric RSI Bear: 25 - 50 (Widened)
+                # CHANGED 2026-02: 32-48 -> 25-50
+                if 25 < current_rsi < 50:
                     # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * params.get("volume_multiplier", 1.5):
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15): # CHANGED 2026-02
                             return None  # Insufficient volume
                     
                     # Check RR
@@ -137,12 +139,12 @@ class ScalpEmaRsi(BaseStrategy):
                     risk = abs(sl - close)
                     reward = abs(close - tp)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.5):
+                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.4): # CHANGED 2026-02
                         return {
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": f"EMA Bearish Cross (Strict V2) + Vol {params.get('volume_multiplier', 1.5)}x"
+                            "comment": f"EMA Bearish Cross (V2026 Refacto) + Vol {params.get('volume_multiplier', 1.15)}x"
                         }
         
         return None

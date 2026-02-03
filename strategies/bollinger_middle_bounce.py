@@ -50,10 +50,10 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
         self.ema_trend_short = self.params.get("ema_trend_short", 20)
         self.ema_trend_long = self.params.get("ema_trend_long", 50)
         
-        self.adx_threshold = self.params.get("adx_threshold", 25)
+        self.adx_threshold = self.params.get("adx_threshold", 20) # CHANGED 2026-02: 25 -> 20
         self.rsi_min = self.params.get("rsi_min", 40)
         
-        self.min_rr = self.params.get("min_rr", 1.8)
+        self.min_rr = self.params.get("min_rr", 1.5) # CHANGED 2026-02: 1.8 -> 1.5
         
         # NEW: sl_buffer_pct for dynamic SL calculation
         self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.008)  # 0.8% default
@@ -142,9 +142,10 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
                 is_green = df['close'].iloc[-1] > df['open'].iloc[-1]
                 closes_above_mb = current_price > current_mb
                 
-                # Check recent touch (current or prev candle low touched MB)
-                # Allow a small buffer (0.1% or similar) or strict crossover
-                recent_touch = (df['low'].iloc[-1] <= current_mb * 1.001) or (prev_low <= prev_mb * 1.001)
+                # Check recent touch (current or prev candle low touched/near MB)
+                # Relaxed from 0.1% to 0.6% proximity to allow near-touches
+                # CHANGED 2026-02: 1.001 -> 1.006
+                recent_touch = (df['low'].iloc[-1] <= current_mb * 1.006) or (prev_low <= prev_mb * 1.006)
                 
                 if is_green and closes_above_mb and recent_touch and volume_ok:
                      if rsi > self.rsi_min:

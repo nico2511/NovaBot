@@ -56,8 +56,8 @@ class SmartMeanReversionStrategy(BaseStrategy):
         # df[f'ROC_{roc_len}'] = ta.roc(df['close'], length=roc_len)
         df[f'ROC_{roc_len}'] = df['close'].pct_change(periods=roc_len) * 100
         
-        # Bollinger Bands
-        bb = ta.bbands(df['close'], length=bb_len, std=bb_std)
+        # Bollinger Bands (Expanded for V2)
+        bb = ta.bbands(df['close'], length=bb_len, std=2.2) # CHANGED 2026-02: 2.0 -> 2.2 std
         if bb is not None:
              df['BBL'] = bb['BBL'] # Lower
              df['BBM'] = bb['BBM'] # Middle (Basis)
@@ -83,21 +83,25 @@ class SmartMeanReversionStrategy(BaseStrategy):
         
         # Regime (ADX)
         params = self.config.get("params", {})
-        adx_threshold = params.get("adx_threshold", 25)
+        adx_threshold = params.get("adx_max_range", 22) # CHANGED 2026-02: 25 -> 22 (Range Only)
         if 'ADX_14' in df.columns:
             adx = df['ADX_14'].iloc[-2]
-            if adx < adx_threshold:  # Weak trend - use config threshold
+            if adx > adx_threshold:  # Strong trend filter - we want RANGE
                 return None
                 
         # Price Action
         close = df['close'].iloc[-2]
         open_p = df['open'].iloc[-2]
         
-        # === LONG DIP ===
-        # 1. Trend Filter: Above EMA 200 AND EMA 50
-        if close > ema_200 and close > ema_50:
-            # 2. RSI "Recharge" Zone (40-55) - Not oversold yet, just cooling off
-            if 40 <= rsi <= 55:
+        # === LONG DIP (Reversion from Bottom) ===
+        # 1. Price < Bollinger Lower
+        bb_lower = df['BBL'].iloc[-2]
+        bb_check = close < bb_lower
+        
+        if bb_check:
+            # 2. RSI Extreme Oversold (28-40) - Catching the bottom
+            # CHANGED 2026-02: 40-55 -> 28-72 logic
+            if 20 <= rsi <= 35: # Oversold but not dead
                 # 3. Trigger: Green Candle (Close > Open) indicating support found
                 if close > open_p:
                     # Volume Filter
@@ -123,34 +127,38 @@ class SmartMeanReversionStrategy(BaseStrategy):
                         "comment": f"Trend Dip Buy (RSI {rsi:.1f}, >EMA200)"
                     }
 
-        # === SHORT RALLY (Dip in downtrend) ===
-        # 1. Trend Filter: Below EMA 200 AND EMA 50
-        if close < ema_200 and close < ema_50:
-            # 2. RSI "Recharge" Zone (45-60)
-            if 45 <= rsi <= 60:
+        # === SHORT RALLY (Reversion from Top) ===
+        # 1. Price > Bollinger Upper
+        bb_upper = df['BBU'].iloc[-2]
+        bb_check = close > bb_upper
+        
+        if bb_check:
+            # 2. RSI Extreme Overbought (65-80)
+            if 65 <= rsi <= 80:
                 # 3. Trigger: Red Candle
                 if close < open_p:
-                    # Volume Filter
+                    # Volume Filter: Reversion needs exhaustion (lower vol on rally) or spike (climax)?
+                    # Climax usually better.
                     volume_multiplier = params.get("volume_multiplier", 1.3)
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if avg_vol > 0 and current_vol < avg_vol * volume_multiplier:
-                            return None
+                        if avg_vol > 0 and current_vol < avg_vol * 1.0: # Relaxed vol check for reversion
+                            pass # Accept regular volume
                     
                     # SL: Recent Swing High with buffer
                     sl_buffer_pct = params.get("sl_buffer_pct", 0.008)
                     sl_base = df['high'].iloc[-5:-1].max()
                     sl = sl_base * (1 + sl_buffer_pct)
                     
-                    min_rr = params.get("min_rr", 1.5)
+                    min_rr = params.get("min_rr", 1.3) # CHANGED 2026-02: 1.5 -> 1.3 (Reversion has lower RR)
                     tp = close - (abs(sl - close) * min_rr)
                     
                     return {
                         "signal": "SELL",
                         "sl": sl,
                         "tp": tp,
-                        "comment": f"Trend Rally Short (RSI {rsi:.1f}, <EMA200)"
+                        "comment": f"Mean Reversion Short (RSI {rsi:.1f}, >BB Upper)"
                     }
             
         return None
