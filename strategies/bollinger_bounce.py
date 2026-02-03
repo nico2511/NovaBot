@@ -282,8 +282,8 @@ class BollingerBounceStrategy(BaseStrategy):
                 "status": s2_status,
                 "details": s2_details,
                  "metrics": {
-                    "dist_lower": {"value": round(current_price - lower_trigger_zone, 2), "threshold": 0, "op": "<"},
-                    "dist_upper": {"value": round(upper_trigger_zone - current_price, 2), "threshold": 0, "op": "<"}
+                    "dist_lower": {"value": round(current_price - lower_trigger_zone, 4), "threshold": 0, "op": "<"},
+                    "dist_upper": {"value": round(upper_trigger_zone - current_price, 4), "threshold": 0, "op": "<"}
                 }
             })
             
