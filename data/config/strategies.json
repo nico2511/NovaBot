@@ -228,12 +228,15 @@
         "timeframe": "15m",
         "params": {
             "adx_threshold": 20,
-            "pullback_tolerance": 0.02,
+            "pullback_tolerance": 0.025,
             "volume_multiplier": 1.3,
-            "min_rr": 1.5,
+            "min_rr": 3.0,
             "ema_fast": 9,
             "ema_slow": 21,
-            "ema_trend": 50
+            "ema_trend": 50,
+            "sl_atr_mult": 2.0,
+            "rsi_min": 20,
+            "rsi_max": 70
         },
         "display_conditions": [
             "EMA_21",
