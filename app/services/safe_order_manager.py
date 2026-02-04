@@ -29,24 +29,13 @@ class SafeOrderManager:
         if not symbol:
             return False
 
-        # 1. Check existing orders (Fetch ALL to debug filtering)
-        all_open_orders = self.hl.get_open_orders()
-        
-        # DEBUG: Log purely to see what we are getting
-        self.logger.info(f"🔍 DEBUG: All Open Orders: {len(all_open_orders)} found.") 
-        
-        # Filter manually to see if get_open_orders filtering was the issue
-        open_orders = [o for o in all_open_orders if o.get("coin") == symbol]
-        
-        if not open_orders:
-             self.logger.info(f"🔍 DEBUG: No orders found for {symbol} (Canonical check failed?)")
+        # 1. Check existing orders
+        open_orders = self.hl.get_open_orders(symbol)
         
         has_sl = False
         has_tp = False
         
         for o in open_orders:
-            # DEBUG: Dump the full order to see keys
-            self.logger.info(f"🔍 FULL ORDER DUMP: {o}")
             
             # Check both 'orderType' (API) and 'order_type' (SDK/Mock)
             order_type = o.get("orderType") or o.get("order_type") or {}
