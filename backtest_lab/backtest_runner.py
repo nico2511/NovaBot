@@ -16,124 +16,114 @@ except AttributeError:
 
 from backtesting import Backtest, Strategy
 
-# === STRATEGY: Institutional Scalp ===
-class InstitutionalScalpBacktest(Strategy):
+# === STRATEGY: Elastic Nibbler ===
+class ElasticNibblerBacktest(Strategy):
     # Params
-    lookback = 20
+    bb_period = 20
+    bb_std = 2.2 # Strategy Default
     
     # Optimization Ranges
-    volume_multiplier = 1.25
-    wick_ratio = 0.35
-    min_rr = 1.2
-    sl_atr_mult = 0.5
-    adx_limit = 60
+    rsi_min = 28
+    rsi_max = 72
+    adx_threshold = 25
+    volume_multiplier = 1.5
+    sl_atr_mult = 1.4
+    tp_atr_mult = 2.0
     
+    # Logic
+    min_bb_width_pct = 0.5
+
     def init(self):
-        # We need to manually track rolling window for recent High/Low
-        # backtesting library 'self.data' is full series, but we access via [-1]
         pass
-        
+
     def next(self):
         if len(self.data) < 50: return
 
-        # Current Candle
+        # Indicators
         price = self.data.Close[-1]
         high = self.data.High[-1]
         low = self.data.Low[-1]
-        open_ = self.data.Open[-1]
         
-        # Lookback Window (excluding current)
-        # We need recent High/Low from [-lookback-1 : -1]
-        # self.data.High returns np array
-        highs = self.data.High[-self.lookback-1 : -1]
-        lows = self.data.Low[-self.lookback-1 : -1]
+        # BB
+        bb_upper = self.data.BBU[-1]
+        bb_lower = self.data.BBL[-1]
+        bb_width_pct = (bb_upper - bb_lower) / price * 100
         
-        recent_high = max(highs)
-        recent_low = min(lows)
+        # Dead Market Filter
+        if bb_width_pct < self.min_bb_width_pct: return
         
         # ADX Safety
         adx = self.data.ADX[-1]
-        if adx > self.adx_limit: return
+        if adx > self.adx_threshold: return
         
-        # Atr
+        # RSI
+        rsi = self.data.RSI[-1]
+        
+        # ATR
         atr = self.data.ATR[-1]
         
-        # Volume Check
+        # Volume
         try:
              vol = self.data.Volume[-1]
              vol_avg = self.data.Vol_Avg[-1]
         except:
              vol = 0
              vol_avg = 0
+             
+        # Volume Validation
+        # Spike > ratio AND not > 5x (panic but not cataclysmic)
+        if vol_avg == 0: return
+        vol_ratio = vol / vol_avg
+        is_vol_spike = (vol_ratio > self.volume_multiplier) and (vol_ratio < 5.0)
         
-        # We need Volume Spike ON THE TRIGGER CANDLE (Current)
-        # Use completed candle logic? backtesting 'next' runs on confirmed candle usually.
-        # But if we treat [-1] as "Just Closed", we compare vol[-1] to avg.
-        
-        volume_ok = True
-        if vol_avg > 0 and vol < vol_avg * self.volume_multiplier:
-            volume_ok = False
-            
-        # Candle Stats
-        candle_range = high - low
-        if candle_range == 0: return
-        
-        upper_wick = (high - max(price, open_)) / candle_range
-        lower_wick = (min(price, open_) - low) / candle_range
-        
-        # === BULLISH GRAB ===
-        # 1. Sweep Low: Low < Recent Low
-        # 2. Close Back Inside: Close > Recent Low
-        if low < recent_low and price > recent_low:
-             # 3. Wick Rejection
-             if lower_wick >= self.wick_ratio:
-                 # 4. Volume Spike
-                 if volume_ok:
-                     # Entry
-                     sl = low - (self.sl_atr_mult * atr)
-                     tp = price + (2.0 * atr) 
-                     
-                     # Check RR
-                     risk = price - sl
-                     reward = tp - price
-                     if risk > 0 and (reward/risk) >= self.min_rr:
-                         if not self.position:
-                             self.buy(sl=sl, tp=tp)
+        if not is_vol_spike: return
 
-        # === BEARISH GRAB ===
-        # 1. Sweep High: High > Recent High
-        # 2. Close Back Below: Close < Recent High
-        elif high > recent_high and price < recent_high:
-            # 3. Wick Rejection
-            if upper_wick >= self.wick_ratio:
-                # 4. Volume Spike
-                if volume_ok:
-                    # Entry
-                    sl = high + (self.sl_atr_mult * atr)
-                    tp = price - (2.0 * atr)
-                    
-                    risk = sl - price
-                    reward = price - tp
-                    if risk > 0 and (reward/risk) >= self.min_rr:
-                         if not self.position:
-                             self.sell(sl=sl, tp=tp)
+        # === LONG SETUP ===
+        # Price < BB Lower AND RSI Low
+        if price < bb_lower:
+            if rsi < self.rsi_min:
+                # Entry
+                sl = price - (self.sl_atr_mult * atr)
+                tp = price + (self.tp_atr_mult * atr) 
+                
+                if not self.position:
+                    self.buy(sl=sl, tp=tp)
+
+        # === SHORT SETUP ===
+        # Price > BB Upper AND RSI High
+        elif price > bb_upper:
+            if rsi > self.rsi_max:
+                # Entry
+                sl = price + (self.sl_atr_mult * atr)
+                tp = price - (self.tp_atr_mult * atr)
+                
+                if not self.position:
+                    self.sell(sl=sl, tp=tp)
 
 
 def prepare_data(df):
-    print("🧹 Preparing 15m Data for Institutional Scalp...")
-    df_15m = df.resample('15min').agg({
+    print("🧹 Preparing 1m Data for Elastic Nibbler (Scalp)...")
+    # Elastic Nibbler is 1m or 5m. Strategy defaults say 1m/5m. 
+    # Let's test on 5m for better noise filtering, or strict 1m?
+    # User data is 1m CSV.
+    # Resample to 5m?
+    df_tf = df.resample('5min').agg({
         'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
     }).dropna()
     
     # Indicators
-    df_15m['ATR'] = ta.atr(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)
-    df_15m['ADX'] = ta.adx(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)['ADX_14']
-    df_15m['Vol_Avg'] = ta.sma(df_15m['Volume'], length=20)
+    df_tf.ta.bbands(length=20, std=2.2, append=True) # Note: std 2.2 as per Strategy
+    df_tf.rename(columns={'BBL_20_2.2': 'BBL', 'BBM_20_2.2': 'BBM', 'BBU_20_2.2': 'BBU'}, inplace=True)
     
-    return df_15m.dropna()
+    df_tf['ATR'] = ta.atr(df_tf['High'], df_tf['Low'], df_tf['Close'], length=14)
+    df_tf['ADX'] = ta.adx(df_tf['High'], df_tf['Low'], df_tf['Close'], length=14)['ADX_14']
+    df_tf['RSI'] = ta.rsi(df_tf['Close'], length=14)
+    df_tf['Vol_Avg'] = ta.sma(df_tf['Volume'], length=50)
+    
+    return df_tf.dropna()
 
 def run():
-    print("🚀 Starting Backtest: Institutional Scalp...")
+    print("🚀 Starting Backtest: Elastic Nibbler...")
     
     data_path = "data/BTC_1m.csv"
     if not os.path.exists(data_path):
@@ -144,17 +134,18 @@ def run():
     df_strategy = prepare_data(df)
     
     try:
-        bt = Backtest(df_strategy, InstitutionalScalpBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
+        bt = Backtest(df_strategy, ElasticNibblerBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
     except TypeError:
-        bt = Backtest(df_strategy, InstitutionalScalpBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
+        bt = Backtest(df_strategy, ElasticNibblerBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
         
-    print("🧬 Optimizing Institutional Scalp...")
+    print("🧬 Optimizing Elastic Nibbler...")
     stats = bt.optimize(
-        wick_ratio=[0.25, 0.3, 0.35, 0.4, 0.45],
-        volume_multiplier=[1.0, 1.25, 1.5, 2.0],
-        sl_atr_mult=[0.3, 0.5, 0.8, 1.0],
-        min_rr=[1.0, 1.2, 1.5, 2.0],
-        lookback=[10, 20, 30, 50],
+        rsi_min=[20, 24, 28, 32],
+        rsi_max=[68, 72, 76, 80],
+        adx_threshold=[20, 25, 30],
+        sl_atr_mult=[1.0, 1.4, 1.8],
+        tp_atr_mult=[1.5, 2.0, 2.5],
+        volume_multiplier=[1.2, 1.5, 1.8, 2.0],
         maximize='Profit Factor',
         max_tries=50,
         random_state=42

@@ -34,12 +34,12 @@
             "bb_period": 20,
             "bb_std": 2.2,
             "rsi_period": 14,
-            "rsi_overbought": 72,
-            "rsi_oversold": 28,
-            "tp_atr_mult": 1.5,
-            "sl_atr_mult": 1.0,
+            "rsi_overbought": 68,
+            "rsi_oversold": 32,
+            "tp_atr_mult": 2.5,
+            "sl_atr_mult": 1.4,
             "adx_threshold": 25,
-            "volume_multiplier": 1.5,
+            "volume_multiplier": 2.0,
             "pullback_tolerance": 0.012
         },
         "display_conditions": [

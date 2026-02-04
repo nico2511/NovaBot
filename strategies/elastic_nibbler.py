@@ -118,7 +118,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         lower_band = bb_lower.iloc[-1]
         
         # PARAMS
-        entry_vol_mult = self.params.get("volume_multiplier", 1.5) # CHANGED 2026-02: 1.8 -> 1.5
+        entry_vol_mult = self.params.get("volume_multiplier", 2.0) # OPTIMIZED: 1.5 -> 2.0
         adx_limit = self.params.get("adx_threshold", 25) # Updated name
         
         # 2. Conditions
@@ -145,8 +145,8 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         # ATR-based SL/TP (Grok Phase 3 - Improved R:R)
         # SL reduced to 1.5 (was 1.8), TP increased to 2.0 (was 1.2)
         # User requested 1.4 / 2.2 for final
-        sl_atr_mult = self.params.get("sl_atr_mult", 1.4)
-        tp_atr_mult = self.params.get("tp_atr_mult", 2.0)
+        sl_atr_mult = self.params.get("sl_atr_mult", 1.4) # OPTIMIZED: 1.4
+        tp_atr_mult = self.params.get("tp_atr_mult", 2.5) # OPTIMIZED: 2.5
         
         sl_distance = atr * sl_atr_mult
         tp_distance = atr * tp_atr_mult
@@ -160,7 +160,7 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         # D. LONG Setup
         # Price < BB Lower AND RSI < 28 (Compromise)
         # CHANGED 2026-02: RSI 24 -> 28
-        rsi_min = self.params.get("rsi_min", 28)
+        rsi_min = self.params.get("rsi_min", 32) # OPTIMIZED: 32
         if current_close < lower_band and current_rsi < rsi_min and is_vol_spike:
             sl_price = current_close - sl_distance
             tp_price = current_close + tp_distance

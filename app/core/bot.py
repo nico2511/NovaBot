@@ -1445,7 +1445,25 @@ class BotContext:
                     self.add_log("🔄 Triggering Daily PnL Sync Task...")
                     def sync_pnl():
                         try:
+                            # 1. Dynamic PnL Log
                             hyperliquid_service.get_daily_pnl()
+                            
+                            # 2. Daily Snapshot
+                            acc = hyperliquid_service.get_account_balance()
+                            equity = float(acc.get("total_equity", 0)) if acc.get("status") == "success" else 0
+                            
+                            if equity > 0:
+                                today_str = pd.Timestamp.now(tz='UTC').strftime("%Y-%m-%d")
+                                snapshots = storage_service.load_pnl_snapshot()
+                                
+                                if today_str not in snapshots:
+                                    snapshots[today_str] = {
+                                        "start_value": equity,
+                                        "timestamp": pd.Timestamp.now(tz='UTC').isoformat()
+                                    }
+                                    storage_service.save_pnl_snapshot(snapshots)
+                                    self.add_log(f"📸 Daily Snapshot Saved: ${equity:.2f}")
+
                         except Exception as e:
                             self.add_log(f"⚠️ PnL Sync Error: {e}")
                     
