@@ -70,37 +70,27 @@ class SafeOrderManager:
                 if isinstance(root_trigger, dict):
                     tpsl = root_trigger.get("tpsl")
             
-            # Case 4: Recursive search in keys (Last Resort Debugging)
-            if not tpsl:
-                if "tpsl" in str(o).lower():
-                     self.logger.info(f"⚠️ FOUND TPSL IN STRING BUT NOT PARSED: {o}")
+            # Case 4: Text-based check (Effective for frontend_open_orders which returns strings)
+            if not tpsl and isinstance(order_type, str):
+                if "Stop" in order_type:
+                    tpsl = "sl"
+                elif "Take Profit" in order_type:
+                    tpsl = "tp"
 
             # --- FALLBACK: Infer from reduceOnly + Price ---
             if not tpsl and o.get("reduceOnly"):
-                # If it's reduceOnly, it's likely a TP/SL or a manual close
-                # Let's try to guess based on price if we have position info
-                # access entry_price from somewhere? We passed 'position' to ensure_sl_tp but iterating orders here.
-                # We can't perfectly know without position context, BUT we can assume:
-                # If we have 2 reduceOnly orders, one is likely SL and one TP.
-                
-                # Check limit price
+                # If we still haven't identified it but it's reduceOnly, assume it's protection
                 limit_px = float(o.get("limitPx", 0) or o.get("triggerPx", 0) or 0)
                 
-                # We need context of the current position to know which is which
-                # But for now, let's just count them as valid protection to STOP THE LOOP
-                # We can refine later.
                 if not has_sl: # Assign to SL first
                     tpsl = "sl"
-                    self.logger.info(f"⚠️ Inferring SL from reduceOnly order {o.get('oid')}")
                 elif not has_tp: # Then TP
                     tpsl = "tp" 
-                    self.logger.info(f"⚠️ Inferring TP from reduceOnly order {o.get('oid')}")
             
             if tpsl == "sl": has_sl = True
             if tpsl == "tp": has_tp = True
         
         if has_sl and has_tp:
-            self.logger.info(f"✅ Position {symbol} is safe (SL={has_sl}, TP={has_tp}) via inference.")
             return False # Already safe
         
         if has_sl and has_tp:
