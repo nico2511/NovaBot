@@ -105,7 +105,7 @@ class StorageService:
             Dict containing the JSON data, or default if error
         """
         if not filepath.exists():
-            logger.warning(f"⚠️ File not found: {filepath.name}, using default")
+            logger.info(f"ℹ️ File not found: {filepath.name}, using default")
             return default if default is not None else {}
         
         try:

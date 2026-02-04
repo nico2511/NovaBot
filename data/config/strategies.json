@@ -81,10 +81,12 @@
         "params": {
             "bb_period": 20,
             "bb_std": 2.0,
-            "adx_threshold": 22,
+            "adx_threshold": 30,
             "rsi_neutral_min": 35,
             "rsi_neutral_max": 65,
-            "min_rr": 1.5,
+            "min_rr": 1.3,
+            "sl_atr_mult": 0.5,
+            "kill_zone_percent": 0.20,
             "rejection_wick_pct": 0.35
         },
         "display_conditions": [

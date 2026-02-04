@@ -37,23 +37,23 @@ class BollingerBounceStrategy(BaseStrategy):
     def __init__(self, config=None):
         super().__init__(config)
         self.bb_period = self.params.get("bb_period", 20)
-        self.bb_std = self.params.get("bb_std", 2.15)  # Match strategies.json
+        self.bb_std = self.params.get("bb_std", 2.0)  # Match strategies.json
         
         # --- Config Params ---
-        self.adx_threshold = self.params.get("adx_threshold", 22)  # CHANGED 2026-02: 25 -> 22 (More strict range)
+        self.adx_threshold = self.params.get("adx_threshold", 30)  # OPTIMIZED 2026-02: 30
         self.adx_period = self.params.get("adx_period", 14)
         
         self.ema50_slope_threshold = self.params.get("ema50_slope_threshold", 0.008)  # Match strategies.json 
         
         self.atr_period = self.params.get("atr_period", 14)
-        self.min_rr = self.params.get("min_rr", 1.3)  # CHANGED 2026-02: 1.5 -> 1.3
+        self.min_rr = self.params.get("min_rr", 1.3)  # OPTIMIZED 2026-02: 1.3
         
         # New Params
-        self.kill_zone_percent = self.params.get("kill_zone_percent", 0.16)
+        self.kill_zone_percent = self.params.get("kill_zone_percent", 0.20) # OPTIMIZED 2026-02: 0.20
         # Reduced candle size requirement slightly
-        self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.0) # CHANGED 2026-02: 1.1 -> 1.0
+        self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.0) 
         self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
-        self.sl_atr_mult = self.params.get("sl_atr_mult", 0.8) # Relaxed SL
+        self.sl_atr_mult = self.params.get("sl_atr_mult", 0.5) # OPTIMIZED 2026-02: 0.5 (Tight Sniper)
     
     def is_ranging(self, df: pd.DataFrame) -> tuple[bool, str]:
         """

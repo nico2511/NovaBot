@@ -1,162 +1,187 @@
 
+import pandas as pd
 import sys
 import os
-import pandas as pd
-from backtesting import Backtest, Strategy
-from backtesting.lib import resample_apply
+import importlib.metadata # Attempt to fix attribute error
 
-# PATCH: Fix pandas-ta importlib.metadata issue in Python 3.10+
-import importlib
+# Add project root to path
+sys.path.append(os.getcwd())
+
 try:
-    import importlib.metadata
-except ImportError:
-    pass
+    import pandas_ta as ta
+except AttributeError:
+    # Fallback for Python 3.12 issue with pandas_ta
+    print("⚠️ Pandas TA import issue detected. Continuing...")
+    import pandas_ta as ta
 
-if not hasattr(importlib, 'metadata'):
-    importlib.metadata = importlib.metadata
+from backtesting import Backtest, Strategy
 
-import pandas_ta as ta
-
-# Add project root to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-class SmartTrendBacktest(Strategy):
-    # Public parameters for optimization
-    ema_fast = 21
-    ema_slow = 50
-    rsi_min = 30
-    rsi_max = 70
-    pullback_tolerance = 0.02
-    rr_ratio = 1.5
-    sl_atr_mult = 0.35
-    volume_multiplier = 1.3
+# === STRATEGY: Bollinger Bounce ===
+class BollingerBounceBacktest(Strategy):
+    # Params
+    bb_period = 20
+    bb_std = 2.0 # Match JSON default
+    adx_period = 14
+    atr_period = 14
     
+    # Optimization Ranges
+    adx_threshold = 22
+    min_rr = 1.3
+    sl_atr_mult = 0.8
+    kill_zone_percent = 0.16
+    min_candle_atr_mult = 1.0
+    volume_multiplier = 1.2
+    
+    # RSI filters
+    rsi_oversold = 35
+    rsi_overbought = 65
+    
+    # Slope
+    ema50_slope_max = 0.008
+
     def init(self):
-        # All indicators are pre-calculated in prepare_data
-        # We access them via self.data.ColumnName in next()
         pass
 
     def next(self):
-        if len(self.data) < 100: return
+        # Need history
+        if len(self.data) < 60: return
 
-        # Access Pre-Calc Indicators directly
-        ema21 = self.data.EMA_21_15m[-1]
-        ema50 = self.data.EMA_50_15m[-1]
-        rsi15 = self.data.RSI_15m[-1]
-        atr15 = self.data.ATR_15m[-1]
-        rsi1 = self.data.RSI_1m[-1] # New column we need to add
-        # Reconstruct 15m price roughly (using last closed 15m value is safer for backtest to avoid lookahead)
-        
-        # Reconstruct 15m price roughly (using last closed 15m value is safer for backtest to avoid lookahead)
-        # Actually resample_apply usually gives the current interval's incomplete value or last closed. 
-        # By default backtesting.py resample uses "agg" which might peek? 
-        # Standard robust backtest: Use values valid at Open of this bar.
-        
-        # --- LOGIC PORT FROM smart_trend.py ---
-        
-        # Filter: RSI 15m
-        if not (self.rsi_min < rsi15 < self.rsi_max):
-            return
-
-        # Trend Check
-        long_trend = ema21 > ema50 # Simplification of "Close > EMA50" for backtest readability first
-        short_trend = ema21 < ema50
-        
-        # Pullback Zone (using current 1m price to check proximity)
+        # Indicators
         price = self.data.Close[-1]
+        high = self.data.High[-1]
+        low = self.data.Low[-1]
+        open_ = self.data.Open[-1]
         
-        # LONG SETUP
-        if long_trend:
-            upper_zone = ema21 * (1 + self.pullback_tolerance)
-            lower_zone = ema21 * (1 - self.pullback_tolerance)
+        # Bollinger
+        bb_upper = self.data.BBU[-1]
+        bb_lower = self.data.BBL[-1]
+        bb_basis = self.data.BBM[-1]
+        
+        bb_width = bb_upper - bb_lower
+        
+        # Volatility Filter (Min Width)
+        if bb_width / price < 0.003: return
+        
+        # ADX Check
+        adx = self.data.ADX[-1]
+        if adx >= self.adx_threshold: return
+        
+        # EMA Slope Check
+        # calc slope over 5 bars
+        if len(self.data.EMA_50) > 5:
+            ema_now = self.data.EMA_50[-1]
+            ema_prev = self.data.EMA_50[-6]
+            slope = abs((ema_now - ema_prev) / ema_prev)
+            if slope > self.ema50_slope_max: return
             
-            if lower_zone <= price <= upper_zone:
-                # 1m TRIGGER: RSI < 70
-                if rsi1 < 70: 
-                    # Entry
-                    if not self.position:
-                        sl_price = price - (self.sl_atr_mult * atr15)
-                        tp_price = price + (self.rr_ratio * (price - sl_price))
-                        self.buy(sl=sl_price, tp=tp_price)
-                        
-        # SHORT SETUP
-        elif short_trend:
-            upper_zone = ema21 * (1 + self.pullback_tolerance)
-            lower_zone = ema21 * (1 - self.pullback_tolerance)
+        # Kill Zone
+        kill_size = bb_width * self.kill_zone_percent
+        upper_zone = bb_upper - kill_size
+        lower_zone = bb_lower + kill_size
+        
+        # RSI
+        rsi = self.data.RSI[-1]
+        
+        # Candle Sig
+        atr = self.data.ATR[-1]
+        candle_range = high - low
+        is_significant = candle_range >= (atr * self.min_candle_atr_mult)
+        
+        # Volume
+        try:
+             vol = self.data.Volume[-1]
+             vol_avg = self.data.Vol_Avg[-1]
+        except:
+             vol = 0
+             vol_avg = 0
+        
+        is_vol_ok = True
+        if vol_avg > 0 and vol < vol_avg * self.volume_multiplier:
+            is_vol_ok = False
             
-            if lower_zone <= price <= upper_zone:
-                if rsi1 > 30:
-                    if not self.position:
-                        sl_price = price + (self.sl_atr_mult * atr15)
-                        tp_price = price - (self.rr_ratio * (sl_price - price))
-                        self.sell(sl=sl_price, tp=tp_price)
-
+        # === LONG ===
+        # Price dipped into lower zone
+        if low <= lower_zone:
+            if rsi <= self.rsi_oversold:
+                if is_significant and is_vol_ok:
+                    # Trade
+                    tp_padding = bb_width * 0.05
+                    tp = bb_basis + tp_padding
+                    sl = bb_lower - (atr * self.sl_atr_mult)
+                    
+                    risk = price - sl
+                    reward = tp - price
+                    
+                    if risk > 0 and (reward/risk) >= self.min_rr:
+                        if not self.position:
+                            self.buy(sl=sl, tp=tp)
+                            
+        # === SHORT ===
+        if high >= upper_zone:
+            if rsi >= self.rsi_overbought:
+                if is_significant and is_vol_ok:
+                    # Trade
+                    tp_padding = bb_width * 0.05
+                    tp = bb_basis - tp_padding
+                    sl = bb_upper + (atr * self.sl_atr_mult)
+                    
+                    risk = sl - price
+                    reward = price - tp
+                    
+                    if risk > 0 and (reward/risk) >= self.min_rr:
+                        if not self.position:
+                            self.sell(sl=sl, tp=tp)
 
 
 def prepare_data(df):
-    # Pre-calculate ALL indicators here
+    print("🧹 Preparing 15m Data...")
+    df_15m = df.resample('15min').agg({
+        'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+    }).dropna()
     
-    # 1. 15m Indicators (Resampled then Reindexed)
-    df_15m = df.resample('15min').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last'})
+    # Indicators
+    # BB
+    df_15m.ta.bbands(length=20, std=2.0, append=True) # Adds BBL_20_2.0, BBM_..., BBU_...
+    # Rename cols for easier access
+    df_15m.rename(columns={'BBL_20_2.0': 'BBL', 'BBM_20_2.0': 'BBM', 'BBU_20_2.0': 'BBU'}, inplace=True)
     
-    # EMAs
-    ema21_15m = ta.ema(df_15m['Close'], length=21)
-    ema50_15m = ta.ema(df_15m['Close'], length=50)
-    # RSI
-    rsi_15m = ta.rsi(df_15m['Close'], length=14)
-    # ATR
-    atr_15m = ta.atr(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)
+    df_15m['EMA_50'] = ta.ema(df_15m['Close'], length=50)
+    df_15m['ADX'] = ta.adx(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)['ADX_14']
+    df_15m['RSI'] = ta.rsi(df_15m['Close'], length=14)
+    df_15m['ATR'] = ta.atr(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)
+    df_15m['Vol_Avg'] = ta.sma(df_15m['Volume'], length=20)
     
-    # Reindex everything to 1m
-    df['EMA_21_15m'] = ema21_15m.reindex(df.index).ffill().bfill()
-    df['EMA_50_15m'] = ema50_15m.reindex(df.index).ffill().bfill()
-    df['RSI_15m'] = rsi_15m.reindex(df.index).ffill().bfill()
-    df['ATR_15m'] = atr_15m.reindex(df.index).ffill().bfill()
-    
-    # 2. 1m Indicators
-    df['RSI_1m'] = ta.rsi(df['Close'], length=14).bfill() # bfill needed for start
-    
-    return df
+    return df_15m.dropna()
 
 def run():
-    print("🚀 Starting Backtest & OPTIMIZATION...")
+    print("🚀 Starting Backtest: Bollinger Bounce...")
     
-    # Load Data
     data_path = "data/BTC_1m.csv"
     if not os.path.exists(data_path):
-        print(f"❌ Data not found at {data_path}. Run fetch_data.py first.")
+        print("❌ Data not found")
         return
 
     df = pd.read_csv(data_path, index_col=0, parse_dates=True)
-    df = prepare_data(df)
+    df_strategy = prepare_data(df)
     
-    # Run Backtest
-    # Cash 1,000,000 to ensure we can buy 1 BTC even at $100k+
     try:
-        # User reported warning suggesting finalize_trades=True
-        # We pass it to init as requested.
-        # exclusive_orders=True is also good.
-        bt = Backtest(df, SmartTrendBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
+        bt = Backtest(df_strategy, BollingerBounceBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
     except TypeError:
-        # Fallback if param doesn't exist (e.g. older version)
-        print("⚠️ 'finalize_trades' not supported in this version. Falling back.")
-        bt = Backtest(df, SmartTrendBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
-    
-    print("🧬 Running Genetic Algorithm (Deep Search 300 iters)...")
-    # Switch to Random Search (max_tries) to avoid Grid Search hanging on Windows
+        bt = Backtest(df_strategy, BollingerBounceBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
+        
+    print("🧬 Optimizing Bollinger Bounce...")
     stats = bt.optimize(
-        pullback_tolerance=[0.005, 0.01, 0.015, 0.02, 0.025, 0.03],
-        rr_ratio=[1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
-        sl_atr_mult=[0.3, 0.5, 0.8, 1.0, 1.5, 2.0],
-        rsi_min=[20, 25, 30, 35, 40],
-        rsi_max=[60, 65, 70, 75, 80],
+        adx_threshold=[18, 20, 22, 25, 30],
+        min_rr=[1.0, 1.3, 1.5, 2.0],
+        sl_atr_mult=[0.5, 0.8, 1.0, 1.2],
+        kill_zone_percent=[0.1, 0.16, 0.20],
+        rsi_oversold=[30, 35, 40],
         maximize='Profit Factor',
-        constraint=lambda p: p.rsi_min < p.rsi_max,
-        max_tries=300,
+        max_tries=50,
         random_state=42
     )
-    
-    print("\n🏆 OPTIMIZATION RESULTS:")
+
+    print("\n📊 RESULTS:")
     print(stats)
     print("\n💎 BEST PARAMETERS:")
     print(stats._strategy)
