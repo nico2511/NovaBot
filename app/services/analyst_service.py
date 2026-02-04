@@ -199,50 +199,74 @@ class AnalystService:
             mid_macd = mid_term.get("macd", {}).get("crossover", "NEUTRAL")
             
             # Advice Logic
-            # Advice Logic
-            pnl_text = f"Profit ({pnl_roe:+.1f}%)" if pnl_roe > 0 else f"Drawdown ({pnl_roe:+.1f}%)"
+            # Advice Logic Refined
+            pnl_text = f"Profit ({pnl_roe:+.1f}%)" if pnl_roe > 0 else f"Loss ({pnl_roe:+.1f}%)"
             
             if real_side == "BUY":
-                if mid_trend == "BEARISH":
-                    advice = "CAUTION"
-                    color = "orange"
-                    reason = f"Trend is changing to Bearish ({pnl_text})"
-                    if mid_macd == "BEARISH":
-                        reason += " + MACD Bear Cross. Trade strength weakening."
-                        
-                    if mid_rsi < 35:
-                        advice = "DANGER"
-                        color = "red"
-                        reason = f"Bearish Trend + Extreme Weakness ({pnl_text}). Potential for deeper crash."
-                elif mid_rsi > 80:
-                     advice = "TAKE PROFIT"
-                     color = "green"
-                     reason = f"RSI Extremely High ({mid_rsi:.1f}). Overextended growth ({pnl_text})."
-                elif pnl_roe > 5 and mid_macd == "BULLISH" and mid_trend == "BULLISH":
-                     advice = "GOOD"
-                     color = "green"
-                     reason = f"Trade is very healthy. Momentum and Trend aligned ({pnl_text})."
-                else:
-                     reason = f"Trade still valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
-                     
-            else: # SELL
-                if mid_trend == "BULLISH":
-                    advice = "CAUTION"
-                    color = "orange"
-                    reason = f"Trend is changing to Bullish ({pnl_text})"
-                    if mid_macd == "BULLISH":
-                        reason += " + MACD Bull Cross. Resistance breaking."
+                # --- SCENARIO 1: WINNING POSITION ---
+                if pnl_roe > 0:
+                    if mid_rsi > 75:  # Slightly lowered from 80
+                        advice = "TAKE PROFIT"
+                        color = "green"
+                        reason = f"RSI High ({mid_rsi:.1f}). Consider securing gains."
+                    elif mid_trend == "BEARISH":
+                        advice = "PROTECT GAINS"
+                        color = "orange"
+                        reason = "Trend flipping Bearish. Tighten stops."
+                    elif pnl_roe > 5 and mid_macd == "BULLISH":
+                        advice = "LET IT RIDE"
+                        color = "green"
+                        reason = f"Strong momentum + Profit. Hold."
+                    else:
+                        advice = "HOLD"
+                        reason = f"Trend valid ({mid_term.get('sentiment')}). Monitor."
 
-                    if mid_rsi > 65:
-                        advice = "DANGER"
-                        color = "red"
-                        reason = f"Bullish Trend + Near Overbought ({pnl_text}). Shorts under pressure."
-                elif mid_rsi < 20:
-                     advice = "TAKE PROFIT"
-                     color = "green"
-                     reason = f"RSI Extremely Low ({mid_rsi:.1f}). Oversold bounce potential ({pnl_text})."
+                # --- SCENARIO 2: LOSING POSITION ---
                 else:
-                     reason = f"Trade still valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
+                    if mid_trend == "BEARISH" and mid_macd == "BEARISH":
+                        advice = "CUT LOSS"
+                        color = "red"
+                        reason = "Trend confirmed Bearish against position."
+                    elif mid_rsi < 30:
+                        advice = "WATCH BOUNCE" # Changed from DANGER
+                        color = "orange"
+                        reason = f"Oversold ({mid_rsi:.1f}). Wait for reaction to exit."
+                    else:
+                        advice = "HOLD"
+                        reason = "Calculating recovery..."
+                      
+            else: # SELL
+                # --- SCENARIO 1: WINNING POSITION ---
+                if pnl_roe > 0:
+                     if mid_rsi < 25: # Slightly raised from 20
+                        advice = "TAKE PROFIT"
+                        color = "green"
+                        reason = f"RSI Low ({mid_rsi:.1f}). Consider securing gains."
+                     elif mid_trend == "BULLISH":
+                        advice = "PROTECT GAINS"
+                        color = "orange"
+                        reason = f"Trend changing to Bullish ({pnl_text}). Tighten stops."
+                     elif pnl_roe > 5 and mid_macd == "BEARISH":
+                        advice = "LET IT RIDE"
+                        color = "green"
+                        reason = f"Strong bearish momentum + Profit. Hold."
+                     else:
+                        advice = "HOLD"
+                        reason = f"Trend still valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
+
+                # --- SCENARIO 2: LOSING POSITION ---
+                else: 
+                     if mid_trend == "BULLISH" and mid_macd == "BULLISH":
+                        advice = "CUT LOSS"
+                        color = "red"
+                        reason = f"Trend confirmed Bullish against position ({pnl_text})."
+                     elif mid_rsi > 70:
+                        advice = "WATCH BOUNCE"
+                        color = "orange"
+                        reason = f"Overbought ({mid_rsi:.1f}). Wait for pullback to exit."
+                     else:
+                         advice = "HOLD"
+                         reason = f"Trade valid. Market is {mid_term.get('sentiment')} ({pnl_text})."
 
             return {
                 "advice": advice,

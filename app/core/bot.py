@@ -1132,13 +1132,15 @@ class BotContext:
                     side = trade.get("side", "BUY")
                     pnl_raw = ((curr - entry) / entry) if side == "BUY" else ((entry - curr) / entry)
                     
-                    # Fetch Advanced Metrics
+                    # Fetch Advanced Metrics safely
                     funding_rate = 0.0
                     oi = 0.0
                     try:
-                        funding_rate = hyperliquid_service.get_funding_rate(symbol)
+                        raw_funding = hyperliquid_service.get_funding_rate(symbol)
+                        funding_rate = raw_funding * 100.0 # Convert to Percentage
                         oi = hyperliquid_service.get_open_interest(symbol)
-                    except: pass
+                    except Exception as e:
+                        self.add_log(f"⚠️ Metrics Fetch Error: {e}")
 
                     pos_data = {
                         "symbol": symbol,
@@ -1164,11 +1166,11 @@ class BotContext:
                     
                     # Notification Discord
                     pnl_pct = pnl_raw * 100
-                    status_emoji = "📈" if pnl_pct > 0 else "📉"
+                    status_emoji = "🟢" if pnl_pct > 0 else "🔴"
                     report_msg = (
-                        f"{status_emoji} **Trade Evolution: {symbol}** ({side})\n"
+                        f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
                         f"💰 **PnL:** {pnl_pct:+.2f}%\n"
-                        f"🧠 **Copilot Advice:** {advice}\n"
+                        f"🧠 **Advice:** {advice}\n"
                         f"📝 **Reasoning:** {reason}\n"
                         f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
                         f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
