@@ -34,6 +34,7 @@ from app.utils.data_processing import get_dynamic_context
 # Hardening Phase 0
 from app.services.safe_order_manager import SafeOrderManager
 from app.services.position_reconciler import PositionReconciler
+from backend.services.storage import storage_service
 
 class BotContext:
     """Main bot context"""

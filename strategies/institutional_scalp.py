@@ -75,12 +75,10 @@ class InstitutionalScalp(BaseStrategy):
         # BULLISH LIQUIDITY GRAB
         if low < recent_low and close > recent_low:
             candle_range = high - low
-            # CHANGED 2026-02: Relaxed wick ratio 0.42 -> 0.35
-            if candle_range > 0 and (close - low) / candle_range > 0.35:
+            # CHANGED 2026-02: Relaxed wick ratio 0.35 -> 0.25 (Optimized)
+            if candle_range > 0 and (close - low) / candle_range > 0.25:
                 # PHASE 2: Volume Spike Filter
-                # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
-                # Comparing partial volume to full average is mathematically incorrect
-                vol_mult = params.get("volume_multiplier", 1.25) # CHANGED 2026-02: 1.35 -> 1.25
+                vol_mult = params.get("volume_multiplier", 1.5) # OPTIMIZED 2026-02: 1.5
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
@@ -88,7 +86,7 @@ class InstitutionalScalp(BaseStrategy):
                     if current_volume < (avg_volume * vol_mult):
                         return None  # Insufficient volume
                 
-                sl_atr_mult = params.get("sl_atr_mult", 0.5)
+                sl_atr_mult = params.get("sl_atr_mult", 0.8) # OPTIMIZED 2026-02: 0.8
                 sl = low - (sl_atr_mult * atr)
                 tp = close + (2.0 * atr)
                 
@@ -97,11 +95,11 @@ class InstitutionalScalp(BaseStrategy):
                 reward = abs(tp - close)
                 if risk > 0:
                     rr = reward / risk
-                    min_rr = params.get("min_rr", 1.2) # Keeping 1.2 as it's scalp
+                    min_rr = params.get("min_rr", 1.2) 
                     if rr < min_rr:
                         return None
                 
-                comment = "Bullish Liquidity Grab (V2)"
+                comment = "Bullish Grab (Vol+Wick)"
                 
                 return {
                     "signal": "BUY",
@@ -113,11 +111,10 @@ class InstitutionalScalp(BaseStrategy):
         # BEARISH LIQUIDITY GRAB
         if high > recent_high and close < recent_high:
             candle_range = high - low
-            # CHANGED 2026-02: Relaxed wick ratio 0.42 -> 0.35
-            if candle_range > 0 and (high - close) / candle_range > 0.35:
+            # CHANGED 2026-02: Relaxed wick ratio 0.35 -> 0.25 (Optimized)
+            if candle_range > 0 and (high - close) / candle_range > 0.25:
                 # PHASE 2: Volume Spike Filter
-                # CRITICAL FIX: Use completed candle volume (iloc[-2]), not forming candle
-                vol_mult = params.get("volume_multiplier", 1.25) # CHANGED 2026-02
+                vol_mult = params.get("volume_multiplier", 1.5) # OPTIMIZED 2026-02
                 if 'volume' in df.columns:
                     current_volume = df['volume'].iloc[-2]  # ✅ Completed candle volume
                     avg_volume = df['volume'].iloc[-22:-2].mean()  # Last 20 completed candles
@@ -125,9 +122,9 @@ class InstitutionalScalp(BaseStrategy):
                     if current_volume < (avg_volume * vol_mult):
                         return None  # Insufficient volume
                 
-                sl_atr_mult = params.get("sl_atr_mult", 0.6)
+                sl_atr_mult = params.get("sl_atr_mult", 0.8) # OPTIMIZED 2026-02
                 sl = high + (sl_atr_mult * atr)
-                tp = close - (1.8 * atr)
+                tp = close - (2.0 * atr) # Bearish TP symmetric to Bullish (2.0) vs old 1.8
                 
                 # Check Min R:R
                 risk = abs(sl - close)
@@ -138,7 +135,7 @@ class InstitutionalScalp(BaseStrategy):
                     if rr < min_rr:
                         return None
                 
-                comment = "Bearish Liquidity Grab"
+                comment = "Bearish Grab (Vol+Wick)"
 
                 return {
                     "signal": "SELL",

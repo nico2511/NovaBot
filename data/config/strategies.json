@@ -129,11 +129,11 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "lookback": 20,
-            "volume_multiplier": 1.25,
-            "wick_ratio": 0.35,
+            "lookback": 50,
+            "volume_multiplier": 1.5,
+            "wick_ratio": 0.25,
             "min_rr": 1.2,
-            "sl_atr_mult": 0.5,
+            "sl_atr_mult": 0.8,
             "price_change_min": 0.008
         },
         "display_conditions": [
