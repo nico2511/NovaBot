@@ -1267,14 +1267,35 @@ class HyperliquidService:
         import os
         from datetime import datetime, timezone
         
-        SNAPSHOT_FILE = "daily_pnl_snapshot.json"
-        
         if not config.HL_ACCOUNT_ADDRESS:
-            self.log("⚠️ No account address configured for PnL sync")
             return 0.0
             
         try:
-            # Get current account value
+            # 1. Start of Day (UTC)
+            now_utc = datetime.now(timezone.utc)
+            start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_ts_ms = int(start_of_day.timestamp() * 1000)
+            
+            # 2. Realized PnL (Today's Fills)
+            realized_pnl = 0.0
+            trades_count = 0
+            user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
+            if user_fills:
+                for fill in user_fills:
+                    if fill.get("time", 0) >= start_ts_ms:
+                        realized_pnl += float(fill.get("closedPnl") or 0.0)
+                        trades_count += 1
+                    else:
+                        break
+                        
+            # 3. Unrealized PnL
+            unrealized_pnl = sum([p.get("pnl", 0) for p in self.get_positions()])
+            
+            total = realized_pnl + unrealized_pnl
+            self.log(f"💰 Daily PnL: ${total:.2f} (Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f})")
+            return total
+
+            # LEGACY CODE BELOW (Unreachable)
             balance_data = self.get_account_balance()
             current_value = balance_data.get("total_equity", 0.0)
             

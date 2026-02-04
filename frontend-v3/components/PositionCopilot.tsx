@@ -121,8 +121,12 @@ export default function PositionCopilot() {
         switch (advice) {
             case "GOOD": return "bg-green-500/10 text-green-400 border-green-500/20";
             case "TAKE PROFIT": return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse";
+            case "LET IT RIDE": return "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 font-bold";
+            case "PROTECT GAINS": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
             case "CAUTION": return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+            case "WATCH BOUNCE": return "bg-orange-500/20 text-orange-300 border-orange-500/30";
             case "DANGER": return "bg-red-500/20 text-red-500 border-red-500/30 font-bold";
+            case "CUT LOSS": return "bg-red-900/20 text-red-400 border-red-500/30 animate-pulse";
             default: return "bg-blue-500/10 text-blue-400 border-blue-500/20";
         }
     };
