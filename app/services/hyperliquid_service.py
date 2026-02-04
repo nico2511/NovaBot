@@ -488,9 +488,12 @@ class HyperliquidService:
 
     @standard_operation
     def get_open_orders(self, symbol: str = None) -> list:
-        """Get open orders, optionally filtered by symbol"""
+        """Get open orders (including Triggers), optionally filtered by symbol"""
         try:
-            orders = self.info.open_orders(config.HL_ACCOUNT_ADDRESS)
+            # Use frontend_open_orders to get everything (triggers, SL/TP)
+            # Standard open_orders only returns book orders
+            orders = self.info.frontend_open_orders(config.HL_ACCOUNT_ADDRESS)
+            
             if symbol:
                 # Canonicalize symbol
                 symbol = self.get_canonical_symbol(symbol)
