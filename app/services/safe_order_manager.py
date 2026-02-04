@@ -45,19 +45,38 @@ class SafeOrderManager:
         has_tp = False
         
         for o in open_orders:
+            # DEBUG: Dump the full order to see keys
+            self.logger.info(f"🔍 FULL ORDER DUMP: {o}")
+            
             # Check both 'orderType' (API) and 'order_type' (SDK/Mock)
             order_type = o.get("orderType") or o.get("order_type") or {}
             
-            # Debug the trigger structure
-            self.logger.info(f"🔍 Checking order {o.get('oid')}: Type={order_type}")
+            # --- ROBUST TRIGGER DETECTION ---
+            tpsl = None
             
-            trigger = order_type.get("trigger") or {}
-            tpsl = trigger.get("tpsl")
+            # Case 1: Standard API (orderType -> trigger -> tpsl)
+            if isinstance(order_type, dict):
+                trigger_data = order_type.get("trigger")
+                if isinstance(trigger_data, dict):
+                    tpsl = trigger_data.get("tpsl")
             
-            # Some APIs might nest it differently or use different casing
-            if not tpsl and "trigger" not in order_type:
-                 tpsl = o.get("tpsl")
+            # Case 2: Flattened or Simplified Object (root -> tpsl)
+            if not tpsl:
+                tpsl = o.get("tpsl")
+                
+            # Case 3: Root -> trigger -> tpsl (Some parsers might lift it)
+            if not tpsl:
+                root_trigger = o.get("trigger")
+                if isinstance(root_trigger, dict):
+                    tpsl = root_trigger.get("tpsl")
             
+            # Case 4: Recursive search in keys (Last Resort Debugging)
+            if not tpsl:
+                # Iterate keys to find anything that looks like "sl" or "tp"
+                # This is just for logging/debugging if we fail
+                if "tpsl" in str(o).lower():
+                     self.logger.info(f"⚠️ FOUND TPSL IN STRING BUT NOT PARSED: {o}")
+
             if tpsl == "sl": has_sl = True
             if tpsl == "tp": has_tp = True
         
