@@ -16,23 +16,16 @@ except AttributeError:
 
 from backtesting import Backtest, Strategy
 
-# === STRATEGY: Elastic Nibbler ===
-class ElasticNibblerBacktest(Strategy):
-    # Params
-    bb_period = 20
-    bb_std = 2.2 # Strategy Default
-    
+# === STRATEGY: Elastic Reversion ===
+class ElasticReversionBacktest(Strategy):
     # Optimization Ranges
-    rsi_min = 28
-    rsi_max = 72
-    adx_threshold = 25
-    volume_multiplier = 1.5
-    sl_atr_mult = 1.4
-    tp_atr_mult = 2.0
+    ema_period = 20
+    rsi_overbought = 75
+    rsi_oversold = 25
+    adx_threshold = 60
+    min_rr = 1.5
+    bb_std = 2.5
     
-    # Logic
-    min_bb_width_pct = 0.5
-
     def init(self):
         pass
 
@@ -41,89 +34,56 @@ class ElasticNibblerBacktest(Strategy):
 
         # Indicators
         price = self.data.Close[-1]
-        high = self.data.High[-1]
-        low = self.data.Low[-1]
-        
-        # BB
+        ema_20 = self.data.EMA_20[-1]
+        rsi = self.data.RSI[-1]
+        adx = self.data.ADX[-1]
         bb_upper = self.data.BBU[-1]
         bb_lower = self.data.BBL[-1]
-        bb_width_pct = (bb_upper - bb_lower) / price * 100
         
-        # Dead Market Filter
-        if bb_width_pct < self.min_bb_width_pct: return
-        
-        # ADX Safety
-        adx = self.data.ADX[-1]
-        if adx > self.adx_threshold: return
-        
-        # RSI
-        rsi = self.data.RSI[-1]
-        
-        # ATR
-        atr = self.data.ATR[-1]
-        
-        # Volume
-        try:
-             vol = self.data.Volume[-1]
-             vol_avg = self.data.Vol_Avg[-1]
-        except:
-             vol = 0
-             vol_avg = 0
-             
-        # Volume Validation
-        # Spike > ratio AND not > 5x (panic but not cataclysmic)
-        if vol_avg == 0: return
-        vol_ratio = vol / vol_avg
-        is_vol_spike = (vol_ratio > self.volume_multiplier) and (vol_ratio < 5.0)
-        
-        if not is_vol_spike: return
+        # Trend / Extremes Filter
+        # Usually reversion works when ADX is VERY high (overextended)
+        if adx < self.adx_threshold: return
 
-        # === LONG SETUP ===
-        # Price < BB Lower AND RSI Low
-        if price < bb_lower:
-            if rsi < self.rsi_min:
-                # Entry
-                sl = price - (self.sl_atr_mult * atr)
-                tp = price + (self.tp_atr_mult * atr) 
+        # === LONG ===
+        if price < bb_lower and rsi < self.rsi_oversold:
+            if not self.position:
+                sl = price * 0.99
+                tp = ema_20 # Target EMA 20 as mean
                 
-                if not self.position:
+                risk = price - sl
+                reward = tp - price
+                if risk > 0 and (reward / risk) >= self.min_rr:
                     self.buy(sl=sl, tp=tp)
 
-        # === SHORT SETUP ===
-        # Price > BB Upper AND RSI High
-        elif price > bb_upper:
-            if rsi > self.rsi_max:
-                # Entry
-                sl = price + (self.sl_atr_mult * atr)
-                tp = price - (self.tp_atr_mult * atr)
+        # === SHORT ===
+        elif price > bb_upper and rsi > self.rsi_overbought:
+            if not self.position:
+                sl = price * 1.01
+                tp = ema_20
                 
-                if not self.position:
+                risk = sl - price
+                reward = price - tp
+                if risk > 0 and (reward / risk) >= self.min_rr:
                     self.sell(sl=sl, tp=tp)
 
 
 def prepare_data(df):
-    print("🧹 Preparing 1m Data for Elastic Nibbler (Scalp)...")
-    # Elastic Nibbler is 1m or 5m. Strategy defaults say 1m/5m. 
-    # Let's test on 5m for better noise filtering, or strict 1m?
-    # User data is 1m CSV.
-    # Resample to 5m?
-    df_tf = df.resample('5min').agg({
+    print("🧹 Preparing 15m Data for Elastic Reversion...")
+    df_15m = df.resample('15min').agg({
         'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
     }).dropna()
     
     # Indicators
-    df_tf.ta.bbands(length=20, std=2.2, append=True) # Note: std 2.2 as per Strategy
-    df_tf.rename(columns={'BBL_20_2.2': 'BBL', 'BBM_20_2.2': 'BBM', 'BBU_20_2.2': 'BBU'}, inplace=True)
+    df_15m['EMA_20'] = ta.ema(df_15m['Close'], length=20)
+    df_15m.ta.bbands(length=20, std=2.5, append=True)
+    df_15m.rename(columns={'BBU_20_2.5': 'BBU', 'BBL_20_2.5': 'BBL'}, inplace=True)
+    df_15m['ADX'] = ta.adx(df_15m['High'], df_15m['Low'], df_15m['Close'], length=14)['ADX_14']
+    df_15m['RSI'] = ta.rsi(df_15m['Close'], length=14)
     
-    df_tf['ATR'] = ta.atr(df_tf['High'], df_tf['Low'], df_tf['Close'], length=14)
-    df_tf['ADX'] = ta.adx(df_tf['High'], df_tf['Low'], df_tf['Close'], length=14)['ADX_14']
-    df_tf['RSI'] = ta.rsi(df_tf['Close'], length=14)
-    df_tf['Vol_Avg'] = ta.sma(df_tf['Volume'], length=50)
-    
-    return df_tf.dropna()
+    return df_15m.dropna()
 
 def run():
-    print("🚀 Starting Backtest: Elastic Nibbler...")
+    print("🚀 Starting Backtest: Elastic Reversion (1 MONTH)...")
     
     data_path = "data/BTC_1m.csv"
     if not os.path.exists(data_path):
@@ -134,18 +94,16 @@ def run():
     df_strategy = prepare_data(df)
     
     try:
-        bt = Backtest(df_strategy, ElasticNibblerBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
+        bt = Backtest(df_strategy, ElasticReversionBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)
     except TypeError:
-        bt = Backtest(df_strategy, ElasticNibblerBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
+        bt = Backtest(df_strategy, ElasticReversionBacktest, cash=1_000_000, commission=.0006, exclusive_orders=True)
         
-    print("🧬 Optimizing Elastic Nibbler...")
+    print("🧬 Optimizing Elastic Reversion...")
     stats = bt.optimize(
-        rsi_min=[20, 24, 28, 32],
-        rsi_max=[68, 72, 76, 80],
-        adx_threshold=[20, 25, 30],
-        sl_atr_mult=[1.0, 1.4, 1.8],
-        tp_atr_mult=[1.5, 2.0, 2.5],
-        volume_multiplier=[1.2, 1.5, 1.8, 2.0],
+        adx_threshold=[50, 60, 70],
+        rsi_overbought=[70, 75, 80],
+        rsi_oversold=[20, 25, 30],
+        bb_std=[2.2, 2.5, 3.0],
         maximize='Profit Factor',
         max_tries=50,
         random_state=42

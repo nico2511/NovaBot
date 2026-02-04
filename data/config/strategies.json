@@ -1,7 +1,7 @@
 {
     "scalp_ema_rsi": {
         "enabled": true,
-        "type": "scalp",
+        "type": "trend",
         "description": "Quick scalps using EMA crossovers and RSI momentum.",
         "active": true,
         "timeframe": "15m",
@@ -10,23 +10,24 @@
             "ema_fast": 9,
             "ema_slow": 21,
             "rsi_period": 14,
-            "rsi_overbought": 70,
+            "rsi_overbought": 75,
             "rsi_oversold": 30,
-            "take_profit_pct": 0.015,
-            "stop_loss_pct": 0.008,
-            "volume_multiplier": 1.15
+            "take_profit_pct": 0.01,
+            "stop_loss_pct": 0.005,
+            "volume_multiplier": 1.2,
+            "min_trend_slope": 0.002
         },
         "display_conditions": [
             "EMA_9",
             "EMA_21",
             "RSI_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "High (Scalp)"
     },
     "elastic_nibbler": {
         "enabled": true,
-        "type": "scalp",
+        "type": "range",
         "description": "Mean reversion scalping using Bollinger Bands and RSI.",
         "active": true,
         "timeframe": "15m",
@@ -34,8 +35,8 @@
             "bb_period": 20,
             "bb_std": 2.2,
             "rsi_period": 14,
-            "rsi_overbought": 68,
-            "rsi_oversold": 32,
+            "rsi_overbought": 72,
+            "rsi_oversold": 30,
             "tp_atr_mult": 2.5,
             "sl_atr_mult": 1.4,
             "adx_threshold": 25,
@@ -47,7 +48,7 @@
             "BBL",
             "RSI_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "elastic_reversion": {
@@ -82,9 +83,9 @@
             "bb_period": 20,
             "bb_std": 2.0,
             "adx_threshold": 30,
-            "rsi_neutral_min": 35,
+            "rsi_neutral_min": 40,
             "rsi_neutral_max": 65,
-            "min_rr": 1.3,
+            "min_rr": 1.5,
             "sl_atr_mult": 0.5,
             "kill_zone_percent": 0.20,
             "rejection_wick_pct": 0.35
@@ -94,7 +95,7 @@
             "BBL",
             "ADX_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "bollinger_middle_bounce": {
@@ -106,32 +107,32 @@
         "params": {
             "bb_period": 20,
             "bb_std": 2.0,
-            "adx_threshold": 15,
+            "adx_threshold": 20,
             "pullback_dist": 0.005,
-            "min_rr": 2.0,
+            "min_rr": 1.5,
             "trend_ema_fast": 20,
             "trend_ema_slow": 50,
-            "sl_buffer_pct": 0.01,
-            "volume_multiplier": 0.8,
+            "sl_buffer_pct": 0.015,
+            "volume_multiplier": 1.0,
             "rsi_min": 50
         },
         "display_conditions": [
             "BBM",
             "ADX_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "institutional_scalp": {
         "enabled": true,
-        "type": "scalp",
+        "type": "range",
         "description": "Detects liquidity grabs (wicks) followed by volume spikes.",
         "active": true,
         "timeframe": "15m",
         "params": {
-            "lookback": 50,
-            "volume_multiplier": 1.5,
-            "wick_ratio": 0.25,
+            "lookback": 80,
+            "volume_multiplier": 2.0,
+            "wick_ratio": 0.35,
             "min_rr": 1.2,
             "sl_atr_mult": 0.8,
             "price_change_min": 0.008
@@ -139,7 +140,7 @@
         "display_conditions": [
             "Volume"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "High"
     },
     "fibo_pullback": {
@@ -150,7 +151,7 @@
         "timeframe": "15m",
         "params": {
             "swing_lookback": 35,
-            "adx_threshold": 22,
+            "adx_threshold": 18,
             "fibo_entry_min": 0.382,
             "volume_multiplier": 1.2,
             "min_rr": 1.5,
@@ -161,27 +162,28 @@
             "Fib_618",
             "ADX_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "liquidity_lightning": {
         "enabled": true,
-        "type": "scalp",
+        "type": "sniper",
         "description": "Hunts for stop-hunts and rapid reversals (Lightning movements).",
         "active": true,
         "timeframe": "15m",
         "params": {
-            "wick_pct": 0.40,
-            "volume_multiplier": 2.2,
-            "rr_ratio": 1.5,
+            "wick_pct": 0.50,
+            "volume_multiplier": 1.5,
+            "rr_ratio": 1.0,
             "adx_min": 25,
-            "reversal_candle_min": 0.004
+            "reversal_candle_min": 0.004,
+            "lookback": 50
         },
         "display_conditions": [
             "Volume",
             "Wick%"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Low (Sniper)"
     },
     "sniper_precision_trend": {
@@ -201,7 +203,7 @@
             "ADX_14",
             "RSI_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1-REJECTED",
         "expected_freq": "Medium"
     },
     "gamma_bear_vortex": {
@@ -212,7 +214,7 @@
         "timeframe": "15m",
         "params": {
             "adx_min": 20,
-            "rsi_max_oversold": 40,
+            "rsi_max_oversold": 50,
             "vortex_spread": 0.1,
             "gamma_trigger": 0.5,
             "volume_bear_mult": 1.2
@@ -222,7 +224,7 @@
             "VI-",
             "ADX_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "smart_trend": {
@@ -232,14 +234,14 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "adx_threshold": 20,
-            "pullback_tolerance": 0.025,
-            "volume_multiplier": 1.3,
+            "adx_threshold": 15,
+            "pullback_tolerance": 0.015,
+            "volume_multiplier": 1.5,
             "min_rr": 3.0,
             "ema_fast": 9,
             "ema_slow": 21,
             "ema_trend": 50,
-            "sl_atr_mult": 2.0,
+            "sl_atr_mult": 2.5,
             "rsi_min": 20,
             "rsi_max": 70
         },
@@ -248,7 +250,7 @@
             "EMA_50",
             "ADX_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     },
     "smart_mean_reversion": {
@@ -261,16 +263,16 @@
             "adx_max_range": 22,
             "rsi_period": 14,
             "bb_std": 2.2,
-            "min_rr": 1.3,
+            "min_rr": 2.0,
             "rsi_overbought": 72,
-            "rsi_oversold": 28
+            "rsi_oversold": 25
         },
         "display_conditions": [
             "BBU",
             "BBL",
             "RSI_14"
         ],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-02-monthly-v1",
         "expected_freq": "Medium"
     }
 }
