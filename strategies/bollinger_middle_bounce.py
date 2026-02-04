@@ -50,15 +50,15 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
         self.ema_trend_short = self.params.get("ema_trend_short", 20)
         self.ema_trend_long = self.params.get("ema_trend_long", 50)
         
-        self.adx_threshold = self.params.get("adx_threshold", 20) # CHANGED 2026-02: 25 -> 20
-        self.rsi_min = self.params.get("rsi_min", 40)
+        self.adx_threshold = self.params.get("adx_threshold", 15) # OPTIMIZED 2026-02: 15
+        self.rsi_min = self.params.get("rsi_min", 50) # OPTIMIZED 2026-02: 50
         
-        self.min_rr = self.params.get("min_rr", 1.5) # CHANGED 2026-02: 1.8 -> 1.5
+        self.min_rr = self.params.get("min_rr", 2.0) # OPTIMIZED 2026-02: 2.0
         
         # NEW: sl_buffer_pct for dynamic SL calculation
-        self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.008)  # 0.8% default
+        self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.01)  # OPTIMIZED 2026-02: 1.0%
         # NEW: volume_multiplier for confirmation filter
-        self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
+        self.volume_multiplier = self.params.get("volume_multiplier", 0.8) # OPTIMIZED 2026-02: 0.8
     
     def check_trend(self, df: pd.DataFrame) -> tuple[int, str]:
         """

@@ -106,11 +106,14 @@
         "params": {
             "bb_period": 20,
             "bb_std": 2.0,
-            "adx_threshold": 20,
+            "adx_threshold": 15,
             "pullback_dist": 0.005,
-            "min_rr": 1.5,
+            "min_rr": 2.0,
             "trend_ema_fast": 20,
-            "trend_ema_slow": 50
+            "trend_ema_slow": 50,
+            "sl_buffer_pct": 0.01,
+            "volume_multiplier": 0.8,
+            "rsi_min": 50
         },
         "display_conditions": [
             "BBM",
