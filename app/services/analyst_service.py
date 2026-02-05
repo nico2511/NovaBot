@@ -189,7 +189,7 @@ class AnalystService:
             size = float(position.get("size", 0))
             if size == 0: return {}
             
-            real_side = "BUY" if size > 0 else "SELL"
+            real_side = side.upper()
             pnl_roe = float(position.get("returnOnEquity", 0)) * 100
             
             # Use 1h timeframe for main advice
