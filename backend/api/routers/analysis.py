@@ -11,12 +11,15 @@ logger = logging.getLogger("AnalysisRouter")
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 @router.get("/")
-def get_analysis_data(bot=Depends(get_bot_context)):
+def get_analysis_data(symbol: str = None, bot=Depends(get_bot_context)):
     """
     Get consolidated analysis data for frontend Copilot.
     Prevent crashes by ensuring all expected keys exist.
     """
     try:
+        # Use target symbol (priority) or bot's active symbol
+        target_symbol = symbol or bot.active_symbol
+        
         # Default empty structure to prevent Frontend crashes
         default_sentiment = {
             "sentiment": "NEUTRAL",
@@ -29,7 +32,7 @@ def get_analysis_data(bot=Depends(get_bot_context)):
         }
 
         response = {
-            "symbol": bot.active_symbol,
+            "symbol": target_symbol,
             "market_sentiment": {
                 "5m": default_sentiment,
                 "1h": default_sentiment,
@@ -45,15 +48,15 @@ def get_analysis_data(bot=Depends(get_bot_context)):
             }
         }
 
-        # 0. Fetch Real-Time Market Data
+        # 0. Fetch Real-Time Market Data for the requested symbol
         try:
             from app.services.hyperliquid_service import hyperliquid_service
             
-            # Funding
-            funding = hyperliquid_service.get_funding_rate(bot.active_symbol)
+            # Funding (Already canonicalized inside the service)
+            funding = hyperliquid_service.get_funding_rate(target_symbol)
             
             # Open Interest
-            oi = hyperliquid_service.get_open_interest(bot.active_symbol)
+            oi = hyperliquid_service.get_open_interest(target_symbol)
             
             response["market_data"] = {
                 "funding_rate": funding, # Raw (e.g. 0.0001)
@@ -65,16 +68,18 @@ def get_analysis_data(bot=Depends(get_bot_context)):
 
         # 1. Populate Market Sentiment from AI Cache
         if hasattr(bot, 'ai_cache') and bot.ai_cache:
-            market_data = bot.ai_cache.get('last_market_analysis')
-            logger.info(f"🔍 API Analysis: bot.active_symbol={bot.active_symbol}, cache_exists={market_data is not None}")
-            
-            if market_data and isinstance(market_data, dict):
-                # Ensure all timeframes and history exist
-                for key in ["5m", "1h", "4h", "history"]:
-                    if key in market_data:
-                        response["market_sentiment"][key] = market_data[key]
+            # If target_symbol matches bot's active_symbol, return cached analysis
+            if target_symbol == bot.active_symbol:
+                market_data = bot.ai_cache.get('last_market_analysis')
+                if market_data and isinstance(market_data, dict):
+                    for key in ["5m", "1h", "4h", "history"]:
+                        if key in market_data:
+                            response["market_sentiment"][key] = market_data[key]
             else:
-                logger.warning(f"⚠️ Cache empty for {bot.active_symbol}. Background thread may still be running.")
+                # If it's a different symbol, we don't have analysis yet
+                # We could trigger it, but for now we just return market data
+                response["market_sentiment"]["1h"]["details"] = f"Switch bot focus to {target_symbol} for AI analysis."
+
 
         # 2. Populate Position Analysis from AI Cache
         pos_analysis = bot.ai_cache.get('last_position_analysis')

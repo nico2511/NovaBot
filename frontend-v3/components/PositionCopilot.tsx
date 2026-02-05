@@ -60,9 +60,17 @@ interface AnalysisResponse {
     };
 }
 
-export default function PositionCopilot() {
+interface ComponentProps {
+    symbol?: string; // Optional: Override bot's active symbol
+}
+
+export default function PositionCopilot({ symbol }: ComponentProps) {
+    const fetchUrl = symbol
+        ? `${API_BASE_URL}/api/analysis/?symbol=${symbol}`
+        : `${API_BASE_URL}/api/analysis/`;
+
     const { data, error } = useSWR<AnalysisResponse>(
-        `${API_BASE_URL}/api/analysis/`,
+        fetchUrl,
         fetcher,
         { refreshInterval: 3000 }
     );
@@ -215,11 +223,17 @@ export default function PositionCopilot() {
             <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-gray-900/30 border border-gray-800 rounded-lg p-3 flex justify-between items-center">
                     <div>
-                        <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Funding Rate (1h)</div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                            <div className="text-[10px] uppercase text-gray-500 font-bold">Funding Rate (1h)</div>
+                            <div className="flex items-center gap-1 bg-blue-500/10 px-1 rounded border border-blue-500/20">
+                                <span className="w-1 h-1 bg-blue-400 rounded-full animate-pulse"></span>
+                                <span className="text-[8px] text-blue-400 font-bold tracking-tighter">LIVE</span>
+                            </div>
+                        </div>
                         <div className={`text-sm font-bold font-mono ${!data.market_data?.funding_rate ? 'text-gray-400' : data.market_data.funding_rate > 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {data.market_data?.funding_rate_hourly_pct
-                                ? `${data.market_data.funding_rate_hourly_pct.toFixed(4)}%`
-                                : '0.0000%'}
+                                ? `${data.market_data.funding_rate_hourly_pct.toFixed(5)}%`
+                                : '0.00000%'}
                         </div>
                     </div>
                     <div className="text-right">

@@ -374,117 +374,68 @@ class HyperliquidService:
         return FALLBACK_SZ.get(symbol, 2), 4  # Conservative default 
 
     @standard_operation
-    def get_open_interest(self, symbol: str) -> float:
+    def _update_market_context_cache(self):
         """
-        Fetch Open Interest (OI) in USD for a symbol.
-        Uses a 60s cache to verify hitting rate limits on the heavy 'metaAndAssetCtxs' endpoint.
+        Fetch and cache BOTH Funding and OI for all symbols in one hit.
+        Uses the efficient 'meta_and_asset_ctxs' endpoint.
         """
-        # Initialize cache if needed
-        if not hasattr(self, "_oi_cache"):
-            self._oi_cache = {"time": 0, "data": {}}
-            
-        # Check Cache validity (60s)
         now = time.time()
-        if now - self._oi_cache["time"] < 60:
-            cached_val = self._oi_cache["data"].get(symbol)
-            if cached_val is not None:
-                return cached_val
-                
-        # Fetch Fresh Data
-        try:
-            # self.info.meta_and_asset_ctxs() returns (meta, asset_ctxs)
-            # This is a blocking call via Python SDK
-            meta, asset_ctxs = self.info.meta_and_asset_ctxs()
+        
+        # Initialize cache if needed
+        if not hasattr(self, "_market_context_cache"):
+            self._market_context_cache = {"time": 0, "funding": {}, "oi": {}}
             
-            # Map symbol to universe index
+        # 30s TTL
+        if now - self._market_context_cache["time"] < 30:
+            return
+            
+        try:
+            # Atomic fetch for ALL perpetual symbols
+            meta, asset_ctxs = self.info.meta_and_asset_ctxs()
             universe = meta.get("universe", [])
             
-            # Update cache for ALL symbols found (bulk update efficiency)
-            new_cache_data = {}
-            target_oi = 0.0
+            new_funding = {}
+            new_oi = {}
             
             for idx, asset in enumerate(universe):
-                coin_name = asset["name"]
+                symbol = asset["name"]
                 if idx < len(asset_ctxs):
                     ctx = asset_ctxs[idx]
-                    # OI = openInterest (in contracts) * oraclePx (price)
+                    
+                    # 1. Funding (Hourly)
+                    new_funding[symbol] = float(ctx.get("funding", 0.0))
+                    
+                    # 2. Open Interest (USD)
+                    # OI = openInterest (contracts) * oraclePx (price)
                     oi_contracts = float(ctx.get("openInterest", 0))
                     oracle_px = float(ctx.get("oraclePx", 0))
-                    oi_usd = oi_contracts * oracle_px
+                    new_oi[symbol] = oi_contracts * oracle_px
                     
-                    new_cache_data[coin_name] = oi_usd
-                    
-                    if coin_name == symbol:
-                        target_oi = oi_usd
-            
-            # Update self cache
-            self._oi_cache["time"] = now
-            self._oi_cache["data"] = new_cache_data
-            
-            return target_oi
+            # Atomic Update
+            self._market_context_cache["funding"] = new_funding
+            self._market_context_cache["oi"] = new_oi
+            self._market_context_cache["time"] = now
+            # self.log(f"✅ Market Context Cache Updated ({len(universe)} assets)")
             
         except Exception as e:
-            self.log(f"⚠️ Failed to fetch OI: {e}")
-            # Return cached value if available (even if expired), else 0
-            return self._oi_cache.get("data", {}).get(symbol, 0.0)
+            self.log(f"⚠️ Failed to update market context cache: {e}")
+
+    @standard_operation
+    def get_open_interest(self, symbol: str) -> float:
+        """Fetch Open Interest (OI) in USD for a symbol (cached 60s)."""
+        symbol = self.get_canonical_symbol(symbol)
+        self._update_market_context_cache()
+        return self._market_context_cache.get("oi", {}).get(symbol, 0.0)
 
     @lightweight_operation
     def get_funding_rate(self, symbol: str) -> float:
         """
         Get current funding rate for a symbol (cached 60s).
-        
-        Returns funding rate as a percentage (e.g., 0.01 = 0.01%).
-        Positive = longs pay shorts, Negative = shorts pay longs.
+        Returns funding rate as raw value (e.g. 0.0001 = 0.01%).
         """
-        # Check cache first (60s TTL)
-        now = time.time()
-        if hasattr(self, '_funding_cache'):
-            if now - self._funding_cache.get("time", 0) < 60:
-                cached_rate = self._funding_cache.get("data", {}).get(symbol)
-                if cached_rate is not None:
-                    return cached_rate
-        else:
-            self._funding_cache = {"time": 0, "data": {}}
-        
-        try:
-            # Fetch meta and funding data
-            meta = self.info.meta()
-            universe = meta.get("universe", [])
-            
-            # Find symbol index
-            symbol_idx = None
-            for idx, asset in enumerate(universe):
-                if asset["name"] == symbol:
-                    symbol_idx = idx
-                    break
-            
-            if symbol_idx is None:
-                self.log(f"⚠️ Symbol {symbol} not found in universe")
-                return 0.0
-            
-            # Get funding data from meta_and_asset_ctxs
-            meta_and_ctxs = self.info.meta_and_asset_ctxs()
-            asset_ctxs = meta_and_ctxs[1]  # [1] = asset contexts
-            
-            if symbol_idx < len(asset_ctxs):
-                ctx = asset_ctxs[symbol_idx]
-                # Funding rate is in the context as "funding"
-                funding_rate = float(ctx.get("funding", 0.0))
-                
-                # Update cache
-                self._funding_cache["time"] = now
-                if "data" not in self._funding_cache:
-                    self._funding_cache["data"] = {}
-                self._funding_cache["data"][symbol] = funding_rate
-                
-                return funding_rate
-            
-            return 0.0
-            
-        except Exception as e:
-            self.log(f"⚠️ Failed to fetch funding rate: {e}")
-            # Return cached value if available, else 0
-            return self._funding_cache.get("data", {}).get(symbol, 0.0)
+        symbol = self.get_canonical_symbol(symbol)
+        self._update_market_context_cache()
+        return self._market_context_cache.get("funding", {}).get(symbol, 0.0)
 
     @standard_operation
     def get_open_orders(self, symbol: str = None) -> list:
