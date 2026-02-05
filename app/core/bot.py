@@ -542,7 +542,7 @@ class BotContext:
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
 
-    def _record_signal_analysis(self, sig: dict, ai_data: dict, approved: bool):
+    def _record_signal_analysis(self, sig: dict, ai_data: dict, approved: bool, indicators: dict = None):
         """Record AI signal analysis to a persistent JSON file for audit trail."""
         try:
             # Base entry
@@ -565,8 +565,10 @@ class BotContext:
             
             # Enrich with market context for retrospective analysis
             try:
-                # 1. Technical Indicators from latest_data
-                if not self.latest_data.empty:
+                # 1. Technical Indicators (Use explicit pass if available, else try simple extraction)
+                if indicators:
+                    entry["indicators"] = indicators
+                elif not self.latest_data.empty:
                     last_row = self.latest_data.iloc[-1]
                     entry["indicators"] = {
                         "rsi": round(float(last_row.get("rsi", 0)), 2),
@@ -1599,6 +1601,22 @@ class BotContext:
                 }
                 self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%", metadata=analysis_metrics)
                 
+                # Capture full technical context for audit (Approved or Rejected)
+                technical_context = {
+                    "regime": result.get("regime"),
+                    "adx": round(result.get("adx", 0), 2),
+                    "adx_slope": round(result.get("adx_slope", 0), 2),
+                    "rsi": round(result.get("rsi", 0), 2),
+                    "ema_9": round(result.get("ema_9", 0), 4),
+                    "ema_20": round(result.get("ema_20", 0), 4),
+                    "ema_50": round(result.get("ema_50", 0), 4),
+                    "bb_upper": round(result.get("bb_upper", 0), 4),
+                    "bb_lower": round(result.get("bb_lower", 0), 4),
+                    "bb_width": round(result.get("bb_width", 0), 2),
+                    "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                    "current_price": result.get("current_price") or current_price
+                }
+                
                 signals = result.get("signals", [])
                 if signals:
                     sig = signals[0]
@@ -1655,7 +1673,7 @@ class BotContext:
                                     if confidence >= required_conf:
                                         reason = ai_data.get('reasoning', 'No reason')
                                         self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
-                                        self._record_signal_analysis(sig, ai_data, True)
+                                        self._record_signal_analysis(sig, ai_data, True, indicators=technical_context)
                                         
                                         if ai_data.get("suggested_adjustments"):
                                             adj = ai_data["suggested_adjustments"]
@@ -1663,12 +1681,12 @@ class BotContext:
                                             if adj.get("tp"): sig["tp"] = adj["tp"]
                                     else:
                                         self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
-                                        self._record_signal_analysis(sig, ai_data, False)
+                                        self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
                                         approved = False
                                 else:
                                     reason = ai_data.get('reasoning', 'No reason')
                                     self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
-                                    self._record_signal_analysis(sig, ai_data, False)
+                                    self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
                             else:
                                 approved = True 
                         except:
@@ -1720,22 +1738,12 @@ class BotContext:
                                      self.force_sync()
                                 
                                 # Capture full market snapshot for trade analysis
-                                entry_indicators = {
-                                    "regime": result.get("regime"),
-                                    "adx": round(result.get("adx", 0), 2),
-                                    "adx_slope": round(result.get("adx_slope", 0), 2),
-                                    "rsi": round(result.get("rsi", 0), 2),
-                                    "ema_9": round(result.get("ema_9", 0), 4),
-                                    "ema_20": round(result.get("ema_20", 0), 4),
-                                    "ema_50": round(result.get("ema_50", 0), 4),
-                                    "bb_upper": round(result.get("bb_upper", 0), 4),
-                                    "bb_lower": round(result.get("bb_lower", 0), 4),
-                                    "bb_width": round(result.get("bb_width", 0), 2),
-                                    "volume_ratio": round(result.get("volume_ratio", 100), 1),
-                                    "current_price": result.get("current_price"),
+                                # Use pre-calculated technical_context mixed with AI data
+                                entry_indicators = technical_context.copy()
+                                entry_indicators.update({
                                     "ai_confidence": confidence if 'confidence' in locals() else 0,
                                     "ai_reasoning": (ai_data.get("reasoning", "") if 'ai_data' in locals() else sig.get("reason", "Strategy Signal"))[:200]
-                                }
+                                })
                                 
                                 self.execute_entry_atomically(
                                     self.active_symbol,

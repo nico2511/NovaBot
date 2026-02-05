@@ -19,6 +19,15 @@ interface SignalEntry {
     market_price: number;
     suggested_sl: number | null;
     suggested_tp: number | null;
+    indicators?: {
+        rsi: number;
+        adx: number;
+        ema_50: number;
+        bb_upper: number;
+        bb_lower: number;
+        volume_ratio: number;
+        [key: string]: any;
+    };
 }
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -31,7 +40,7 @@ export default function SignalAnalysisPage() {
     );
 
     const [filterSymbol, setFilterSymbol] = useState<string>('');
-    const [filterApproved, setFilterApproved] = useState<string>('');
+    const [filterApproved, setFilterApproved] = useState<string>('approved');
     const [filterDirection, setFilterDirection] = useState<string>('');
 
     // Get unique symbols
@@ -40,7 +49,7 @@ export default function SignalAnalysisPage() {
         return Array.from(new Set(data.map(entry => entry.symbol))).sort();
     }, [data]);
 
-    // Filter data
+    // Filter and Sort data
     const filteredData = React.useMemo(() => {
         if (!data) return [];
         return data.filter(entry => {
@@ -50,7 +59,8 @@ export default function SignalAnalysisPage() {
                 (filterApproved === 'rejected' && !entry.approved);
             const matchDirection = !filterDirection || entry.direction === filterDirection;
             return matchSymbol && matchApproved && matchDirection;
-        });
+        })
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }, [data, filterSymbol, filterApproved, filterDirection]);
 
     // Get risk level color
@@ -243,6 +253,36 @@ export default function SignalAnalysisPage() {
                                                             <span className="text-white font-mono">${entry.market_price.toLocaleString()}</span>
                                                         </div>
                                                     </div>
+
+                                                    {/* Technical Indicators Row */}
+                                                    {entry.indicators && (
+                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 text-xs bg-gray-800/20 p-2 rounded border border-gray-800/50">
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-gray-500">RSI:</span>
+                                                                <span className={`font-mono ${entry.indicators.rsi > 70 ? 'text-loss' : entry.indicators.rsi < 30 ? 'text-profit' : 'text-gray-300'}`}>
+                                                                    {entry.indicators.rsi?.toFixed(1) || '-'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-gray-500">MA50:</span>
+                                                                <span className="font-mono text-gray-300">
+                                                                    {entry.indicators.ema_50?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '-'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-gray-500">BB Width:</span>
+                                                                <span className="font-mono text-gray-300">
+                                                                    {entry.indicators.bb_width?.toFixed(2) || '-'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-gray-500">Adx:</span>
+                                                                <span className="font-mono text-gray-300">
+                                                                    {entry.indicators.adx?.toFixed(1) || '-'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    )}
 
                                                     {/* Reasoning */}
                                                     <div className="text-sm text-gray-400 mb-2 bg-gray-800/50 p-2 rounded">
