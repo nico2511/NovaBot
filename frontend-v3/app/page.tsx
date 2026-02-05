@@ -117,6 +117,7 @@ export default function Home() {
             {/* Control Buttons */}
             <ControlButtons
               isRunning={data.is_running}
+              tradingEnabled={data.trading_enabled}
               onStatusChange={() => mutate()}
             />
 

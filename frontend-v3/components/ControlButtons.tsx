@@ -14,10 +14,11 @@ import { api } from '@/lib/api';
 
 interface ControlButtonsProps {
     isRunning: boolean;
+    tradingEnabled: boolean;
     onStatusChange: () => void;
 }
 
-export default function ControlButtons({ isRunning, onStatusChange }: ControlButtonsProps) {
+export default function ControlButtons({ isRunning, tradingEnabled, onStatusChange }: ControlButtonsProps) {
     const [showDialog, setShowDialog] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export default function ControlButtons({ isRunning, onStatusChange }: ControlBut
     return (
         <>
             <div className="flex justify-center">
-                {isRunning ? (
+                {tradingEnabled ? (
                     <Button
                         variant="outline"
                         size="lg"
