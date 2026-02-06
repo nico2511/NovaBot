@@ -57,6 +57,7 @@ class BotContext:
         
         # Multi-Position Support: Dictionary indexed by symbol
         # MUST be initialized BEFORE any property access (like self.latest_data)
+        self.active_symbol = "BTC"  # Must be set before latest_data
         self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
         self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
         
@@ -65,7 +66,6 @@ class BotContext:
         self.signals_log = deque(maxlen=200)
         self.logs = deque(maxlen=1000)
         self.latest_strategy_result = {}
-        self.active_symbol = "BTC"
         self.last_candle_time = None
         
         self.trading_enabled = False # Master Switch
