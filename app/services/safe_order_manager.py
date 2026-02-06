@@ -29,85 +29,71 @@ class SafeOrderManager:
         if not symbol:
             return False
 
-        # 1. Check existing orders
+        # 1. Check existing orders - SIMPLIFIED DETECTION
         open_orders = self.hl.get_open_orders(symbol)
         
-        has_sl = False
-        has_tp = False
+        sl_orders = []
+        tp_orders = []
+        
+        entry_price = float(position.get("entry_price", 0))
+        side = position.get("side", "BUY")
         
         for o in open_orders:
+            # Use reduceOnly as primary indicator for protection orders
+            is_reduce = o.get("reduceOnly", False)
+            trigger_px = float(o.get("triggerPx", 0) or o.get("limitPx", 0) or 0)
             
-            # Check both 'orderType' (API) and 'order_type' (SDK/Mock)
-            order_type = o.get("orderType") or o.get("order_type") or {}
+            if not is_reduce or trigger_px == 0:
+                continue  # Not a protection order
             
-            # --- ROBUST TRIGGER DETECTION ---
-            tpsl = None
-            
-            # Case 1: Standard API (orderType -> trigger -> tpsl)
-            if isinstance(order_type, dict):
-                trigger_data = order_type.get("trigger")
-                if isinstance(trigger_data, dict):
-                    tpsl = trigger_data.get("tpsl")
-            
-            # Case 2: Flattened or Simplified Object (root -> tpsl)
-            if not tpsl:
-                tpsl = o.get("tpsl")
-                
-            # Case 3: Root -> trigger -> tpsl (Some parsers might lift it)
-            if not tpsl:
-                root_trigger = o.get("trigger")
-                if isinstance(root_trigger, dict):
-                    tpsl = root_trigger.get("tpsl")
-            
-            # Case 4: Text-based check (Effective for frontend_open_orders which returns strings)
-            if not tpsl and isinstance(order_type, str):
-                if "Stop" in order_type:
-                    tpsl = "sl"
-                elif "Take Profit" in order_type:
-                    tpsl = "tp"
-
-            # --- FALLBACK: Infer from reduceOnly + Price ---
-            if not tpsl and o.get("reduceOnly"):
-                # If we still haven't identified it but it's reduceOnly, assume it's protection
-                limit_px = float(o.get("limitPx", 0) or o.get("triggerPx", 0) or 0)
-                
-                if not has_sl: # Assign to SL first
-                    tpsl = "sl"
-                elif not has_tp: # Then TP
-                    tpsl = "tp" 
-            
-            if tpsl == "sl": has_sl = True
-            if tpsl == "tp": has_tp = True
+            # Determine if SL or TP based on price vs entry
+            if side == "BUY":
+                if trigger_px < entry_price:
+                    sl_orders.append(o)
+                    self.logger.debug(f"   Found SL order @ {trigger_px:.2f} (entry: {entry_price:.2f})")
+                else:
+                    tp_orders.append(o)
+                    self.logger.debug(f"   Found TP order @ {trigger_px:.2f} (entry: {entry_price:.2f})")
+            else:  # SELL
+                if trigger_px > entry_price:
+                    sl_orders.append(o)
+                    self.logger.debug(f"   Found SL order @ {trigger_px:.2f} (entry: {entry_price:.2f})")
+                else:
+                    tp_orders.append(o)
+                    self.logger.debug(f"   Found TP order @ {trigger_px:.2f} (entry: {entry_price:.2f})")
+        
+        # Count validation - PREVENT ADDING MORE DUPLICATES
+        count_sl = len(sl_orders)
+        count_tp = len(tp_orders)
+        
+        if count_sl > 1 or count_tp > 1:
+            self.logger.warning(f"⚠️ {symbol} has duplicate orders (SL={count_sl}, TP={count_tp}). Skipping placement to avoid more duplicates.")
+            return False
+        
+        has_sl = count_sl >= 1
+        has_tp = count_tp >= 1
         
         if has_sl and has_tp:
-            return False # Already safe
-        
-        if has_sl and has_tp:
+            self.logger.debug(f"✅ {symbol} already has protection (SL + TP)")
             return False # Already safe
             
         self.logger.info(f"🛡️ Position {symbol} missing protection (SL={has_sl}, TP={has_tp}). Fixing...")
         
         # 2. Calculate Safe Levels (Fallback Logic)
-        entry_price = float(position.get("entry_price", 0))
-        side = position.get("side", "BUY")
         is_buy = (side == "BUY")
         
         # TODO: Implement ATR-based calculation if market data available
         # For Phase 0 MVP, use percentage-based fallback
         sl_price, tp_price = self._calculate_fallback_levels(entry_price, is_buy)
         
-        # 3. Place Orders
-        # existing place_protection_orders handles placement. 
-        # We only pass what's missing, but the service helper places both.
-        # Ideally we should be granular, but for now we can rely on it placing both if needed.
-        # Actually place_protection_orders places whatever is passed.
-        
+        # 3. Place Orders - Only what's missing
         sl_to_send = sl_price if not has_sl else None
         tp_to_send = tp_price if not has_tp else None
         
         size = float(position.get("size", 0))
         
         if sl_to_send or tp_to_send:
+            self.logger.info(f"   Placing: SL={sl_to_send:.2f if sl_to_send else 'skip'}, TP={tp_to_send:.2f if tp_to_send else 'skip'}")
             self.hl._place_protection_orders(
                 symbol=symbol,
                 is_buy=is_buy, # Direction of the POSITION (helper inverts it for exit)
