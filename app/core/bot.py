@@ -150,10 +150,14 @@ class BotContext:
         
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
+        self.gamification = AssetGamification(0)
+        self.latest_analysis = {}
         
         # Phase 0 Hardening Services
         self.safe_order_manager = SafeOrderManager(hyperliquid_service)
+        # Position Reconciler - Set reference to self for adoption check
         self.position_reconciler = PositionReconciler(hyperliquid_service, self.safe_order_manager)
+        self.position_reconciler.bot_context = self
         
 
         self.signal_analysis_file = os.path.abspath(os.path.join(BASE_DIR, "data", "analysis", "signal_analysis.json"))

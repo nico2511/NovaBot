@@ -17,6 +17,7 @@ class PositionReconciler:
         self.interval = 30 # seconds
         self.last_run = 0
         self.last_reconcile_per_symbol = {}  # Track cooldown per symbol (60s)
+        self.bot_context = None  # Will be set by BotContext after initialization
 
     def run_tick(self):
         """Called periodically by the main loop"""
@@ -40,6 +41,13 @@ class PositionReconciler:
             # 2. Check each position for safety
             for pos in active_positions:
                 symbol = pos.get("symbol")
+                
+                # Skip if position is currently being adopted
+                if self.bot_context and symbol in self.bot_context.active_trades:
+                    trade = self.bot_context.active_trades[symbol]
+                    if "Adopting" in trade.get("strategy", ""):
+                        self.logger.debug(f"⏭️ Skipping {symbol} - adoption in progress")
+                        continue
                 
                 # Cooldown check - prevent rapid re-attempts
                 now = time.time()
