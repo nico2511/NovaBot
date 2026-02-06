@@ -7,6 +7,7 @@ import sys
 import threading
 import uvicorn
 import logging
+import traceback
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -64,6 +65,7 @@ try:
     
 except Exception as e:
     logger.critical(f"🔥 Launcher Initialization Failed: {e}")
+    traceback.print_exc()
     sys.exit(1)
 
 if __name__ == "__main__":
