@@ -1299,4 +1299,19 @@ class HyperliquidService:
             return 0.0
 
 
-hyperliquid_service = HyperliquidService()
+# Lazy initialization to prevent blocking during import
+_hyperliquid_service_instance = None
+
+def get_hyperliquid_service():
+    """Get or create the HyperliquidService singleton instance"""
+    global _hyperliquid_service_instance
+    if _hyperliquid_service_instance is None:
+        _hyperliquid_service_instance = HyperliquidService()
+    return _hyperliquid_service_instance
+
+# Backward compatibility: create a property-like object
+class _HyperliquidServiceProxy:
+    def __getattr__(self, name):
+        return getattr(get_hyperliquid_service(), name)
+
+hyperliquid_service = _HyperliquidServiceProxy()
