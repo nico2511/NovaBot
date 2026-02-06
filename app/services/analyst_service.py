@@ -176,9 +176,15 @@ class AnalystService:
         except Exception as e:
             return {"sentiment": "ERROR", "score": 0, "reason": str(e)}
 
-    def analyze_position(self, position: dict, market_sentiment: dict) -> dict:
+    def analyze_position(self, position: dict, market_sentiment: dict, trading_timeframe: str = "15m") -> dict:
         """
         Generate advice for a specific position based on market sentiment.
+        Dynamically selects the most relevant timeframe based on trading_timeframe.
+        
+        Args:
+            position: Position data (side, size, returnOnEquity)
+            market_sentiment: Multi-timeframe sentiment analysis
+            trading_timeframe: Active trading timeframe (e.g., "15m", "1h", "4h")
         """
         advice = "HOLD"
         color = "blue"
@@ -192,8 +198,17 @@ class AnalystService:
             real_side = side.upper()
             pnl_roe = float(position.get("returnOnEquity", 0)) * 100
             
-            # Use 1h timeframe for main advice
-            mid_term = market_sentiment.get("1h", {})
+            # DYNAMIC TIMEFRAME SELECTION (Prevent false alarms from slow timeframes)
+            # For fast strategies (15m), use 5m for advice to avoid 4H/1H lag
+            # For slower strategies (1h+), use 1h
+            if trading_timeframe in ["1m", "5m", "15m"]:
+                advice_tf = "5m"  # Use fastest timeframe for scalping/short-term
+            elif trading_timeframe in ["1h", "4h"]:
+                advice_tf = "1h"  # Use mid-term for swing trades
+            else:
+                advice_tf = "1h"  # Default fallback
+            
+            mid_term = market_sentiment.get(advice_tf, market_sentiment.get("1h", {}))
             mid_trend = mid_term.get("trend", "NEUTRAL")
             mid_rsi = mid_term.get("rsi", 50)
             mid_macd = mid_term.get("macd", {}).get("crossover", "NEUTRAL")

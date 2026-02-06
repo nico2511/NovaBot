@@ -168,7 +168,7 @@ export default function PositionCopilot({ symbol }: ComponentProps) {
                     <p className="text-gray-500 text-xs mt-1">Multi-Timeframe Sentiment Analysis v2</p>
                 </div>
 
-                {activePos && activePos.analysis && (
+                {hasPosition && activePos && activePos.analysis && (
                     <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${getAdviceStyle(activePos.analysis.advice)}`}>
                         {activePos.analysis.advice === 'DANGER' ? <AlertTriangle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
                         <div className="flex flex-col items-end">
