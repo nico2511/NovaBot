@@ -77,8 +77,20 @@ class StateManager:
             
             state_modified = False # Track if we need to auto-save defaults
             
-            # Restore Context
-            context.active_trades = state.get("active_trades", {})  # Multi-position support
+            # MIGRATION: Convert old active_trade (singleton) to active_trades (dict)
+            if "active_trade" in state and "active_trades" not in state:
+                old_trade = state.get("active_trade")
+                if old_trade:
+                    symbol = old_trade.get("symbol", "BTC")
+                    context.active_trades = {symbol: old_trade}
+                    print(f"🔄 Migrated legacy active_trade to active_trades[{symbol}]")
+                    state_modified = True
+                else:
+                    context.active_trades = {}
+            else:
+                # Restore Context
+                context.active_trades = state.get("active_trades", {})  # Multi-position support
+            
             context.trading_enabled = state.get("trading_enabled", False)
             context.is_running = state.get("is_running", False)
             context.active_symbol = state.get("active_symbol", "BTC")
