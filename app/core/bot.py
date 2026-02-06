@@ -54,6 +54,12 @@ class BotContext:
         self.trading_enabled = False
         self.thread = None
         self.account_value = 0.0
+        
+        # Multi-Position Support: Dictionary indexed by symbol
+        # MUST be initialized BEFORE any property access (like self.latest_data)
+        self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
+        self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
+        
         self.latest_data = pd.DataFrame()
         self.latest_analysis = {}
         self.signals_log = deque(maxlen=200)
@@ -61,10 +67,6 @@ class BotContext:
         self.latest_strategy_result = {}
         self.active_symbol = "BTC"
         self.last_candle_time = None
-        
-        # Multi-Position Support: Dictionary indexed by symbol
-        self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
-        self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
         
         self.trading_enabled = False # Master Switch
         self.is_running = False      # Loop Switch
