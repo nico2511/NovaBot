@@ -13,7 +13,7 @@ class StateManager:
     def save_state(context):
         """Saves critical bot state to JSON."""
         state = {
-            "active_trade": context.active_trade,
+            "active_trades": context.active_trades,  # Multi-position support
             "trading_enabled": context.trading_enabled,
             "is_running": context.is_running,
             "active_symbol": context.active_symbol,
@@ -78,7 +78,7 @@ class StateManager:
             state_modified = False # Track if we need to auto-save defaults
             
             # Restore Context
-            context.active_trade = state.get("active_trade")
+            context.active_trades = state.get("active_trades", {})  # Multi-position support
             context.trading_enabled = state.get("trading_enabled", False)
             context.is_running = state.get("is_running", False)
             context.active_symbol = state.get("active_symbol", "BTC")
@@ -91,15 +91,17 @@ class StateManager:
                 context.risk_manager.state.is_stop_mode = rs.get("is_stop_mode", False)
                 context.risk_manager.state.stop_reason = rs.get("stop_reason", "")
             
-            # SANITY CHECK: Sync Risk Manager with Active Trade
-            if context.active_trade is None:
+            # SANITY CHECK: Sync Risk Manager with Active Trades
+            num_active_trades = len(context.active_trades)
+            if num_active_trades == 0:
                 if context.risk_manager.state.open_positions > 0:
                     print(f"⚠️ Detected phantom positions in RiskManager ({context.risk_manager.state.open_positions}). Reseting to 0.")
                     context.risk_manager.state.open_positions = 0
             else:
-                # If we have an active trade, ensure at least 1 position is counted
-                if context.risk_manager.state.open_positions == 0:
-                     context.risk_manager.state.open_positions = 1
+                # Sync position count with number of active trades
+                if context.risk_manager.state.open_positions != num_active_trades:
+                    print(f"🔄 Syncing RiskManager position count: {context.risk_manager.state.open_positions} -> {num_active_trades}")
+                    context.risk_manager.state.open_positions = num_active_trades
             
             # (sidebar_settings removed - use scanner_settings)
             

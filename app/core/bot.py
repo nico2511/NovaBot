@@ -61,7 +61,11 @@ class BotContext:
         self.latest_strategy_result = {}
         self.active_symbol = "BTC"
         self.last_candle_time = None
-        self.active_trade = None
+        
+        # Multi-Position Support: Dictionary indexed by symbol
+        self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
+        self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
+        
         self.trading_enabled = False # Master Switch
         self.is_running = False      # Loop Switch
         self.active_strategy_name = "SmartTrend"
@@ -224,11 +228,8 @@ class BotContext:
         old_symbol = self.active_symbol
         self.add_log(f"🔄 Switching active symbol from {old_symbol} to {new_symbol}")
         
-        # SAFETY CHECK: Ensure we don't carry over ghost positions
-        with self.trade_lock:
-            if self.active_trade and self.active_trade.get('symbol') != new_symbol:
-                self.add_log(f"⚠️ Warning: Switching context while active trade exists on {self.active_trade['symbol']}. State cleared.")
-                self.active_trade = None
+        # Multi-Position: No need to clear trades when switching symbols
+        # Each symbol maintains its own trade state in active_trades dict
         
         self.active_symbol = new_symbol
         
@@ -239,6 +240,32 @@ class BotContext:
             self.add_log(f"⚠️ Failed to update WebSocket subscription: {e}")
         
         StateManager.save_state(self)
+
+    # ==========================================
+    # BACKWARD COMPATIBILITY LAYER
+    # ==========================================
+    @property
+    def active_trade(self):
+        """Backward compatibility: Returns trade for active_symbol"""
+        return self.active_trades.get(self.active_symbol)
+    
+    @active_trade.setter
+    def active_trade(self, value):
+        """Backward compatibility: Sets trade for active_symbol"""
+        if value is None:
+            self.active_trades.pop(self.active_symbol, None)
+        else:
+            self.active_trades[self.active_symbol] = value
+    
+    @property
+    def latest_data(self):
+        """Backward compatibility: Returns data for active_symbol"""
+        return self.latest_data_map.get(self.active_symbol, pd.DataFrame())
+    
+    @latest_data.setter
+    def latest_data(self, value):
+        """Backward compatibility: Sets data for active_symbol"""
+        self.latest_data_map[self.active_symbol] = value
 
     def _prepare_ai_context(self, position_data: dict = None) -> dict:
         """Prepare comprehensive market context for professional AI analysis"""

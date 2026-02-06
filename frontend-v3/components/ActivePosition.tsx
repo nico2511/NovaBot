@@ -61,7 +61,7 @@ export default function ActivePosition({
         if (isMock) return;
         setIsBeProcessing(true);
         try {
-            await api.forceBreakEven();
+            await api.forceBreakEven(symbol);
             mutate(`${API_BASE_URL}/api/status`);
         } catch (e) {
             console.error(e);
@@ -76,7 +76,7 @@ export default function ActivePosition({
 
         setIsClosing(true);
         try {
-            await api.closeTrade();
+            await api.closeTrade(symbol);
             mutate(`${API_BASE_URL}/api/status`);
         } catch (e) {
             console.error(e);
@@ -90,7 +90,7 @@ export default function ActivePosition({
         if (isMock) return;
         setIsRecalibrating(true);
         try {
-            await api.recalibrateStops();
+            await api.recalibrateStops(symbol);
             mutate(`${API_BASE_URL}/api/status`);
         } catch (e) {
             console.error(e);

@@ -4,6 +4,7 @@ Handles enable/disable trading, symbol switching, position management
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from backend.api.dependencies import get_bot_context
 import logging
 
@@ -177,58 +178,80 @@ def force_sync(bot=Depends(get_bot_context)):
         logger.error(f"Error forcing sync: {e}")
         raise HTTPException(status_code=500, detail=f"Force sync failed: {str(e)}")
 
+class SymbolRequest(BaseModel):
+    symbol: Optional[str] = None
+
 @router.post("/force_breakeven")
-def force_breakeven(bot=Depends(get_bot_context)):
-    """Force move SL to Break-Even for active trade"""
+def force_breakeven(data: SymbolRequest, bot=Depends(get_bot_context)):
+    """Force move SL to Break-Even for specified symbol or active trade"""
     try:
-        # Check active trade
-        if not bot.active_trade:
-            return {"status": "error", "message": "No active trade to manage"}
+        # Determine target symbol
+        symbol = data.symbol if data.symbol else bot.active_symbol
         
-        symbol = bot.active_trade.get("symbol")
-        entry = bot.active_trade.get("entry")
-        side = bot.active_trade.get("side")
+        # Get trade for this symbol
+        trade = bot.active_trades.get(symbol)
+        if not trade:
+            return {"status": "error", "message": f"No active trade for {symbol}"}
+        
+        entry = trade.get("entry")
+        side = trade.get("side")
         
         if not entry:
-            return {"status": "error", "message": "Active trade has no entry price"}
+            return {"status": "error", "message": "Trade has no entry price"}
 
         # Calculate BE price with slight buffer
         be_price = entry * 1.002 if side == "BUY" else entry * 0.998
         
         # Update local state
         with bot.trade_lock:
-            bot.active_trade["sl"] = be_price
+            trade["sl"] = be_price
             from app.core.state_manager import StateManager
             StateManager.save_state(bot)
         
         # Enforce
-        bot._verify_and_enforce_sl_tp(symbol, bot.active_trade, bypass_cooldown=True)
-        bot.add_log(f"🛡️ Force BE executed: SL -> {be_price}")
+        bot._verify_and_enforce_sl_tp(symbol, trade, bypass_cooldown=True)
+        bot.add_log(f"🛡️ Force BE executed for {symbol}: SL -> {be_price}")
         
-        return {"status": "success", "message": f"Moved SL to {be_price}"}
+        return {"status": "success", "message": f"Moved SL to {be_price} for {symbol}"}
         
     except Exception as e:
         logger.error(f"Error forcing BE: {e}")
         raise HTTPException(status_code=500, detail=f"Force BE failed: {str(e)}")
 
 @router.post("/recalibrate_stops")
-def recalibrate_stops(bot=Depends(get_bot_context)):
-    """Recalibrate SL/TP based on current market volatility"""
-    # Placeholder logic - ideally we ask logic to verify
+def recalibrate_stops(data: SymbolRequest, bot=Depends(get_bot_context)):
+    """Recalibrate SL/TP for specified symbol or active trade"""
     try:
-        if not bot.active_trade:
-             return {"status": "ignored", "message": "No active trade"}
-
-        symbol = bot.active_trade["symbol"]
-        bot._verify_and_enforce_sl_tp(symbol, bot.active_trade, bypass_cooldown=True)
-        return {"status": "success", "message": "Stops recalibrated"}
+        # Determine target symbol
+        symbol = data.symbol if data.symbol else bot.active_symbol
+        
+        # Get trade for this symbol
+        trade = bot.active_trades.get(symbol)
+        if not trade:
+            return {"status": "error", "message": f"No active trade for {symbol}"}
+        
+        bot._verify_and_enforce_sl_tp(symbol, trade, bypass_cooldown=True)
+        bot.add_log(f"🔧 Recalibrated SL/TP for {symbol}")
+        return {"status": "success", "message": f"SL/TP recalibrated for {symbol}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/close_trade")
-def close_trade_legacy(bot=Depends(get_bot_context)):
-    """Legacy alias for closing active trade"""
-    if bot.active_trade:
-        res = bot.execute_exit_atomically(bot.active_trade["symbol"], reason="Manual Close (API)")
-        if res: return {"status": "success", "message": "Trade closed"}
-    return {"status": "error", "message": "No active trade to close"}
+def close_trade(data: SymbolRequest, bot=Depends(get_bot_context)):
+    """Close specified trade or active trade"""
+    try:
+        # Determine target symbol
+        symbol = data.symbol if data.symbol else bot.active_symbol
+        
+        # Check if trade exists
+        if symbol not in bot.active_trades:
+            return {"status": "error", "message": f"No active trade for {symbol}"}
+        
+        res = bot.execute_exit_atomically(symbol, reason="Manual Close (API)")
+        if res:
+            return {"status": "success", "message": f"Trade closed for {symbol}"}
+        else:
+            return {"status": "error", "message": f"Failed to close {symbol}"}
+    except Exception as e:
+        logger.error(f"Close trade failed: {e}")
+        return {"status": "error", "message": str(e)}

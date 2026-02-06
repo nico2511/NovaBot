@@ -93,7 +93,9 @@ class SafeOrderManager:
         size = float(position.get("size", 0))
         
         if sl_to_send or tp_to_send:
-            self.logger.info(f"   Placing: SL={sl_to_send:.2f if sl_to_send else 'skip'}, TP={tp_to_send:.2f if tp_to_send else 'skip'}")
+            sl_text = f"{sl_to_send:.2f}" if sl_to_send else "skip"
+            tp_text = f"{tp_to_send:.2f}" if tp_to_send else "skip"
+            self.logger.info(f"   Placing: SL={sl_text}, TP={tp_text}")
             self.hl._place_protection_orders(
                 symbol=symbol,
                 is_buy=is_buy, # Direction of the POSITION (helper inverts it for exit)

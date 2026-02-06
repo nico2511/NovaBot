@@ -81,9 +81,11 @@ export const api = {
         return response.json();
     },
 
-    async forceBreakEven(): Promise<ApiResponse> {
+    async forceBreakEven(symbol?: string): Promise<ApiResponse> {
         const response = await fetch(`${API_BASE_URL}/api/force_breakeven`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol }),
         });
         if (!response.ok) {
             throw new Error('Failed to force break even');
@@ -91,9 +93,11 @@ export const api = {
         return response.json();
     },
 
-    async closeTrade(): Promise<ApiResponse> {
+    async closeTrade(symbol?: string): Promise<ApiResponse> {
         const response = await fetch(`${API_BASE_URL}/api/close_trade`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol }),
         });
         if (!response.ok) {
             throw new Error('Failed to close trade');
@@ -101,9 +105,11 @@ export const api = {
         return response.json();
     },
 
-    async recalibrateStops(): Promise<ApiResponse> {
+    async recalibrateStops(symbol?: string): Promise<ApiResponse> {
         const response = await fetch(`${API_BASE_URL}/api/recalibrate_stops`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol }),
         });
         if (!response.ok) {
             throw new Error('Failed to recalibrate stops');
