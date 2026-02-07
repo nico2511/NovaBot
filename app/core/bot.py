@@ -168,31 +168,40 @@ class BotContext:
         try:
             state = StateManager.load_state(self)
             
+            
             # Load trading params from global_settings (centralized source)
             requested_max = self.global_settings.get("max_positions", 1)
             
-            try:
-                balance_data = hyperliquid_service.get_account_balance()
-                equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-                gam = AssetGamification(equity)
-                
-                if gam.level == AccountLevel.GOBLIN:
-                    max_allowed = 1
-                elif gam.level == AccountLevel.MERCENARY:
-                    max_allowed = 2
-                else:
-                    max_allowed = 3
-                
-                self.max_positions = min(requested_max, max_allowed)
-                
-                if requested_max > max_allowed:
-                    self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
-                else:
-                    self.add_log(f"⚙️ Max positions: {self.max_positions}")
+            # Only apply gamification limits if enabled
+            gamification_enabled = self.scanner_settings.get("gamification_enabled", False)
+            
+            if gamification_enabled:
+                try:
+                    balance_data = hyperliquid_service.get_account_balance()
+                    equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
+                    gam = AssetGamification(equity)
                     
-            except Exception as e:
+                    if gam.level == AccountLevel.GOBLIN:
+                        max_allowed = 1
+                    elif gam.level == AccountLevel.MERCENARY:
+                        max_allowed = 2
+                    else:
+                        max_allowed = 3
+                    
+                    self.max_positions = min(requested_max, max_allowed)
+                    
+                    if requested_max > max_allowed:
+                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
+                    else:
+                        self.add_log(f"⚙️ Max positions: {self.max_positions}")
+                        
+                except Exception as e:
+                    self.max_positions = requested_max
+                    print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
+            else:
+                # Gamification disabled - use requested max directly
                 self.max_positions = requested_max
-                print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
+                self.add_log(f"⚙️ Max positions: {self.max_positions} (Gamification disabled)")
                     
         except Exception as e:
             print(f"Error loading state: {e}")
