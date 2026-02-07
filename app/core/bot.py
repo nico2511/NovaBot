@@ -1221,8 +1221,111 @@ class BotContext:
                 except Exception as e:
                     self.add_log(f"⚠️ Periodic Report Failed: {e}")
 
+
             # Run in separate thread or use current loop if possible
             threading.Thread(target=run_async_report_sync, daemon=True).start()
+
+    def _handle_periodic_all_positions_report(self):
+        """Send periodic reports for ALL active positions (including manual ones)"""
+        now = time.time()
+        
+        # Use same interval tracking as single position reports
+        if self._last_copilot_report_time is None:
+            self._last_copilot_report_time = now
+            return
+            
+        elapsed = now - self._last_copilot_report_time
+        if elapsed >= self._copilot_report_interval:
+            self._last_copilot_report_time = now
+            
+            # Get ALL active positions from Hyperliquid
+            try:
+                positions = hyperliquid_service.get_positions()
+                active_positions = [p for p in positions if float(p.get("size", 0)) > 0]
+                
+                if not active_positions:
+                    return
+                
+                self.add_log(f"📊 Sending periodic reports for {len(active_positions)} position(s)...")
+                
+                # Send report for each position
+                for pos in active_positions:
+                    self._send_position_report_sync(pos)
+                    
+            except Exception as e:
+                self.add_log(f"⚠️ Multi-Position Report Error: {e}")
+
+    def _send_position_report_sync(self, position: dict):
+        """Send Discord report for a single position (synchronous wrapper)"""
+        def run_report():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._send_position_report_async(position))
+                loop.close()
+            except Exception as e:
+                self.add_log(f"⚠️ Position Report Error: {e}")
+        
+        threading.Thread(target=run_report, daemon=True).start()
+
+    async def _send_position_report_async(self, position: dict):
+        """Send Discord report for a single position (async)"""
+        try:
+            symbol = position.get("symbol")
+            side = position.get("side", "BUY")
+            size = float(position.get("size", 0))
+            entry_price = float(position.get("entry_price", 0))
+            
+            # Get current price and calculate PnL
+            curr = hyperliquid_service.get_current_price(symbol)
+            pnl_raw = ((curr - entry_price) / entry_price) if side == "BUY" else ((entry_price - curr) / entry_price)
+            pnl_pct = pnl_raw * 100
+            
+            # Get market sentiment
+            sentiment = await analyst_service.analyze_market_sentiment(symbol)
+            
+            # Fetch metrics
+            funding_rate = 0.0
+            oi = 0.0
+            try:
+                raw_funding = hyperliquid_service.get_funding_rate(symbol)
+                funding_rate = raw_funding * 100.0
+                oi = hyperliquid_service.get_open_interest(symbol)
+            except:
+                pass
+            
+            # Analyze position
+            pos_data = {
+                "symbol": symbol,
+                "side": side,
+                "size": size,
+                "returnOnEquity": pnl_raw
+            }
+            
+            trading_tf = self.global_settings.get("trading_timeframe", "15m")
+            analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
+            
+            advice = analysis.get("advice", "HOLD")
+            reason = analysis.get("reason", "N/A")
+            
+            # Build Discord message
+            status_emoji = "🟢" if pnl_pct > 0 else "🔴"
+            report_msg = (
+                f"{status_emoji} **Copilot Report: {symbol}** ({side})\\n"
+                f"💰 **PnL:** {pnl_pct:+.2f}%\\n"
+                f"🧠 **Advice:** {advice}\\n"
+                f"📝 **Reasoning:** {reason}\\n"
+                f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\\n"
+                f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
+            )
+            
+            # Send to Discord
+            discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
+            self.add_log(f"📊 Report sent for {symbol}: {advice} | PnL: {pnl_pct:.2f}%")
+            
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to send report for {position.get('symbol', 'UNKNOWN')}: {e}")
+
 
     def _sync_state(self, silent=True):
         """Unified State Synchronization (Stateless Truth)"""
@@ -1526,6 +1629,16 @@ class BotContext:
                     self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now() 
             except: pass
             # --------------------------------------------------------
+            
+            # --------------------------------------------------------
+            # 3. PERIODIC COPILOT REPORTS FOR ALL POSITIONS
+            # Send Discord updates for ALL active positions (including manual ones)
+            # This runs independently of active_trade management
+            # --------------------------------------------------------
+            try:
+                self._handle_periodic_all_positions_report()
+            except Exception as e:
+                self.add_log(f"⚠️ Periodic Multi-Position Report Error: {e}")
             
             try:
                 if self.active_trade:
