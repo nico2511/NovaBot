@@ -931,6 +931,12 @@ class HyperliquidService:
             raw_positions = user_state.get("assetPositions", [])
             positions = []
             
+            # Get user fills to find entry times
+            try:
+                user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
+            except:
+                user_fills = []
+            
             for item in raw_positions:
                 pos = item.get("position", {})
                 if not pos: continue
@@ -939,13 +945,29 @@ class HyperliquidService:
                 size = float(pos.get("szi", 0.0))
                 if size == 0: continue
                 
+                symbol = pos.get("coin", "UNKNOWN")
+                
+                # Find entry time from fills (most recent fill for this symbol)
+                entry_time = None
+                if user_fills:
+                    # Look for the most recent fill that opened this position
+                    for fill in user_fills:
+                        if fill.get("coin") == symbol:
+                            # Found a fill for this symbol
+                            timestamp_ms = fill.get("time", 0)
+                            if timestamp_ms:
+                                import pandas as pd
+                                entry_time = pd.Timestamp(timestamp_ms, unit='ms').isoformat()
+                                break  # Use the most recent fill
+                
                 positions.append({
-                    "symbol": pos.get("coin", "UNKNOWN"),
+                    "symbol": symbol,
                     "side": "BUY" if size > 0 else "SELL",
                     "size": abs(size),
                     "entry_price": float(pos.get("entryPx", 0.0)),
                     "pnl": float(pos.get("unrealizedPnl", 0.0)),
-                    "leverage": float(pos.get("leverage", {}).get("value", 1.0))
+                    "leverage": float(pos.get("leverage", {}).get("value", 1.0)),
+                    "entry_time": entry_time  # Add entry_time for duration calculation
                 })
                 
             return positions
