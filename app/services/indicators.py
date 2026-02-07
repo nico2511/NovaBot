@@ -128,6 +128,74 @@ class Indicators:
             'MACDs': signal_line
         }, index=close.index)
 
+    @staticmethod
+    def supertrend(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 10, multiplier: float = 3.0):
+        """
+        Supertrend indicator.
+        Returns DataFrame with columns: 'Supertrend', 'Direction' (1 for Bullish, -1 for Bearish)
+        """
+        # 1. ATR calculation
+        atr = Indicators.atr(high, low, close, period)
+        
+        # 2. Median Price
+        hl2 = (high + low) / 2
+        
+        # 3. Basic Bands
+        basic_ub = hl2 + (multiplier * atr)
+        basic_lb = hl2 - (multiplier * atr)
+        
+        # 4. Final Bands (Stateful)
+        m = len(close)
+        final_ub = np.zeros(m)
+        final_lb = np.zeros(m)
+        st = np.zeros(m)
+        direction = np.zeros(m)
+        
+        # Initialize
+        final_ub[0] = basic_ub.iloc[0]
+        final_lb[0] = basic_lb.iloc[0]
+        st[0] = basic_ub.iloc[0]
+        direction[0] = -1
+        
+        # Loop for stateful logic (Final Bands & Supertrend)
+        close_values = close.values
+        basic_ub_values = basic_ub.values
+        basic_lb_values = basic_lb.values
+        
+        for i in range(1, m):
+            # Final Upper Band
+            if (basic_ub_values[i] < final_ub[i-1]) or (close_values[i-1] > final_ub[i-1]):
+                final_ub[i] = basic_ub_values[i]
+            else:
+                final_ub[i] = final_ub[i-1]
+                
+            # Final Lower Band
+            if (basic_lb_values[i] > final_lb[i-1]) or (close_values[i-1] < final_lb[i-1]):
+                final_lb[i] = basic_lb_values[i]
+            else:
+                final_lb[i] = final_lb[i-1]
+                
+            # Supertrend & Direction
+            if st[i-1] == final_ub[i-1]:
+                if close_values[i] > final_ub[i]:
+                    st[i] = final_lb[i]
+                    direction[i] = 1
+                else:
+                    st[i] = final_ub[i]
+                    direction[i] = -1
+            else:
+                if close_values[i] < final_lb[i]:
+                    st[i] = final_ub[i]
+                    direction[i] = -1
+                else:
+                    st[i] = final_lb[i]
+                    direction[i] = 1
+                    
+        return pd.DataFrame({
+            'Supertrend': st,
+            'Direction': direction
+        }, index=close.index)
+
 
 # ────────────────────────────────────────────────
 #   API style pandas_ta (for strategy compatibility)
@@ -154,6 +222,9 @@ class TaAdapter:
 
     def macd(self, close, fast=12, slow=26, signal=9):
         return Indicators.macd(close, fast, slow, signal)
+
+    def supertrend(self, high, low, close, period=10, multiplier=3.0):
+        return Indicators.supertrend(high, low, close, period, multiplier)
 
 
 # Singleton – usage: from app.services.indicators import ta; ta.rsi(df['close'])

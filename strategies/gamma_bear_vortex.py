@@ -261,3 +261,54 @@ class GammaBearVortex(BaseStrategy):
             "VI-": f"{curr['VI_neg']:.2f} vs {self.vortex_threshold}",
             "BB Width": f"{curr['BB_Width']*100:.2f}% vs {self.gamma_pin_width*100:.1f}%"
         }
+
+    def calculate_progress(self, df, extra_data=None):
+        """UI Progress calculation for Gamma Bear Vortex"""
+        if df.empty or len(df) < 50:
+            return 0
+            
+        try:
+            self.add_indicators(df)
+            curr = df.iloc[-1]
+            
+            progress = 0
+            
+            # --- Stage 1: Trend (30%) ---
+            # Bear Trend (Price < EMA and ADX > threshold)
+            is_bear = curr['close'] < curr['EMA_Trend']
+            adx_score = min(1.0, curr['ADX_14'] / self.adx_min)
+            
+            if is_bear:
+                progress += 15
+                progress += int(15 * adx_score)
+            
+            # --- Stage 2: Vortex (30%) ---
+            # VI- > VI+ and VI- near threshold
+            vi_gap = curr['VI_neg'] - curr['VI_pos']
+            if vi_gap > 0:
+                progress += 15
+                vi_threshold_score = min(1.0, curr['VI_neg'] / self.vortex_threshold)
+                progress += int(15 * vi_threshold_score)
+            
+            # --- Stage 3: Gamma / Pressure (30%) ---
+            # BB Width proximity to pin width
+            bb_width_score = 0
+            if curr['BB_Width'] < self.gamma_pin_width:
+                bb_width_score = 1.0
+            else:
+                # Proximity score (inverse of distance)
+                bb_width_score = max(0, 1 - (curr['BB_Width'] - self.gamma_pin_width) / self.gamma_pin_width)
+            
+            progress += int(30 * bb_width_score)
+            
+            # --- Stage 4: OI (10%) ---
+            if 'OI_Change_Pct' in df.columns:
+                oi = curr['OI_Change_Pct']
+                if oi > -0.5:
+                    progress += 10
+            else:
+                progress += 5 # Default if data missing
+                
+            return min(100, progress)
+        except:
+            return 0
