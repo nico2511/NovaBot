@@ -1186,7 +1186,7 @@ class BotContext:
                     }
                     
                     # Pass trading_timeframe from settings for dynamic advice weighting
-                    trading_tf = self.operations_settings.get("trading_timeframe", "15m")
+                    trading_tf = self.global_settings.get("trading_timeframe", "15m")
                     analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
                     
                     # --- UPDATE CACHE FOR FRONTEND ---
