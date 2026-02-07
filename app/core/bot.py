@@ -802,6 +802,13 @@ class BotContext:
               
         self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
         
+        # Get position data BEFORE closing for accurate PnL calculation
+        positions_before = hyperliquid_service.get_positions()
+        position_data = next((p for p in positions_before if p["symbol"] == symbol), None)
+        
+        if not position_data:
+            self.add_log(f"⚠️ No position data found for {symbol}, PnL calculation may be inaccurate")
+        
         try:
             result = hyperliquid_service.close_position(symbol)
             
@@ -814,40 +821,61 @@ class BotContext:
                      self.add_log(f"🧹 Cleaning post-trade orphans on {symbol}...")
                      hyperliquid_service.cancel_all_orders(symbol)
                      
+                     # Calculate PnL from position data (works for all positions)
                      pnl_usdc = 0
+                     entry_price = 0
+                     exit_price = hyperliquid_service.get_current_price(symbol)
+                     size = 0
+                     side = "BUY"
+                     
+                     if position_data:
+                         # Use actual position data
+                         entry_price = position_data.get("entry_price", 0)
+                         size = position_data.get("size", 0)
+                         side = position_data.get("side", "BUY")
+                         
+                         if side == "BUY":
+                             pnl_usdc = (exit_price - entry_price) * size
+                         else:
+                             pnl_usdc = (entry_price - exit_price) * size
+                     elif self.active_trade:
+                         # Fallback to active_trade if position_data unavailable
+                         entry_price = self.active_trade.get("entry", 0)
+                         size = self.active_trade.get("size", 0)
+                         side = self.active_trade.get("side", "BUY")
+                         
+                         if side == "BUY":
+                             pnl_usdc = (exit_price - entry_price) * size
+                         else:
+                             pnl_usdc = (entry_price - exit_price) * size
+                     
+                     # Record trade
                      with self.trade_lock:
-                         if self.active_trade:
-                             entry = self.active_trade.get("entry", 0)
-                             active_side = self.active_trade.get("side", "BUY")
-                             exit_px = hyperliquid_service.get_current_price(symbol)
-                             size = self.active_trade.get("size", 0)
-                             
-                             if active_side == "BUY":
-                                 pnl_usdc = (exit_px - entry) * size
-                             else:
-                                 pnl_usdc = (entry - exit_px) * size
-                                 
-                             self.trade_recorder.add_trade({
-                                 "symbol": symbol,
-                                 "strategy": self.active_trade.get("strategy", "Unknown"),
-                                 "side": active_side,
-                                 "entry_price": entry,
-                                 "exit_price": exit_px,
-                                 "size": size,
-                                 "pnl_usdc": pnl_usdc,
-                                 "exit_reason": reason,
-                                 "exit_time": pd.Timestamp.now().isoformat(),
-                                 "entry_indicators": self.active_trade.get("entry_indicators", {})
-                             })
-                             
-                             discord_service.send_alert(
-                                 f"🏁 TRADE CLOSED: {symbol}",
-                                 f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
-                                 color="FFFF00"
-                             )
-                             self.risk_manager.record_trade_close(pnl_usdc)
+                         self.trade_recorder.add_trade({
+                             "symbol": symbol,
+                             "strategy": self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual",
+                             "side": side,
+                             "entry_price": entry_price,
+                             "exit_price": exit_price,
+                             "size": size,
+                             "pnl_usdc": pnl_usdc,
+                             "exit_reason": reason,
+                             "exit_time": pd.Timestamp.now().isoformat(),
+                             "entry_indicators": self.active_trade.get("entry_indicators", {}) if self.active_trade else {}
+                         })
+                         
+                         discord_service.send_alert(
+                             f"🏁 TRADE CLOSED: {symbol}",
+                             f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
+                             color="FFFF00"
+                         )
+                         self.risk_manager.record_trade_close(pnl_usdc)
+                         
+                         # Clear active_trade only if this was the active trade
+                         if self.active_trade and self.active_trade.get("symbol") == symbol:
                              self.active_trade = None
-                             StateManager.save_state(self)
+                         
+                         StateManager.save_state(self)
                              self._sync_state(silent=False)
 
                      return True
