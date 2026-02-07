@@ -788,11 +788,18 @@ class BotContext:
 
     def execute_exit_atomically(self, symbol: str, reason: str = "SIGNAL"):
         """ATOMIC EXIT FLOW (THE KILL SWITCH)"""
-        # CRITICAL SAFETY: Verify symbol context
-        if symbol != self.active_symbol:
-             self.add_log(f"🚨 CRITICAL: Attempted to close {symbol} while active symbol is {self.active_symbol}. EXIT ABORTED.")
-             return False
-             
+        # Verify position exists before attempting to close
+        try:
+            positions = hyperliquid_service.get_positions()
+            position_exists = any(p.get("symbol") == symbol and float(p.get("size", 0)) > 0 for p in positions)
+            
+            if not position_exists:
+                self.add_log(f"⚠️ Cannot close {symbol}: No open position found")
+                return False
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to verify position for {symbol}: {e}")
+            # Continue anyway - let Hyperliquid API handle the error
+              
         self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
         
         try:
