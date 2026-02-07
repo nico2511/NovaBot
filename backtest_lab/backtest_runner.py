@@ -49,8 +49,29 @@ def run():
     df = pd.read_csv(args.data, index_col=0, parse_dates=True)
     df_strategy = prepare_data(df, timeframe=args.timeframe)
     
+    # Load config from strategies.json if it exists
+    config = {}
+    config_path = "data/config/strategies.json"
+    if os.path.exists(config_path):
+        import json
+        try:
+            with open(config_path, 'r') as f:
+                all_configs = json.load(f)
+                # Try finding by name (case insensitive or snake_case)
+                # The keys in strategies.json are snake_case
+                def to_snake(name):
+                    import re
+                    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', name).lower().replace("_strategy", "")
+                
+                strategy_key = to_snake(args.strategy)
+                if strategy_key in all_configs:
+                    config = all_configs[strategy_key]
+                    print(f"⚙️  Loaded production config for: {strategy_key}")
+        except Exception as e:
+            print(f"⚠️  Could not load strategies.json: {e}")
+
     # Get the adapter for the requested strategy
-    AdapterClass = get_strategy_adapter(args.strategy, original_df=df)
+    AdapterClass = get_strategy_adapter(args.strategy, config=config, original_df=df)
     
     try:
         bt = Backtest(df_strategy, AdapterClass, cash=1_000_000, commission=.0006, exclusive_orders=True, finalize_trades=True)

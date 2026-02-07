@@ -84,24 +84,30 @@ class BotContext:
             "gamification_enabled": config.SCANNER_GAMIFICATION
         }
 
-        # Global Settings Defaults (Ensures fields exist even if file is missing)
         # Global Settings Defaults (Seeded from user_settings API via config)
         self.global_settings = {
-            "max_positions": config.DEFAULT_MAX_POSITIONS,
-            "daily_stop_loss": config.DEFAULT_DAILY_STOP_LOSS,
-            "trading_timeframe": config.TRADING_TIMEFRAME,
-            "bot_persona": config.BOT_PERSONA,
-            "risk_profile": config.RISK_PROFILE,
-            "ai_thresholds": {
-                "high": config.AI_CONF_THRESHOLD_HIGH,
-                "medium": config.AI_CONF_THRESHOLD_MEDIUM,
-                "low": config.AI_CONF_THRESHOLD_LOW
+            "operations": {
+                "trading_timeframe": config.TRADING_TIMEFRAME,
+                "auto_start_trading": config.AUTO_START_TRADING,
+                "log_level": config.LOG_LEVEL
             },
-            "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
-            "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
-            "default_leverage": config.DEFAULT_LEVERAGE,
-            "default_margin_type": "ISOLATED",
-            "auto_start_trading": config.AUTO_START_TRADING,
+            "risk_defaults": {
+                "max_positions": config.DEFAULT_MAX_POSITIONS,
+                "daily_stop_loss": config.DEFAULT_DAILY_STOP_LOSS,
+                "bot_persona": config.BOT_PERSONA,
+                "risk_profile": config.RISK_PROFILE,
+                "default_leverage": config.DEFAULT_LEVERAGE,
+                "default_margin_type": "ISOLATED",
+                "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
+                "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
+            },
+            "ai_config": {
+                "conf_threshold_high": config.AI_CONF_THRESHOLD_HIGH,
+                "conf_threshold_medium": config.AI_CONF_THRESHOLD_MEDIUM,
+                "conf_threshold_low": config.AI_CONF_THRESHOLD_LOW,
+                "model_name": config.AI_MODEL_NAME,
+                "call_cooldown": config.AI_CALL_COOLDOWN
+            },
             "notifications": {
                 "discord_webhook_alerts": config.DISCORD_WEBHOOK_ALERTS,
                 "discord_webhook_logs": config.DISCORD_WEBHOOK_LOGS
@@ -170,7 +176,7 @@ class BotContext:
             
             
             # Load trading params from global_settings (centralized source)
-            requested_max = self.global_settings.get("max_positions", 1)
+            requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
             
             # Only apply gamification limits if enabled
             gamification_enabled = self.scanner_settings.get("gamification_enabled", False)
@@ -1502,15 +1508,15 @@ class BotContext:
             gamification_active = self.scanner_settings.get("gamification_enabled", True)
             
             # Fallback: Use global_settings default_leverage when gamification disabled
-            default_leverage = self.global_settings.get("default_leverage", 5)
-            default_margin_type = self.global_settings.get("default_margin_type", "Cross")
+            default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
+            default_margin_type = self.global_settings.get("risk_defaults", {}).get("default_margin_type", "Cross")
             
             # Read trading params from scanner_settings (centralized source) with fallbacks
             requested_leverage = self.scanner_settings.get("leverage")
             
             # If leverage not explicitly set or set to 1 (likely default), derive from risk profile
             if requested_leverage is None or int(requested_leverage) <= 1:
-                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
                 if risk_profile == "Capital Preservation First":
                     requested_leverage = 3
                 elif risk_profile == "Balanced Growth":
@@ -1542,7 +1548,7 @@ class BotContext:
                     self.add_log(f"⚠️ Gamification check failed: {gam_err}")
             else:
                 # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
-                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
                 
                 if risk_profile == "Capital Preservation First":
                     target_leverage = 3
@@ -1816,7 +1822,7 @@ class BotContext:
                     if sig.get("signal") and sig.get("price"):
                         
                         # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
-                        cooldown_minutes = self.global_settings.get("cooldown_minutes", 0)
+                        cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
                         if cooldown_minutes > 0 and self._last_trade_info.get("time"):
                             last_symbol = self._last_trade_info.get("symbol")
                             last_direction = self._last_trade_info.get("direction")
@@ -1895,7 +1901,7 @@ class BotContext:
                             
                             # DYNAMIC POSITION SIZING based on RISK PROFILE
                             if not self.scanner_settings.get("gamification_enabled", True):
-                                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
                                 
                                 # Assign risk % constants based on profile
                                 risk_pct = 1.5 # Default (Conservative)
@@ -2073,7 +2079,7 @@ class BotContext:
                     if not hasattr(self, 'global_settings'):
                         self.global_settings = {}
                         
-                    risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
                     print(f"      🛡️ Using Profile: {risk_profile}")
 
                     # Profile Logic
@@ -2348,7 +2354,7 @@ class BotContext:
 
                 # Get Risk Profile Multiplier Defaults
                 if not hasattr(self, 'global_settings'): self.global_settings = {}
-                risk_profile = self.global_settings.get("risk_profile", "Capital Preservation First")
+                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
                 
                 if risk_profile == "Capital Preservation First":
                     sl_mult = 1.0; tp_mult = 2.0

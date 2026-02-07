@@ -283,10 +283,10 @@
         "timeframe": "15m",
         "params": {
             "period": 10,
-            "multiplier": 3.0,
-            "ema_filter_period": 200,
-            "adx_threshold": 15,
-            "volume_multiplier": 1.2,
+            "multiplier": 2.0,
+            "ema_filter_period": 1,
+            "adx_threshold": 10,
+            "volume_multiplier": 1.0,
             "min_rr": 1.5,
             "sl_atr_mult": 1.0
         },

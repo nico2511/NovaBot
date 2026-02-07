@@ -52,25 +52,40 @@ class UniversalStrategyAdapter(Strategy):
         print(f"🛠  Initialized Strategy: {self.strategy_name}")
 
     def next(self):
-        # 1. Prepare the 15m (or resampled) dataframe for the custom strategy
-        df_15m = self.data.df.iloc[:len(self.data)]
-        df_15m_mapped = df_15m.rename(columns={
+        # The backtest should ideally run on 1m data for precision
+        # df is the 'main' timeframe passed to generate_signal
+        
+        # 1. Get current data slice
+        df_current = self.data.df.iloc[:len(self.data)]
+        
+        # 2. Rename columns to lowercase for strategy compatibility
+        df_mapped = df_current.rename(columns={
             'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'
         })
 
-        # 2. Prepare MTF data if available
+        # 3. Detect if the strategy needs MTF (15m/1m)
+        # We'll provide both by default if possible
         extra_data = {}
-        if self.original_df is not None:
-            # Get current timestamp of the backtest
-            current_ts = self.data.index[-1]
-            # Slice 1m data up to this timestamp
-            df_1m = self.original_df.loc[:current_ts].tail(100) # Keep last 100 bars for trigger
-            extra_data["1m"] = df_1m.rename(columns={
-                'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'
-            })
-
+        
+        # If the backtest is running on 1min, we can provide resampled 15min as context
+        # Check if index frequency or data suggests 1min
+        is_1m = len(df_mapped) > 1 and (df_mapped.index[1] - df_mapped.index[0]).total_seconds() <= 60
+        
+        main_df = df_mapped
+        if is_1m:
+            # Resample for 15m context
+            # We use the full history to resample
+            df_15m = df_mapped.resample('15min').agg({
+                'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+            }).dropna()
+            
+            # The strategy typically expects the 'main' df to be the context (15m)
+            # and extra_data to have the trigger (1min)
+            main_df = df_15m
+            extra_data["1m"] = df_mapped.tail(100) # Keep last 100 1m candles for triggers
+        
         # Generate signal
-        signal_data = self.custom_strategy.generate_signal(df_15m_mapped, extra_data=extra_data)
+        signal_data = self.custom_strategy.generate_signal(main_df, extra_data=extra_data)
 
         if signal_data:
             # ... rest of signal processing

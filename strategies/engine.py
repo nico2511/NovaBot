@@ -16,6 +16,7 @@ from strategies.elastic_nibbler import ElasticNibblerStrategy
 from strategies.liquidity_lightning import LiquidityLightning
 from strategies.sniper_precision_trend import SniperPrecisionTrend
 from strategies.gamma_bear_vortex import GammaBearVortex
+from strategies.supertrend import StrategySupertrend
 
 # Import robuste pour Panic Close
 try:
@@ -56,6 +57,7 @@ class StrategyEngine:
             "liquidity_lightning": LiquidityLightning(strats_config.get("liquidity_lightning")),
             "sniper_precision_trend": SniperPrecisionTrend(strats_config.get("sniper_precision_trend")),
             "gamma_bear_vortex": GammaBearVortex(strats_config.get("gamma_bear_vortex")),
+            "supertrend": StrategySupertrend(strats_config.get("supertrend")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)

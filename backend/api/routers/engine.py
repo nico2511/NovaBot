@@ -73,7 +73,7 @@ def get_status(bot=Depends(get_bot_context)):
             "max_drawdown": getattr(bot, 'max_drawdown', 0.0),
             "settings": {
                 "max_positions": bot.max_positions,
-                "daily_stop_loss": bot.global_settings.get("daily_stop_loss", 0),
+                "daily_stop_loss": bot.global_settings.get("risk_defaults", {}).get("daily_stop_loss", 0),
                 "leverage": getattr(bot, 'leverage', 1),
                 "bot_persona": getattr(bot, 'bot_persona', 'Unknown'),
                 "risk_profile": getattr(bot, 'risk_profile', 'Unknown')
@@ -264,6 +264,10 @@ def get_strategies(bot=Depends(get_bot_context)):
 class StrategySelectRequest(BaseModel):
     strategy_id: str
 
+class StrategyParamsRequest(BaseModel):
+    strategy_id: str
+    params: dict
+
 @router.post("/config/strategy-select")
 def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
     """Toggle strategy enabled state"""
@@ -307,6 +311,48 @@ def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
         raise
     except Exception as e:
         logger.error(f"Error toggling strategy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/config/strategy-params")
+def update_strategy_params(data: StrategyParamsRequest, bot=Depends(get_bot_context)):
+    """Update strategy parameters and persist to strategies.json"""
+    try:
+        strat_id = data.strategy_id
+        new_params = data.params
+        
+        if hasattr(bot, 'strategy_engine') and strat_id in bot.strategy_engine.strategies:
+            strategy = bot.strategy_engine.strategies[strat_id]
+            
+            # Update runtime config
+            if not hasattr(strategy, 'config'):
+                strategy.config = {}
+            if "params" not in strategy.config:
+                strategy.config["params"] = {}
+                
+            strategy.config["params"].update(new_params)
+            
+            # Persist to JSON
+            import json
+            from pathlib import Path
+            config_path = Path("data/config/strategies.json")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    full_config = json.load(f)
+                
+                if strat_id in full_config:
+                    if "params" not in full_config[strat_id]:
+                        full_config[strat_id]["params"] = {}
+                    full_config[strat_id]["params"].update(new_params)
+                    
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        json.dump(full_config, f, indent=4)
+                        
+            bot.add_log(f"⚙️ Strategy Params Updated: {strat_id}")
+            return {"status": "success", "message": f"Parameters updated for {strat_id}"}
+        else:
+            raise HTTPException(status_code=404, detail=f"Strategy {strat_id} not found")
+    except Exception as e:
+        logger.error(f"Error updating strategy params: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 @router.get("/strategies/monitor")
 def monitor_strategies(bot=Depends(get_bot_context)):
