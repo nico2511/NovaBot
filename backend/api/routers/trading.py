@@ -243,10 +243,10 @@ def close_trade(data: SymbolRequest, bot=Depends(get_bot_context)):
         # Determine target symbol
         symbol = data.symbol if data.symbol else bot.active_symbol
         
-        # Check if trade exists
-        if symbol not in bot.active_trades:
-            return {"status": "error", "message": f"No active trade for {symbol}"}
+        if not symbol:
+            return {"status": "error", "message": "No symbol specified"}
         
+        # execute_exit_atomically will validate position exists
         res = bot.execute_exit_atomically(symbol, reason="Manual Close (API)")
         if res:
             return {"status": "success", "message": f"Trade closed for {symbol}"}
