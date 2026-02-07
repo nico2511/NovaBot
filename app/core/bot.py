@@ -48,7 +48,8 @@ class BotContext:
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
         )
-        self.max_positions = 1 # GLOBAL QUOTA
+        # GLOBAL QUOTA - Will be set from global_settings after initialization
+        self.max_positions = config.DEFAULT_MAX_POSITIONS
         self.strategy_engine = StrategyEngine(self.risk_manager)
         self.is_running = False
         self.trading_enabled = False
@@ -167,8 +168,8 @@ class BotContext:
         try:
             state = StateManager.load_state(self)
             
-            # Load trading params from scanner_settings (centralized source)
-            requested_max = self.scanner_settings.get("max_positions", 1)
+            # Load trading params from global_settings (centralized source)
+            requested_max = self.global_settings.get("max_positions", 1)
             
             try:
                 balance_data = hyperliquid_service.get_account_balance()
