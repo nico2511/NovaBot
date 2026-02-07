@@ -1356,11 +1356,11 @@ class BotContext:
             # Build Discord message
             status_emoji = "🟢" if pnl_pct > 0 else "🔴"
             report_msg = (
-                f"{status_emoji} **Copilot Report: {symbol}** ({side})\\n"
-                f"💰 **PnL:** {pnl_pct:+.2f}%\\n"
-                f"🧠 **Advice:** {advice}\\n"
-                f"📝 **Reasoning:** {reason}\\n"
-                f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\\n"
+                f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
+                f"💰 **PnL:** {pnl_pct:+.2f}%\n"
+                f"🧠 **Advice:** {advice}\n"
+                f"📝 **Reasoning:** {reason}\n"
+                f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
                 f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
             )
             

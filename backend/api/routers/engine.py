@@ -27,8 +27,10 @@ def get_status(bot=Depends(get_bot_context)):
             try:
                 entry_time_str = pos.get("entry_time")
                 if entry_time_str:
+                    # entry_time is stored in ISO format (UTC)
                     entry_time = pd.Timestamp(entry_time_str)
-                    elapsed = pd.Timestamp.now() - entry_time
+                    # Use UTC now for comparison
+                    elapsed = pd.Timestamp.now(tz='UTC').tz_localize(None) - entry_time.tz_localize(None)
                     
                     # Format duration as "Xh Ym" or "Xm" if less than 1 hour
                     total_seconds = int(elapsed.total_seconds())
