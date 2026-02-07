@@ -22,6 +22,29 @@ def get_status(bot=Depends(get_bot_context)):
         from app.services.hyperliquid_service import hyperliquid_service
         positions = hyperliquid_service.get_positions()
         
+        # Add duration to each position
+        for pos in positions:
+            try:
+                entry_time_str = pos.get("entry_time")
+                if entry_time_str:
+                    entry_time = pd.Timestamp(entry_time_str)
+                    elapsed = pd.Timestamp.now() - entry_time
+                    
+                    # Format duration as "Xh Ym" or "Xm" if less than 1 hour
+                    total_seconds = int(elapsed.total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    
+                    if hours > 0:
+                        pos["duration"] = f"{hours}h {minutes}m"
+                    else:
+                        pos["duration"] = f"{minutes}m"
+                else:
+                    pos["duration"] = "--"
+            except Exception as e:
+                logger.warning(f"Failed to calculate duration for {pos.get('symbol', 'UNKNOWN')}: {e}")
+                pos["duration"] = "--"
+        
         # Get account balance
         balance = 0.0
         try:
