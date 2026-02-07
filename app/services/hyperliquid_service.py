@@ -946,23 +946,25 @@ class HyperliquidService:
                 if size == 0: continue
                 
                 symbol = pos.get("coin", "UNKNOWN")
+                is_long = size > 0
                 
-                # Find entry time from fills (most recent fill for this symbol)
+                # Find entry time from fills (most recent fill that OPENED this position)
                 entry_time = None
                 if user_fills:
-                    # Look for the most recent fill that opened this position
+                    # Look for the opening fill that matches current position direction
+                    target_dir = "Open Long" if is_long else "Open Short"
                     for fill in user_fills:
-                        if fill.get("coin") == symbol:
-                            # Found a fill for this symbol
+                        if fill.get("coin") == symbol and fill.get("dir") == target_dir:
+                            # Found the opening fill for this position
                             timestamp_ms = fill.get("time", 0)
                             if timestamp_ms:
                                 import pandas as pd
                                 entry_time = pd.Timestamp(timestamp_ms, unit='ms').isoformat()
-                                break  # Use the most recent fill
+                                break  # Use the most recent opening fill
                 
                 positions.append({
                     "symbol": symbol,
-                    "side": "BUY" if size > 0 else "SELL",
+                    "side": "BUY" if is_long else "SELL",
                     "size": abs(size),
                     "entry_price": float(pos.get("entryPx", 0.0)),
                     "pnl": float(pos.get("unrealizedPnl", 0.0)),
