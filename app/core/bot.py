@@ -876,7 +876,7 @@ class BotContext:
                              self.active_trade = None
                          
                          StateManager.save_state(self)
-                             self._sync_state(silent=False)
+                         self._sync_state(silent=False)
 
                      return True
                 else:
