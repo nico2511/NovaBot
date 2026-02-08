@@ -376,16 +376,18 @@ class ElasticReversionStrategy(BaseStrategy):
                 "details": s3_details
             })
             
-            # Score
-            score = 0
-            if s1_status == "PASS": score += 20
-            if "READY" in s2_status: score += 40
-            elif s2_status == "PARTIAL": score += 20
-            if s3_status == "TRIGGER!": score += 40
-            
+            # Determine Bias
+            bias = "NEUTRAL"
+            if was_long_setup or s2_status == "READY (LONG)": bias = "LONG"
+            elif was_short_setup or s2_status == "READY (SHORT)": bias = "SHORT"
+            elif "READY" in s2_status or "TRIGGER" in s3_status:
+                # Fallback if status strings change
+                bias = "LONG" if "LONG" in s2_status or "LONG" in s3_status else "SHORT"
+
             return {
                 "strategy": "Elastic Reversion",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
 

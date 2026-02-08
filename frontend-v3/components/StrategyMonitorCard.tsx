@@ -21,6 +21,7 @@ interface StrategyProgress {
     name?: string;
     description?: string;
     score: number;
+    bias?: 'LONG' | 'SHORT' | 'BOTH' | 'NEUTRAL';
     stages: Stage[];
     error?: string;
 }
@@ -67,8 +68,15 @@ export default function StrategyMonitorCard({ data }: StrategyMonitorCardProps) 
                         <BarChart2 className="w-6 h-6 text-blue-400" />
                     </div>
                     <div>
-                        <h3 className="font-bold text-lg text-gray-100">{data.name || data.strategy}</h3>
-                        <div className="text-xs text-gray-400 mt-0.5 line-clamp-1 italic">
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-lg text-gray-100">{data.name || data.strategy}</h3>
+                            {data.bias && data.bias !== 'NEUTRAL' && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${data.bias === 'LONG' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'}`}>
+                                    {data.bias}
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 line-clamp-1 italic text-balance">
                             {data.description}
                         </div>
                         <div className="text-[10px] text-gray-600 flex items-center gap-2 mt-1">

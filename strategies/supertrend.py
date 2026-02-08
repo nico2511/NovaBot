@@ -224,9 +224,15 @@ class StrategySupertrend(BaseStrategy):
                 "details": s3_details
             })
 
+            # Determine Bias
+            bias = "NEUTRAL"
+            if is_bullish: bias = "LONG"
+            elif is_bearish: bias = "SHORT"
+
             return {
                 "strategy": "Supertrend",
                 "score": min(100, score),
+                "bias": bias,
                 "stages": stages
             }
         except Exception as e:

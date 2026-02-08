@@ -412,6 +412,7 @@ def monitor_strategies(bot=Depends(get_bot_context)):
                     progress['type'] = config.get("type", meta.get("type", "unknown")).lower()
                     progress['description'] = meta.get("description", "No description")
                     progress['name'] = meta.get("name", name) # Use friendly name if available
+                    progress['bias'] = progress.get('bias', 'NEUTRAL') # Pass the bias through
                     
                     results.append(progress)
                 except Exception as e:
