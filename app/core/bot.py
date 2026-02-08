@@ -1104,6 +1104,13 @@ class BotContext:
                 with self.trade_lock:
                     self.active_trade["sl"] = new_sl
                     StateManager.save_state(self)
+                
+                # Discord Notification for Break-Even
+                discord_service.send_alert(
+                    f"🛡️ BREAK-EVEN TRIGGERED: {self.active_symbol}",
+                    f"New SL: {new_sl:.2f}\nCurrent Price: {current_price:.2f}\nEntry: {entry_price:.2f}",
+                    color="FFA500"  # Orange
+                )
                 return True
                 
         return False
@@ -1874,6 +1881,13 @@ class BotContext:
                                         reason = ai_data.get('reasoning', 'No reason')
                                         self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
                                         self._record_signal_analysis(sig, ai_data, True, indicators=technical_context)
+                                        
+                                        # Discord Notification for AI Approval
+                                        discord_service.send_alert(
+                                            f"✅ AI APPROVED: {sig.get('signal')} {sig.get('symbol')}",
+                                            f"Strategy: {sig.get('strategy')}\nConfidence: {confidence}%\nRisk: {risk_level}\n\n{reason}",
+                                            color="00FF00"
+                                        )
                                         
                                         if ai_data.get("suggested_adjustments"):
                                             adj = ai_data["suggested_adjustments"]

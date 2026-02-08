@@ -77,6 +77,16 @@ async def lifespan(app: FastAPI):
                         # Trigger Leverage Re-sync in Bot Loop
                         bot._leverage_synced = False
                         bot.add_log("🔄 HOT-RELOAD: Triggering leverage re-sync...")
+                        
+                        # Refresh Discord Webhooks
+                        notif = new_settings.get("notifications", {})
+                        if notif:
+                            from app.services.discord_service import discord_service
+                            discord_service.refresh_webhooks(
+                                alert_url=notif.get("discord_webhook_alerts"),
+                                log_url=notif.get("discord_webhook_logs")
+                            )
+                            bot.add_log("🔔 HOT-RELOAD: Discord webhooks refreshed")
 
                     # Update Scanner Settings
                     if "scanner" in new_settings:

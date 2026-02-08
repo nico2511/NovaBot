@@ -30,6 +30,13 @@ class DiscordService:
 
     def send_log(self, message: str):
         self._send(self.log_url, content=f"`[LOG]` {message}")
+    
+    def refresh_webhooks(self, alert_url: str = None, log_url: str = None):
+        """Refresh webhook URLs dynamically (for hot-reload support)"""
+        if alert_url:
+            self.alert_url = alert_url
+        if log_url:
+            self.log_url = log_url
 
     def send_trade_signal(self, symbol: str, side: str, price: float, analysis: str):
         color = "00ff00" if side.upper() == "BUY" else "ff0000"
