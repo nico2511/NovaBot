@@ -368,6 +368,11 @@ class StrategySmartTrend(BaseStrategy):
             long_trend = close_15m > ema_50 and long_ema_align
             short_trend = close_15m < ema_50 and short_ema_align
             
+            # Determine Bias based on Trend
+            bias = "NEUTRAL"
+            if long_trend: bias = "LONG"
+            elif short_trend: bias = "SHORT"
+
             s1_status = "NEUTRAL"
             s1_details = "Trend Undefined"
             
