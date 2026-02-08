@@ -9,28 +9,28 @@
         "trading_timeframe": "15m"
     },
     "risk_defaults": {
-        "max_positions": 1,
+        "max_positions": 2,
         "daily_stop_loss": 50.0,
-        "bot_persona": "Conservative Scalper",
-        "risk_profile": "Capital Preservation First",
+        "bot_persona": "Aggressive Day Trader",
+        "risk_profile": "High Volatility Hunter",
         "default_leverage": 5,
         "default_margin_type": "ISOLATED"
     },
     "ai_config": {
         "model_name": "deepseek/deepseek-v3.2",
         "call_cooldown": 10,
-        "conf_threshold_high": 101,
+        "conf_threshold_high": 75,
         "conf_threshold_medium": 55,
-        "conf_threshold_low": 101
+        "conf_threshold_low": 35
     },
     "scanner": {
         "enabled": true,
         "interval": 5,
-        "min_score": 60,
+        "min_score": 76,
         "auto_switch": true,
         "gamification_enabled": false,
-        "max_funding_long": 0.001,
-        "min_funding_short": -0.001,
+        "max_funding_long": 0.0011,
+        "min_funding_short": -0.0045,
         "funding_filter_enabled": true
     }
 }

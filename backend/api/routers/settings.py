@@ -135,29 +135,10 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
             
             bot.add_log(f"⚙️ Global Settings Updated: Persona={settings.bot_persona}, Risk={settings.risk_profile}")
 
-            # 3. Trigger Leverage Sync if needed
-            try:
-                from app.services.hyperliquid_service import hyperliquid_service
-                
-                leverage = int(new_flat.get("default_leverage", 1))
-                margin_type = new_flat.get("default_margin_type", "ISOLATED")
-                is_cross = (margin_type.upper() == "CROSS")
-                symbol = bot.active_symbol
-                
-                if symbol:
-                    bot.add_log(f"🔄 Syncing leverage to Exchange for {symbol}: {leverage}x ({margin_type})...")
-                    result = hyperliquid_service.update_leverage(symbol, leverage, is_cross)
-                    
-                    if result.get("status") == "success":
-                        bot.add_log(f"✅ Leverage Synced: {leverage}x ({margin_type}) for {symbol}")
-                    else:
-                        bot.add_log(f"❌ Leverage Sync Failed: {result.get('message')}")
-                else:
-                    bot.add_log("⚠️ No active symbol, skipping leverage sync")
-                    
-            except Exception as e:
-                logger.error(f"Failed to sync leverage: {e}")
-                bot.add_log(f"❌ Failed to sync leverage: {e}")
+            # 3. Trigger Leverage Re-sync in Bot Loop
+            bot._leverage_synced = False
+            bot.add_log(f"⚙️ Global Settings Updated: Persona={settings.bot_persona}, Risk={settings.risk_profile}")
+            bot.add_log("🔄 Settings Sync: Triggering leverage re-sync...")
 
             # Save State
             try:

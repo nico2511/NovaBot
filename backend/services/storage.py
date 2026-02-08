@@ -30,7 +30,13 @@ class StorageService:
         Args:
             base_dir: Base directory for all storage operations
         """
-        self.base_dir = Path(base_dir)
+        # Robust pathing: Ensure we are at the project root even if launched from backend/
+        path_obj = Path(base_dir).absolute()
+        if path_obj.name == "backend":
+            self.base_dir = path_obj.parent
+        else:
+            self.base_dir = path_obj
+            
         self.data_dir = self.base_dir / "data"
         
         # Create organized subdirectories

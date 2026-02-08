@@ -74,18 +74,9 @@ async def lifespan(app: FastAPI):
                         bot.global_settings = new_settings
                         bot.add_log("⚙️ HOT-RELOAD: Global Settings updated from file")
                         
-                        # Sync leverage
-                        try:
-                            risk = new_settings.get("risk_defaults", {})
-                            lev = int(risk.get("default_leverage", 1))
-                            m_type = risk.get("default_margin_type", "ISOLATED")
-                            symbol = bot.active_symbol
-                            
-                            from app.services.hyperliquid_service import hyperliquid_service
-                            hyperliquid_service.update_leverage(symbol, lev, m_type.upper() == "CROSS")
-                            bot.add_log(f"🔄 HOT-RELOAD: Synced leverage {lev}x for {symbol}")
-                        except Exception as ex:
-                            logger.error(f"Hot-reload leverage sync failed: {ex}")
+                        # Trigger Leverage Re-sync in Bot Loop
+                        bot._leverage_synced = False
+                        bot.add_log("🔄 HOT-RELOAD: Triggering leverage re-sync...")
 
                     # Update Scanner Settings
                     if "scanner" in new_settings:
