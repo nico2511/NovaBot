@@ -1126,70 +1126,71 @@ class BotContext:
             self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}")
             self.execute_exit_atomically(symbol, reason)
 
-    def _manage_active_trade(self):
-        """Centralized Active Trade Management (Refactored)"""
+    def _manage_all_trades(self):
+        """Centralized Management for ALL active trades (Concurrent)"""
+        trades_to_manage = []
         with self.trade_lock:
-            trade = self.active_trade
-            if not trade: return
-            
-        symbol = trade["symbol"]
+            trades_to_manage = list(self.active_trades.values())
         
-        # 1. External Close Check
-        if self._check_external_close(symbol, trade):
+        if not trades_to_manage:
             return
 
-        current_price = hyperliquid_service.get_current_price(symbol)
-        
-        # --- STRATEGY DELEGATION (Override) ---
-        # Ask the strategy if it wants to handle this trade's management
-        handled_by_strategy = False
-        strategy_name = trade.get("strategy")
-        
-        if strategy_name and strategy_name in self.strategy_engine.strategies:
-            strat_instance = self.strategy_engine.strategies[strategy_name]
-            
-            # Check if strategy overrides management
-            custom_updates = strat_instance.manage_trade(
-                trade, 
-                current_price, 
-                # Pass latest dataframe if available (optional but good for context)
-                df=self.latest_data if hasattr(self, 'latest_data') else None
-            )
-            
-            if custom_updates is not None:
-                handled_by_strategy = True
+        for trade in trades_to_manage:
+            try:
+                symbol = trade.get("symbol")
+                if not symbol: continue
                 
-                # Apply strategy updates (e.g. SL modification)
-                if custom_updates:
-                    with self.trade_lock:
-                        changed = False
-                        if "sl" in custom_updates:
-                             self.active_trade["sl"] = custom_updates["sl"]
-                             changed = True
-                             self.add_log(f"🤖 Strategy {strategy_name} updated SL to {custom_updates['sl']}")
-                        
-                        if "tp" in custom_updates:
-                             self.active_trade["tp"] = custom_updates["tp"]
-                             changed = True
-                             self.add_log(f"🤖 Strategy {strategy_name} updated TP to {custom_updates['tp']}")
-                             
-                        if changed:
-                            self._verify_and_enforce_sl_tp(symbol, self.active_trade, bypass_cooldown=True) # FORCE SYNC
-                            StateManager.save_state(self)
+                # Use current price for specific symbol
+                current_price = hyperliquid_service.get_current_price(symbol)
+                
+                # --- STRATEGY DELEGATION ---
+                handled_by_strategy = False
+                strategy_name = trade.get("strategy")
+                
+                if strategy_name and strategy_name in self.strategy_engine.strategies:
+                    strat_instance = self.strategy_engine.strategies[strategy_name]
+                    
+                    # Manage trade (pass None for df to avoid heavy fetching in loop)
+                    custom_updates = strat_instance.manage_trade(trade, current_price, df=None)
+                    
+                    if custom_updates is not None:
+                        handled_by_strategy = True
+                        if custom_updates:
+                            with self.trade_lock:
+                                changed = False
+                                t_ref = self.active_trades.get(symbol)
+                                if t_ref:
+                                    if "sl" in custom_updates:
+                                         t_ref["sl"] = custom_updates["sl"]
+                                         changed = True
+                                         self.add_log(f"🤖 Strategy {strategy_name} updated SL for {symbol} to {custom_updates['sl']}")
+                                    if "tp" in custom_updates:
+                                         t_ref["tp"] = custom_updates["tp"]
+                                         changed = True
+                                         self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
+                                         
+                                    if changed:
+                                        self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
+                                        StateManager.save_state(self)
 
-        # 2. Default Smart Trailing (Fallback)
-        # Only run default logic if strategy didn't handle it
-        if not handled_by_strategy:
-            if self._update_trailing_stops(trade, current_price):
-                 self.add_log(f"🔄 Trailing Stop Updated. Enforcing on Exchange...")
-                 self._verify_and_enforce_sl_tp(symbol, self.active_trade, bypass_cooldown=True) # FORCE SYNC
+                # 2. Default Smart Trailing (Fallback)
+                if not handled_by_strategy:
+                    if self._update_trailing_stops(trade, current_price):
+                         self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing...")
+                         with self.trade_lock:
+                             # Sync with exchange using current trade data
+                             t_ref = self.active_trades.get(symbol)
+                             if t_ref:
+                                self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
 
-        # 3. Local Local Exit Check (Universal safety net)
-        # Even if strategy handled logic, we still respect the committed SL/TP triggers here
-        self._check_local_exits(trade, symbol, current_price)
-        
-        # 4. Periodic Copilot Reporting (Every 10 min)
-        self._handle_periodic_copilot_report(trade)
+                # 3. Local Exit Check (Safety)
+                self._check_local_exits(trade, symbol, current_price)
+                
+                # 4. Periodic Copilot Reporting
+                self._handle_periodic_copilot_report(trade)
+                
+            except Exception as manage_err:
+                self.add_log(f"⚠️ Management Error on {symbol}: {manage_err}")
 
     def _handle_periodic_copilot_report(self, trade: dict):
         """Handle periodic analysis report for active trades (Copilot logic)"""
@@ -1386,120 +1387,91 @@ class BotContext:
 
 
     def _sync_state(self, silent=True):
-        """Unified State Synchronization (Stateless Truth)"""
+        """Unified State Synchronization (Stateless Truth) - Multi-Position aware"""
         try:
             positions = hyperliquid_service.get_positions()
-            # Filter for active positions (size != 0)
-            active_positions = [p for p in positions if float(p.get("size", 0)) != 0]
+            # Map of symbols currently on exchange
+            active_exchange_positions = {p["symbol"]: p for p in positions if float(p.get("size", 0)) != 0}
             
-            if active_positions:
-                pos = active_positions[0] # Focus on first position
-                symbol = pos["symbol"]
+            # 1. Update/Adopt positions from Exchange
+            for symbol, pos in active_exchange_positions.items():
+                trade = self.active_trades.get(symbol)
                 
-                # 1. Symbol Sync
-                if self.active_symbol != symbol:
-                    if not silent: self.add_log(f"⚠️ SYNC: Switching context {self.active_symbol} -> {symbol}")
-                    self.switch_active_symbol(symbol)
-                
-                # 2. State Sync
-                if not self.active_trade:
+                if not trade:
                     # New Position Detected (Adoption)
-                    if not silent: self.add_log(f"🕵️ SYNC: Adopting orphan position {symbol}")
+                    if not silent: self.add_log(f"🕵️ SYNC: Deteced ORPHAN {symbol} on exchange. Adopting...")
+                    # We switch context to assist adoption if it uses self.active_symbol internally
+                    self.switch_active_symbol(symbol)
                     self._adopt_existing_position(pos)
                 else:
-                    # Update Existing State
+                    # Update Existing Memory
                     with self.trade_lock:
-                        # Only update if changed prevents spam?
-                        # But PnL changes every tick.
-                        self.active_trade["pnl"] = float(pos["pnl"])
-                        self.active_trade["size"] = float(pos["size"])
-                        # We don't save state every tick to avoid IO spam, only on significant events?
-                        # Or maybe save occasionally.
-                        # For now, keep memory updated.
-            else:
-                # No active positions on exchange
-                if self.active_trade:
-                    # Position Closed externally OR Sync Mismatch
-                    if not silent: self.add_log(f"🕵️ SYNC: Position {self.active_symbol} closed externally. Analyzing closure...")
+                        trade["pnl"] = float(pos.get("pnl", 0))
+                        trade["size"] = float(pos.get("size", 0))
+                        trade["leverage"] = float(pos.get("leverage", 1.0))
+            
+            # 2. Detect External Closures (Trades tracked but not on exchange)
+            tracked_symbols = list(self.active_trades.keys())
+            for symbol in tracked_symbols:
+                if symbol not in active_exchange_positions:
+                    trade = self.active_trades.get(symbol)
+                    if not trade: continue
                     
-                    try:
-                        # 1. Fetch recent history from Exchange to find the closing details
-                        #    We need the REAL exit price and PnL to record it accurately.
-                        recent_trades = hyperliquid_service.get_trade_history(limit=10)
-                        closing_trade = None
-                        
-                        # Find the most recent trade for this symbol
-                        for t in recent_trades:
-                            if t['coin'] == self.active_symbol:
-                                closing_trade = t
-                                break
-                        
-                        if closing_trade:
-                            exit_price = float(closing_trade.get("px", 0))
-                            pnl_val = float(closing_trade.get("pnl", 0)) # Hyperliquid basic history might not have realized Pnl immediately available in this endpoint often
-                            # Actually get_trade_history usually returns fills. 
-                            # If it's a fill, pnl might not be there. We might need to estimate PnL if missing.
-                            # But let's try to trust the fill or just use exit price.
-                            
-                            entry_price = float(self.active_trade.get("entry_price", 0))
-                            size = float(self.active_trade.get("size", 0))
-                            side = self.active_trade.get("side")
-                            
-                            # Recalculate PnL if not provided strictly
-                            if pnl_val == 0 and entry_price > 0:
-                                if side == "BUY":
-                                    pnl_val = (exit_price - entry_price) * size
-                                else:
-                                    pnl_val = (entry_price - exit_price) * size
-
-                            if not silent: self.add_log(f"📝 SYNC: Found closing trade (Exit: {exit_price}, PnL: {pnl_val:.2f})")
-                            
-                            self.trade_recorder.add_trade({
-                                  "symbol": self.active_symbol,
-                                  "strategy": self.active_trade.get("strategy", "Unknown"),
-                                  "side": side,
-                                  "entry_price": entry_price,
-                                  "exit_price": exit_price,
-                                  "size": size,
-                                  "pnl": pnl_val,
-                                  "pnl_usdc": pnl_val, 
-                                  "exit_reason": "External/Sync Close",
-                                  "exit_time": pd.Timestamp.now().isoformat(),
-                                  "entry_indicators": self.active_trade.get("entry_indicators", {})
-                            })
-                        else:
-                             if not silent: self.add_log(f"⚠️ SYNC: Could not find recent closing trade in history. Recording based on current price.")
-                             # Fallback: Record with current market price
-                             curr_price = hyperliquid_service.get_current_price(self.active_symbol)
-                             entry_price = float(self.active_trade.get("entry_price", 0))
-                             size = float(self.active_trade.get("size", 0))
-                             side = self.active_trade.get("side")
-                             pnl_val = (curr_price - entry_price) * size if side == "BUY" else (entry_price - curr_price) * size
-                             
-                             self.trade_recorder.add_trade({
-                                  "symbol": self.active_symbol,
-                                  "strategy": self.active_trade.get("strategy", "Unknown"),
-                                  "side": side,
-                                  "entry_price": entry_price,
-                                  "exit_price": curr_price,
-                                  "size": size,
-                                  "pnl": pnl_val,
-                                  "pnl_usdc": pnl_val, 
-                                  "exit_reason": "External/Sync Close (Estimated)",
-                                  "exit_time": pd.Timestamp.now().isoformat(),
-                                  "entry_indicators": self.active_trade.get("entry_indicators", {})
-                            })
-
-                    except Exception as rec_err:
-                        if not silent: self.add_log(f"⚠️ SYNC: Failed to record zombie trade: {rec_err}")
-
-                    # 2. Clear State
-                    with self.trade_lock:
-                        self.active_trade = None
-                        StateManager.save_state(self)
-
+                    if not silent: self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure...")
+                    self._handle_external_closure(symbol, trade, silent)
         except Exception as e:
             if not silent: self.add_log(f"⚠️ Sync Error: {e}")
+
+    def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
+        """Logic to record and clean up a trade closed externally"""
+        try:
+            # 1. Fetch recent history from Exchange to find REAL exit price
+            recent_trades = hyperliquid_service.get_trade_history(limit=10)
+            closing_trade = next((t for t in recent_trades if t['coin'] == symbol), None)
+            
+            entry_price = float(trade.get("entry", 0))
+            size = float(trade.get("size", 0))
+            side = trade.get("side")
+            
+            if closing_trade:
+                exit_price = float(closing_trade.get("px", 0))
+                pnl_usdc = float(closing_trade.get("pnl", 0))
+                if pnl_usdc == 0 and entry_price > 0:
+                    pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
+                
+                if not silent: self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${pnl_usdc:.2f})")
+            else:
+                 # Fallback recording based on current market price
+                 exit_price = hyperliquid_service.get_current_price(symbol)
+                 pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
+                 if not silent: self.add_log(f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL.")
+
+            # Record
+            self.trade_recorder.add_trade({
+                  "symbol": symbol,
+                  "strategy": trade.get("strategy", "Unknown"),
+                  "side": side,
+                  "entry_price": entry_price,
+                  "exit_price": exit_price,
+                  "size": size,
+                  "pnl_usdc": pnl_usdc,
+                  "exit_reason": "External/Sync Close",
+                  "exit_time": pd.Timestamp.now().isoformat(),
+                  "entry_indicators": trade.get("entry_indicators", {})
+            })
+            
+            discord_service.send_alert(
+                f"🏁 TRADE CLOSED (Exchange): {symbol}",
+                f"Reason: External Close (SL/TP?)\nPnL: ${pnl_usdc:.2f}",
+                color="00FF00" if pnl_usdc >= 0 else "FF0000"
+            )
+
+            with self.trade_lock:
+                self.active_trades.pop(symbol, None)
+                StateManager.save_state(self)
+
+        except Exception as e:
+            if not silent: self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
@@ -1699,8 +1671,17 @@ class BotContext:
                 self.add_log(f"⚠️ Periodic Multi-Position Report Error: {e}")
             
             try:
-                if self.active_trade:
-                     self._manage_active_trade()
+                self._manage_all_trades()
+                
+                # If we are flat, analyzed current symbol. 
+                # If we have trades, cycle through them?
+                # For now, let's keep it simple: manage all trades every loop tick.
+                
+                # Skip entry analysis if:
+                # 1. We already have a trade for the scanned symbol
+                # 2. We are at our global max positions limit
+                if self.active_trades.get(self.active_symbol) or len(self.active_trades) >= self.max_positions:
+                     # We still sleep but management loop is fast above
                      time.sleep(10)
                      continue
 
@@ -1989,16 +1970,15 @@ class BotContext:
     def _adopt_existing_position(self, active_pos):
         """Adopt an existing position from the exchange into the bot's memory."""
         try:
-            print(f"      Size: {active_pos['size']} | Entry: {active_pos['entry_price']}")
-            
+            symbol = active_pos['symbol']
             side = active_pos['side']
             size = float(active_pos['size'])
             entry_price = float(active_pos['entry_price'])
             leverage = float(active_pos.get('leverage', 1.0))
             
             with self.trade_lock:
-                self.active_trade = {
-                    "symbol": self.active_symbol,
+                self.active_trades[symbol] = {
+                    "symbol": symbol,
                     "side": side,
                     "entry": entry_price,
                     "size": size,
@@ -2006,7 +1986,7 @@ class BotContext:
                     "oid": "external_position",
                     "sl": 0,
                     "tp": 0,
-                    "strategy": "Manual (Adopting...)",
+                    "strategy": "Manual (Adopted)",
                     "entry_time": pd.Timestamp.now().isoformat(),
                     "pnl": float(active_pos.get('pnl', 0)),
                     "max_pnl": float(active_pos.get('pnl', 0)),
@@ -2015,188 +1995,81 @@ class BotContext:
                     "metadata": {"stage": "1_raw_adoption"}
                 }
                 StateManager.save_state(self)
-            print("   🔒 STAGE 1: Position locked in memory (Adopting...)")
+            self.add_log(f"🕵️ ADOPTED {symbol}: Size {size} | Entry {entry_price}")
             
-            print("   🔍 STAGE 2: Analyzing market context & existing orders...")
             try:
-                df_15m = hyperliquid_service.get_candles(self.active_symbol, "15m", 200)
-                current_price = df_15m['close'].iloc[-1]
+                self.add_log(f"🔍 Analyzing market context for {symbol}...")
+                df_15m = hyperliquid_service.get_candles(symbol, "15m", 200)
+                current_price = df_15m['close'].iloc[-1] if not df_15m.empty else entry_price
                 
-                print("      🔎 Checking for existing SL/TP orders...")
+                self.add_log(f"🔎 Checking existing orders for {symbol}...")
                 existing_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
-                symbol_orders = [o for o in existing_orders if o.get("coin") == self.active_symbol]
+                symbol_orders = [o for o in existing_orders if o.get("coin") == symbol]
                 
                 existing_sl = None
                 existing_tp = None
                 
                 for order in symbol_orders:
-                    trigger_px = float(order.get("triggerPx", 0))
-                    is_reduce = order.get("reduceOnly", False)
-                    
-                    if is_reduce and trigger_px > 0:
+                    px = float(order.get("triggerPx", 0))
+                    if order.get("reduceOnly", False) and px > 0:
                         if side == "BUY":
-                            if trigger_px < current_price: existing_sl = trigger_px
-                            else: existing_tp = trigger_px
+                            if px < current_price: existing_sl = px
+                            else: existing_tp = px
                         else: # SELL
-                            if trigger_px > current_price: existing_sl = trigger_px
-                            else: existing_tp = trigger_px
+                            if px > current_price: existing_sl = px
+                            else: existing_tp = px
                 
                 pnl_pct = ((current_price - entry_price) / entry_price) * 100 if side == "BUY" else ((entry_price - current_price) / entry_price) * 100
-                print(f"      💰 Position PnL: {pnl_pct:+.2f}%")
                 
-                should_modify = False
-                modification_reason = ""
+                should_set_sl_tp = False
                 sl_price = 0
                 tp_price = 0
                 strategy_name = "Manual (Adopted)"
-                adoption_metadata = {}
 
                 if existing_sl and existing_tp:
-                    BE_THRESHOLD = 1.5
-                    if pnl_pct >= BE_THRESHOLD:
-                        sl_is_be = (existing_sl >= entry_price * 1.001) if side == "BUY" else (existing_sl <= entry_price * 0.999)
-                        if not sl_is_be:
-                            should_modify = True
-                            modification_reason = f"Break Even (Position +{pnl_pct:.1f}%)"
-                            sl_price = entry_price * 1.002 if side == "BUY" else entry_price * 0.998
-                            tp_price = existing_tp
-                        else:
-                            print("      ✅ Orders valid (BE active)")
+                    self.add_log(f"✅ Protection orders detected for {symbol}. Validating...")
+                    # Smart BE check for adopted trades
+                    if pnl_pct >= 1.2:
+                         sl_is_be = (existing_sl >= entry_price * 1.001) if side == "BUY" else (existing_sl <= entry_price * 0.999)
+                         if not sl_is_be:
+                             sl_price = entry_price * 1.002 if side == "BUY" else entry_price * 0.998
+                             tp_price = existing_tp
+                             should_set_sl_tp = True
+                             self.add_log(f"🛡️ Smart BE: Moving existing SL to break-even for {symbol}")
+                         else:
+                             sl_price = existing_sl
+                             tp_price = existing_tp
                     else:
-                        print("      ✅ Orders valid")
-                    
-                    if not should_modify:
                         sl_price = existing_sl
                         tp_price = existing_tp
-                        strategy_name = "Manual (Existing - Adopted)"
-                        adoption_metadata = {"adopted_at_boot": True, "method": "existing"}
                 else:
-                    should_modify = True
-                    modification_reason = "No protection detected"
+                    self.add_log(f"⚠️ No protection orders for {symbol}. Setting defaults.")
+                    should_set_sl_tp = True
+                    # Profile based defaults
+                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Balanced Growth")
+                    sl_dist_pct = 0.05 if risk_profile != "Capital Preservation First" else 0.03
+                    if risk_profile == "High Volatility Hunter": sl_dist_pct = 0.08
                     
-                    # Regime Detection
-                    adx = 0
-                    if 'ADX_14' in df_15m.columns: adx = float(df_15m['ADX_14'].iloc[-1])
-                    else: 
-                        adx_df = Indicators.adx(df_15m['high'], df_15m['low'], df_15m['close'], 14)
-                        adx = float(adx_df['ADX'].iloc[-1])
-                    
-                    regime = "TREND" if adx > 25 else "RANGE"
-                    
-                    if not hasattr(self, 'global_settings'):
-                        self.global_settings = {}
-                        
-                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                    print(f"      🛡️ Using Profile: {risk_profile}")
+                    sl_price = entry_price * (1 - sl_dist_pct) if side == "BUY" else entry_price * (1 + sl_dist_pct)
+                    tp_price = entry_price * (1 + (sl_dist_pct * 2)) if side == "BUY" else entry_price * (1 - (sl_dist_pct * 2))
 
-                    # Profile Logic
-                    if risk_profile == "Capital Preservation First":
-                        base_sl_mult = 1.0  # Tight
-                        base_tp_rr = 2.0    # Conservative
-                    elif risk_profile == "High Volatility Hunter":
-                        base_sl_mult = 3.0  # Loose
-                        base_tp_rr = 4.0    # Aggressive
-                    else: # Balanced Growth
-                        base_sl_mult = 2.0  # Standard
-                        base_tp_rr = 2.5
-                    
-                    sl_mult = base_sl_mult
-                    tp_rr = base_tp_rr
-                    
-                    # Trend adjustment
-                    if regime == "TREND":
-                         sl_mult *= 1.5 # Widen for trend noise
-                         
-                    sl_dist = atr * sl_mult
-                    
-                    # Fallback if ATR is dead (0)
-                    if sl_dist == 0:
-                        sl_dist = current_price * 0.02 # 2% default
-                    
-                    # --- SAFETY CLAMP (Absolut Hard Cap) ---
-                    # Prevent SL > 10% and TP > 20% distance regardless of profile/ATR
-                    MAX_SL_DIST = current_price * 0.10
-                    MAX_TP_DIST = current_price * 0.20
-                    
-                    if sl_dist > MAX_SL_DIST:
-                        print(f"      ⚠️ SL Clamp: Calculated {sl_dist:.4f} -> Limit {MAX_SL_DIST:.4f}")
-                        sl_dist = MAX_SL_DIST
-                        
-                    tp_dist = sl_dist * tp_rr
-                    if tp_dist > MAX_TP_DIST:
-                         tp_dist = MAX_TP_DIST
-                    # -------------------------------------------------------------
-
-                    if side == "BUY":
-                        sl_price = current_price - sl_dist
-                        tp_price = current_price + tp_dist
-                    else:
-                        sl_price = current_price + sl_dist
-                        tp_price = current_price - tp_dist
-                        
-                    strategy_name = f"Manual ({risk_profile} - Adopted)"
-                    adoption_metadata = {"adopted_at_boot": True, "method": "risk_profile_smart", "profile": risk_profile}
+                with self.trade_lock:
+                    t_ref = self.active_trades.get(symbol)
+                    if t_ref:
+                        t_ref["sl"] = sl_price
+                        t_ref["tp"] = tp_price
+                        t_ref["strategy"] = strategy_name
+                        t_ref["status"] = "OPEN (ADOPTED)"
+                        if should_set_sl_tp:
+                            self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
+                        StateManager.save_state(self)
+                self.add_log(f"✅ Adoption Complete for {symbol}.")
 
             except Exception as e:
-                print(f"   ⚠️ Analysis Failed: {e}. Using Fallback.")
-                should_modify = True
-                modification_reason = "Analysis error"
-                current_price = entry_price
-                if side == "BUY":
-                    sl_price = current_price * 0.98
-                    tp_price = current_price * 1.05
-                else:
-                    sl_price = current_price * 1.02
-                    tp_price = current_price * 0.95
-                strategy_name = "Manual (Safety - Adopted)"
-                adoption_metadata = {"adopted_at_boot": True, "method": "fallback"}
-
-            print("   🛡️ STAGE 3: Protection Management...")
-            with self.trade_lock:
-                self.active_trade["sl"] = sl_price
-                self.active_trade["tp"] = tp_price
-                self.active_trade["strategy"] = strategy_name
-                self.active_trade["metadata"] = adoption_metadata
-                self.active_trade["status"] = "OPEN (ADOPTED)"
-            
-            if should_modify:
-                print(f"      🔄 Reason: {modification_reason}")
-                try:
-                    is_long = (side == "BUY")
-                    if is_long:
-                        sl_p_api = 1 - (sl_price / entry_price)
-                        tp_p_api = (tp_price / entry_price) - 1
-                    else:
-                        sl_p_api = (sl_price / entry_price) - 1
-                        tp_p_api = 1 - (tp_price / entry_price)
-                    
-                    sl_p_api = max(0.001, sl_p_api)
-                    tp_p_api = max(0.001, tp_p_api)
-
-                    res = hyperliquid_service.set_sl_tp(
-                        symbol=self.active_symbol,
-                        entry_price=entry_price,
-                        sl_percent=sl_p_api * 100,
-                        tp_percent=tp_p_api * 100,
-                        is_long=is_long,
-                        quantity=size
-                    )
-                    if res.get("status") == "success":
-                        print(f"      ✅ SL/TP Orders Updated: SL {sl_price:.4f} | TP {tp_price:.4f}")
-                    else:
-                        print(f"      ⚠️ API Order Warning: {res.get('message')}")
-                except Exception as e:
-                    print(f"      ⚠️ API Order Failed: {e}")
-            else:
-                print(f"      ✅ Existing orders preserved")
-            
-            StateManager.save_state(self)
-            print("   ✅ Adoption Complete.")
+                self.add_log(f"⚠️ Adoption Analysis Error for {symbol}: {e}")
 
         except Exception as e:
-            print(f"   ❌ Adoption Critical Failure: {e}")
-            with self.trade_lock:
-                self.active_trade = None
+            self.add_log(f"❌ Critical Adoption Error: {e}")
 
     def start(self):
         """Start the bot"""
