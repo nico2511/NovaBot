@@ -359,7 +359,6 @@ class GammaBearVortex(BaseStrategy):
             return {
                 "strategy": "Gamma Bear Vortex",
                 "score": min(100, score),
-                "bias": "SHORT",
                 "stages": stages
             }
         except Exception as e:

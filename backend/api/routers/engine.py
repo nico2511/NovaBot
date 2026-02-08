@@ -387,6 +387,16 @@ def monitor_strategies(bot=Depends(get_bot_context)):
 
             df = bot.latest_data
             
+            # Pre-fetch 1m data once for the active symbol if any MTF strategies need it
+            extra_data = {}
+            try:
+                from app.services.hyperliquid_service import hyperliquid_service
+                df_1m = hyperliquid_service.get_candles(bot.active_symbol, interval="1m", limit=100)
+                if df_1m is not None and not df_1m.empty:
+                    extra_data["1m"] = df_1m
+            except Exception as e:
+                logger.error(f"Error fetching 1m data for monitor: {e}")
+
             # Use active strategies or all enabled strategies?
             for name, strategy in bot.strategy_engine.strategies.items():
                 try:
@@ -395,7 +405,7 @@ def monitor_strategies(bot=Depends(get_bot_context)):
                     if not config.get("enabled", False):
                         continue
                         
-                    progress = strategy.calculate_progress(df)
+                    progress = strategy.calculate_progress(df, extra_data=extra_data)
                     
                     # Ensure progress is a dict
                     if isinstance(progress, (int, float)):
