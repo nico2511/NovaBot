@@ -288,9 +288,15 @@ class LiquidityLightning(BaseStrategy):
             if "READY" in s2_status: score += 40
             if s3_status == "POTENTIAL": score += 40
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if "READY (BULL)" in s2_status: bias = "LONG"
+            elif "READY (BEAR)" in s2_status: bias = "SHORT"
+
             return {
                 "strategy": "Liq. Lightning",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
             

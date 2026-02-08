@@ -40,9 +40,17 @@ class BaseStrategy(ABC):
         Check specific conditions for UI display.
         
         Returns:
-            list: List of dicts [{"name": str, "status": bool, "value": str}]
+            dict: A dictionary containing strategy status, score, bias, and stages.
         """
-        return []
+        score = 0 # Default score for base class
+        return {
+            "strategy": self.name,
+            "score": score,
+            "bias": "NEUTRAL",
+            "stages": [
+                {"name": "Status", "status": "ACTIVE", "details": f"Monitoring {len(df)} candles"}
+            ]
+        }
 
     # ==========================
     # DYNAMIC ANALYSIS HELPERS

@@ -434,42 +434,46 @@ class StrategySmartTrend(BaseStrategy):
             s4_details = "Waiting for zone..."
             
             if extra_data and "1m" in extra_data:
-                df_1m = extra_data["1m"]
-                if not df_1m.empty and len(df_1m) > 5:
-                    if s2_status == "READY":
-                        s4_status = "SCANNING"
-                        s4_details = "Monitoring 1m candles..."
-                        # Check BOS logic if we wanted to be precise, 
-                        # but just showing "Scanning" is enough for the user to know it's active.
+                s4_details = "Waiting for setup..."
+                if in_zone:
+                    if self.looking_for_entry:
+                        s4_status = "HUNTING"
+                        s4_details = f"Hunting {self.entry_direction} BOS..."
+                        
+                        # Check 1m data from extra_data (MTF Fix)
+                        if "1m" in extra_data:
+                            df_1m = extra_data["1m"]
+                            if not df_1m.empty:
+                                last_1m = df_1m.iloc[-1]
+                                s4_details += f" (1m Close: {last_1m['close']:.2f})"
                     else:
-                        s4_details = "1m Data Available (Standby)"
-            else:
-                s4_details = "No 1m Data"
+                        s4_details = "Setup forming..."
 
             stages.append({
                 "name": "4. 1m Trigger",
                 "status": s4_status,
                 "details": s4_details
             })
-            
-            # Score
+
+            # Score logic
             score = 0
             if long_trend or short_trend: score += 30
             if in_zone: score += 40
-            elif s2_status == "NEAR": score += 20
-            if rsi_ok: score += 10
-            if s4_status == "SCANNING": score += 20
+            if s4_status == "HUNTING": score += 30
             
             return {
                 "strategy": "Smart Trend",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
 
         except Exception as e:
             return {
                 "strategy": "Smart Trend",
+                "score": 0,
                 "error": str(e),
+                "bias": "NEUTRAL",
                 "stages": []
             }
 

@@ -386,7 +386,7 @@ class ElasticReversionStrategy(BaseStrategy):
 
             return {
                 "strategy": "Elastic Reversion",
-                "score": score,
+                "score": 0, # Placeholder score - update if needed
                 "bias": bias,
                 "stages": stages
             }
@@ -396,6 +396,7 @@ class ElasticReversionStrategy(BaseStrategy):
                 "strategy": "Elastic Reversion",
                 "score": 0,
                 "error": str(e),
+                "bias": "NEUTRAL",
                 "stages": []
             }
 

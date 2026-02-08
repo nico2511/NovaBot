@@ -326,9 +326,15 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
             if s2_status == "READY": score += 40
             if s3_status == "TRIGGER!": score += 30
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if trend_dir == 1: bias = "LONG"
+            elif trend_dir == -1: bias = "SHORT"
+
             return {
                 "strategy": "Bollinger Middle",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
             

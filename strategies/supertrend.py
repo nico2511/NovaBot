@@ -154,6 +154,7 @@ class StrategySupertrend(BaseStrategy):
             return {
                 "strategy": "Supertrend",
                 "score": 0,
+                "bias": "NEUTRAL",
                 "stages": [{"name": "Data Check", "status": "WAIT", "details": "Waiting for indicators..."}]
             }
             
@@ -208,15 +209,23 @@ class StrategySupertrend(BaseStrategy):
             
             if extra_data and "1m" in extra_data:
                 df_1m = extra_data["1m"]
-                if not df_1m.empty:
+                if not df_1m.empty and len(df_1m) > 2:
                     st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=self.st_period, multiplier=self.st_multiplier)
                     curr_st_1m = st_data_1m['Direction'].iloc[-1]
+                    prev_st_1m = st_data_1m['Direction'].iloc[-2]
+                    
                     if curr_st_1m == last_15m['ST_Direction']:
-                        s3_status = "PASS"
-                        s3_details = "1m aligned with 15m Trend"
-                        score += 30
+                        # Check for the actual TRIGGER (Flip)
+                        if prev_st_1m != curr_st_1m:
+                            s3_status = "TRIGGER!"
+                            s3_details = "1m Supertrend JUST Flipped!"
+                            score += 30
+                        else:
+                            s3_status = "PASS"
+                            s3_details = "1m Aligned (Waiting for new Flip)"
+                            score += 20 # Lower score for alignment vs trigger
                     else:
-                        s3_details = "1m Counter-trend (Pullback?)"
+                        s3_details = "1m Counter-trend"
             
             stages.append({
                 "name": "3. Execution Sync",
@@ -236,4 +245,10 @@ class StrategySupertrend(BaseStrategy):
                 "stages": stages
             }
         except Exception as e:
-            return {"strategy": "Supertrend", "score": 0, "error": str(e), "stages": []}
+            return {
+                "strategy": "Supertrend",
+                "score": 0,
+                "error": str(e),
+                "bias": "NEUTRAL",
+                "stages": []
+            }

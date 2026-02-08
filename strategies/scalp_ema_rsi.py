@@ -308,16 +308,23 @@ class ScalpEmaRsi(BaseStrategy):
             elif "READY" in s3_status: 
                 score += 20
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if is_bull_context: bias = "LONG"
+            elif is_bear_context: bias = "SHORT"
+
             return {
                 "strategy": "Scalp EMA RSI",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
-
         except Exception as e:
-             return {
+            return {
                 "strategy": "Scalp EMA RSI",
+                "score": 0,
                 "error": str(e),
+                "bias": "NEUTRAL",
                 "stages": []
             }
 

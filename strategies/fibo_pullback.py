@@ -390,9 +390,15 @@ class StrategyFiboPullback(BaseStrategy):
             if s2_status == "READY": score += 40
             if s3_status == "TRIGGER!": score += 30
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if s1_status == "BULLISH": bias = "LONG"
+            elif s1_status == "BEARISH": bias = "SHORT"
+
             return {
                 "strategy": "Fibo Pullback",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
 

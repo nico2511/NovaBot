@@ -430,9 +430,15 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
             if is_rsi_ok: score += 20
             if is_vol_ok: score += 20
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if "READY (LONG)" in s2_status: bias = "LONG"
+            elif "READY (SHORT)" in s2_status: bias = "SHORT"
+
             return {
                 "strategy": "Elastic Nibbler",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
             

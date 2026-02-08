@@ -319,9 +319,15 @@ class BollingerBounceStrategy(BaseStrategy):
             if "READY" in s2_status: score += 40
             if s3_status == "POTENTIAL": score += 30
             
+            # Determine Bias (Mean Reversion)
+            bias = "NEUTRAL"
+            if "READY (BUY)" in s2_status: bias = "LONG"
+            elif "READY (SELL)" in s2_status: bias = "SHORT"
+
             return {
                 "strategy": "Bollinger Bounce",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
             

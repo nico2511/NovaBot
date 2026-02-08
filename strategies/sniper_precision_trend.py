@@ -383,9 +383,15 @@ class SniperPrecisionTrend(BaseStrategy):
             if s2_status == "READY": score += 30
             if s3_status == "HUNTING": score += 40
             
+            # Determine Bias
+            bias = "NEUTRAL"
+            if long_trend: bias = "LONG"
+            elif short_trend: bias = "SHORT"
+
             return {
                 "strategy": "Sniper Trend",
                 "score": score,
+                "bias": bias,
                 "stages": stages
             }
             
