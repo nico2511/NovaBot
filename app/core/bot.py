@@ -1427,15 +1427,17 @@ class BotContext:
         try:
             # 1. Fetch recent history from Exchange to find REAL exit price
             recent_trades = hyperliquid_service.get_trade_history(limit=10)
-            closing_trade = next((t for t in recent_trades if t['coin'] == symbol), None)
+            # FIX: get_trade_history returns 'symbol', NOT 'coin'
+            closing_trade = next((t for t in recent_trades if t.get('symbol') == symbol), None)
             
             entry_price = float(trade.get("entry", 0))
             size = float(trade.get("size", 0))
             side = trade.get("side")
             
             if closing_trade:
-                exit_price = float(closing_trade.get("px", 0))
+                exit_price = float(closing_trade.get("entry_price", 0)) # in trade history, entry_price is the fill price
                 pnl_usdc = float(closing_trade.get("pnl", 0))
+                
                 if pnl_usdc == 0 and entry_price > 0:
                     pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
                 
@@ -1454,6 +1456,7 @@ class BotContext:
                   "entry_price": entry_price,
                   "exit_price": exit_price,
                   "size": size,
+                  "pnl": pnl_usdc,
                   "pnl_usdc": pnl_usdc,
                   "exit_reason": "External/Sync Close",
                   "exit_time": pd.Timestamp.now().isoformat(),
