@@ -149,32 +149,85 @@ class StrategySupertrend(BaseStrategy):
         return None
 
     def calculate_progress(self, df, extra_data=None):
-        """UI Progress calculation"""
+        """UI Progress calculation with structured stages"""
         if df.empty or len(df) < self.ema_filter:
-            return 0
+            return {
+                "strategy": "Supertrend",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "WAIT", "details": "Waiting for indicators..."}]
+            }
             
-        self.add_indicators(df)
-        last_15m = df.iloc[-1]
-        
-        progress = 0
-        
-        # 1. EMA Filter (30%)
-        if (last_15m['close'] > last_15m['SMA_200'] and last_15m['ST_Direction'] == 1) or \
-           (last_15m['close'] < last_15m['SMA_200'] and last_15m['ST_Direction'] == -1):
-            progress += 50
+        try:
+            self.add_indicators(df)
+            last_15m = df.iloc[-1]
             
-        # 2. ADX (20%)
-        if last_15m['ADX_14'] >= self.adx_threshold:
-            progress += 20
-        else:
-            progress += int((last_15m['ADX_14'] / self.adx_threshold) * 20)
+            stages = []
+            score = 0
             
-        # 3. 1m alignment (30%)
-        if extra_data and "1m" in extra_data:
-            df_1m = extra_data["1m"]
-            if not df_1m.empty:
-                st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=self.st_period, multiplier=self.st_multiplier)
-                if st_data_1m['Direction'].iloc[-1] == last_15m['ST_Direction']:
-                    progress += 30
-        
-        return min(100, progress)
+            # --- Stage 1: Trend Filter (SMA 200) ---
+            is_bullish = last_15m['close'] > last_15m['SMA_200']
+            is_bearish = last_15m['close'] < last_15m['SMA_200']
+            st_align = (is_bullish and last_15m['ST_Direction'] == 1) or \
+                       (is_bearish and last_15m['ST_Direction'] == -1)
+            
+            s1_status = "PASS" if st_align else "WAIT"
+            bias_text = "BULL" if is_bullish else "BEAR"
+            s1_details = f"15m {bias_text} Bias (Price vs SMA200)" if st_align else "Waiting for Trend Alignment"
+            
+            stages.append({
+                "name": "1. Trend Regime",
+                "status": s1_status,
+                "details": s1_details,
+                "metrics": {
+                    "bias": {"value": bias_text, "align": "YES" if st_align else "NO"}
+                }
+            })
+            if st_align: score += 40
+
+            # --- Stage 2: ADX Filter ---
+            adx_val = last_15m['ADX_14']
+            adx_ok = adx_val >= self.adx_threshold
+            
+            s2_status = "PASS" if adx_ok else "WAIT"
+            s2_details = f"ADX {adx_val:.1f} (Trend Active)" if adx_ok else f"ADX Low ({adx_val:.1f} < {self.adx_threshold})"
+            
+            stages.append({
+                "name": "2. Trend Strength",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": self.adx_threshold, "op": ">"}
+                }
+            })
+            if adx_ok: score += 30
+            else: score += int((adx_val / self.adx_threshold) * 20)
+
+            # --- Stage 3: 1m Alignment ---
+            s3_status = "WAIT"
+            s3_details = "Waiting for 1m sync..."
+            
+            if extra_data and "1m" in extra_data:
+                df_1m = extra_data["1m"]
+                if not df_1m.empty:
+                    st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=self.st_period, multiplier=self.st_multiplier)
+                    curr_st_1m = st_data_1m['Direction'].iloc[-1]
+                    if curr_st_1m == last_15m['ST_Direction']:
+                        s3_status = "PASS"
+                        s3_details = "1m aligned with 15m Trend"
+                        score += 30
+                    else:
+                        s3_details = "1m Counter-trend (Pullback?)"
+            
+            stages.append({
+                "name": "3. Execution Sync",
+                "status": s3_status,
+                "details": s3_details
+            })
+
+            return {
+                "strategy": "Supertrend",
+                "score": min(100, score),
+                "stages": stages
+            }
+        except Exception as e:
+            return {"strategy": "Supertrend", "score": 0, "error": str(e), "stages": []}

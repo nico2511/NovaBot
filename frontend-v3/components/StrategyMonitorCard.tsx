@@ -18,6 +18,8 @@ interface Stage {
 
 interface StrategyProgress {
     strategy: string;
+    name?: string;
+    description?: string;
     score: number;
     stages: Stage[];
     error?: string;
@@ -65,8 +67,11 @@ export default function StrategyMonitorCard({ data }: StrategyMonitorCardProps) 
                         <BarChart2 className="w-6 h-6 text-blue-400" />
                     </div>
                     <div>
-                        <h3 className="font-bold text-lg text-gray-100">{data.strategy}</h3>
-                        <div className="text-xs text-gray-500 flex items-center gap-2">
+                        <h3 className="font-bold text-lg text-gray-100">{data.name || data.strategy}</h3>
+                        <div className="text-xs text-gray-400 mt-0.5 line-clamp-1 italic">
+                            {data.description}
+                        </div>
+                        <div className="text-[10px] text-gray-600 flex items-center gap-2 mt-1">
                             <span>Readiness Score:</span>
                             <span className={`font-mono font-bold ${data.score >= 80 ? 'text-green-400' : data.score >= 50 ? 'text-yellow-400' : 'text-gray-500'}`}>
                                 {data.score}%

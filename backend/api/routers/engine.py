@@ -376,10 +376,18 @@ def monitor_strategies(bot=Depends(get_bot_context)):
 
         results = []
         if hasattr(bot, 'strategy_engine'):
+            # Load metadata for descriptions
+            import json
+            from pathlib import Path
+            config_path = Path("data/config/strategies.json")
+            strategy_metadata = {}
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    strategy_metadata = json.load(f)
+
             df = bot.latest_data
             
             # Use active strategies or all enabled strategies?
-            # Let's iterate over ALL strategies in the engine to see even inactive ones
             for name, strategy in bot.strategy_engine.strategies.items():
                 try:
                     # Only check enabled strategies
@@ -400,7 +408,10 @@ def monitor_strategies(bot=Depends(get_bot_context)):
                          progress = {"strategy": name, "error": "Invalid progress format"}
                     
                     # Enhance with config data
-                    progress['type'] = config.get("type", "unknown").lower()
+                    meta = strategy_metadata.get(name, {})
+                    progress['type'] = config.get("type", meta.get("type", "unknown")).lower()
+                    progress['description'] = meta.get("description", "No description")
+                    progress['name'] = meta.get("name", name) # Use friendly name if available
                     
                     results.append(progress)
                 except Exception as e:

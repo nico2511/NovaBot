@@ -263,52 +263,103 @@ class GammaBearVortex(BaseStrategy):
         }
 
     def calculate_progress(self, df, extra_data=None):
-        """UI Progress calculation for Gamma Bear Vortex"""
+        """UI Progress calculation with structured stages for Gamma Bear Vortex"""
         if df.empty or len(df) < 50:
-            return 0
+            return {
+                "strategy": "Gamma Bear Vortex",
+                "score": 0,
+                "stages": [{"name": "Data Check", "status": "WAIT", "details": "Waiting for data..."}]
+            }
             
         try:
             self.add_indicators(df)
             curr = df.iloc[-1]
             
-            progress = 0
+            stages = []
+            score = 0
             
-            # --- Stage 1: Trend (30%) ---
-            # Bear Trend (Price < EMA and ADX > threshold)
+            # --- Stage 1: Bear Trend (EMA+ADX) ---
             is_bear = curr['close'] < curr['EMA_Trend']
-            adx_score = min(1.0, curr['ADX_14'] / self.adx_min)
+            adx_val = curr['ADX_14']
+            adx_ok = adx_val >= self.adx_min
             
-            if is_bear:
-                progress += 15
-                progress += int(15 * adx_score)
+            s1_status = "PASS" if (is_bear and adx_ok) else "WAIT"
+            s1_details = f"Bear Trend (ADX {adx_val:.1f})" if (is_bear and adx_ok) else "Waiting for Bear Trend"
             
-            # --- Stage 2: Vortex (30%) ---
-            # VI- > VI+ and VI- near threshold
-            vi_gap = curr['VI_neg'] - curr['VI_pos']
-            if vi_gap > 0:
-                progress += 15
-                vi_threshold_score = min(1.0, curr['VI_neg'] / self.vortex_threshold)
-                progress += int(15 * vi_threshold_score)
+            stages.append({
+                "name": "1. Bear Trend (EMA+ADX)",
+                "status": s1_status,
+                "details": s1_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": self.adx_min, "op": ">"}
+                }
+            })
+            if is_bear: score += 15
+            if adx_ok: score += 15
             
-            # --- Stage 3: Gamma / Pressure (30%) ---
-            # BB Width proximity to pin width
-            bb_width_score = 0
-            if curr['BB_Width'] < self.gamma_pin_width:
-                bb_width_score = 1.0
-            else:
-                # Proximity score (inverse of distance)
-                bb_width_score = max(0, 1 - (curr['BB_Width'] - self.gamma_pin_width) / self.gamma_pin_width)
+            # --- Stage 2: Vortex Bearish ---
+            vi_neg = curr['VI_neg']
+            vi_pos = curr['VI_pos']
+            vi_ok = (vi_neg > vi_pos) and (vi_neg > self.vortex_threshold)
             
-            progress += int(30 * bb_width_score)
+            s2_status = "PASS" if vi_ok else "WAIT"
+            s2_details = f"Vortex Bearish (VI- {vi_neg:.2f})" if vi_ok else "Waiting for Vortex Cross"
             
-            # --- Stage 4: OI (10%) ---
+            stages.append({
+                "name": "2. Vortex Bearish",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "vi_neg": {"value": round(vi_neg, 2), "threshold": self.vortex_threshold, "op": ">"}
+                }
+            })
+            if vi_neg > vi_pos: score += 15
+            if vi_neg > self.vortex_threshold: score += 15
+            
+            # --- Stage 3: Gamma Pin ---
+            bb_width = curr['BB_Width']
+            is_pinned = bb_width < self.gamma_pin_width
+            is_tension = adx_val > self.adx_gamma_trigger
+            
+            s3_status = "WAIT"
+            if is_pinned and is_tension: s3_status = "PASS" # Readiness PASS
+            elif is_pinned: s3_status = "PARTIAL"
+            
+            s3_details = "Gamma Charged" if (is_pinned and is_tension) else ("Pinned (Low Vol)" if is_pinned else "Neutral Volatility")
+            
+            stages.append({
+                "name": "3. Gamma Pin",
+                "status": s3_status,
+                "details": s3_details,
+                "metrics": {
+                    "bb_width": {"value": f"{bb_width*100:.2f}%", "threshold": f"{self.gamma_pin_width*100:.1f}%", "op": "<"}
+                }
+            })
+            if is_pinned: score += 15
+            if is_tension: score += 15
+            
+            # --- Stage 4: OI Confirmation ---
+            oi_ok = True
+            oi_val = "N/A"
             if 'OI_Change_Pct' in df.columns:
                 oi = curr['OI_Change_Pct']
-                if oi > -0.5:
-                    progress += 10
-            else:
-                progress += 5 # Default if data missing
-                
-            return min(100, progress)
-        except:
-            return 0
+                oi_val = f"{oi:.2f}%"
+                if oi < -0.5: oi_ok = False
+            
+            s4_status = "PASS" if oi_ok else "FAIL"
+            s4_details = f"OI Stable ({oi_val})" if oi_ok else f"OI Crashing ({oi_val})"
+            
+            stages.append({
+                "name": "4. OI Confirmation",
+                "status": s4_status,
+                "details": s4_details
+            })
+            if oi_ok: score += 10
+
+            return {
+                "strategy": "Gamma Bear Vortex",
+                "score": min(100, score),
+                "stages": stages
+            }
+        except Exception as e:
+            return {"strategy": "Gamma Bear Vortex", "score": 0, "error": str(e), "stages": []}
