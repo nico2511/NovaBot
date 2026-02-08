@@ -445,12 +445,14 @@ class StrategySmartTrend(BaseStrategy):
                         s4_status = "HUNTING"
                         s4_details = f"Hunting {self.entry_direction} BOS..."
                         
-                        # Check 1m data from extra_data (MTF Fix)
-                        if "1m" in extra_data:
-                            df_1m = extra_data["1m"]
-                            if not df_1m.empty:
-                                last_1m = df_1m.iloc[-1]
-                                s4_details += f" (1m Close: {last_1m['close']:.2f})"
+                        df_1m = extra_data["1m"]
+                        if not df_1m.empty:
+                            last_1m = df_1m.iloc[-1]
+                            s4_details += f" (1m Close: {last_1m['close']:.2f})"
+                            
+                            # Optional: We could check if a BOS JUST happened here 
+                            # to show TRIGGER!, but signals are sent by generate_signal.
+                            # For the monitor, HUNTING is 90% readiness.
                     else:
                         s4_details = "Setup forming..."
 
@@ -464,7 +466,9 @@ class StrategySmartTrend(BaseStrategy):
             score = 0
             if long_trend or short_trend: score += 30
             if in_zone: score += 40
-            if s4_status == "HUNTING": score += 30
+            if s4_status == "HUNTING": score += 20 # 90% total when hunting
+            # If we had a mechanism to detect the EXACT trigger candle in progress, 
+            # we'd add the last 10 points here.
             
             return {
                 "strategy": "Smart Trend",
