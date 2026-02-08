@@ -805,7 +805,13 @@ class BotContext:
             position_exists = any(p.get("symbol") == symbol and float(p.get("size", 0)) > 0 for p in positions)
             
             if not position_exists:
-                self.add_log(f"⚠️ Cannot close {symbol}: No open position found")
+                self.add_log(f"⚠️ Cannot close {symbol}: No open position found on exchange.")
+                # CRITICAL: If the bot thinks we have a trade but exchange says no, CLEAN UP LOCAL MEMORY
+                with self.trade_lock:
+                    if symbol in self.active_trades:
+                        self.add_log(f"🧹 Local memory sync: Removing 'ghost' trade for {symbol}")
+                        self.active_trades.pop(symbol, None)
+                        StateManager.save_state(self)
                 return False
         except Exception as e:
             self.add_log(f"⚠️ Failed to verify position for {symbol}: {e}")
@@ -1424,6 +1430,7 @@ class BotContext:
 
     def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
         """Logic to record and clean up a trade closed externally"""
+        pnl_usdc = 0
         try:
             # 1. Fetch recent history from Exchange to find REAL exit price
             recent_trades = hyperliquid_service.get_trade_history(limit=10)
@@ -1469,12 +1476,15 @@ class BotContext:
                 color="00FF00" if pnl_usdc >= 0 else "FF0000"
             )
 
-            with self.trade_lock:
-                self.active_trades.pop(symbol, None)
-                StateManager.save_state(self)
-
         except Exception as e:
             if not silent: self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
+        
+        finally:
+            # CLEAN UP MEMORY NO MATTER WHAT (Avoid Ghost Trades)
+            with self.trade_lock:
+                if symbol in self.active_trades:
+                    self.active_trades.pop(symbol, None)
+                    StateManager.save_state(self)
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
