@@ -753,6 +753,11 @@ class BotContext:
                     self.add_log(f"✅ ENTRY CONFIRMED: {symbol} Size: {pos['size']} Entry: {entry_px}")
                     
                     with self.trade_lock:
+                        # CRITICAL: Always sync active_symbol before setting active_trade
+                        # otherwise the setter will use the WRONG key in active_trades
+                        if self.active_symbol != symbol:
+                            self.active_symbol = symbol
+                            
                         self.active_trade = {
                             "symbol": symbol,
                             "side": side,
@@ -805,7 +810,7 @@ class BotContext:
         except Exception as e:
             self.add_log(f"⚠️ Failed to verify position for {symbol}: {e}")
             # Continue anyway - let Hyperliquid API handle the error
-              
+            
         self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
         
         # Get position data BEFORE closing for accurate PnL calculation
@@ -1033,18 +1038,20 @@ class BotContext:
         new_sl = None
         
         if entry_price and tp_price and sl_price:
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100 if side == "BUY" else ((entry_price - current_price) / entry_price) * 100
+            
             if side == "BUY":
                 total_dist = tp_price - entry_price
                 current_dist = current_price - entry_price
                 progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
                 
-                # 1. Smart BE (Moved to 60% progress, locks 0.2% profit with 0.3% buffer)
-                if progress_pct > 60:
+                # 1. Smart BE (Moved to 60% progress OR 1.2% pure profit, locks 0.2% profit with 0.3% buffer)
+                if progress_pct > 60 or pnl_pct > 1.2:
                     be_price = entry_price * 1.002 # 0.2% profit (covers fees + buffer)
                     # Safety: Ensure current price is at least 0.3% away from new SL
                     if sl_price < be_price and current_price > (be_price * 1.003):
                         new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >60% target. Moving SL to {new_sl:.2f} (Price: {current_price:.2f})")
+                        self.add_log(f"🛡️ Smart BE: Progress {progress_pct:.1f}% / PnL {pnl_pct:.2f}%. Moving SL to {new_sl:.2f}")
 
                 # 2. Trailing Profit (Locks 20% of gains at 65% progress)
                 if progress_pct > 65:

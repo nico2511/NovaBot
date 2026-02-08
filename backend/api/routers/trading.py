@@ -185,13 +185,25 @@ class SymbolRequest(BaseModel):
 def force_breakeven(data: SymbolRequest, bot=Depends(get_bot_context)):
     """Force move SL to Break-Even for specified symbol or active trade"""
     try:
-        # Determine target symbol
-        symbol = data.symbol if data.symbol else bot.active_symbol
+        # Determine target symbol and canonicalize (e.g. BTC-PERP -> BTC)
+        raw_symbol = data.symbol if data.symbol else bot.active_symbol
+        symbol = bot.get_canonical_symbol(raw_symbol)
+        
+        bot.add_log(f"🔍 Force BE requested for {raw_symbol} (Resolved: {symbol})")
         
         # Get trade for this symbol
         trade = bot.active_trades.get(symbol)
         if not trade:
-            return {"status": "error", "message": f"No active trade for {symbol}"}
+            # Try fuzzy match if exact match fails
+            if "-" in symbol:
+                base = symbol.split("-")[0]
+                trade = bot.active_trades.get(base)
+                if trade:
+                    symbol = base
+                    bot.add_log(f"ℹ️ Fuzzy match found: {raw_symbol} -> {symbol}")
+            
+            if not trade:
+                return {"status": "error", "message": f"No active trade for {symbol}"}
         
         entry = trade.get("entry")
         side = trade.get("side")
@@ -210,9 +222,9 @@ def force_breakeven(data: SymbolRequest, bot=Depends(get_bot_context)):
         
         # Enforce
         bot._verify_and_enforce_sl_tp(symbol, trade, bypass_cooldown=True)
-        bot.add_log(f"🛡️ Force BE executed for {symbol}: SL -> {be_price}")
+        bot.add_log(f"🛡️ Force BE executed for {symbol}: SL -> {be_price:.4f}")
         
-        return {"status": "success", "message": f"Moved SL to {be_price} for {symbol}"}
+        return {"status": "success", "message": f"Moved SL to {be_price:.4f} for {symbol}"}
         
     except Exception as e:
         logger.error(f"Error forcing BE: {e}")
