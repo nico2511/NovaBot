@@ -149,12 +149,12 @@ class StrategySmartTrend(BaseStrategy):
         
         # SHORT Setup: Conditions plus strictes
         # 1. EMA Alignment
-        short_ema_align = ema_21 < ema_50
-        short_trend = close_15m < ema_50 and short_ema_align
+        short_ema_align = ema_fast_val < ema_slow_val
+        short_trend = close_15m < ema_slow_val and short_ema_align
         
         # 2. Pullback Zone
-        short_pullback = (high_15m >= ema_21 * (1 - self.pullback_tolerance) and 
-                         high_15m <= ema_21 * (1 + self.pullback_tolerance))
+        short_pullback = (high_15m >= ema_fast_val * (1 - self.pullback_tolerance) and 
+                         high_15m <= ema_fast_val * (1 + self.pullback_tolerance))
         
         if short_trend and short_pullback:
             # Volume Check (15m)
@@ -165,10 +165,10 @@ class StrategySmartTrend(BaseStrategy):
                     self.entry_direction = "SHORT"
         
         # Cancel if trend broken
-        if self.entry_direction == "LONG" and close_15m < ema_50 and ema_21 < ema_50:
+        if self.entry_direction == "LONG" and close_15m < ema_slow_val and ema_fast_val < ema_slow_val:
             self.looking_for_entry = False
             self.entry_direction = None
-        elif self.entry_direction == "SHORT" and close_15m > ema_50 and ema_21 > ema_50:
+        elif self.entry_direction == "SHORT" and close_15m > ema_slow_val and ema_fast_val > ema_slow_val:
             self.looking_for_entry = False
             self.entry_direction = None
         
