@@ -105,15 +105,11 @@ class ElasticReversionStrategy(BaseStrategy):
             # ==========================================
             
             # Short Setup (Overbought)
-            # RSI > 75 AND Price > EMA + 4%
-            # CHANGED 2026-02: RSI 76 -> 75
-            is_setup_short = (p_rsi > params.get("overbought_rsi", 75)) and \
+            is_setup_short = (p_rsi > params.get("rsi_overbought", 75)) and \
                              (p_close > p_ema * (1 + ext_pct))
             
             # Long Setup (Oversold)
-            # RSI < 25 AND Price < EMA - 4%
-            # CHANGED 2026-02: RSI 24 -> 25
-            is_setup_long = (p_rsi < params.get("oversold_rsi", 25)) and \
+            is_setup_long = (p_rsi < params.get("rsi_oversold", 25)) and \
                             (p_close < p_ema * (1 - ext_pct))
 
             # Logging Setups (Debug / Info)

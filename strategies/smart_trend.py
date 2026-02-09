@@ -64,13 +64,15 @@ class StrategySmartTrend(BaseStrategy):
         self.rsi_max = params.get("rsi_max", 70)
         self.pullback_tolerance = params.get("pullback_tolerance", 0.02)  # CHANGED 2026-02: 0.25% -> 2.0% (Large zone)
         self.bos_lookback = params.get("bos_lookback", 2)
+        self.ema_fast = params.get("ema_fast", 21)
+        self.ema_slow = params.get("ema_slow", 50)
         self.sl_atr_mult = params.get("sl_atr_mult", 0.35)
         self.volume_multiplier = params.get("volume_multiplier", 1.3)
     
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
-        df['EMA_21'] = ta.ema(df['close'], length=21)
-        df['EMA_50'] = ta.ema(df['close'], length=50)
+        df[f'EMA_{self.ema_fast}'] = ta.ema(df['close'], length=self.ema_fast)
+        df[f'EMA_{self.ema_slow}'] = ta.ema(df['close'], length=self.ema_slow)
         df['ATRr_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         df['RSI_14'] = ta.rsi(df['close'], length=14)
         return df
@@ -109,8 +111,8 @@ class StrategySmartTrend(BaseStrategy):
         close_15m = df['close'].iloc[-2]
         low_15m = df['low'].iloc[-2]
         high_15m = df['high'].iloc[-2]
-        ema_21 = df['EMA_21'].iloc[-2]
-        ema_50 = df['EMA_50'].iloc[-2]
+        ema_fast_val = df[f'EMA_{self.ema_fast}'].iloc[-2]
+        ema_slow_val = df[f'EMA_{self.ema_slow}'].iloc[-2]
         atr_15m = df['ATRr_14'].iloc[-2]
         rsi_15m = df['RSI_14'].iloc[-2]
         
@@ -130,12 +132,12 @@ class StrategySmartTrend(BaseStrategy):
         
         # LONG Setup: Conditions plus strictes
         # 1. EMA Alignment: Fast > Slow > Trend
-        long_ema_align = ema_21 > ema_50
-        long_trend = close_15m > ema_50 and long_ema_align
+        long_ema_align = ema_fast_val > ema_slow_val
+        long_trend = close_15m > ema_slow_val and long_ema_align
         
-        # 2. Pullback Zone: Toucher l'EMA 21 avec précision
-        long_pullback = (low_15m <= ema_21 * (1 + self.pullback_tolerance) and 
-                        low_15m >= ema_21 * (1 - self.pullback_tolerance))
+        # 2. Pullback Zone: Toucher l'EMA Fast avec précision
+        long_pullback = (low_15m <= ema_fast_val * (1 + self.pullback_tolerance) and 
+                        low_15m >= ema_fast_val * (1 - self.pullback_tolerance))
         
         if long_trend and long_pullback:
             # Volume Check (15m)

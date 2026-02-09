@@ -133,10 +133,10 @@ class GammaBearVortex(BaseStrategy):
         # ADX > Min
         if curr['ADX_14'] < self.adx_min: return None
         
-        # New V2 Filter: RSI Oversold Check (Don't short the hole)
+        # New V2 Filter: RSI Oversold Check
         rsi = ta.rsi(df['close'], length=14).iloc[-2]
-        if rsi < self.rsi_max_oversold: # RSI < 40?
-            return None # Oversold, dangerous to short
+        if rsi < params.get("rsi_max_oversold", 40): 
+            return None 
             
         # 2. Trigger: Vortex
         # VI- > VI+ (Bearish) AND VI- > Threshold

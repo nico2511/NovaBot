@@ -89,31 +89,30 @@ class ScalpEmaRsi(BaseStrategy):
         if is_bullish_cross:
             # Additional Filters (Optimized 2026)
             if close > current_trend and trend_slope > min_slope:  # Above 200 EMA AND Slope Positive
-                # Asymmetric RSI Bull: 50 - 75 (Widened)
-                # CHANGED 2026-02: 52-68 -> 50-75
-                if 50 < current_rsi < 75:  
+                # Asymmetric RSI Bull: 50 - 75
+                if 50 < current_rsi < params.get("rsi_overbought", 75):  
                     # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15): # CHANGED 2026-02: 1.5 -> 1.15
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15):
                             return None  # Insufficient volume
                     
                     # Check RR
-                    # Tight Scalp: SL via Config (Default 1.2 ATR), TP 2.0 ATR
                     sl_atr_mult = params.get("sl_atr_mult", 1.2)
                     sl = close - (sl_atr_mult * atr)
-                    tp = close + (2.0 * atr)
+                    min_rr = params.get("min_rr", 1.4)
+                    tp = close + (min_rr * (close - sl))
                     
                     risk = abs(close - sl)
                     reward = abs(tp - close)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.4): # CHANGED 2026-02: 1.5 -> 1.4
+                    if risk > 0 and (reward / risk) >= min_rr:
                         return {
                             "signal": "BUY",
                             "sl": sl,
                             "tp": tp,
-                            "comment": f"EMA Bullish Cross (V2026 Refacto) + Vol {params.get('volume_multiplier', 1.15)}x"
+                            "comment": f"EMA Bullish Cross + Vol {params.get('volume_multiplier', 1.15)}x"
                         }
                 
         # SELL: Bearish Crossover (EMA Fast crosses BELOW EMA Slow)
@@ -121,30 +120,30 @@ class ScalpEmaRsi(BaseStrategy):
         
         if is_bearish_cross:
             if close < current_trend and trend_slope < -min_slope:  # Below 200 EMA AND Slope Negative
-                # Asymmetric RSI Bear: 25 - 50 (Widened)
-                # CHANGED 2026-02: 32-48 -> 25-50
-                if 25 < current_rsi < 50:
+                # Asymmetric RSI Bear: 25 - 50
+                if params.get("rsi_oversold", 25) < current_rsi < 50:
                     # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
-                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15): # CHANGED 2026-02
+                        if current_vol < avg_vol * params.get("volume_multiplier", 1.15):
                             return None  # Insufficient volume
                     
                     # Check RR
                     sl_atr_mult = params.get("sl_atr_mult", 1.2)
                     sl = close + (sl_atr_mult * atr)
-                    tp = close - (2.0 * atr)
+                    min_rr = params.get("min_rr", 1.4)
+                    tp = close - (min_rr * (sl - close))
                     
                     risk = abs(sl - close)
                     reward = abs(close - tp)
                     
-                    if risk > 0 and (reward / risk) >= params.get("min_rr", 1.4): # CHANGED 2026-02
+                    if risk > 0 and (reward / risk) >= min_rr:
                         return {
                             "signal": "SELL",
                             "sl": sl,
                             "tp": tp,
-                            "comment": f"EMA Bearish Cross (V2026 Refacto) + Vol {params.get('volume_multiplier', 1.15)}x"
+                            "comment": f"EMA Bearish Cross + Vol {params.get('volume_multiplier', 1.15)}x"
                         }
         
         return None

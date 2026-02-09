@@ -74,9 +74,8 @@ class InstitutionalScalp(BaseStrategy):
 
         # BULLISH LIQUIDITY GRAB
         if low < recent_low and close > recent_low:
-            candle_range = high - low
-            # CHANGED 2026-02: Relaxed wick ratio 0.35 -> 0.25 (Optimized)
-            if candle_range > 0 and (close - low) / candle_range > 0.25:
+            wick_ratio = params.get("wick_ratio", 0.25)
+            if candle_range > 0 and (close - low) / candle_range > wick_ratio:
                 # PHASE 2: Volume Spike Filter
                 vol_mult = params.get("volume_multiplier", 1.5) # OPTIMIZED 2026-02: 1.5
                 if 'volume' in df.columns:
@@ -110,9 +109,8 @@ class InstitutionalScalp(BaseStrategy):
 
         # BEARISH LIQUIDITY GRAB
         if high > recent_high and close < recent_high:
-            candle_range = high - low
-            # CHANGED 2026-02: Relaxed wick ratio 0.35 -> 0.25 (Optimized)
-            if candle_range > 0 and (high - close) / candle_range > 0.25:
+            wick_ratio = params.get("wick_ratio", 0.25)
+            if candle_range > 0 and (high - close) / candle_range > wick_ratio:
                 # PHASE 2: Volume Spike Filter
                 vol_mult = params.get("volume_multiplier", 1.5) # OPTIMIZED 2026-02
                 if 'volume' in df.columns:

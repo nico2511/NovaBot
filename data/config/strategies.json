@@ -11,18 +11,18 @@
             "ema_slow": 21,
             "rsi_period": 14,
             "rsi_overbought": 75,
-            "rsi_oversold": 30,
-            "take_profit_pct": 0.01,
-            "stop_loss_pct": 0.005,
-            "volume_multiplier": 1.2,
-            "min_trend_slope": 0.002
+            "rsi_oversold": 25,
+            "min_rr": 1.4,
+            "sl_atr_mult": 1.2,
+            "volume_multiplier": 1.15,
+            "min_trend_slope": 0.005
         },
         "display_conditions": [
             "EMA_9",
             "EMA_21",
             "RSI_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "High (Scalp)"
     },
     "elastic_nibbler": {
@@ -35,20 +35,20 @@
             "bb_period": 20,
             "bb_std": 2.2,
             "rsi_period": 14,
-            "rsi_overbought": 72,
-            "rsi_oversold": 30,
+            "rsi_max": 72,
+            "rsi_min": 32,
             "tp_atr_mult": 2.5,
             "sl_atr_mult": 1.4,
             "adx_threshold": 25,
             "volume_multiplier": 2.0,
-            "pullback_tolerance": 0.012
+            "min_bb_width_pct": 0.5
         },
         "display_conditions": [
             "BBU",
             "BBL",
             "RSI_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "elastic_reversion": {
@@ -63,8 +63,10 @@
             "rsi_overbought": 75,
             "rsi_oversold": 25,
             "adx_threshold": 60,
-            "min_rr": 1.5,
-            "bb_std": 2.5
+            "min_rr": 1.3,
+            "extension_pct": 0.032,
+            "sl_lookback": 5,
+            "sl_buffer_pct": 0.005
         },
         "display_conditions": [
             "EMA_20",
@@ -83,19 +85,21 @@
             "bb_period": 20,
             "bb_std": 2.0,
             "adx_threshold": 30,
-            "rsi_neutral_min": 40,
-            "rsi_neutral_max": 65,
-            "min_rr": 1.5,
+            "rsi_min": 35,
+            "rsi_max": 65,
+            "min_rr": 1.3,
             "sl_atr_mult": 0.5,
             "kill_zone_percent": 0.20,
-            "rejection_wick_pct": 0.35
+            "volume_multiplier": 1.2,
+            "min_candle_atr_multiple": 1.0,
+            "ema50_slope_threshold": 0.008
         },
         "display_conditions": [
             "BBU",
             "BBL",
             "ADX_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "bollinger_middle_bounce": {
@@ -128,17 +132,17 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "lookback": 80,
-            "volume_multiplier": 2.0,
-            "wick_ratio": 0.35,
+            "liq_grab_lookback": 20,
+            "volume_multiplier": 1.5,
+            "wick_ratio": 0.25,
             "min_rr": 1.2,
             "sl_atr_mult": 0.8,
-            "price_change_min": 0.008
+            "adx_extreme_limit": 60
         },
         "display_conditions": [
             "Volume"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "High"
     },
     "fibo_pullback": {
@@ -149,18 +153,18 @@
         "timeframe": "15m",
         "params": {
             "swing_lookback": 35,
-            "adx_threshold": 18,
-            "fibo_entry_min": 0.382,
+            "swing_confirmation_bars": 10,
+            "adx_threshold": 22,
             "volume_multiplier": 1.2,
             "min_rr": 1.5,
-            "tolerance_pct": 0.015
+            "ema_period": 200
         },
         "display_conditions": [
             "Fib_382",
             "Fib_618",
             "ADX_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "liquidity_lightning": {
@@ -170,18 +174,16 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "wick_pct": 0.50,
-            "volume_multiplier": 1.5,
-            "rr_ratio": 1.0,
-            "adx_min": 25,
-            "reversal_candle_min": 0.004,
-            "lookback": 50
+            "wick_pct": 0.40,
+            "volume_multiplier": 2.2,
+            "min_rr": 1.0,
+            "lookback": 30
         },
         "display_conditions": [
             "Volume",
             "Wick%"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Low (Sniper)"
     },
     "sniper_precision_trend": {
@@ -192,16 +194,19 @@
         "timeframe": "15m",
         "params": {
             "adx_strong_trend": 28,
+            "rsi_min": 38,
             "rsi_pullback_limit": 60,
             "volume_confirmation_mult": 1.1,
             "rr_ratio": 1.6,
-            "ema_alignment_strict": true
+            "pullback_tolerance": 0.005,
+            "sl_atr_mult": 0.35,
+            "bos_lookback": 3
         },
         "display_conditions": [
             "ADX_14",
             "RSI_14"
         ],
-        "version": "2026-02-monthly-v1-REJECTED",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "gamma_bear_vortex": {
@@ -212,17 +217,21 @@
         "timeframe": "15m",
         "params": {
             "adx_min": 20,
-            "rsi_max_oversold": 50,
-            "vortex_spread": 0.1,
-            "gamma_trigger": 0.5,
-            "volume_bear_mult": 1.2
+            "rsi_max_oversold": 40,
+            "vortex_period": 14,
+            "vortex_threshold": 1.05,
+            "gamma_pin_width": 0.015,
+            "adx_gamma_trigger": 35,
+            "volume_bear_mult": 1.2,
+            "sl_atr_mult": 1.5,
+            "tp_atr_mult": 2.5
         },
         "display_conditions": [
             "VI+",
             "VI-",
             "ADX_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "smart_trend": {
@@ -232,23 +241,23 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "adx_threshold": 15,
-            "pullback_tolerance": 0.015,
-            "volume_multiplier": 1.5,
-            "min_rr": 3.0,
-            "ema_fast": 9,
-            "ema_slow": 21,
-            "ema_trend": 50,
-            "sl_atr_mult": 2.5,
-            "rsi_min": 20,
-            "rsi_max": 70
+            "adx_threshold": 20,
+            "pullback_tolerance": 0.02,
+            "volume_multiplier": 1.3,
+            "min_rr": 1.5,
+            "ema_fast": 21,
+            "ema_slow": 50,
+            "sl_atr_mult": 0.35,
+            "rsi_min": 30,
+            "rsi_max": 70,
+            "bos_lookback": 2
         },
         "display_conditions": [
             "EMA_21",
             "EMA_50",
             "ADX_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "smart_mean_reversion": {
@@ -260,17 +269,22 @@
         "params": {
             "adx_max_range": 22,
             "rsi_period": 14,
+            "bb_period": 20,
             "bb_std": 2.2,
-            "min_rr": 2.0,
-            "rsi_overbought": 72,
-            "rsi_oversold": 25
+            "rsi_min": 20,
+            "rsi_max": 35,
+            "rsi_overbought_min": 65,
+            "rsi_overbought_max": 80,
+            "min_rr": 1.5,
+            "volume_multiplier": 1.3,
+            "sl_buffer_pct": 0.008
         },
         "display_conditions": [
             "BBU",
             "BBL",
             "RSI_14"
         ],
-        "version": "2026-02-monthly-v1",
+        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "supertrend": {
@@ -293,7 +307,7 @@
             "EMA_200",
             "ADX_14"
         ],
-        "version": "2026-02-v1",
+        "version": "2026-02-v2",
         "expected_freq": "Medium"
     }
 }

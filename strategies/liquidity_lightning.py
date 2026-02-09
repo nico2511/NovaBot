@@ -33,12 +33,14 @@ class LiquidityLightning(BaseStrategy):
 
         self.add_indicators(df)
         
-        # --- FUNNEL STAGE 0: DATA PREP ---
+        params = self.config.get("params", {})
+        lookback = params.get("lookback", 30)
+        
         # We analyze the previously CLOSED candle for confirmation
         candle = df.iloc[-2]  
-        prev_candles = df.iloc[-32:-2] # 30 candles before
+        prev_candles = df.iloc[-(lookback + 2):-2] # Dynamic lookback
         
-        if len(prev_candles) < 30: return None
+        if len(prev_candles) < lookback: return None
 
         close = candle['close']
         open_px = candle['open']
@@ -94,14 +96,13 @@ class LiquidityLightning(BaseStrategy):
             if close <= period_low:
                 return None # Failed Snap Back
                 
-        if wick_pct <= 0.40: # CHANGED 2026-02: Relaxed 48% -> 40%
-            return None # ÉTAGE 2 FAILED (Wick too small: {wick_pct:.2f})
+        if wick_pct <= params.get("wick_pct", 0.40):
+            return None # ÉTAGE 2 FAILED (Wick too small)
 
         # --- FUNNEL ÉTAGE 3 : LA CONFIRMATION (Liquidité) ---
         # Condition : Pic de volume (>2.2x de la moyenne)
         
-        # CHANGED 2026-02: Vol Mult 1.28 -> 2.2 (Stricter Volume for Quality)
-        vol_surge = volume > (vol_avg * 2.2)
+        vol_surge = volume > (vol_avg * params.get("volume_multiplier", 2.2))
                 
         if not vol_surge:
             return None # ÉTAGE 3 FAILED (No institutional force)
@@ -142,8 +143,9 @@ class LiquidityLightning(BaseStrategy):
         
         rr_ratio = reward / risk
         
-        if rr_ratio < 1.0:
-            return None # ÉTAGE 4 FAILED (RR {rr_ratio:.2f} < 1)
+        min_rr = params.get("min_rr", 1.0)
+        if rr_ratio < min_rr:
+            return None # ÉTAGE 4 FAILED (RR {rr_ratio:.2f} < {min_rr})
 
         # --- VERDICT FINAL : GO ---
         

@@ -53,7 +53,9 @@ class BollingerBounceStrategy(BaseStrategy):
         # Reduced candle size requirement slightly
         self.min_candle_atr_multiple = self.params.get("min_candle_atr_multiple", 1.0) 
         self.volume_multiplier = self.params.get("volume_multiplier", 1.2)
-        self.sl_atr_mult = self.params.get("sl_atr_mult", 0.5) # OPTIMIZED 2026-02: 0.5 (Tight Sniper)
+        self.sl_atr_mult = self.params.get("sl_atr_mult", 0.5) 
+        self.rsi_min = self.params.get("rsi_min", 35)
+        self.rsi_max = self.params.get("rsi_max", 65)
     
     def is_ranging(self, df: pd.DataFrame) -> tuple[bool, str]:
         """
@@ -137,8 +139,7 @@ class BollingerBounceStrategy(BaseStrategy):
             if current_low <= lower_trigger_zone:
                 
                 # RSI Safety Check: Must be oversold (or close) to buy bounce
-                # CHANGED 2026-02: 40 -> 35 (Wider neutral zone)
-                if current_rsi > 35: 
+                if current_rsi > self.rsi_min: 
                      return None
 
                 
@@ -172,8 +173,7 @@ class BollingerBounceStrategy(BaseStrategy):
             if current_high >= upper_trigger_zone:
                 
                 # RSI Safety Check: Must be overbought to short bounce
-                # CHANGED 2026-02: 60 -> 65 (Wider neutral zone)
-                if current_rsi < 65: 
+                if current_rsi < self.rsi_max: 
                     return None
 
                 

@@ -86,8 +86,8 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
         low = df['low']
         volume = df['volume']
         
-        # Bollinger Bands (20, 2.2) - CHANGED 2026-02: Relaxed 3.0 -> 2.2
-        bb_period = self.params.get("bb_length", 20)
+        # Bollinger Bands (20, 2.2)
+        bb_period = self.params.get("bb_period", 20)
         bb_std = self.params.get("bb_std", 2.2)
         
         bb_df = ta.bbands(close, length=bb_period, std=bb_std)

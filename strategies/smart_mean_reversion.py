@@ -56,8 +56,10 @@ class SmartMeanReversionStrategy(BaseStrategy):
         # df[f'ROC_{roc_len}'] = ta.roc(df['close'], length=roc_len)
         df[f'ROC_{roc_len}'] = df['close'].pct_change(periods=roc_len) * 100
         
-        # Bollinger Bands (Expanded for V2)
-        bb = ta.bbands(df['close'], length=bb_len, std=2.2) # CHANGED 2026-02: 2.0 -> 2.2 std
+        # Bollinger Bands
+        bb_period = params.get("bb_period", 20)
+        bb_std = params.get("bb_std", 2.2)
+        bb = ta.bbands(df['close'], length=bb_period, std=bb_std) 
         if bb is not None:
              df['BBL'] = bb['BBL'] # Lower
              df['BBM'] = bb['BBM'] # Middle (Basis)
@@ -99,9 +101,8 @@ class SmartMeanReversionStrategy(BaseStrategy):
         bb_check = close < bb_lower
         
         if bb_check:
-            # 2. RSI Extreme Oversold (28-40) - Catching the bottom
-            # CHANGED 2026-02: 40-55 -> 28-72 logic
-            if 20 <= rsi <= 35: # Oversold but not dead
+            # 2. RSI Extreme Oversold (Catching the bottom)
+            if params.get("rsi_min", 20) <= rsi <= params.get("rsi_max", 35): # Oversold but not dead
                 # 3. Trigger: Green Candle (Close > Open) indicating support found
                 if close > open_p:
                     # Volume Filter
@@ -133,8 +134,8 @@ class SmartMeanReversionStrategy(BaseStrategy):
         bb_check = close > bb_upper
         
         if bb_check:
-            # 2. RSI Extreme Overbought (65-80)
-            if 65 <= rsi <= 80:
+            # 2. RSI Extreme Overbought
+            if params.get("rsi_overbought_min", 65) <= rsi <= params.get("rsi_overbought_max", 80):
                 # 3. Trigger: Red Candle
                 if close < open_p:
                     # Volume Filter: Reversion needs exhaustion (lower vol on rally) or spike (climax)?
