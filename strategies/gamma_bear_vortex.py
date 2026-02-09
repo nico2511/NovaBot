@@ -121,6 +121,7 @@ class GammaBearVortex(BaseStrategy):
         """
         if df.empty or len(df) < 50: return None
         
+        params = self.params
         self.add_indicators(df)
         
         # Anti-repainting: Use Completed Candle [-2]
