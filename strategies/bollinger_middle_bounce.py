@@ -50,27 +50,31 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
         self.ema_trend_short = self.params.get("ema_trend_short", 20)
         self.ema_trend_long = self.params.get("ema_trend_long", 50)
         
-        self.adx_threshold = self.params.get("adx_threshold", 15) # OPTIMIZED 2026-02: 15
-        self.rsi_min = self.params.get("rsi_min", 50) # OPTIMIZED 2026-02: 50
+        self.adx_threshold = self.params.get("adx_threshold", 20)
+        self.rsi_min = self.params.get("rsi_min", 50)
         
-        self.min_rr = self.params.get("min_rr", 2.0) # OPTIMIZED 2026-02: 2.0
+        self.min_rr = self.params.get("min_rr", 2.0)
         
-        # NEW: sl_buffer_pct for dynamic SL calculation
-        self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.01)  # OPTIMIZED 2026-02: 1.0%
-        # NEW: volume_multiplier for confirmation filter
-        self.volume_multiplier = self.params.get("volume_multiplier", 0.8) # OPTIMIZED 2026-02: 0.8
+        # SL and Volume Confirmation
+        self.sl_buffer_pct = self.params.get("sl_buffer_pct", 0.012)
+        self.volume_multiplier = self.params.get("volume_multiplier", 1.3)
+
     
     def check_trend(self, df: pd.DataFrame) -> tuple[int, str]:
         """
         Check trend direction: 1 (Long), -1 (Short), 0 (Neutral)
         """
         try:
-            # ADX Check
+            # ADX Momentum Filter: ADX must be above threshold AND not crashing
             adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
             current_adx = adx_res['ADX'].iloc[-1]
+            adx_prev = adx_res['ADX'].iloc[-2]
             
             if current_adx < self.adx_threshold:
                 return 0, f"ADX too low ({current_adx:.1f})"
+            
+            if current_adx < adx_prev - 0.5: # Allow very minor dips, but reject sharp trend exhaustion
+                return 0, f"ADX dying ({adx_prev:.1f} -> {current_adx:.1f})"
             
             # EMA Trend Check
             ema_short = ta.ema(df['close'], length=self.ema_trend_short)
@@ -86,6 +90,7 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
                 return -1, "Downtrend (EMA20 < EMA50)"
             
             return 0, "No clear trend structure"
+
             
         except Exception as e:
             return 0, f"Error trend: {e}"
@@ -134,21 +139,27 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
                 if current_price < current_lb * 1.005:  # Within 0.5% of lower band
                     return None  # Price crashed to lower band, this is NOT a middle band bounce
                 
-                # Interaction Check (Pullback): 
-                # Price recently interacted with Middle Band (e.g. Low < MB or Close near MB)
-                # And now confirming upward
-                
                 # Check confirmation candle: Green and closed above Middle Band
                 is_green = df['close'].iloc[-1] > df['open'].iloc[-1]
                 closes_above_mb = current_price > current_mb
                 
-                # Check recent touch (current or prev candle low touched/near MB)
-                # Relaxed from 0.1% to 0.6% proximity to allow near-touches
-                # CHANGED 2026-02: 1.001 -> 1.006
-                recent_touch = (df['low'].iloc[-1] <= current_mb * 1.006) or (prev_low <= prev_mb * 1.006)
+                # Interaction Check (Pullback): 
+                # 1. Proximity Check
+                recent_touch = (df['low'].iloc[-1] <= current_mb * 1.004) or (prev_low <= prev_mb * 1.004)
+                
+                # 2. Deep Pullback Guard: Reject if price is too close to EMA50 (failed trend)
+                ema_50 = ta.ema(df['close'], length=self.ema_trend_long).iloc[-1]
+                if current_price < ema_50 * 1.003: # Within 0.3% of EMA50 is too deep
+                    return None
+                
+                # 3. Wick Rejection: Ideally candle low was below MB but close is above
+                # This proves the level was defended
+                has_rejection_wick = df['low'].iloc[-1] < (current_mb * 1.001) and closes_above_mb
                 
                 if is_green and closes_above_mb and recent_touch and volume_ok:
-                     if rsi > self.rsi_min:
+                     if rsi > self.rsi_min and (has_rejection_wick or volume_ok):
+
+
                         # Use sl_buffer_pct from config instead of hardcoded ATR
                         sl = df['low'].iloc[-1] * (1 - self.sl_buffer_pct)  # Dynamic SL with buffer
                         tp = upper_band.iloc[-1] # Target 1: Upper Band
