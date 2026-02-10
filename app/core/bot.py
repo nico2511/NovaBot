@@ -1430,13 +1430,16 @@ class BotContext:
                     trade = self.active_trades.get(symbol)
                     if not trade: continue
                     
-                    if not silent: self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure...")
+                    # ALWAYS log closure detections (critical state transition)
+                    self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure...")
                     self._handle_external_closure(symbol, trade, silent)
         except Exception as e:
-            if not silent: self.add_log(f"⚠️ Sync Error: {e}")
+            # ALWAYS log sync errors (was silent=True before, hiding ghost trade bugs)
+            self.add_log(f"⚠️ Sync Error: {e}")
 
     def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
         """Logic to record and clean up a trade closed externally"""
+        self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing...")
         pnl_usdc = 0
         try:
             # 1. Fetch recent history from Exchange to find REAL exit price
@@ -1455,12 +1458,13 @@ class BotContext:
                 if pnl_usdc == 0 and entry_price > 0:
                     pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
                 
-                if not silent: self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${pnl_usdc:.2f})")
+                # ALWAYS log closure details (critical for debugging)
+                self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${pnl_usdc:.2f})")
             else:
                  # Fallback recording based on current market price
                  exit_price = hyperliquid_service.get_current_price(symbol)
                  pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
-                 if not silent: self.add_log(f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL.")
+                 self.add_log(f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL: ${pnl_usdc:.2f}")
 
             # Record
             self.trade_recorder.add_trade({
@@ -1484,7 +1488,8 @@ class BotContext:
             )
 
         except Exception as e:
-            if not silent: self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
+            # ALWAYS log errors (was silent before, causing ghost trades)
+            self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
         
         finally:
             # CLEAN UP MEMORY NO MATTER WHAT (Avoid Ghost Trades)
@@ -1492,6 +1497,7 @@ class BotContext:
                 if symbol in self.active_trades:
                     self.active_trades.pop(symbol, None)
                     StateManager.save_state(self)
+                    self.add_log(f"✅ Ghost trade {symbol} cleaned from state")
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
@@ -1913,6 +1919,37 @@ class BotContext:
                             
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
+                            
+                            # --- ATR-BASED SL FLOOR (Prevent unrealistically tight SL) ---
+                            try:
+                                if sl_price and entry_price and not df_15m.empty:
+                                    # Get ATR from the data (already computed by strategy engine)
+                                    if 'ATRr_14' in df_15m.columns:
+                                        current_atr = float(df_15m['ATRr_14'].iloc[-1])
+                                    else:
+                                        # Fallback: manual ATR calc
+                                        tr = pd.concat([
+                                            df_15m['high'] - df_15m['low'],
+                                            (df_15m['high'] - df_15m['close'].shift(1)).abs(),
+                                            (df_15m['low'] - df_15m['close'].shift(1)).abs()
+                                        ], axis=1).max(axis=1)
+                                        current_atr = float(tr.rolling(14).mean().iloc[-1])
+                                    
+                                    min_sl_distance = current_atr * 1.0  # Minimum 1x ATR
+                                    actual_sl_distance = abs(entry_price - sl_price)
+                                    
+                                    if actual_sl_distance < min_sl_distance:
+                                        direction = sig.get("signal", "BUY")
+                                        if direction == "BUY":
+                                            adjusted_sl = entry_price - min_sl_distance
+                                        else:
+                                            adjusted_sl = entry_price + min_sl_distance
+                                        
+                                        self.add_log(f"⚠️ SL FLOOR: AI SL too tight ({actual_sl_distance:.4f} < 1x ATR {current_atr:.4f}). Adjusted: {sl_price:.4f} → {adjusted_sl:.4f}")
+                                        sl_price = adjusted_sl
+                                        sig["sl"] = adjusted_sl  # Update signal too
+                            except Exception as atr_err:
+                                self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
                             
                             # DYNAMIC POSITION SIZING based on RISK PROFILE
                             if not self.scanner_settings.get("gamification_enabled", True):
