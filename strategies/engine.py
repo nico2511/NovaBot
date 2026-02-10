@@ -6,9 +6,8 @@ from app.core.risk_manager import RiskManager
 from strategies.base import BaseStrategy
 from strategies.elastic_reversion import ElasticReversionStrategy
 from strategies.scalp_ema_rsi import ScalpEmaRsi
-from strategies.smart_trend import StrategySmartTrend
-from strategies.smart_mean_reversion import SmartMeanReversionStrategy
-from strategies.bollinger_bounce import BollingerBounceStrategy
+from strategies.breakout_squeeze import BreakoutSqueezeStrategy
+
 from strategies.bollinger_middle_bounce import BollingerMiddleBounceStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
@@ -43,14 +42,11 @@ class StrategyEngine:
             # Active strategies
             "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
-            "smart_trend": StrategySmartTrend(strats_config.get("smart_trend")),
-            "smart_mean_reversion": SmartMeanReversionStrategy(strats_config.get("smart_mean_reversion")),
             
             # Trend strategies
             "bollinger_middle_bounce": BollingerMiddleBounceStrategy(strats_config.get("bollinger_middle_bounce")),
             
             # Range trading strategies
-            "bollinger_bounce": BollingerBounceStrategy(strats_config.get("bollinger_bounce")),
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
             "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
             "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
@@ -58,6 +54,9 @@ class StrategyEngine:
             "sniper_precision_trend": SniperPrecisionTrend(strats_config.get("sniper_precision_trend")),
             "gamma_bear_vortex": GammaBearVortex(strats_config.get("gamma_bear_vortex")),
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
+            
+            # Breakout strategy
+            "breakout_squeeze": BreakoutSqueezeStrategy(strats_config.get("breakout_squeeze")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
