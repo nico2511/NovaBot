@@ -55,11 +55,11 @@ class ScalpEmaRsi(BaseStrategy):
         
         if trend_col not in df.columns or atr_col not in df.columns: return None
         
-        # GUARD CLAUSE: Trend Following only in Trend (ADX > 20)
-        # CHANGED 2026-02: Relaxed 25 -> 20
+        # GUARD CLAUSE: Trend Following only in Trend (ADX > threshold)
+        adx_threshold = params.get("adx_threshold", 22)
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
-            if current_adx < 20: 
+            if current_adx < adx_threshold: 
                 return None  # No trend, skip trend following strategy
 
         # Values (Use iloc[-2] for signal stability / avoiding repainting)
