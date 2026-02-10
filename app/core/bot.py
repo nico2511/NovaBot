@@ -1897,8 +1897,25 @@ class BotContext:
                                         
                                         if ai_data.get("suggested_adjustments"):
                                             adj = ai_data["suggested_adjustments"]
-                                            if adj.get("sl"): sig["sl"] = adj["sl"]
-                                            if adj.get("tp"): sig["tp"] = adj["tp"]
+                                            
+                                            # Robust parsing for AI suggestions (handle "$0.50" strings)
+                                            if adj.get("sl"): 
+                                                try:
+                                                    val = adj["sl"]
+                                                    if isinstance(val, str):
+                                                        val = float(val.replace('$', '').replace(',', '').strip())
+                                                    sig["sl"] = float(val)
+                                                except Exception as e:
+                                                    self.add_log(f"⚠️ Failed to parse AI SL adjustment: {adj['sl']} ({e})")
+                                                    
+                                            if adj.get("tp"): 
+                                                try:
+                                                    val = adj["tp"]
+                                                    if isinstance(val, str):
+                                                        val = float(val.replace('$', '').replace(',', '').strip())
+                                                    sig["tp"] = float(val)
+                                                except Exception as e:
+                                                    self.add_log(f"⚠️ Failed to parse AI TP adjustment: {adj['tp']} ({e})")
                                     else:
                                         self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                         self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
