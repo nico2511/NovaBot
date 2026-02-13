@@ -65,9 +65,9 @@ class StrategyFiboPullback(BaseStrategy):
         self.min_rr = params.get('min_rr', 1.5)
         self.volume_multiplier = params.get('volume_multiplier', 1.2) # CHANGED 2026-02: 1.3 -> 1.2
         
-        # Fibonacci Levels (FIXED: Wider zone)
-        self.fibo_entry_min = 0.382  # CHANGED 2026-02: 0.50 -> 0.382 (Wider zone)
-        self.fibo_entry_max = 0.786  # 78.6% retracement (golden zone)
+        # Fibonacci Levels (DYNAMIQUE)
+        self.fibo_entry_min = params.get("fibo_entry_min", 0.382)
+        self.fibo_entry_max = params.get("fibo_entry_max", 0.786)
         self.fibo_sl_level = 0.786   # 78.6% for SL placement
     
     def add_indicators(self, df):
@@ -336,8 +336,8 @@ class StrategyFiboPullback(BaseStrategy):
                 if diff > 0:
                      if s1_status == "BULLISH":
                          retrace = (range_high - current_price) / diff
-                         # Zone: 0.5 to 0.786
-                         if 0.5 <= retrace <= 0.786:
+                         # Zone: fibo_entry_min to fibo_entry_max
+                         if self.fibo_entry_min <= retrace <= self.fibo_entry_max:
                              s2_status = "READY"
                              s2_details = f"In Golden Zone ({retrace*100:.1f}%)"
                          elif retrace < 0.5:
@@ -347,7 +347,7 @@ class StrategyFiboPullback(BaseStrategy):
                              
                      elif s1_status == "BEARISH":
                          retrace = (current_price - range_low) / diff
-                         if 0.5 <= retrace <= 0.786:
+                         if self.fibo_entry_min <= retrace <= self.fibo_entry_max:
                              s2_status = "READY"
                              s2_details = f"In Golden Zone ({retrace*100:.1f}%)"
                          elif retrace < 0.5:
@@ -356,7 +356,7 @@ class StrategyFiboPullback(BaseStrategy):
                              s2_details = f"Deep Rally ({retrace*100:.1f}%)"
 
             stages.append({
-                "name": "2. Fibo Zone (50-78%)",
+                "name": f"2. Fibo Zone ({self.fibo_entry_min*100:.0f}-{self.fibo_entry_max*100:.0f}%)",
                 "status": s2_status,
                 "details": s2_details
             })

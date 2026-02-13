@@ -6,16 +6,15 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "adx_threshold": 22,
             "ema_fast": 9,
             "ema_slow": 21,
-            "rsi_period": 14,
-            "rsi_overbought": 75,
-            "rsi_oversold": 25,
-            "min_rr": 1.4,
-            "sl_atr_mult": 1.2,
-            "volume_multiplier": 1.3,
-            "min_trend_slope": 0.005
+            "adx_threshold": 22,
+            "min_trend_slope": 0.005,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
+            "volume_multiplier": 1.2,
+            "sl_atr_mult": 1.5,
+            "min_rr": 1.5
         },
         "display_conditions": [
             "EMA_9",
@@ -35,13 +34,13 @@
             "bb_period": 20,
             "bb_std": 2.2,
             "rsi_period": 14,
-            "rsi_max": 72,
-            "rsi_min": 32,
-            "tp_atr_mult": 2.5,
-            "sl_atr_mult": 1.4,
-            "adx_threshold": 25,
             "volume_multiplier": 2.0,
-            "min_bb_width_pct": 0.5
+            "adx_threshold": 25,
+            "min_bb_width_pct": 0.5,
+            "sl_atr_mult": 2.0,
+            "tp_atr_mult": 2.5,
+            "rsi_min": 28,
+            "rsi_max": 76
         },
         "display_conditions": [
             "BBU",
@@ -60,13 +59,12 @@
         "params": {
             "ema_period": 20,
             "rsi_period": 14,
-            "rsi_overbought": 75,
-            "rsi_oversold": 25,
-            "adx_threshold": 60,
-            "min_rr": 1.3,
-            "extension_pct": 0.032,
+            "extension_pct": 0.04,
+            "rsi_overbought": 76,
+            "rsi_oversold": 24,
             "sl_lookback": 5,
-            "sl_buffer_pct": 0.005
+            "sl_buffer_pct": 0.005,
+            "min_rr": 1.5
         },
         "display_conditions": [
             "EMA_20",
@@ -83,13 +81,14 @@
         "timeframe": "15m",
         "params": {
             "bb_period": 20,
-            "adx_threshold": 22,
-            "min_rr": 2.0,
+            "bb_std": 2.0,
             "ema_trend_short": 20,
             "ema_trend_long": 50,
-            "sl_buffer_pct": 0.012,
-            "volume_multiplier": 1.3,
-            "rsi_min": 50
+            "adx_threshold": 25,
+            "rsi_min": 45,
+            "min_rr": 2.0,
+            "sl_buffer_pct": 0.02,
+            "volume_multiplier": 1.3
         },
         "display_conditions": [
             "BBM",
@@ -105,12 +104,12 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "liq_grab_lookback": 20,
-            "volume_multiplier": 1.5,
+            "liq_grab_lookback": 18,
+            "adx_extreme_limit": 60,
             "wick_ratio": 0.35,
-            "min_rr": 1.5,
-            "sl_atr_mult": 0.8,
-            "adx_extreme_limit": 60
+            "volume_multiplier": 1.8,
+            "sl_atr_mult": 1.2,
+            "min_rr": 1.5
         },
         "display_conditions": [
             "Volume"
@@ -125,12 +124,14 @@
         "active": true,
         "timeframe": "15m",
         "params": {
+            "ema_period": 200,
+            "adx_threshold": 25,
             "swing_lookback": 35,
             "swing_confirmation_bars": 10,
-            "adx_threshold": 22,
-            "volume_multiplier": 1.2,
             "min_rr": 1.5,
-            "ema_period": 200
+            "volume_multiplier": 1.5,
+            "fibo_entry_min": 0.50,
+            "fibo_entry_max": 0.786
         },
         "display_conditions": [
             "Fib_382",
@@ -147,10 +148,10 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "wick_pct": 0.40,
+            "lookback": 30,
+            "wick_pct": 0.45,
             "volume_multiplier": 2.2,
-            "min_rr": 1.0,
-            "lookback": 30
+            "min_rr": 1.0
         },
         "display_conditions": [
             "Volume",
@@ -189,15 +190,13 @@
         "active": true,
         "timeframe": "15m",
         "params": {
-            "adx_min": 20,
-            "rsi_max_oversold": 40,
+            "adx_min": 25,
             "vortex_period": 14,
-            "vortex_threshold": 1.05,
+            "vortex_threshold": 1.1,
             "gamma_pin_width": 0.015,
-            "adx_gamma_trigger": 35,
-            "volume_bear_mult": 1.5,
             "sl_atr_mult": 1.5,
-            "tp_atr_mult": 2.5
+            "tp_atr_mult": 3.0,
+            "rsi_max_oversold": 40
         },
         "display_conditions": [
             "VI+",
@@ -217,10 +216,10 @@
             "period": 10,
             "multiplier": 3.0,
             "ema_filter_period": 200,
-            "adx_threshold": 20,
+            "adx_threshold": 25,
             "volume_multiplier": 1.2,
-            "min_rr": 1.5,
-            "sl_atr_mult": 1.0
+            "min_rr": 2.0,
+            "sl_atr_mult": 1.5
         },
         "display_conditions": [
             "Supertrend",
@@ -241,15 +240,11 @@
             "bb_std": 2.0,
             "squeeze_width_pct": 1.5,
             "squeeze_lookback": 6,
-            "adx_min": 18,
-            "adx_rising_bars": 2,
+            "adx_min": 20,
             "volume_multiplier": 1.8,
-            "rsi_period": 14,
             "min_rr": 1.5,
             "sl_atr_mult": 1.2,
-            "tp_atr_mult": 2.5,
-            "ema_fast": 9,
-            "ema_slow": 21
+            "tp_atr_mult": 2.5
         },
         "display_conditions": [
             "BBU",
