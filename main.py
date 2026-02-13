@@ -61,12 +61,14 @@ try:
         logger.error("❌ Bridge Connection FAILED")
 
     # 6. Start API Server (Blocking)
-    logger.info("🌍 Starting API Server on port 3001...")
+    port = int(os.getenv("PORT", 3001))
+    logger.info(f"🌍 Starting API Server on port {port}...")
     
 except Exception as e:
     logger.critical(f"🔥 Launcher Initialization Failed: {e}")
     traceback.print_exc()
     sys.exit(1)
-
+ 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=3001, log_level="info")
+    port = int(os.getenv("PORT", 3001))
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
