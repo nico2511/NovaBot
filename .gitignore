@@ -19,13 +19,28 @@ bot_activity.log
 # Artifacts & Brain
 .gemini/
 brain/
-
-# Helper output
-_bmad-output/
+_archive/
 _bmad/
+_bmad-output/
 .claude/
-#.agent/
+.agent/
+
+# Build & Runtime
+dist/
+build/
+.next/
+node_modules/
+*.log
+.pytest_cache/
+tests/.pytest_cache/
+__pycache__/
+**/__pycache__/
 
 # OS
 .DS_Store
 Thumbs.db
+
+scripts/
+stories/
+docs/
+backtest_lab/

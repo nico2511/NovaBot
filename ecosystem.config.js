@@ -26,7 +26,7 @@ module.exports = {
                 PYTHONPATH: process.cwd(),
                 VIRTUAL_ENV: process.cwd() + (venvDir.startsWith('./') ? venvDir.substring(1) : '/' + venvDir),
                 PYTHONIOENCODING: 'utf-8',
-                PORT: 8001
+                PORT: 3001
             },
             error_file: './logs/backend-error.log',
             out_file: './logs/backend-out.log',
@@ -42,7 +42,7 @@ module.exports = {
             cwd: './frontend-v3',
             env: {
                 NODE_ENV: 'production',
-                PORT: 3000
+                PORT: 3002
             },
             error_file: '../logs/frontend-error.log',
             out_file: '../logs/frontend-out.log',
