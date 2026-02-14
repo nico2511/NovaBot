@@ -27,6 +27,6 @@ services:
       - "3002:3002"
     environment:
       - PORT=3002
-      - NEXT_PUBLIC_API_URL=http://novabot-backend:3001
+      - NEXT_PUBLIC_API_URL=http://novabot.local:3001
     depends_on:
       - novabot-backend
