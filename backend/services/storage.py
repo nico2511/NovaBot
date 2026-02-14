@@ -111,7 +111,7 @@ class StorageService:
             Dict containing the JSON data, or default if error
         """
         if not filepath.exists():
-            logger.info(f"ℹ️ File not found: {filepath.name}, using default")
+            logger.info(f"ℹ️ File not found at: {filepath.absolute()}, using default")
             return default if default is not None else {}
         
         try:
@@ -202,8 +202,9 @@ def init_storage(base_dir: str):
     global storage_service
     storage_service = StorageService(base_dir)
     logger.info(f"✅ Storage service initialized with organized data structure")
-    logger.info(f"   - Config: {storage_service.config_dir}")
-    logger.info(f"   - Cache: {storage_service.cache_dir}")
-    logger.info(f"   - State: {storage_service.state_dir}")
-    logger.info(f"   - Analysis: {storage_service.analysis_dir}")
+    logger.info(f"   - Base: {storage_service.base_dir.absolute()}")
+    logger.info(f"   - Config: {storage_service.config_dir.absolute()}")
+    logger.info(f"   - Cache: {storage_service.cache_dir.absolute()}")
+    logger.info(f"   - State: {storage_service.state_dir.absolute()}")
+    logger.info(f"   - Analysis: {storage_service.analysis_dir.absolute()}")
     return storage_service
