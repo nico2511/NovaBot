@@ -7,7 +7,9 @@ Ce document décrit les étapes pour déployer NovaBot sur une instance Coolify 
 Assurez-vous que les fichiers suivants sont présents à la racine de votre dépôt :
 - `Dockerfile`
 - `frontend-v3/Dockerfile`
-- `docker-compose.yml`
+- `Dockerfile`
+- `frontend-v3/Dockerfile`
+- `docker-compose.yaml`
 - `.dockerignore`
 - `requirements.txt`
 - `frontend-v3/next.config.js` (avec `output: 'standalone'`)
@@ -21,7 +23,7 @@ Assurez-vous que les fichiers suivants sont présents à la racine de votre dép
 4. Sélectionnez la branche principale (ex: `main`).
 
 ### Étape 2 : Configuration du Docker Compose
-Coolify devrait détecter automatiquement votre fichier `docker-compose.yml`. Si ce n'est pas le cas, copiez-collez le contenu de votre fichier local dans l'interface de Coolify.
+Coolify devrait détecter automatiquement votre fichier `docker-compose.yaml`. Si ce n'est pas le cas, copiez-collez le contenu de votre fichier local dans l'interface de Coolify.
 
 ### Étape 3 : Variables d'Environnement
 Dans l'onglet **Environment Variables** de votre projet Coolify, ajoutez les variables nécessaires (copiez le contenu de votre `.env` local) :
@@ -36,7 +38,7 @@ Dans l'onglet **Environment Variables** de votre projet Coolify, ajoutez les var
 - `PORT=3002` (Frontend)
 
 ### Étape 4 : Stockage Persistant (Volumes)
-Coolify créera automatiquement des volumes basés sur le `docker-compose.yml`. Vérifiez que les chemins suivants sont persistants pour conserver vos données :
+Coolify créera automatiquement des volumes basés sur le `docker-compose.yaml`. Vérifiez que les chemins suivants sont persistants pour conserver vos données :
 - `/app/data` (Backend) : contient vos configurations et états.
 - `/app/logs` (Backend) : contient les logs de trading.
 
@@ -74,4 +76,4 @@ Cliquez sur **Deploy** dans l'interface Coolify.
 ---
 
 > [!TIP]
-> Si le frontend ne parvient pas à contacter le backend, vérifiez la variable `NEXT_PUBLIC_API_URL` dans le `docker-compose.yml`. Par défaut, elle est réglée sur `http://novabot-backend:3001` pour la communication interne au réseau Docker.
+> Si le frontend ne parvient pas à contacter le backend, vérifiez la variable `NEXT_PUBLIC_API_URL` dans le `docker-compose.yaml`. Par défaut, elle est réglée sur `http://novabot.local:3001` pour correspondre à votre configuration réseau locale.

@@ -143,7 +143,7 @@ class StorageService:
     
     def load_strategies(self) -> Dict[str, Any]:
         """Load strategies configuration from data/config/strategies.json"""
-        return self.read_json(self.config_dir / "strategies.json", default={"strategies": []})
+        return self.read_json(self.config_dir / "strategies.json", default={})
     
     def save_theme(self, theme: Dict[str, Any]) -> bool:
         """Save theme configuration atomically to data/config/theme.json"""

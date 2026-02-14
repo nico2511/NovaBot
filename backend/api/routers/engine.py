@@ -223,16 +223,9 @@ def panic_close(bot=Depends(get_bot_context)):
 def get_strategies(bot=Depends(get_bot_context)):
     """Get list of available strategies"""
     try:
-        import json
-        from pathlib import Path
-        
-        # Load strategy metadata from strategies.json
-        config_path = Path("data/config/strategies.json")
-        strategy_metadata = {}
-        
-        if config_path.exists():
-            with open(config_path, 'r', encoding='utf-8') as f:
-                strategy_metadata = json.load(f)
+        # Load strategy metadata from strategies.json using centralized storage
+        from backend.services.storage import storage_service
+        strategy_metadata = storage_service.load_strategies()
         
         strategies = []
         if hasattr(bot, 'strategy_engine'):
@@ -253,7 +246,7 @@ def get_strategies(bot=Depends(get_bot_context)):
                     "name": name,
                     "enabled": is_enabled,
                     "type": meta.get("type", "unknown").upper(),
-                    "description": meta.get("description", "No description")
+                    "description": meta.get("description", strategy.description if hasattr(strategy, 'description') else "No description")
                 })
         return strategies
     except Exception as e:
@@ -282,20 +275,13 @@ def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
             strategy.config["enabled"] = new_state
             strategy.config["active"] = new_state # Sync active/enabled
             
-            # Update persistence (strategies.json)
-            import json
-            from pathlib import Path
-            config_path = Path("data/config/strategies.json")
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    full_config = json.load(f)
-                
-                if strat_id in full_config:
-                    full_config[strat_id]["enabled"] = new_state
-                    full_config[strat_id]["active"] = new_state
-                    
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        json.dump(full_config, f, indent=4)
+            # Update persistence (strategies.json) using storage service
+            full_config = storage_service.load_strategies()
+            
+            if strat_id in full_config:
+                full_config[strat_id]["enabled"] = new_state
+                full_config[strat_id]["active"] = new_state
+                storage_service.save_strategies(full_config)
                         
             bot.add_log(f"🧠 Strategy Toggled: {strat_id} -> {'ENABLED' if new_state else 'DISABLED'}")
             
@@ -331,21 +317,14 @@ def update_strategy_params(data: StrategyParamsRequest, bot=Depends(get_bot_cont
                 
             strategy.config["params"].update(new_params)
             
-            # Persist to JSON
-            import json
-            from pathlib import Path
-            config_path = Path("data/config/strategies.json")
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    full_config = json.load(f)
-                
-                if strat_id in full_config:
-                    if "params" not in full_config[strat_id]:
-                        full_config[strat_id]["params"] = {}
-                    full_config[strat_id]["params"].update(new_params)
-                    
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        json.dump(full_config, f, indent=4)
+            # Persist to JSON using storage service
+            full_config = storage_service.load_strategies()
+            
+            if strat_id in full_config:
+                if "params" not in full_config[strat_id]:
+                    full_config[strat_id]["params"] = {}
+                full_config[strat_id]["params"].update(new_params)
+                storage_service.save_strategies(full_config)
                         
             bot.add_log(f"⚙️ Strategy Params Updated: {strat_id}")
             return {"status": "success", "message": f"Parameters updated for {strat_id}"}
@@ -376,14 +355,9 @@ def monitor_strategies(bot=Depends(get_bot_context)):
 
         results = []
         if hasattr(bot, 'strategy_engine'):
-            # Load metadata for descriptions
-            import json
-            from pathlib import Path
-            config_path = Path("data/config/strategies.json")
-            strategy_metadata = {}
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    strategy_metadata = json.load(f)
+            # Load metadata for descriptions using storage service
+            from backend.services.storage import storage_service
+            strategy_metadata = storage_service.load_strategies()
 
             df = bot.latest_data
             
