@@ -7,7 +7,7 @@ from backend.api.dependencies import get_bot_context
 from pydantic import BaseModel
 import logging
 import pandas as pd
-from backend.services.storage import storage_service
+from backend.services import storage
 
 logger = logging.getLogger("EngineRouter")
 
@@ -225,7 +225,7 @@ def get_strategies(bot=Depends(get_bot_context)):
     """Get list of available strategies"""
     try:
         # Load strategy metadata from strategies.json using centralized storage
-        strategy_metadata = storage_service.load_strategies()
+        strategy_metadata = storage.storage_service.load_strategies()
         
         strategies = []
         if hasattr(bot, 'strategy_engine'):
@@ -276,12 +276,12 @@ def select_strategy(data: StrategySelectRequest, bot=Depends(get_bot_context)):
             strategy.config["active"] = new_state # Sync active/enabled
             
             # Update persistence (strategies.json) using storage service
-            full_config = storage_service.load_strategies()
+            full_config = storage.storage_service.load_strategies()
             
             if strat_id in full_config:
                 full_config[strat_id]["enabled"] = new_state
                 full_config[strat_id]["active"] = new_state
-                storage_service.save_strategies(full_config)
+                storage.storage_service.save_strategies(full_config)
                         
             bot.add_log(f"🧠 Strategy Toggled: {strat_id} -> {'ENABLED' if new_state else 'DISABLED'}")
             
@@ -318,13 +318,13 @@ def update_strategy_params(data: StrategyParamsRequest, bot=Depends(get_bot_cont
             strategy.config["params"].update(new_params)
             
             # Persist to JSON using storage service
-            full_config = storage_service.load_strategies()
+            full_config = storage.storage_service.load_strategies()
             
             if strat_id in full_config:
                 if "params" not in full_config[strat_id]:
                     full_config[strat_id]["params"] = {}
                 full_config[strat_id]["params"].update(new_params)
-                storage_service.save_strategies(full_config)
+                storage.storage_service.save_strategies(full_config)
                         
             bot.add_log(f"⚙️ Strategy Params Updated: {strat_id}")
             return {"status": "success", "message": f"Parameters updated for {strat_id}"}
@@ -356,7 +356,7 @@ def monitor_strategies(bot=Depends(get_bot_context)):
         results = []
         if hasattr(bot, 'strategy_engine'):
             # Load metadata for descriptions using storage service
-            strategy_metadata = storage_service.load_strategies()
+            strategy_metadata = storage.storage_service.load_strategies()
 
             df = bot.latest_data
             
