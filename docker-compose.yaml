@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  novabot-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: novabot-backend
+    restart: always
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+    environment:
+      - PORT=3001
+      - PYTHONUNBUFFERED=1
+
+  novabot-frontend:
+    build:
+      context: ./frontend-v3
+      dockerfile: Dockerfile
+    container_name: novabot-frontend
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - NEXT_PUBLIC_API_URL=http://novabot.local:3001
+    depends_on:
+      - novabot-backend
