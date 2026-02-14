@@ -962,14 +962,21 @@ class HyperliquidService:
                                 entry_time = pd.Timestamp(timestamp_ms, unit='ms').isoformat()
                                 break  # Use the most recent opening fill
                 
+                # Robust leverage parsing
+                lev_data = pos.get("leverage", {})
+                if isinstance(lev_data, dict):
+                    leverage = float(lev_data.get("value", 1.0))
+                else:
+                    leverage = float(lev_data or 1.0)
+                
                 positions.append({
                     "symbol": symbol,
                     "side": "BUY" if is_long else "SELL",
                     "size": abs(size),
                     "entry_price": float(pos.get("entryPx", 0.0)),
                     "pnl": float(pos.get("unrealizedPnl", 0.0)),
-                    "leverage": float(pos.get("leverage", {}).get("value", 1.0)),
-                    "entry_time": entry_time  # Add entry_time for duration calculation
+                    "leverage": leverage,
+                    "entry_time": entry_time
                 })
                 
             return positions

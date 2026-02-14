@@ -149,6 +149,10 @@ class BotContext:
         # Leverage state
         self._leverage_synced = False 
         
+        # Sync Timers
+        self._last_state_sync_time = 0
+        self._state_sync_interval = 10  # Seconds
+        
         # Cooldown tracking (anti-overtrading)
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
         
@@ -1004,7 +1008,7 @@ class BotContext:
                 entry = trade.get("entry", 0)
                 size = trade.get("size", 0)
                 side = trade.get("side", "BUY")
-                pnl_usdc = (exit_price - entry) * size if side == "BUY" else (entry - exit_price) * size
+                pnl_usdc = (float(exit_price) - float(entry)) * float(size) if side == "BUY" else (float(entry) - float(exit_price)) * float(size)
                 
                 self.trade_recorder.add_trade({
                       "symbol": symbol,
@@ -1443,7 +1447,7 @@ class BotContext:
         pnl_usdc = 0
         try:
             # 1. Fetch recent history from Exchange to find REAL exit price
-            recent_trades = hyperliquid_service.get_trade_history(limit=10)
+            recent_trades = hyperliquid_service.get_trade_history(limit=50)
             # FIX: get_trade_history returns 'symbol', NOT 'coin'
             closing_trade = next((t for t in recent_trades if t.get('symbol') == symbol), None)
             
@@ -1456,10 +1460,10 @@ class BotContext:
                 pnl_usdc = float(closing_trade.get("pnl", 0))
                 
                 if pnl_usdc == 0 and entry_price > 0:
-                    pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
+                    pnl_usdc = (float(exit_price) - float(entry_price)) * float(size) if side == "BUY" else (float(entry_price) - float(exit_price)) * float(size)
                 
                 # ALWAYS log closure details (critical for debugging)
-                self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${pnl_usdc:.2f})")
+                self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})")
             else:
                  # Fallback recording based on current market price
                  exit_price = hyperliquid_service.get_current_price(symbol)
@@ -1600,9 +1604,11 @@ class BotContext:
                 if hasattr(self, 'position_reconciler'):
                     self.position_reconciler.run_tick()
                 
-                # Check Exchange State (Adopt/Close) - Every 2s?
-                if int(time.time()) % 2 == 0: 
+                # Check Exchange State (Adopt/Close) - Robust Timer
+                now = time.time()
+                if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
+                    self._last_state_sync_time = now
             except Exception as tick_err:
                 self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
 
@@ -2107,32 +2113,39 @@ class BotContext:
                 tp_price = 0
                 strategy_name = "Manual (Adopted)"
 
-                if existing_sl and existing_tp:
+                if existing_sl or existing_tp:
                     self.add_log(f"✅ Protection orders detected for {symbol}. Validating...")
+                    
+                    # Use existing values if present, else use placeholders
+                    sl_to_use = existing_sl if existing_sl else 0
+                    tp_to_use = existing_tp if existing_tp else 0
+
                     # Smart BE check for adopted trades
                     if pnl_pct >= 1.2:
-                         sl_is_be = (existing_sl >= entry_price * 1.001) if side == "BUY" else (existing_sl <= entry_price * 0.999)
+                         sl_is_be = (sl_to_use >= entry_price * 1.001) if side == "BUY" else (sl_to_use <= entry_price * 0.999) if sl_to_use > 0 else False
                          if not sl_is_be:
-                             sl_price = entry_price * 1.002 if side == "BUY" else entry_price * 0.998
-                             tp_price = existing_tp
-                             should_set_sl_tp = True
-                             self.add_log(f"🛡️ Smart BE: Moving existing SL to break-even for {symbol}")
+                              sl_price = entry_price * 1.002 if side == "BUY" else entry_price * 0.998
+                              tp_price = tp_to_use if tp_to_use > 0 else (entry_price * 1.05 if side == "BUY" else entry_price * 0.95)
+                              should_set_sl_tp = True
+                              self.add_log(f"🛡️ Smart BE: Moving existing SL to break-even for {symbol}")
                          else:
-                             sl_price = existing_sl
-                             tp_price = existing_tp
+                              sl_price = sl_to_use
+                              tp_price = tp_to_use
                     else:
-                        sl_price = existing_sl
-                        tp_price = existing_tp
+                        sl_price = sl_to_use
+                        tp_price = tp_to_use
                 else:
                     self.add_log(f"⚠️ No protection orders for {symbol}. Setting defaults.")
                     should_set_sl_tp = True
                     # Profile based defaults
                     risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Balanced Growth")
-                    sl_dist_pct = 0.05 if risk_profile != "Capital Preservation First" else 0.03
-                    if risk_profile == "High Volatility Hunter": sl_dist_pct = 0.08
+                    # DANGER: Default SL might be near liquidation at high leverage. 
+                    # Use a tighter relative SL for adoption if not specified.
+                    sl_dist_pct = 0.03 if risk_profile != "Capital Preservation First" else 0.02
+                    if risk_profile == "High Volatility Hunter": sl_dist_pct = 0.05
                     
                     sl_price = entry_price * (1 - sl_dist_pct) if side == "BUY" else entry_price * (1 + sl_dist_pct)
-                    tp_price = entry_price * (1 + (sl_dist_pct * 2)) if side == "BUY" else entry_price * (1 - (sl_dist_pct * 2))
+                    tp_price = entry_price * (1 + (sl_dist_pct * 1.5)) if side == "BUY" else entry_price * (1 - (sl_dist_pct * 1.5))
 
                 with self.trade_lock:
                     t_ref = self.active_trades.get(symbol)
