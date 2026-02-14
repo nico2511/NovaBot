@@ -154,10 +154,28 @@ class StorageService:
     def load_settings(self) -> Dict[str, Any]:
         """Load user settings from data/config/user_settings.json"""
         return self.read_json(self.config_dir / "user_settings.json", default={
-            "operations": {},
-            "risk_defaults": {},
-            "ai_config": {},
-            "scanner": {},
+            "operations": {
+                "trading_timeframe": "15m",
+                "auto_start_trading": False
+            },
+            "risk_defaults": {
+                "max_positions": 1,
+                "daily_stop_loss": 50.0,
+                "bot_persona": "Conservative Scalper",
+                "risk_profile": "Capital Preservation First"
+            },
+            "ai_config": {
+                "conf_threshold_high": 75,
+                "conf_threshold_medium": 55,
+                "conf_threshold_low": 35
+            },
+            "scanner": {
+                "enabled": False,
+                "interval": 15,
+                "min_score": 50,
+                "auto_switch": False,
+                "gamification_enabled": True
+            },
             "notifications": {}
         })
     

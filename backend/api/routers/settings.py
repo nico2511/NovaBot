@@ -166,20 +166,22 @@ def get_scanner_settings(bot=Depends(get_bot_context_optional)):
             
         # 2. Read from storage
         settings = storage.storage_service.load_settings()
-        if "scanner" in settings:
-            return settings["scanner"]
+        scanner = settings.get("scanner", {})
+        
+        # Ensure minimum required fields exist to satisfy Pydantic
+        if not scanner or "enabled" not in scanner:
+            return {
+                "enabled": scanner.get("enabled", False),
+                "interval": scanner.get("interval", 15),
+                "min_score": scanner.get("min_score", 50),
+                "auto_switch": scanner.get("auto_switch", False),
+                "gamification_enabled": scanner.get("gamification_enabled", True),
+                "max_funding_long": scanner.get("max_funding_long", 0.001),
+                "min_funding_short": scanner.get("min_funding_short", -0.001),
+                "funding_filter_enabled": scanner.get("funding_filter_enabled", True)
+            }
             
-        # 3. Default Fallback
-        return {
-            "enabled": False,
-            "interval": 15,
-            "min_score": 50,
-            "auto_switch": False,
-            "gamification_enabled": True,
-            "max_funding_long": 0.001,
-            "min_funding_short": -0.001,
-            "funding_filter_enabled": True
-        }
+        return scanner
     except Exception as e:
         logger.error(f"Error loading scanner settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load scanner settings: {str(e)}")
