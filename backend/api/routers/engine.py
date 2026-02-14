@@ -7,6 +7,7 @@ from backend.api.dependencies import get_bot_context
 from pydantic import BaseModel
 import logging
 import pandas as pd
+from backend.services.storage import storage_service
 
 logger = logging.getLogger("EngineRouter")
 
@@ -224,7 +225,6 @@ def get_strategies(bot=Depends(get_bot_context)):
     """Get list of available strategies"""
     try:
         # Load strategy metadata from strategies.json using centralized storage
-        from backend.services.storage import storage_service
         strategy_metadata = storage_service.load_strategies()
         
         strategies = []
@@ -356,7 +356,6 @@ def monitor_strategies(bot=Depends(get_bot_context)):
         results = []
         if hasattr(bot, 'strategy_engine'):
             # Load metadata for descriptions using storage service
-            from backend.services.storage import storage_service
             strategy_metadata = storage_service.load_strategies()
 
             df = bot.latest_data
