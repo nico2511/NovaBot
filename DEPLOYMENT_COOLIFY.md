@@ -42,7 +42,11 @@ Coolify créera automatiquement des volumes basés sur le `docker-compose.yml`. 
 
 ### Étape 5 : Accès Local et Ports
 1. **Accès IP** : L'application sera accessible via l'adresse IP de votre instance Proxmox/Coolify.
-2. **Ports** :
+2. **Configuration Réseau Coolify (CRITIQUE)** :
+   - Dans Coolify, allez dans les paramètres **Network** (Réseau) ou **Destination**.
+   - Assurez-vous que le **Port public** et le **Port de destination** du Frontend sont bien réglés sur **3002**.
+   - Pour le Backend, assurez-vous que le port est **3001**.
+3. **Ports dans l'Application** :
    - Interface : `http://<IP_COOLIFY>:3002`
    - API : `http://<IP_COOLIFY>:3001`
 3. **Domaines Locaux** : Si vous utilisez un DNS local (Pi-hole, AdGuard, ou host file), vous pouvez configurer un FQDN comme `novabot.local`.

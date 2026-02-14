@@ -1,5 +1,18 @@
 // API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const getApiBaseUrl = () => {
+    if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+
+    // Dynamic resolution for local network
+    if (typeof window !== 'undefined') {
+        const { protocol, hostname } = window.location;
+        // Use current hostname with port 3001 as fallback
+        return `${protocol}//${hostname}:3001`;
+    }
+
+    return 'http://localhost:3001';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Type Definitions
 export interface BotStatus {
