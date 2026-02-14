@@ -4,7 +4,7 @@ services:
   novabot-backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     container_name: novabot-backend
     restart: always
     ports:

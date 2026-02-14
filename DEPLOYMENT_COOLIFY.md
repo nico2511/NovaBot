@@ -5,7 +5,7 @@ Ce document décrit les étapes pour déployer NovaBot sur une instance Coolify 
 ## 1. Préparation du Dépôt GitHub
 
 Assurez-vous que les fichiers suivants sont présents à la racine de votre dépôt :
-- `Dockerfile.backend`
+- `Dockerfile`
 - `frontend-v3/Dockerfile`
 - `docker-compose.yml`
 - `.dockerignore`
