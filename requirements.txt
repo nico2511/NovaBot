@@ -12,7 +12,7 @@ pandas>=2.3.2
 numpy>=2.2.6
 
 # Technical Analysis
-pandas-ta==0.3.14b0
+pandas-ta==0.4.71b0
 
 # HTTP Client
 httpx==0.28.1
