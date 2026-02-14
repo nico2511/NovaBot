@@ -7,7 +7,7 @@ import os
 import json
 import tempfile
 import shutil
-from typing import Any, Dict
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 import logging
 
@@ -39,13 +39,37 @@ class StorageService:
             
         self.data_dir = self.base_dir / "data"
         
-        # Create organized subdirectories
+        # Initialize directories
+        self._ensure_dirs()
+        
+        # Seed default configurations if missing
+        self._seed_defaults()
+    
+    def _seed_defaults(self):
+        """Seed default configuration files from backup if they are missing in the data volume"""
+        defaults_dir = self.base_dir / "backend" / "config_defaults"
+        if not defaults_dir.exists():
+            return
+
+        essential_files = ["strategies.json", "user_settings.json"]
+        for filename in essential_files:
+            target_path = self.config_dir / filename
+            source_path = defaults_dir / filename
+            
+            if not target_path.exists() and source_path.exists():
+                try:
+                    logger.info(f"🌱 Seeding default config: {filename}")
+                    shutil.copy2(source_path, target_path)
+                except Exception as e:
+                    logger.error(f"❌ Failed to seed {filename}: {e}")
+    
+    def _ensure_dirs(self):
+        """Ensure all necessary data subdirectories exist."""
         self.config_dir = self.data_dir / "config"
         self.cache_dir = self.data_dir / "cache"
         self.state_dir = self.data_dir / "state"
         self.analysis_dir = self.data_dir / "analysis"
         
-        # Create all directories
         for directory in [self.config_dir, self.cache_dir, self.state_dir, self.analysis_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
@@ -111,7 +135,7 @@ class StorageService:
             Dict containing the JSON data, or default if error
         """
         if not filepath.exists():
-            logger.info(f"ℹ️ File not found at: {filepath.absolute()}, using default")
+            logger.info(f"ℹ️ File not found: {filepath.name}, using default")
             return default if default is not None else {}
         
         try:
@@ -202,9 +226,8 @@ def init_storage(base_dir: str):
     global storage_service
     storage_service = StorageService(base_dir)
     logger.info(f"✅ Storage service initialized with organized data structure")
-    logger.info(f"   - Base: {storage_service.base_dir.absolute()}")
-    logger.info(f"   - Config: {storage_service.config_dir.absolute()}")
-    logger.info(f"   - Cache: {storage_service.cache_dir.absolute()}")
-    logger.info(f"   - State: {storage_service.state_dir.absolute()}")
-    logger.info(f"   - Analysis: {storage_service.analysis_dir.absolute()}")
+    logger.info(f"   - Config: {storage_service.config_dir}")
+    logger.info(f"   - Cache: {storage_service.cache_dir}")
+    logger.info(f"   - State: {storage_service.state_dir}")
+    logger.info(f"   - Analysis: {storage_service.analysis_dir}")
     return storage_service

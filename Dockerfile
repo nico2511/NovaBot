@@ -30,6 +30,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
+# Backup default configurations for volume seeding
+RUN mkdir -p backend/config_defaults && \
+    cp data/config/*.json backend/config_defaults/ || true
+
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
