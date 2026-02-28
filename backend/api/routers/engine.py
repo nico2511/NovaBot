@@ -23,6 +23,23 @@ def get_status(bot=Depends(get_bot_context)):
         from app.services.hyperliquid_service import hyperliquid_service
         positions = hyperliquid_service.get_positions()
         
+        # Self-healing: Clean ghost trades from bot state
+        # If exchange says position is closed but bot still tracks it, clean up
+        try:
+            exchange_symbols = {p["symbol"] for p in positions if float(p.get("size", 0)) > 0}
+            ghost_symbols = [s for s in list(bot.active_trades.keys()) if s not in exchange_symbols]
+            if ghost_symbols:
+                for ghost in ghost_symbols:
+                    logger.warning(f"🧹 Self-healing: Removing ghost trade {ghost} (not on exchange)")
+                    bot.active_trades.pop(ghost, None)
+                try:
+                    from app.core.state_manager import StateManager
+                    StateManager.save_state(bot)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Self-healing check failed: {e}")
+        
         # Add duration to each position
         for pos in positions:
             try:
@@ -60,6 +77,7 @@ def get_status(bot=Depends(get_bot_context)):
         # Build status response
         return {
             "is_running": bot.is_running,
+            "loop_responsive": bot.is_loop_responsive() if hasattr(bot, 'is_loop_responsive') else bot.is_running,
             "status": "running" if bot.is_running else "stopped",
             "trading_enabled": bot.trading_enabled,
             "active_symbol": bot.active_symbol,

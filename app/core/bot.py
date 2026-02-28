@@ -135,8 +135,8 @@ class BotContext:
         # Candle analysis cache
         self.last_analyzed_candle = None
         
-        # Debounce for "Position Vanished" check
-        self.missing_pos_counter = 0
+        # Thread health monitoring (heartbeat)
+        self._loop_heartbeat = 0  # Timestamp of last trading loop tick
         
         # SL/TP Sync Cooldown (prevent infinite loop)
         self._last_sltp_sync_time = None
@@ -994,50 +994,6 @@ class BotContext:
         except Exception as e:
             self.add_log(f"⚠️ Error in _verify_and_enforce_sl_tp: {e}")
 
-    def _check_external_close(self, symbol: str, trade: dict) -> bool:
-        """Detect if position was closed externally (by user or exchange)"""
-        positions = hyperliquid_service.get_positions()
-        real_pos = next((p for p in positions if p["symbol"] == symbol and float(p['size']) > 0), None)
-        
-        if not real_pos:
-            self.missing_pos_counter += 1
-            if self.missing_pos_counter >= 3:
-                self.add_log(f"⚠️ Position vanished (External Close confirmed). Clearing state.")
-                
-                exit_price = hyperliquid_service.get_current_price(symbol)
-                entry = trade.get("entry", 0)
-                size = trade.get("size", 0)
-                side = trade.get("side", "BUY")
-                pnl_usdc = (float(exit_price) - float(entry)) * float(size) if side == "BUY" else (float(entry) - float(exit_price)) * float(size)
-                
-                self.trade_recorder.add_trade({
-                      "symbol": symbol,
-                      "strategy": trade.get("strategy", "Unknown"),
-                      "side": side,
-                      "entry_price": entry,
-                      "exit_price": exit_price,
-                      "size": size,
-                      "pnl_usdc": pnl_usdc,
-                      "exit_reason": "External Close",
-                      "exit_time": pd.Timestamp.now().isoformat(),
-                      "entry_indicators": trade.get("entry_indicators", {})
-                })
-                
-                discord_service.send_alert(
-                    f"🏁 TRADE CLOSED (Exchange): {symbol}",
-                    f"Reason: External Close (SL/TP likely)\nPnL: ${pnl_usdc:.2f}",
-                    color="00FF00" if pnl_usdc >= 0 else "FF0000"
-                )
-                
-                with self.trade_lock:
-                    self.active_trade = None
-                    StateManager.save_state(self)
-                self.missing_pos_counter = 0
-                return True
-        else:
-            self.missing_pos_counter = 0
-            
-        return False
 
     def _update_trailing_stops(self, trade: dict, current_price: float) -> bool:
         """Check and update Smart Break-Even and Trailing Stops"""
@@ -1604,7 +1560,10 @@ class BotContext:
                 if hasattr(self, 'position_reconciler'):
                     self.position_reconciler.run_tick()
                 
-                # Check Exchange State (Adopt/Close) - Robust Timer
+                # Check Exchange State (Adopt/Close)
+                # Update heartbeat (thread health monitoring)
+                self._loop_heartbeat = time.time()
+                
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
@@ -2192,20 +2151,35 @@ class BotContext:
         else:
             self.add_log("⚠️ Bot already running with active thread, skipping start")
 
+    def is_loop_responsive(self) -> bool:
+        """Check if the trading loop is alive and responsive (not frozen)."""
+        if not self.is_running or not self.thread or not self.thread.is_alive():
+            return False
+        if self._loop_heartbeat == 0:
+            return True  # Not yet started, give it a chance
+        return (time.time() - self._loop_heartbeat) < 120  # 2 min tolerance
+
     def stop(self):
         """Stop the bot with complete graceful shutdown"""
         if self.is_running:
             self.is_running = False
             self.add_log("🛑 Initiating graceful shutdown...")
             
-            if self.active_trade:
+            # Final sync: clean up ghost trades before stopping
+            try:
+                self.add_log("🔄 Final sync with exchange before shutdown...")
+                self._sync_state(silent=False)
+            except Exception as e:
+                self.add_log(f"⚠️ Final sync failed: {e}")
+            
+            # Cancel orders for ALL active trades, not just the current symbol
+            for symbol in list(self.active_trades.keys()):
                 try:
-                    symbol = self.active_trade["symbol"]
                     self.add_log(f"🧹 Cancelling pending orders for {symbol}...")
                     hyperliquid_service.cancel_all_orders(symbol)
-                    self.add_log("✅ Orders cancelled")
+                    self.add_log(f"✅ Orders cancelled for {symbol}")
                 except Exception as e:
-                    self.add_log(f"⚠️ Failed to cancel orders: {e}")
+                    self.add_log(f"⚠️ Failed to cancel orders for {symbol}: {e}")
             
             try:
                 self.add_log("🔌 Stopping WebSocket...")
