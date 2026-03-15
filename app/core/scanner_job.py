@@ -101,7 +101,7 @@ class ScannerJob:
                 settings = getattr(self.bot, 'scanner_settings', {})
                 enabled = settings.get('enabled', False)
                 interval_minutes = settings.get('interval', 15)
-                min_score = settings.get('min_score', 75)
+                min_score = settings.get('min_score', 50)  # Lowered from 75 for more realistic opportunities
                 auto_switch = settings.get('auto_switch', False)
 
                 if not enabled:
@@ -214,7 +214,7 @@ class ScannerJob:
                 self.last_results = opportunities
             
             # Return results
-            min_score = getattr(self.bot, 'scanner_settings', {}).get('min_score', 75)
+            min_score = getattr(self.bot, 'scanner_settings', {}).get('min_score', 50)  # Lowered from 75
             valid_opps = [o for o in opportunities if o['score'] >= min_score]
             
             self.bot.add_log(f"🕵️ Manual Scan done. Found {len(valid_opps)} opps >= {min_score}")

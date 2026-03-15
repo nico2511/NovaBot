@@ -26,7 +26,7 @@
     "scanner": {
         "enabled": true,
         "interval": 5,
-        "min_score": 76,
+        "min_score": 55,
         "auto_switch": true,
         "gamification_enabled": false,
         "max_funding_long": 0.0011,

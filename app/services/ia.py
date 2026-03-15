@@ -141,12 +141,8 @@ class IAService:
         if self.circuit_breaker_until:
             if datetime.now() < self.circuit_breaker_until:
                 remaining = int((self.circuit_breaker_until - datetime.now()).total_seconds() / 60)
-                return {
-                    "error": "AI Circuit Breaker Active",
-                    "raw_output": json.dumps({
-                        "explanation": f"IA en pause pour {remaining} min (Quota épuisé)"
-                    })
-                }
+                print(f"🛡️ AI Circuit Breaker active ({remaining} min left). Using rule-based fallback.")
+                return self._rule_based_fallback(prompt)
             else:
                 self.circuit_breaker_until = None
                 print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
@@ -538,6 +534,46 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
             return "→ OVERSOLD"
         else:
             return "→ NEUTRAL"
+
+    def _rule_based_fallback(self, prompt: str) -> Dict[str, Any]:
+        """
+        Pure rule-based fallback when AI is unavailable (STORY-001).
+        More intelligent conservative logic to avoid burning credits.
+        """
+        from app.core.prompts import RISK_PARAMS_MAP
+        from app.core.config import config
+        
+        risk_profile = config.RISK_PROFILE or "Balanced Growth"
+        params = RISK_PARAMS_MAP.get(risk_profile, RISK_PARAMS_MAP["Balanced Growth"])
+        
+        is_buy = any(word in prompt.upper() for word in ["BUY", "LONG"])
+        is_sell = any(word in prompt.upper() for word in ["SELL", "SHORT"])
+        
+        # Default conservative fallback
+        fallback = {
+            "approved": False,
+            "confidence": 35,
+            "risk_score": 8,
+            "reasoning": "Rule-based fallback (AI unavailable). Conservative mode enabled to protect capital.",
+            "decisive_factors": ["AI offline", "Safety first"],
+            "rejection_reason_category": "AI_UNAVAILABLE",
+            "risk_level": "MEDIUM"
+        }
+        
+        # Allow only high-quality setups during fallback
+        if (is_buy or is_sell) and ("RSI" in prompt and "volume" in prompt.lower()) and ("strong" in prompt.lower() or "pullback" in prompt.lower()):
+            fallback["approved"] = True
+            fallback["confidence"] = 62
+            fallback["risk_score"] = 4
+            fallback["reasoning"] = "Rule-based APPROVAL: Clear trend + volume confirmation during AI outage."
+            fallback["decisive_factors"] = ["Trend aligned", "Volume support", "Safe R:R assumed"]
+            fallback["rejection_reason_category"] = None
+            fallback["risk_level"] = "LOW"
+        
+        return {
+            "raw_output": json.dumps(fallback),
+            "model": "rule-based-fallback"
+        }
 
 
 # Global singleton instance

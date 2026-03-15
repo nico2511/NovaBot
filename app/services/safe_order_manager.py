@@ -121,3 +121,30 @@ class SafeOrderManager:
     def ensure_no_open_order_conflict(self, symbol: str):
         """Phase 1: Implement conflict checks (TODO)"""
         pass
+
+    def pre_validate_order(self, symbol: str, size: float, side: str) -> bool:
+        """Pre-validation before placing any order (STORY-003)"""
+        from app.utils.rate_limiter import rate_limiter
+        
+        if not rate_limiter.can_call("order_validation"):
+            self.logger.warning(f"Rate limited: skipping pre-validation for {symbol}")
+            return False
+        rate_limiter.record_call("order_validation")
+        
+        try:
+            # Get current user state for margin check
+            user_state = self.hl.info.user_state(config.HL_ACCOUNT_ADDRESS) if hasattr(self.hl, 'info') else None
+            if not user_state:
+                return True  # Cannot validate, allow with warning
+                
+            # Basic margin check (simplified)
+            available_margin = float(user_state.get("marginSummary", {}).get("accountValue", 0))
+            if available_margin < 50:  # Minimum safety threshold
+                self.logger.error(f"❌ Insufficient margin for {symbol} ({available_margin:.2f})")
+                return False
+                
+            self.logger.debug(f"✅ Pre-validation passed for {symbol} ({side} {size})")
+            return True
+        except Exception as e:
+            self.logger.warning(f"⚠️ Pre-validation failed for {symbol}: {e}")
+            return True  # Fail open for safety (better to try than block completely)

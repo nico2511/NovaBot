@@ -11,6 +11,7 @@ from hyperliquid.utils.constants import MAINNET_API_URL
 # Import retry decorators and WebSocket manager
 from app.utils.retry_decorator import critical_operation, standard_operation, lightweight_operation
 from app.utils.websocket_manager import WebSocketPriceManager
+from app.utils.rate_limiter import rate_limiter
 
 class HyperliquidService:
     # Market order slippage simulation (5%)
@@ -440,6 +441,12 @@ class HyperliquidService:
     @standard_operation
     def get_open_orders(self, symbol: str = None) -> list:
         """Get open orders (including Triggers), optionally filtered by symbol"""
+        # Rate limiting protection
+        if not rate_limiter.can_call("open_orders"):
+            self.log("⚠️ Rate limit protection: skipping get_open_orders")
+            return []
+        rate_limiter.record_call("open_orders")
+        
         try:
             # Use frontend_open_orders to get everything (triggers, SL/TP)
             # Standard open_orders only returns book orders
@@ -921,6 +928,12 @@ class HyperliquidService:
         """Fetch open positions from Hyperliquid"""
         if not config.HL_ACCOUNT_ADDRESS:
             return []
+        
+        # Rate limiting protection
+        if not rate_limiter.can_call("user_state"):
+            self.log("⚠️ Rate limit protection: skipping get_positions")
+            return []
+        rate_limiter.record_call("user_state")
         
         try:
             user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)

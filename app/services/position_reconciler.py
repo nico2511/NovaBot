@@ -27,35 +27,25 @@ class PositionReconciler:
             self.last_run = now
 
     def reconcile(self):
-        """Single reconciliation pass"""
-        # 1. Get Real Truth from Exchange
+        """Single reconciliation pass - Improved state sync"""
         try:
             positions = self.hl.get_positions()
-            
-            # Filter for active positions (size > 0)
             active_positions = [p for p in positions if float(p.get("size", 0)) > 0]
-            
+
             if not active_positions:
                 return
 
-            # 2. Check each position for safety
+            # 1. Adopt orphan positions (main fix for user's reboot issue)
+            self._adopt_orphan_positions(active_positions)
+
+            # 2. Ensure protection on all positions
             for pos in active_positions:
                 symbol = pos.get("symbol")
-                
-                # Skip if position is currently being adopted
-                if self.bot_context and symbol in self.bot_context.active_trades:
-                    trade = self.bot_context.active_trades[symbol]
-                    if "Adopting" in trade.get("strategy", ""):
-                        self.logger.debug(f"⏭️ Skipping {symbol} - adoption in progress")
-                        continue
-                
-                # Cooldown check - prevent rapid re-attempts
                 now = time.time()
-                last_time = self.last_reconcile_per_symbol.get(symbol, 0)
-                if now - last_time < 60:  # 60s cooldown per symbol
-                    continue
                 
-                # Ensure SL/TP exist
+                if self._is_on_cooldown(symbol, now):
+                    continue
+
                 try:
                     fixed = self.safety.ensure_sl_tp(pos)
                     if fixed:
@@ -64,4 +54,30 @@ class PositionReconciler:
                 except Exception as e:
                     self.logger.error(f"❌ Failed to safety-check {symbol}: {e}")
         except Exception as e:
-             self.logger.error(f"⚠️ Reconciliation Error: {e}")
+            self.logger.error(f"⚠️ Reconciliation Error: {e}")
+
+    def _adopt_orphan_positions(self, exchange_positions):
+        """Adopt positions that exist on exchange but not in bot state"""
+        if not self.bot_context:
+            return
+
+        exchange_symbols = {p.get("symbol") for p in exchange_positions}
+        local_symbols = set(self.bot_context.active_trades.keys())
+
+        for symbol in exchange_symbols - local_symbols:
+            self.logger.warning(f"👻 Orphan position detected on exchange: {symbol}. Adopting...")
+            # Create minimal trade entry
+            self.bot_context.active_trades[symbol] = {
+                "symbol": symbol,
+                "strategy": "Adopted-Orphan",
+                "entry": 0,
+                "side": "BUY",
+                "status": "ADOPTED"
+            }
+            self.logger.info(f"✅ Adopted orphan position: {symbol}")
+
+    def _is_on_cooldown(self, symbol: str, now: float) -> bool:
+        last_time = self.last_reconcile_per_symbol.get(symbol, 0)
+        if now - last_time < 45:  # Reduced cooldown for faster response
+            return True
+        return False

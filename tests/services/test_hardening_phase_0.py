@@ -100,3 +100,26 @@ def test_reconcile_ignores_secured_positions(position_reconciler, mock_hl_servic
     # Assert
     # Reconciler SHOULD call check on every position. SafeOrderManager handles the "ignore" logic.
     safe_order_manager.ensure_sl_tp.assert_called_once()
+
+
+def test_reconciler_adopts_orphan_positions(position_reconciler, mock_hl_service):
+    """Test that orphan positions on exchange are adopted into bot state"""
+    from unittest.mock import MagicMock
+    
+    # Mock bot_context
+    mock_bot = MagicMock()
+    mock_bot.active_trades = {"BTC": {"symbol": "BTC"}}
+    position_reconciler.bot_context = mock_bot
+    
+    # Exchange has ETH position not in local state
+    mock_hl_service.get_positions.return_value = [
+        {"symbol": "BTC", "size": 1.0},
+        {"symbol": "ETH", "size": 5.0, "entry_price": 3200.0}
+    ]
+    
+    # Act
+    position_reconciler.reconcile()
+    
+    # Assert
+    assert "ETH" in mock_bot.active_trades
+    assert mock_bot.active_trades["ETH"]["strategy"] == "Adopted-Orphan"

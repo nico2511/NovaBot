@@ -69,7 +69,7 @@ class BotContext:
         self.latest_strategy_result = {}
         self.last_candle_time = None
         
-        self.trading_enabled = False # Master Switch
+        self.trading_enabled = config.AUTO_START_TRADING  # Respect "Auto-start Trading on Bot Launch"
         self.is_running = False      # Loop Switch
         self.active_strategy_name = "SmartTrend"
         self.active_strategies = []
@@ -1825,10 +1825,18 @@ class BotContext:
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
                         
+                        # ANTI-CREDIT BURN: Skip AI if signal score too low or cooldown active
+                        signal_score = sig.get("score", 0)
+                        if signal_score < 60:
+                            self.add_log(f"⏭️ Low score signal skipped (score={signal_score}) - no AI call")
+                            continue
+                        
+                        if time_since_last_call < 45:  # 45s cooldown to save credits
+                            self.add_log(f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)")
+                            continue
+                        
                         approved = False
-                        # REMOVED: Auto-approval during cooldown (security risk)
-                        # Always validate with AI for safety
-                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
+                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')} (score={signal_score})")
                         val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
                         self.last_ai_call = current_time
                         
@@ -1999,10 +2007,9 @@ class BotContext:
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 
-                # Optimized Sleep Loop (Non-blocking)
-                # Reduced from 60s to 10s for better responsiveness (detecting manual trades)
+                # Optimized Sleep Loop + Anti-Signal Spam
                 sleep_duration = 10 if self.active_trade else (15 if signals else 10)
-                self.add_log(f"⏸️ Next analysis in {sleep_duration}s...")
+                self.add_log(f"⏸️ Next analysis in {sleep_duration}s... (signals detected: {len(signals)})")
                 for _ in range(int(sleep_duration)):
                     if not self.is_running: break
                     time.sleep(1)

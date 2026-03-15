@@ -83,9 +83,9 @@ class Config:
     # ==============================================================================
     # 🎯 AI CONFIDENCE THRESHOLDS
     # ==============================================================================
-    AI_CONF_THRESHOLD_HIGH: int = _state_settings.get('ai_config', {}).get('conf_threshold_high') or int(os.getenv("AI_CONF_THRESHOLD_HIGH", "101"))
+    AI_CONF_THRESHOLD_HIGH: int = _state_settings.get('ai_config', {}).get('conf_threshold_high') or int(os.getenv("AI_CONF_THRESHOLD_HIGH", "75"))
     AI_CONF_THRESHOLD_MEDIUM: int = _state_settings.get('ai_config', {}).get('conf_threshold_medium') or int(os.getenv("AI_CONF_THRESHOLD_MEDIUM", "55"))
-    AI_CONF_THRESHOLD_LOW: int = _state_settings.get('ai_config', {}).get('conf_threshold_low') or int(os.getenv("AI_CONF_THRESHOLD_LOW", "101"))
+    AI_CONF_THRESHOLD_LOW: int = _state_settings.get('ai_config', {}).get('conf_threshold_low') or int(os.getenv("AI_CONF_THRESHOLD_LOW", "40"))
     
     # API Security
     API_KEY: str = os.getenv("API_KEY", "dev_secret_change_in_production")

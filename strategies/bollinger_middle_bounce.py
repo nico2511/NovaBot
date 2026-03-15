@@ -134,9 +134,14 @@ class BollingerMiddleBounceStrategy(BaseStrategy):
             
             # === LONG SETUP ===
             if trend_dir == 1:
+                # STRICT GUARD: Reject if price is above upper band (chasing, not bouncing middle)
+                current_ub = upper_band.iloc[-1]
+                if current_price > current_ub * 0.995:  
+                    return None  # Price above upper band = chasing, not middle bounce
+                
                 # GUARD: Reject if price is already at lower band extreme (not a middle band pullback!)
                 current_lb = lower_band.iloc[-1]
-                if current_price < current_lb * 1.005:  # Within 0.5% of lower band
+                if current_price < current_lb * 1.005:  
                     return None  # Price crashed to lower band, this is NOT a middle band bounce
                 
                 # Check confirmation candle: Green and closed above Middle Band

@@ -89,7 +89,11 @@ class StateManager:
                     context.active_trades = {}
             else:
                 # Restore Context
-                context.active_trades = state.get("active_trades", {})  # Multi-position support
+                active_trades = state.get("active_trades", {})
+                if not isinstance(active_trades, dict):
+                    print(f"⚠️ Corrupted active_trades in state file (got {type(active_trades)}). Resetting to empty dict.")
+                    active_trades = {}
+                context.active_trades = active_trades  # Multi-position support
             
             context.trading_enabled = state.get("trading_enabled", False)
             context.is_running = state.get("is_running", False)

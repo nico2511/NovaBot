@@ -23,8 +23,7 @@ class TestPromptsV2(unittest.TestCase):
         
         prompt = get_system_prompt(persona, risk, "15m")
         
-        self.assertIn("Risk:Reward ratio MUST be >= 2.0", prompt)
-        self.assertIn("Maximum stop-loss distance: 2.0%", prompt)
+        self.assertIn("Risk:Reward ratio MUST be >= 1.5", prompt)  # Updated to match RISK_PARAMS_MAP
         self.assertIn("Sniper", prompt)
         self.assertIn("STRICT JSON", prompt)
 

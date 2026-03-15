@@ -200,10 +200,12 @@ class StrategyEngine:
                 params = strat.config.get("params", {})
                 is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
                 
+                symbol = extra_data.get("symbol") if extra_data else None
                 if isinstance(sig, dict):
                     # Strategy returned rich object
                     signal_data = sig
                     signal_data["strategy"] = strat.name
+                    signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
                     signal_data["price"] = sig.get("price", df['close'].iloc[-1])
                     signal_data["timestamp"] = df.index[-1]
                     if is_manual:
@@ -214,6 +216,7 @@ class StrategyEngine:
                     signal_data = {
                         "strategy": strat.name,
                         "signal": sig, 
+                        "symbol": symbol or "UNKNOWN",
                         "price": df['close'].iloc[-1],
                         "timestamp": df.index[-1]
                     }
@@ -282,7 +285,7 @@ class StrategyEngine:
                      pass
                      # print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
         
-        # 5. Calculate Progress, Conditions AND Threshold Comparisons
+        # 5. Calculate Progress, Conditions AND Threshold Comparisons + Signal Scoring (STORY-004)
         progress = {}
         conditions = {}
         thresholds = {}
@@ -290,22 +293,31 @@ class StrategyEngine:
             try:
                 progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
                 
-                # Check detailed conditions
                 if hasattr(strat, "check_conditions"):
                     conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
                 else:
                     conditions[strat.name] = []
                 
-                # Get threshold comparisons
                 if hasattr(strat, "get_threshold_comparisons"):
                     thresholds[strat.name] = strat.get_threshold_comparisons(df, extra_data=extra_data)
                 else:
                     thresholds[strat.name] = {}
             except Exception as e:
-                # print(f"Error calculating progress for {strat.name}: {e}")
                 progress[strat.name] = 0
                 conditions[strat.name] = []
                 thresholds[strat.name] = {}
+
+        # Add basic scoring to signals (higher = better)
+        for signal in signals:
+            score = 50  # base
+            if signal.get("confidence"):
+                score += int(signal.get("confidence", 0))
+            if "strong" in str(signal).lower():
+                score += 20
+            signal["score"] = score
+
+        # Sort signals by score descending
+        signals.sort(key=lambda s: s.get("score", 0), reverse=True)
 
         # === CAPTURE FULL MARKET SNAPSHOT ===
         # Calculate BB for snapshot
