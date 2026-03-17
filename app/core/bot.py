@@ -947,6 +947,10 @@ class BotContext:
         if not self.trading_enabled:
              return
 
+        # PREVENT SYSTEMATIC RECALIBRATION: Only enforce on initial adoption or explicit trailing/BE
+        if not bypass_cooldown and trade_data.get("initial_sl_tp_set", False):
+            return
+
         # COOLDOWN: Skip verification if we just synced (prevent infinite loop)
         if not bypass_cooldown and self._last_sltp_sync_time:
             elapsed = (pd.Timestamp.now() - self._last_sltp_sync_time).total_seconds()
@@ -1134,26 +1138,27 @@ class BotContext:
                                 t_ref = self.active_trades.get(symbol)
                                 if t_ref:
                                     if "sl" in custom_updates:
-                                         t_ref["sl"] = custom_updates["sl"]
-                                         changed = True
-                                         self.add_log(f"🤖 Strategy {strategy_name} updated SL for {symbol} to {custom_updates['sl']}")
+                                        t_ref["sl"] = custom_updates["sl"]
+                                        changed = True
+                                        self.add_log(f"🤖 Strategy {strategy_name} updated SL for {symbol} to {custom_updates['sl']}")
                                     if "tp" in custom_updates:
-                                         t_ref["tp"] = custom_updates["tp"]
-                                         changed = True
-                                         self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
-                                         
+                                        t_ref["tp"] = custom_updates["tp"]
+                                        changed = True
+                                        self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
+                                        
                                     if changed:
+                                        t_ref["initial_sl_tp_set"] = True
                                         self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                                         StateManager.save_state(self)
 
-                # 2. Default Smart Trailing (Fallback)
+                # 2. Default Smart Trailing (Fallback) - Only on actual change
                 if not handled_by_strategy:
                     if self._update_trailing_stops(trade, current_price):
                          self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing...")
                          with self.trade_lock:
-                             # Sync with exchange using current trade data
                              t_ref = self.active_trades.get(symbol)
                              if t_ref:
+                                t_ref["initial_sl_tp_set"] = True
                                 self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
 
                 # 3. Local Exit Check (Safety)
@@ -1668,13 +1673,14 @@ class BotContext:
                 # If we have trades, cycle through them?
                 # For now, let's keep it simple: manage all trades every loop tick.
                 
-                # Skip entry analysis if:
-                # 1. We already have a trade for the scanned symbol
-                # 2. We are at our global max positions limit
-                if self.active_trades.get(self.active_symbol) or len(self.active_trades) >= self.max_positions:
-                     # We still sleep but management loop is fast above
+                # Skip NEW ENTRY analysis only if we are at max positions
+                # We still analyze for new opportunities even with open trades
+                if len(self.active_trades) >= self.max_positions:
+                     self.add_log(f"⏸️ Max positions reached ({len(self.active_trades)}/{self.max_positions}). Skipping new entries.")
                      time.sleep(10)
                      continue
+                if self.active_trades.get(self.active_symbol):
+                     self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
 
                 self.add_log("🔄 Entering strategy analysis...")
                 df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
@@ -1825,28 +1831,26 @@ class BotContext:
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
                         
-                        # ANTI-CREDIT BURN: Skip AI if signal score too low or cooldown active
-                        signal_score = sig.get("score", 0)
-                        if signal_score < 60:
-                            self.add_log(f"⏭️ Low score signal skipped (score={signal_score}) - no AI call")
-                            continue
+                        # Score threshold removed - risk thresholds are already configured in settings
+                        # AI validation handles the filtering based on configured risk thresholds
                         
                         if time_since_last_call < 45:  # 45s cooldown to save credits
                             self.add_log(f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)")
                             continue
                         
                         approved = False
-                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')} (score={signal_score})")
+                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
                         val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
                         self.last_ai_call = current_time
                         
                         try:
                             import json
-                            if val_res.get("raw_output"):
+                            if val_res and val_res.get("raw_output"):
                                 ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
                                 approved = ai_data.get("approved", False)
                                 confidence = ai_data.get("confidence", 0)
-                                risk_level = ai_data.get("risk_level", "MEDIUM").upper()
+                                risk_level_raw = ai_data.get("risk_level")
+                                risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
                                 
                                 if approved:
                                     # HYBRID CONFIDENCE THRESHOLD CHECK
@@ -2008,14 +2012,17 @@ class BotContext:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 
                 # Optimized Sleep Loop + Anti-Signal Spam
-                sleep_duration = 10 if self.active_trade else (15 if signals else 10)
+                has_active_trade = len(self.active_trades) > 0
+                sleep_duration = 10 if has_active_trade else (15 if signals else 10)
                 self.add_log(f"⏸️ Next analysis in {sleep_duration}s... (signals detected: {len(signals)})")
                 for _ in range(int(sleep_duration)):
                     if not self.is_running: break
                     time.sleep(1)
                 
             except Exception as e:
+                import traceback
                 self.add_log(f"❌ Error in trading loop: {e}")
+                self.add_log(f"🔍 Traceback: {traceback.format_exc()}")
                 time.sleep(5)
         
         self.add_log("⏸️ Trading loop stopped")
@@ -2120,6 +2127,7 @@ class BotContext:
                         t_ref["tp"] = tp_price
                         t_ref["strategy"] = strategy_name
                         t_ref["status"] = "OPEN (ADOPTED)"
+                        t_ref["initial_sl_tp_set"] = True
                         if should_set_sl_tp:
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                         StateManager.save_state(self)

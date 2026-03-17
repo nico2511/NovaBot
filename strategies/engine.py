@@ -175,6 +175,8 @@ class StrategyEngine:
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])
             print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+        else:
+            print(f"[BOT] ⚠️ Aucune stratégie active pour le régime {regime}")
 
         # 4. Generate Signals
         signals = []
@@ -196,6 +198,7 @@ class StrategyEngine:
             sig = strat.generate_signal(df, extra_data=extra_data)
             
             if sig:
+                print(f"[BOT] ✅ Signal généré par {strat.name}: {sig.get('signal')}")
                 # Check execution type
                 params = strat.config.get("params", {})
                 is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
@@ -220,31 +223,34 @@ class StrategyEngine:
                         "price": df['close'].iloc[-1],
                         "timestamp": df.index[-1]
                     }
+            else:
+                print(f"[BOT] ❌ {strat.name} n'a pas généré de signal")
+                continue  # Skip to next strategy
                 
-                # --- GLOBAL DIRECTION FILTER ---
-                # This ensures ALL strategies respect allow_longs/allow_shorts from config
-                # even if the strategy code doesn't implement it explicitly.
-                
-                signal_type = signal_data.get("signal", "").upper()
-                allow_longs = params.get("allow_longs", True) 
-                allow_shorts = params.get("allow_shorts", True)
-                
-                direction_allowed = True
-                rejection_reason = ""
+            # --- GLOBAL DIRECTION FILTER ---
+            # This ensures ALL strategies respect allow_longs/allow_shorts from config
+            # even if the strategy code doesn't implement it explicitly.
+            
+            signal_type = signal_data.get("signal", "").upper()
+            allow_longs = params.get("allow_longs", True) 
+            allow_shorts = params.get("allow_shorts", True)
+            
+            direction_allowed = True
+            rejection_reason = ""
 
-                if signal_type == "BUY" and not allow_longs:
+            if signal_type == "BUY" and not allow_longs:
+                direction_allowed = False
+                rejection_reason = "Longs disabled"
+            elif signal_type == "SELL" and not allow_shorts:
+                # Exception: Panic close should override 'allow_shorts' if it's just closing a long?
+                # But 'SELL' here usually means 'Open Short' or 'Close Long'.
+                # If it's a CLOSE signal specifically, we should allow it.
+                # But our signals are usually BUY/SELL.
+                if signal_data.get("metadata", {}).get("panic_close"):
+                    direction_allowed = True # ALWAYS allow panic exit
+                else:
                     direction_allowed = False
-                    rejection_reason = "Longs disabled"
-                elif signal_type == "SELL" and not allow_shorts:
-                    # Exception: Panic close should override 'allow_shorts' if it's just closing a long?
-                    # But 'SELL' here usually means 'Open Short' or 'Close Long'.
-                    # If it's a CLOSE signal specifically, we should allow it.
-                    # But our signals are usually BUY/SELL.
-                    if signal_data.get("metadata", {}).get("panic_close"):
-                        direction_allowed = True # ALWAYS allow panic exit
-                    else:
-                        direction_allowed = False
-                        rejection_reason = "Shorts disabled"
+                    rejection_reason = "Shorts disabled"
                 
                 # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
                 # Calculate BB only if we have a signal to verify
