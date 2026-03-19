@@ -126,142 +126,8 @@ class BotContext:
         
         # Startup synchronization flags
         self.startup_sync_done = False
-               # Periodic Reporting Timers
-        self._last_copilot_report_time = time.time()
-        self._copilot_report_interval = 600  # 10 minutes
-        self._initial_position_analyzed = False
         
-        # Candle analysis cache
-        self.last_analyzed_candle = None
-        
-"""
-Core Bot Logic Module
-Contains the central BotContext class that manages the trading loop, state, and services.
-"""
-import sys
-import os
-import threading
-import time
-import asyncio
-import json
-import pandas as pd
-from collections import deque
-
-# Root Directory Logic
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from app.core.config import config
-from app.core.risk_manager import RiskManager
-from app.core.constants import *
-from app.core.state_manager import StateManager
-from app.services.hyperliquid_service import hyperliquid_service
-from app.services.discord_service import discord_service
-from app.core.scanner_job import ScannerJob
-from app.core.trade_recorder import TradeRecorder
-from app.core.asset_gamification import AssetGamification, AccountLevel
-from strategies.engine import StrategyEngine
-from app.services.ia import ia_service
-from app.services.indicators import Indicators
-from app.services.analyst_service import analyst_service
-from app.services.discord_service import discord_service
-from app.utils.data_processing import get_dynamic_context
-
-# Hardening Phase 0
-from app.services.safe_order_manager import SafeOrderManager
-from app.services.position_reconciler import PositionReconciler
-from backend.services.storage import storage_service
-
-class BotContext:
-    """Main bot context"""
-    def __init__(self):
-        print("\n\n🤖 [BOOT] BotContext v1.1.0 (Refactored Core)\n")
-        
-        # Thread Safety Lock
-        self.trade_lock = threading.Lock()
-        
-        self.risk_manager = RiskManager(
-            max_positions=config.DEFAULT_MAX_POSITIONS,
-            daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
-        )
-        # GLOBAL QUOTA - Will be set from global_settings after initialization
-        self.max_positions = config.DEFAULT_MAX_POSITIONS
-        self.strategy_engine = StrategyEngine(self.risk_manager)
-        self.is_running = False
-        self.trading_enabled = False
-        self.thread = None
-        self.account_value = 0.0
-        
-        # Multi-Position Support: Dictionary indexed by symbol
-        # MUST be initialized BEFORE any property access (like self.latest_data)
-        self.active_symbol = "BTC"  # Must be set before latest_data
-        self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
-        self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
-        
-        self.latest_data = pd.DataFrame()
-        self.latest_analysis = {}
-        self.signals_log = deque(maxlen=200)
-        self.logs = deque(maxlen=1000)
-        self.latest_strategy_result = {}
-        self.last_candle_time = None
-        
-        self.trading_enabled = config.AUTO_START_TRADING  # Respect "Auto-start Trading on Bot Launch"
-        self.is_running = False      # Loop Switch
-        self.active_strategy_name = "SmartTrend"
-        self.active_strategies = []
-
-        # Scanner Settings defaults
-        # Scanner Settings defaults (Seeded from user_settings API via config)
-        self.scanner_settings = {
-            "enabled": config.SCANNER_ENABLED,
-            "interval": config.SCANNER_INTERVAL,
-            "min_score": config.SCANNER_MIN_SCORE,
-            "auto_switch": config.SCANNER_AUTO_SWITCH,
-            "gamification_enabled": config.SCANNER_GAMIFICATION
-        }
-
-        # Global Settings Defaults (Seeded from user_settings API via config)
-        self.global_settings = {
-            "operations": {
-                "trading_timeframe": config.TRADING_TIMEFRAME,
-                "auto_start_trading": config.AUTO_START_TRADING,
-                "log_level": config.LOG_LEVEL
-            },
-            "risk_defaults": {
-                "max_positions": config.DEFAULT_MAX_POSITIONS,
-                "daily_stop_loss": config.DEFAULT_DAILY_STOP_LOSS,
-                "bot_persona": config.BOT_PERSONA,
-                "risk_profile": config.RISK_PROFILE,
-                "default_leverage": config.DEFAULT_LEVERAGE,
-                "default_margin_type": "ISOLATED",
-                "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
-                "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
-            },
-            "ai_config": {
-                "conf_threshold_high": config.AI_CONF_THRESHOLD_HIGH,
-                "conf_threshold_medium": config.AI_CONF_THRESHOLD_MEDIUM,
-                "conf_threshold_low": config.AI_CONF_THRESHOLD_LOW,
-                "model_name": config.AI_MODEL_NAME,
-                "call_cooldown": config.AI_CALL_COOLDOWN
-            },
-            "notifications": {
-                "discord_webhook_alerts": config.DISCORD_WEBHOOK_ALERTS,
-                "discord_webhook_logs": config.DISCORD_WEBHOOK_LOGS
-            }
-        }
-        
-        # AI Commentary Cache
-        self.ai_cache = {
-            "last_market_analysis": None,
-            "last_market_analysis_time": None,
-            "last_position_analysis": None,
-            "last_position_analysis_time": None,
-            "signal_analyses": deque(maxlen=50),
-            "market_snapshots": deque(maxlen=10)
-        }
-        
-        # Startup synchronization flags
-        self.startup_sync_done = False
-               # Periodic Reporting Timers
+        # Periodic Reporting Timers
         self._last_copilot_report_time = time.time()
         self._copilot_report_interval = 600  # 10 minutes
         self._initial_position_analyzed = False
@@ -282,7 +148,8 @@ class BotContext:
         
         # Leverage state
         self._leverage_synced = False 
-               # Sync Timers
+        
+        # Sync Timers
         self._last_state_sync_time = 0
         self._state_sync_interval = 10  # Seconds
         self._last_pnl_sync = 0  # To track daily PnL sync
@@ -294,7 +161,7 @@ class BotContext:
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
         
         # Open Interest History (InMemory)
-        self.oi_history = deque(maxlen=2000) # Keep ~2 days of history at 15m intervals roughly (or more)
+        self.oi_history = deque(maxlen=2000) 
         
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
@@ -315,12 +182,9 @@ class BotContext:
         try:
             state = StateManager.load_state(self)
             
-                       # Load trading params from global_settings (centralized source)
-            try:
-                raw_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
-                requested_max = int(raw_max[0]) if isinstance(raw_max, list) else int(raw_max)
-            except (ValueError, TypeError, IndexError):
-                requested_max = 1
+            
+            # Load trading params from global_settings (centralized source)
+            requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
             
             # Only apply gamification limits if enabled
             gamification_enabled = self.scanner_settings.get("gamification_enabled", False)
@@ -433,6 +297,25 @@ class BotContext:
         """Backward compatibility: Sets data for active_symbol"""
         self.latest_data_map[self.active_symbol] = value
 
+    @property
+    def copilot_sentiment(self) -> str:
+        """Returns the latest market sentiment from Copilot analysis"""
+        cache = self.ai_cache.get("last_market_analysis")
+        if not cache:
+            return "N/A (No analysis yet)"
+        
+        # New structure: cache is a dict of timeframes
+        if isinstance(cache, dict) and "1h" in cache:
+            parts = []
+            for tf in ["5m", "1h", "4h"]:
+                s = cache.get(tf, {})
+                sentiment = s.get('sentiment', 'N/A')
+                score = s.get('score', 0)
+                parts.append(f"{tf}: {sentiment} ({score})")
+            return " | ".join(parts)
+        
+        return "N/A (Analysis pending)"
+
     def _prepare_ai_context(self, position_data: dict = None) -> dict:
         """Prepare comprehensive market context for professional AI analysis"""
         if not hasattr(self, 'latest_data') or self.latest_data.empty:
@@ -442,8 +325,8 @@ class BotContext:
         current_price = float(df['close'].iloc[-1])
         
         # Technical Indicators
-        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else None
-        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else None
+        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else 0.0
+        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else 0.0
         
         # EMAs
         ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
@@ -494,10 +377,10 @@ class BotContext:
         
         # Add ADX and MACD to dynamic context
         dynamic_ctx = get_dynamic_context(df)
-        dynamic_ctx['adx'] = round(adx_value, 2)
-        dynamic_ctx['macd_line'] = round(macd_line, 4)
-        dynamic_ctx['macd_signal'] = round(macd_signal, 4)
-        dynamic_ctx['macd_hist'] = round(macd_hist, 4)
+        dynamic_ctx['adx'] = round(float(adx_value or 0), 2)
+        dynamic_ctx['macd_line'] = round(float(macd_line or 0), 4)
+        dynamic_ctx['macd_signal'] = round(float(macd_signal or 0), 4)
+        dynamic_ctx['macd_hist'] = round(float(macd_hist or 0), 4)
         
         # === ENHANCED CONTEXT: Bollinger Bands ===
         bb_period = 20
@@ -521,11 +404,11 @@ class BotContext:
             # BB Width (volatility indicator)
             bb_width = ((bb_upper - bb_lower) / bb_middle) * 100 if bb_middle > 0 else 0
             
-            dynamic_ctx['bb_upper'] = round(bb_upper, 4)
-            dynamic_ctx['bb_middle'] = round(bb_middle, 4)
-            dynamic_ctx['bb_lower'] = round(bb_lower, 4)
+            dynamic_ctx['bb_upper'] = round(float(bb_upper or 0), 4)
+            dynamic_ctx['bb_middle'] = round(float(bb_middle or 0), 4)
+            dynamic_ctx['bb_lower'] = round(float(bb_lower or 0), 4)
             dynamic_ctx['bb_position'] = bb_position
-            dynamic_ctx['bb_width'] = round(bb_width, 2)
+            dynamic_ctx['bb_width'] = round(float(bb_width or 0), 2)
         except Exception:
             pass
         
@@ -700,15 +583,15 @@ class BotContext:
         cache = self.ai_cache.get("last_market_analysis")
         cache_time = self.ai_cache.get("last_market_analysis_time")
         
-        if cache and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
+        # Robust check: cache must be a dict
+        if isinstance(cache, dict) and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
             parts = []
-            if isinstance(cache, dict):
-                for tf in ["5m", "1h", "4h"]:
-                    s = cache.get(tf, {})
-                    parts.append(f"{tf}: {s.get('sentiment', 'N/A')} (Score {s.get('score', 0)})")
-                return " | ".join(parts)
-            else:
-                self.add_log(f"⚠️ Market Sentiment cache is not a dict: {type(cache)}")
+            for tf in ["5m", "1h", "4h"]:
+                s = cache.get(tf, {}) or {}
+                sentiment = s.get('sentiment', 'N/A')
+                score = s.get('score', 0)
+                parts.append(f"{tf}: {sentiment} (Score {score})")
+            return " | ".join(parts)
 
         try:
             summary_parts = []
@@ -788,8 +671,8 @@ class BotContext:
                     }
                 
                 # 3. Copilot Sentiment (from AI cache)
-                market_sentiment = self.ai_cache.get("last_market_analysis")
-                if market_sentiment and isinstance(market_sentiment, dict):
+                if self.ai_cache.get("last_market_analysis"):
+                    market_sentiment = self.ai_cache["last_market_analysis"]
                     entry["copilot_sentiment"] = {
                         "5m": {
                             "sentiment": market_sentiment.get("5m", {}).get("sentiment", "UNKNOWN"),
@@ -1293,6 +1176,664 @@ class BotContext:
                                         t_ref["initial_sl_tp_set"] = True
                                         self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                                         StateManager.save_state(self)
+
+                # 2. Default Smart Trailing (Fallback) - Only on actual change
+                if not handled_by_strategy:
+                    if self._update_trailing_stops(trade, current_price):
+                         self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing...")
+                         with self.trade_lock:
+                             t_ref = self.active_trades.get(symbol)
+                             if t_ref:
+                                t_ref["initial_sl_tp_set"] = True
+                                self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
+
+                # 3. Local Exit Check (Safety)
+                self._check_local_exits(trade, symbol, current_price)
+                
+                # 4. Periodic Copilot Reporting
+                self._handle_periodic_copilot_report(trade)
+                
+            except Exception as manage_err:
+                self.add_log(f"⚠️ Management Error on {symbol}: {manage_err}")
+
+    def _handle_periodic_copilot_report(self, trade: dict):
+        """Handle periodic analysis report for active trades (Copilot logic)"""
+        now = time.time()
+        if self._last_copilot_report_time is None:
+            self._last_copilot_report_time = now
+            return
+            
+        elapsed = now - self._last_copilot_report_time
+        if elapsed >= self._copilot_report_interval:
+            self._last_copilot_report_time = now
+            symbol = trade["symbol"]
+            
+            def run_async_report_sync():
+                """Bridge to run async report in bot thread"""
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(run_async_report())
+                    loop.close()
+                except Exception as e:
+                    self.add_log(f"⚠️ run_async_report_sync Error: {e}")
+
+            async def run_async_report():
+                try:
+                    self.add_log(f"📊 Periodic Copilot Analysis for {symbol}...")
+                    
+                    # Get Market Sentiment
+                    sentiment = await analyst_service.analyze_market_sentiment(symbol)
+                    
+                    # Format position for AnalystService
+                    entry = float(trade.get("entry", 0))
+                    curr = hyperliquid_service.get_current_price(symbol)
+                    side = trade.get("side", "BUY")
+                    pnl_raw = ((curr - entry) / entry) if side == "BUY" else ((entry - curr) / entry)
+                    
+                    # Fetch Advanced Metrics safely
+                    funding_rate = 0.0
+                    oi = 0.0
+                    try:
+                        raw_funding = hyperliquid_service.get_funding_rate(symbol)
+                        funding_rate = raw_funding * 100.0 # Convert to Percentage
+                        oi = hyperliquid_service.get_open_interest(symbol)
+                    except Exception as e:
+                        self.add_log(f"⚠️ Metrics Fetch Error: {e}")
+
+                    pos_data = {
+                        "symbol": symbol,
+                        "side": side,
+                        "size": trade.get("size", 0),
+                        "returnOnEquity": pnl_raw
+                    }
+                    
+                    # Pass trading_timeframe from settings for dynamic advice weighting
+                    trading_tf = self.global_settings.get("trading_timeframe", "15m")
+                    analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
+                    
+                    # --- UPDATE CACHE FOR FRONTEND ---
+                    self.ai_cache["last_market_analysis"] = sentiment
+                    self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now()
+                    self.ai_cache["last_position_analysis"] = {
+                        "symbol": symbol,
+                        "size": trade.get("size", 0),
+                        "analysis": analysis
+                    }
+                    self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
+                    
+                    advice = analysis.get("advice", "HOLD")
+                    reason = analysis.get("reason", "N/A")
+                    
+                    # Notification Discord
+                    pnl_pct = pnl_raw * 100
+                    status_emoji = "🟢" if pnl_pct > 0 else "🔴"
+                    report_msg = (
+                        f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
+                        f"💰 **PnL:** {pnl_pct:+.2f}%\n"
+                        f"🧠 **Advice:** {advice}\n"
+                        f"📝 **Reasoning:** {reason}\n"
+                        f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
+                        f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
+                    )
+                    
+                    # Send to Discord & Internal Logs
+                    discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
+                    self.add_log(f"📊 Copilot Report Sent: {advice} | PnL: {pnl_pct:.2f}%")
+                    
+                except Exception as e:
+                    self.add_log(f"⚠️ Periodic Report Failed: {e}")
+
+
+            # Run in separate thread or use current loop if possible
+            threading.Thread(target=run_async_report_sync, daemon=True).start()
+
+    def _handle_periodic_all_positions_report(self):
+        """Send periodic reports for ALL active positions (including manual ones)"""
+        now = time.time()
+        
+        # Use same interval tracking as single position reports
+        if self._last_copilot_report_time is None:
+            self._last_copilot_report_time = now
+            return
+            
+        elapsed = now - self._last_copilot_report_time
+        if elapsed >= self._copilot_report_interval:
+            self._last_copilot_report_time = now
+            
+            # Get ALL active positions from Hyperliquid
+            try:
+                positions = hyperliquid_service.get_positions()
+                active_positions = [p for p in positions if float(p.get("size", 0)) > 0]
+                
+                if not active_positions:
+                    return
+                
+                self.add_log(f"📊 Sending periodic reports for {len(active_positions)} position(s)...")
+                
+                # Send report for each position
+                for pos in active_positions:
+                    self._send_position_report_sync(pos)
+                    
+            except Exception as e:
+                self.add_log(f"⚠️ Multi-Position Report Error: {e}")
+
+    def _send_position_report_sync(self, position: dict):
+        """Send Discord report for a single position (synchronous wrapper)"""
+        def run_report():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._send_position_report_async(position))
+                loop.close()
+            except Exception as e:
+                self.add_log(f"⚠️ Position Report Error: {e}")
+        
+        threading.Thread(target=run_report, daemon=True).start()
+
+    async def _send_position_report_async(self, position: dict):
+        """Send Discord report for a single position (async)"""
+        try:
+            symbol = position.get("symbol")
+            side = position.get("side", "BUY")
+            size = float(position.get("size", 0))
+            entry_price = float(position.get("entry_price", 0))
+            
+            # Get current price and calculate PnL
+            curr = hyperliquid_service.get_current_price(symbol)
+            pnl_raw = ((curr - entry_price) / entry_price) if side == "BUY" else ((entry_price - curr) / entry_price)
+            pnl_pct = pnl_raw * 100
+            
+            # Get market sentiment
+            sentiment = await analyst_service.analyze_market_sentiment(symbol)
+            
+            # Fetch metrics
+            funding_rate = 0.0
+            oi = 0.0
+            try:
+                raw_funding = hyperliquid_service.get_funding_rate(symbol)
+                funding_rate = raw_funding * 100.0
+                oi = hyperliquid_service.get_open_interest(symbol)
+            except:
+                pass
+            
+            # Analyze position
+            pos_data = {
+                "symbol": symbol,
+                "side": side,
+                "size": size,
+                "returnOnEquity": pnl_raw
+            }
+            
+            trading_tf = self.global_settings.get("trading_timeframe", "15m")
+            analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
+            
+            advice = analysis.get("advice", "HOLD")
+            reason = analysis.get("reason", "N/A")
+            
+            # Build Discord message
+            status_emoji = "🟢" if pnl_pct > 0 else "🔴"
+            report_msg = (
+                f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
+                f"💰 **PnL:** {pnl_pct:+.2f}%\n"
+                f"🧠 **Advice:** {advice}\n"
+                f"📝 **Reasoning:** {reason}\n"
+                f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
+                f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
+            )
+            
+            # Send to Discord
+            discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
+            self.add_log(f"📊 Report sent for {symbol}: {advice} | PnL: {pnl_pct:.2f}%")
+            
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to send report for {position.get('symbol', 'UNKNOWN')}: {e}")
+
+
+    def _sync_state(self, silent=True):
+        """Unified State Synchronization (Stateless Truth) - Multi-Position aware"""
+        try:
+            positions = hyperliquid_service.get_positions()
+            # Map of symbols currently on exchange
+            active_exchange_positions = {p["symbol"]: p for p in positions if float(p.get("size", 0)) != 0}
+            
+            # 1. Update/Adopt positions from Exchange
+            for symbol, pos in active_exchange_positions.items():
+                trade = self.active_trades.get(symbol)
+                
+                if not trade:
+                    # New Position Detected (Adoption)
+                    if not silent: self.add_log(f"🕵️ SYNC: Deteced ORPHAN {symbol} on exchange. Adopting...")
+                    # We switch context to assist adoption if it uses self.active_symbol internally
+                    self.switch_active_symbol(symbol)
+                    self._adopt_existing_position(pos)
+                else:
+                    # Update Existing Memory
+                    with self.trade_lock:
+                        trade["pnl"] = float(pos.get("pnl", 0))
+                        trade["size"] = float(pos.get("size", 0))
+                        trade["leverage"] = float(pos.get("leverage", 1.0))
+            
+            # 2. Detect External Closures (Trades tracked but not on exchange)
+            tracked_symbols = list(self.active_trades.keys())
+            for symbol in tracked_symbols:
+                if symbol not in active_exchange_positions:
+                    trade = self.active_trades.get(symbol)
+                    if not trade: continue
+                    
+                    # ALWAYS log closure detections (critical state transition)
+                    self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure...")
+                    self._handle_external_closure(symbol, trade, silent)
+        except Exception as e:
+            # ALWAYS log sync errors (was silent=True before, hiding ghost trade bugs)
+            self.add_log(f"⚠️ Sync Error: {e}")
+
+    def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
+        """Logic to record and clean up a trade closed externally"""
+        self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing...")
+        pnl_usdc = 0
+        try:
+            # 1. Fetch recent history from Exchange to find REAL exit price
+            recent_trades = hyperliquid_service.get_trade_history(limit=50)
+            # FIX: get_trade_history returns 'symbol', NOT 'coin'
+            closing_trade = next((t for t in recent_trades if t.get('symbol') == symbol), None)
+            
+            entry_price = float(trade.get("entry", 0))
+            size = float(trade.get("size", 0))
+            side = trade.get("side")
+            
+            if closing_trade:
+                exit_price = float(closing_trade.get("entry_price", 0)) # in trade history, entry_price is the fill price
+                pnl_usdc = float(closing_trade.get("pnl", 0))
+                
+                if pnl_usdc == 0 and entry_price > 0:
+                    pnl_usdc = (float(exit_price) - float(entry_price)) * float(size) if side == "BUY" else (float(entry_price) - float(exit_price)) * float(size)
+                
+                # ALWAYS log closure details (critical for debugging)
+                self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})")
+            else:
+                 # Fallback recording based on current market price
+                 exit_price = hyperliquid_service.get_current_price(symbol)
+                 pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
+                 self.add_log(f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL: ${pnl_usdc:.2f}")
+
+            # Record
+            self.trade_recorder.add_trade({
+                  "symbol": symbol,
+                  "strategy": trade.get("strategy", "Unknown"),
+                  "side": side,
+                  "entry_price": entry_price,
+                  "exit_price": exit_price,
+                  "size": size,
+                  "pnl": pnl_usdc,
+                  "pnl_usdc": pnl_usdc,
+                  "exit_reason": "External/Sync Close",
+                  "exit_time": pd.Timestamp.now().isoformat(),
+                  "entry_indicators": trade.get("entry_indicators", {})
+            })
+            
+            discord_service.send_alert(
+                f"🏁 TRADE CLOSED (Exchange): {symbol}",
+                f"Reason: External Close (SL/TP?)\nPnL: ${pnl_usdc:.2f}",
+                color="00FF00" if pnl_usdc >= 0 else "FF0000"
+            )
+
+        except Exception as e:
+            # ALWAYS log errors (was silent before, causing ghost trades)
+            self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
+        
+        finally:
+            # CLEAN UP MEMORY NO MATTER WHAT (Avoid Ghost Trades)
+            with self.trade_lock:
+                if symbol in self.active_trades:
+                    self.active_trades.pop(symbol, None)
+                    StateManager.save_state(self)
+                    self.add_log(f"✅ Ghost trade {symbol} cleaned from state")
+
+    def force_sync(self):
+        """Manually trigger synchronization with Exchange."""
+        self.add_log("🔄 FORCE SYNC: Initiated by User")
+        result = self._sync_state(silent=False)
+        return {"status": "success", "message": "Resync initiated"}
+
+
+    def _enforce_leverage(self):
+        """Enforce leverage based on Gamification and Settings"""
+        try:
+            # Check if Gamification is explicitly disabled in settings
+            gamification_active = self.scanner_settings.get("gamification_enabled", True)
+            
+            # Fallback: Use global_settings default_leverage when gamification disabled
+            default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
+            default_margin_type = self.global_settings.get("risk_defaults", {}).get("default_margin_type", "Cross")
+            
+            # Read trading params from scanner_settings (centralized source) with fallbacks
+            requested_leverage = self.scanner_settings.get("leverage")
+            
+            # If leverage not explicitly set or set to 1 (likely default), derive from risk profile
+            if requested_leverage is None or int(requested_leverage) <= 1:
+                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
+                if risk_profile == "Capital Preservation First":
+                    requested_leverage = 3
+                elif risk_profile == "Balanced Growth":
+                    requested_leverage = 5
+                elif risk_profile == "High Volatility Hunter":
+                    requested_leverage = 10
+                else:
+                    requested_leverage = default_leverage
+            else:
+                requested_leverage = int(requested_leverage)
+
+            margin_type = self.scanner_settings.get("margin_type", default_margin_type)
+            is_cross = (margin_type == "Cross")
+            
+            target_leverage = requested_leverage
+            
+            if gamification_active:
+                try:
+                    balance_data = hyperliquid_service.get_account_balance()
+                    current_equity = balance_data.get("total_equity", 0.0) if balance_data.get("status") == "success" else 0.0
+                    gam = AssetGamification(current_equity)
+                    max_leverage = gam.get_max_leverage()
+                    
+                    target_leverage = min(requested_leverage, max_leverage)
+                    
+                    if requested_leverage > max_leverage:
+                        self.add_log(f"🎮 GAMIFICATION: Leverage capped {requested_leverage}x → {target_leverage}x (Level: {gam.level.value})")
+                except Exception as gam_err:
+                    self.add_log(f"⚠️ Gamification check failed: {gam_err}")
+            else:
+                # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
+                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
+                
+                if risk_profile == "Capital Preservation First":
+                    target_leverage = 3
+                elif risk_profile == "Balanced Growth":
+                    target_leverage = 5
+                elif risk_profile == "High Volatility Hunter":
+                    target_leverage = 10
+                else:
+                    target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+                
+                self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
+            
+            if 'current_equity' in locals():
+                self.account_value = float(current_equity)
+
+            self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
+            hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
+            self._leverage_synced = True
+            
+        except Exception as e:
+            self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
+
+    def trading_loop(self):
+        """Main trading loop"""
+        self.add_log("🚀 Trading loop started")
+        self.add_log(f"⚙️ Loop initialized. is_running={self.is_running}")
+        
+        # STARTUP SYNC
+        if not self.startup_sync_done:
+            self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
+            if self.trading_enabled:
+                 self._enforce_leverage()
+            
+            # Initial Synchro
+            self._sync_state(silent=False)
+            self.startup_sync_done = True
+            self.add_log("✅ STARTUP SYNC: Complete")
+            self.add_log("🕵️ Starting Position Reconciler...")
+            
+        while self.is_running:
+            try:
+                # 1. Reconciliation & State Sync (The Heartbeat)
+                # Run reconciler (fixes SL/TP)
+                if hasattr(self, 'position_reconciler'):
+                    self.position_reconciler.run_tick()
+                
+                # Check Exchange State (Adopt/Close)
+                # Update heartbeat (thread health monitoring)
+                self._loop_heartbeat = time.time()
+                
+                now = time.time()
+                if now - self._last_state_sync_time >= self._state_sync_interval:
+                    self._sync_state(silent=True)
+                    self._last_state_sync_time = now
+            except Exception as tick_err:
+                self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
+
+            # Dynamic Leverage & Gamification Enforcement
+            if self.trading_enabled and not self._leverage_synced:
+                self._enforce_leverage()
+            elif not self.trading_enabled:
+                self._leverage_synced = False
+
+            action = None
+            sl = None
+            tp = None
+            
+            # Continuous Adoption
+            if not self.active_trade:
+                try:
+                    real_positions_manual = hyperliquid_service.get_positions()
+                    if real_positions_manual:
+                        manual_pos = next((p for p in real_positions_manual if p["symbol"] == self.active_symbol and float(p['size']) != 0), None)
+                        if manual_pos:
+                            self.add_log(f"🕵️ MANUAL TRADE DETECTED: Adopting {self.active_symbol} position...")
+                            self._adopt_existing_position(manual_pos)
+                            continue
+                except Exception: pass
+            
+            try:
+                acc_data = hyperliquid_service.get_account_balance()
+                if acc_data.get("status") == "success":
+                   self.account_value = float(acc_data.get("total_equity", 0))
+            except: pass
+            
+            # --- PERIODIC MARKET ANALYSIS (For Copilot when flat) ---
+            try:
+                # Update Daily PnL Snapshot every hour
+                if not hasattr(self, "_last_pnl_sync") or (time.time() - self._last_pnl_sync) > 3600:
+                    self.add_log("🔄 Triggering Daily PnL Sync Task...")
+                    def sync_pnl():
+                        try:
+                            # 1. Dynamic PnL Log
+                            hyperliquid_service.get_daily_pnl()
+                            
+                            # 2. Daily Snapshot
+                            acc = hyperliquid_service.get_account_balance()
+                            equity = float(acc.get("total_equity", 0)) if acc.get("status") == "success" else 0
+                            
+                            if equity > 0:
+                                today_str = pd.Timestamp.now(tz='UTC').strftime("%Y-%m-%d")
+                                snapshots = storage_service.load_pnl_snapshot()
+                                
+                                if today_str not in snapshots:
+                                    snapshots[today_str] = {
+                                        "start_value": equity,
+                                        "timestamp": pd.Timestamp.now(tz='UTC').isoformat()
+                                    }
+                                    storage_service.save_pnl_snapshot(snapshots)
+                                    self.add_log(f"📸 Daily Snapshot Saved: ${equity:.2f}")
+
+                        except Exception as e:
+                            self.add_log(f"⚠️ PnL Sync Error: {e}")
+                    
+                    threading.Thread(target=sync_pnl, daemon=True).start()
+                    self._last_pnl_sync = time.time()
+
+                # Run market analysis every 15 minutes or if cache is empty
+                last_market_time = self.ai_cache.get("last_market_analysis_time")
+                if not last_market_time or (pd.Timestamp.now() - last_market_time).total_seconds() > 900:
+                    self.add_log("🧠 Triggering Background Market Analysis Refresh...")
+                    def refresh_market():
+                        try:
+                            # Create a new loop for this one-off background task in the thread
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(self._update_market_analysis())
+                            loop.close()
+                        except Exception as e:
+                            self.add_log(f"⚠️ refresh_market Error: {e}")
+                    
+                    threading.Thread(target=refresh_market, daemon=True).start()
+                    # Prevent multiple starts before first completion (temporary debounce)
+                    self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now() 
+            except: pass
+            # --------------------------------------------------------
+            
+            # --------------------------------------------------------
+            # 3. PERIODIC COPILOT REPORTS FOR ALL POSITIONS
+            # Send Discord updates for ALL active positions (including manual ones)
+            # This runs independently of active_trade management
+            # --------------------------------------------------------
+            try:
+                self._handle_periodic_all_positions_report()
+            except Exception as e:
+                self.add_log(f"⚠️ Periodic Multi-Position Report Error: {e}")
+            
+            try:
+                self._manage_all_trades()
+                
+                # If we are flat, analyzed current symbol. 
+                # If we have trades, cycle through them?
+                # For now, let's keep it simple: manage all trades every loop tick.
+                
+                # Skip NEW ENTRY analysis only if we are at max positions
+                # We still analyze for new opportunities even with open trades
+                if len(self.active_trades) >= self.max_positions:
+                     self.add_log(f"⏸️ Max positions reached ({len(self.active_trades)}/{self.max_positions}). Skipping new entries.")
+                     time.sleep(10)
+                     continue
+                if self.active_trades.get(self.active_symbol):
+                     self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
+
+                self.add_log("🔄 Entering strategy analysis...")
+                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)  # FIX: 200→300 for SMA_200 validity
+                df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
+                
+                if df_15m.empty or df_1m.empty:
+                    self.add_log("⚠️ No data received")
+                    time.sleep(10)
+                    continue
+
+                numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+                try:
+                    for df_target in [df_15m, df_1m]:
+                        for col in numeric_cols:
+                            if col in df_target.columns:
+                                df_target[col] = df_target[col].astype(float)
+                except Exception as e:
+                    self.add_log(f"⚠️ Error casting data: {e}")
+                    continue
+                
+                self.latest_data = df_15m
+                
+                # --- OPEN INTEREST INTEGRATION (Historical Accumulation) ---
+                try:
+                    current_oi = hyperliquid_service.get_open_interest(self.active_symbol)
+                    # FIX: Use UTC timestamp to match candle data
+                    current_time = pd.Timestamp.now(tz='UTC')
+                    
+                    # Store in history
+                    self.oi_history.append({"time": current_time, "oi": current_oi})
+                    
+                    # Create OI DataFrame from history
+                    oi_df = pd.DataFrame(list(self.oi_history))
+                    oi_df.set_index('time', inplace=True)
+                    
+                    # Resample to align with 15m candles
+                    if not oi_df.empty:
+                         # Normalize timezones for reindex stability
+                         if df_15m.index.tz is None:
+                             # If candles are naive, make OI naive (strip UTC)
+                             oi_df.index = oi_df.index.tz_convert(None)
+                         else:
+                             # If candles are aware, ensure OI is aware (already is UTC)
+                             # Convert to target tz just in case
+                             oi_df.index = oi_df.index.tz_convert(df_15m.index.tz)
+
+                         # Forward fill to map our sparse observations to the candles
+                         oi_aligned = oi_df.reindex(df_15m.index, method='ffill')
+                         
+                         df_15m['open_interest'] = oi_aligned['oi']
+                         
+                         # Fill initial NaNs with current if needed (fast start)
+                         if df_15m['open_interest'].isnull().all():
+                             df_15m['open_interest'] = current_oi
+                         else:
+                             # FIX: Pandas 3.0+ deprecation of fillna(method=...)
+                             df_15m['open_interest'] = df_15m['open_interest'].ffill()
+                             df_15m['open_interest'] = df_15m['open_interest'].fillna(current_oi) # Fallback
+                         
+                         # --- CALCULATE OI INDICATORS (User Requested) ---
+                         # 1. % Variation OI
+                         df_15m['OI_Change_Pct'] = df_15m['open_interest'].pct_change() * 100
+                         
+                         # 2. Moyenne Mobile OI (MA20)
+                         df_15m['OI_MA20'] = df_15m['open_interest'].rolling(window=20).mean()
+                         
+                         # 3. Ratio OI actuel / MA
+                         df_15m['OI_vs_MA'] = df_15m['open_interest'] / df_15m['OI_MA20']
+                         
+                         # 4. Divergence Prix vs OI
+                         # (Price Chg Prev Candle - OI Chg Current Candle)? 
+                         # User formula: (df['close'].pct_change() * 100).shift(1) - df['OI_Change_Pct']
+                         # This implies: If price went UP yesterday but OI drops today -> Divergence?
+                         # Let's stick to the requested formula strictly.
+                         df_15m['OI_Divergence'] = (df_15m['close'].pct_change() * 100).shift(1) - df_15m['OI_Change_Pct']
+                         
+                except Exception as e:
+                    self.add_log(f"⚠️ OI Processing Error: {e}")
+                
+                result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m, "symbol": self.active_symbol})
+                self.active_strategies = result.get('strategies', [])
+                self.latest_strategy_result = result
+                
+                regime = result.get('regime', 'UNKNOWN')
+                adx = result.get('adx', 0)
+                rsi = result.get('rsi', 0)
+                ema_20 = result.get('ema_20', 0)
+                ema_50 = result.get('ema_50', 0)
+                volume_ratio = result.get('volume_ratio', 100)
+                
+                # Enhanced regime log with calculations context
+                ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
+                adx_note = ">25=TREND" if adx < 25 else "TRENDING"
+                current_price = float(df_15m['close'].iloc[-1])
+                
+                analysis_metrics = {
+                    "regime": regime,
+                    "adx": round(adx, 1),
+                    "rsi": round(rsi, 1),
+                    "volume_ratio": round(volume_ratio, 0),
+                    "current_price": current_price
+                }
+                self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%", metadata=analysis_metrics)
+                
+                # Capture full technical context for audit (Approved or Rejected)
+                technical_context = {
+                    "regime": result.get("regime"),
+                    "adx": round(result.get("adx", 0), 2),
+                    "adx_slope": round(result.get("adx_slope", 0), 2),
+                    "rsi": round(result.get("rsi", 0), 2),
+                    "ema_9": round(result.get("ema_9", 0), 4),
+                    "ema_20": round(result.get("ema_20", 0), 4),
+                    "ema_50": round(result.get("ema_50", 0), 4),
+                    "bb_upper": round(result.get("bb_upper", 0), 4),
+                    "bb_lower": round(result.get("bb_lower", 0), 4),
+                    "bb_width": round(result.get("bb_width", 0), 2),
+                    "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                    "current_price": result.get("current_price") or current_price
+                }
+                
+                signals = result.get("signals", [])
+                if signals:
+                    sig = signals[0]
+                    if sig.get("signal") and sig.get("price"):
+                        
+                        # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
+                        cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
                         if cooldown_minutes > 0 and self._last_trade_info.get("time"):
                             last_symbol = self._last_trade_info.get("symbol")
                             last_direction = self._last_trade_info.get("direction")
