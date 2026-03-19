@@ -1683,7 +1683,7 @@ class BotContext:
                      self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
 
                 self.add_log("🔄 Entering strategy analysis...")
-                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
+                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)  # FIX: 200→300 for SMA_200 validity
                 df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
                 
                 if df_15m.empty or df_1m.empty:

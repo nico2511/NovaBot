@@ -53,7 +53,8 @@ class StrategySupertrend(BaseStrategy):
 
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
-        df['SMA_200'] = ta.sma(df['close'], length=self.ema_filter)
+        ema_col = f"SMA_{self.ema_filter}"
+        df[ema_col] = ta.sma(df['close'], length=self.ema_filter)
         df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'])['ADX']
         st_data = ta.supertrend(df['high'], df['low'], df['close'], period=self.st_period, multiplier=self.st_multiplier)
         df['Supertrend'] = st_data['Supertrend']
@@ -67,7 +68,9 @@ class StrategySupertrend(BaseStrategy):
             df: 15m context
             extra_data: {"1m": df_1m} trigger
         """
-        if df.empty or len(df) < (self.ema_filter + 10):
+        # FIX: Always need 210+ candles for SMA_200 to have valid non-NaN values
+        min_candles = max(self.ema_filter + 10, 210)
+        if df.empty or len(df) < min_candles:
             return None
             
         if not extra_data or "1m" not in extra_data:
@@ -80,10 +83,12 @@ class StrategySupertrend(BaseStrategy):
         # 1. Add 15m indicators
         self.add_indicators(df)
         
+        
         # Latest 15m values (completed candle)
         last_15m = df.iloc[-2]
         close_15m = last_15m['close']
-        sma_200_15m = last_15m['SMA_200']
+        ema_col = f"SMA_{self.ema_filter}"
+        sma_15m = last_15m[ema_col]
         st_dir_15m = last_15m['ST_Direction']
         adx_15m = last_15m['ADX_14']
         
@@ -92,10 +97,10 @@ class StrategySupertrend(BaseStrategy):
             self.looking_for_entry = False
             return None
             
-        if close_15m > sma_200_15m and st_dir_15m == 1:
+        if close_15m > sma_15m and st_dir_15m == 1:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
-        elif close_15m < sma_200_15m and st_dir_15m == -1:
+        elif close_15m < sma_15m and st_dir_15m == -1:
             self.entry_direction = "SHORT"
             self.looking_for_entry = True
         else:
@@ -165,15 +170,16 @@ class StrategySupertrend(BaseStrategy):
             stages = []
             score = 0
             
-            # --- Stage 1: Trend Filter (SMA 200) ---
-            is_bullish = last_15m['close'] > last_15m['SMA_200']
-            is_bearish = last_15m['close'] < last_15m['SMA_200']
+            # --- Stage 1: Trend Filter (SMA) ---
+            ema_col = f"SMA_{self.ema_filter}"
+            is_bullish = last_15m['close'] > last_15m[ema_col]
+            is_bearish = last_15m['close'] < last_15m[ema_col]
             st_align = (is_bullish and last_15m['ST_Direction'] == 1) or \
                        (is_bearish and last_15m['ST_Direction'] == -1)
             
             s1_status = "PASS" if st_align else "WAIT"
             bias_text = "BULL" if is_bullish else "BEAR"
-            s1_details = f"15m {bias_text} Bias (Price vs SMA200)" if st_align else "Waiting for Trend Alignment"
+            s1_details = f"15m {bias_text} Bias (Price vs {ema_col})" if st_align else "Waiting for Trend Alignment"
             
             stages.append({
                 "name": "1. Trend Regime",

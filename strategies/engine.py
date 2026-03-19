@@ -141,6 +141,11 @@ class StrategyEngine:
             if not params.get("enabled"):
                 continue
             
+            # Skip strategies not registered in the engine (dead config entries)
+            if name not in self.strategies:
+                print(f"[BOT] ⚠️ Config entry '{name}' has no implementation, skipping")
+                continue
+                
             strat_type = params.get("type")
             
             # FIX: Logic for Strategy Selection
@@ -199,7 +204,6 @@ class StrategyEngine:
                     signal_data["timestamp"] = df.index[-1]
                     if is_manual:
                         signal_data["manual_approval"] = True
-                    signals.append(signal_data)
                 else:
                     # Legacy string return
                     signal_data = {
@@ -228,54 +232,42 @@ class StrategyEngine:
                 direction_allowed = False
                 rejection_reason = "Longs disabled"
             elif signal_type == "SELL" and not allow_shorts:
-                # Exception: Panic close should override 'allow_shorts' if it's just closing a long?
-                # But 'SELL' here usually means 'Open Short' or 'Close Long'.
-                # If it's a CLOSE signal specifically, we should allow it.
-                # But our signals are usually BUY/SELL.
                 if signal_data.get("metadata", {}).get("panic_close"):
-                    direction_allowed = True # ALWAYS allow panic exit
+                    direction_allowed = True  # ALWAYS allow panic exit
                 else:
                     direction_allowed = False
                     rejection_reason = "Shorts disabled"
-                
-                # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
-                # Calculate BB only if we have a signal to verify
-                if direction_allowed:
-                    try:
-                        # 20 SMA for BB
-                        sma_20 = df['close'].rolling(window=20).mean().iloc[-1]
-                        std_20 = df['close'].rolling(window=20).std().iloc[-1]
-                        bb_upper = sma_20 + (std_20 * 2)
-                        bb_lower = sma_20 - (std_20 * 2)
-                        curr_close = df['close'].iloc[-1]
-                        
-                        # Filter Logic
-                        if signal_type == "SELL":
-                            # Reject if close <= Lower Band * 1.01 (1% from support)
-                            # Prevents shorting the bottom
-                            # EXCEPTION: Panic Close ignores this
-                            if not signal_data.get("metadata", {}).get("panic_close"):
-                                if curr_close <= (bb_lower * 1.01):
-                                    direction_allowed = False
-                                    rejection_reason = "Price too close to support/lower band (Oversold)"
-                                
-                        elif signal_type == "BUY":
-                            # Reject if close >= Upper Band * 0.99 (1% from resistance)
-                            # Prevents longing the top
-                            if curr_close >= (bb_upper * 0.99):
+            
+            # --- ANTI-CHASING FILTER (Bollinger Bands) ---
+            # FIX: Applies to ALL signal types (BUY and SELL)
+            if direction_allowed:
+                try:
+                    sma_20 = df['close'].rolling(window=20).mean().iloc[-1]
+                    std_20 = df['close'].rolling(window=20).std().iloc[-1]
+                    bb_upper = sma_20 + (std_20 * 2)
+                    bb_lower = sma_20 - (std_20 * 2)
+                    curr_close = df['close'].iloc[-1]
+                    
+                    if signal_type == "SELL":
+                        if not signal_data.get("metadata", {}).get("panic_close"):
+                            if curr_close <= (bb_lower * 1.01):
                                 direction_allowed = False
-                                rejection_reason = "Price too close to resistance/upper band (Overbought)"
-                    except Exception as e:
-                        print(f"⚠️ BB Filter Error: {e}")
+                                rejection_reason = "Price too close to support/lower band (Oversold)"
+                                
+                    elif signal_type == "BUY":
+                        if curr_close >= (bb_upper * 0.99):
+                            direction_allowed = False
+                            rejection_reason = "Price too close to resistance/upper band (Overbought)"
+                except Exception as e:
+                    print(f"⚠️ BB Filter Error: {e}")
 
-                if direction_allowed:
-                    if is_manual:
-                        signal_data["manual_approval"] = True
-                    signals.append(signal_data)
-                elif rejection_reason:
-                     # Optional: Log rejection
-                     pass
-                     # print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
+            # FIX: Signal is only appended AFTER passing all filters
+            if direction_allowed:
+                if is_manual:
+                    signal_data["manual_approval"] = True
+                signals.append(signal_data)
+            elif rejection_reason:
+                print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
         
         # 5. Calculate Progress, Conditions AND Threshold Comparisons + Signal Scoring (STORY-004)
         progress = {}

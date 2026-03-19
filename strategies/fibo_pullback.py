@@ -72,7 +72,8 @@ class StrategyFiboPullback(BaseStrategy):
     
     def add_indicators(self, df):
         """Add required indicators to dataframe"""
-        df['EMA_200'] = ta.ema(df['close'], length=self.ema_period)
+        ema_col = f"EMA_{self.ema_period}"
+        df[ema_col] = ta.ema(df['close'], length=self.ema_period)
         adx_result = ta.adx(df['high'], df['low'], df['close'], length=14)
         df['ADX_14'] = adx_result['ADX'] if isinstance(adx_result, pd.DataFrame) else adx_result
         
@@ -102,7 +103,8 @@ class StrategyFiboPullback(BaseStrategy):
         current_price = df['close'].iloc[-2]
         current_low = df['low'].iloc[-2]
         current_high = df['high'].iloc[-2]
-        ema_200 = df['EMA_200'].iloc[-2]
+        ema_col = f"EMA_{self.ema_period}"
+        ema_val = df[ema_col].iloc[-2]
         adx = df['ADX_14'].iloc[-2]
         
         # Check ADX for both directions
@@ -120,8 +122,8 @@ class StrategyFiboPullback(BaseStrategy):
         # ============================================
         # DECISION: LONG OR SHORT?
         # ============================================
-        is_bullish = current_price > ema_200
-        is_bearish = current_price < ema_200
+        is_bullish = current_price > ema_val
+        is_bearish = current_price < ema_val
 
         if not is_bullish and not is_bearish: 
             return None
@@ -283,11 +285,12 @@ class StrategyFiboPullback(BaseStrategy):
             self.add_indicators(df)
             # Use -1 for monitoring current state
             current_price = df['close'].iloc[-1]
-            ema_200 = df['EMA_200'].iloc[-1]
+            ema_col = f"EMA_{self.ema_period}"
+            ema_val = df[ema_col].iloc[-1]
             adx = df['ADX_14'].iloc[-1]
             
-            is_bullish = current_price > ema_200
-            is_bearish = current_price < ema_200
+            is_bullish = current_price > ema_val
+            is_bearish = current_price < ema_val
             adx_ok = adx >= self.adx_threshold
             
             s1_status = "WAIT"

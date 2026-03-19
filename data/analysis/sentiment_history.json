@@ -1,33 +1,5 @@
 [
   {
-    "timestamp": 1769440969.8234372,
-    "symbol": "BTC",
-    "sentiment": "BEARISH",
-    "score": -55,
-    "details": "RSI 64.6 | MACD Bear"
-  },
-  {
-    "timestamp": 1769444836.3530598,
-    "symbol": "SOL",
-    "sentiment": "BEARISH",
-    "score": -55,
-    "details": "RSI 62.0 | MACD Bear"
-  },
-  {
-    "timestamp": 1769448308.0106986,
-    "symbol": "SOL",
-    "sentiment": "NEUTRAL",
-    "score": -25,
-    "details": "RSI 52.3 | MACD Bull"
-  },
-  {
-    "timestamp": 1769452505.5780725,
-    "symbol": "BTC",
-    "sentiment": "NEUTRAL",
-    "score": -25,
-    "details": "RSI 55.9 | MACD Bull"
-  },
-  {
     "timestamp": 1769453757.81116,
     "symbol": "HYPE",
     "sentiment": "BULLISH",
@@ -698,5 +670,33 @@
     "sentiment": "NEUTRAL",
     "score": 17,
     "details": "RSI 54.9 | MACD Bear"
+  },
+  {
+    "timestamp": 1773569504.6946445,
+    "symbol": "BTC",
+    "sentiment": "BULLISH",
+    "score": 38,
+    "details": "RSI 64.1 | MACD Bull"
+  },
+  {
+    "timestamp": 1773771339.4436643,
+    "symbol": "BTC",
+    "sentiment": "NEUTRAL",
+    "score": 17,
+    "details": "RSI 56.8 | MACD Bear"
+  },
+  {
+    "timestamp": 1773815610.915293,
+    "symbol": "BTC",
+    "sentiment": "NEUTRAL",
+    "score": 17,
+    "details": "RSI 50.6 | MACD Bear"
+  },
+  {
+    "timestamp": 1773903433.064049,
+    "symbol": "BTC",
+    "sentiment": "BEARISH",
+    "score": -35,
+    "details": "RSI 28.1 | MACD Bear"
   }
 ]

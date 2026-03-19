@@ -65,7 +65,7 @@ class ElasticReversionStrategy(BaseStrategy):
         params = self.config.get("params", {})
         ema_len = params.get("ema_period", 20)
         rsi_len = params.get("rsi_period", 14)
-        ext_pct = params.get("extension_pct", 0.032)
+        ext_pct = params.get("extension_pct", 0.025)  # FIX: Relaxed from 0.032 for more signals
         
         rsi_col = f'RSI_{rsi_len}'
         ema_col = f'EMA_{ema_len}'
@@ -104,12 +104,12 @@ class ElasticReversionStrategy(BaseStrategy):
             # 1. SETUP LOGIC (Checked on Previous Candle P)
             # ==========================================
             
-            # Short Setup (Overbought)
-            is_setup_short = (p_rsi > params.get("rsi_overbought", 75)) and \
+            # Short Setup (Overbought) - FIX: Relaxed 75→72
+            is_setup_short = (p_rsi > params.get("rsi_overbought", 72)) and \
                              (p_close > p_ema * (1 + ext_pct))
             
-            # Long Setup (Oversold)
-            is_setup_long = (p_rsi < params.get("rsi_oversold", 25)) and \
+            # Long Setup (Oversold) - FIX: Relaxed 25→28
+            is_setup_long = (p_rsi < params.get("rsi_oversold", 28)) and \
                             (p_close < p_ema * (1 - ext_pct))
 
             # Logging Setups (Debug / Info)

@@ -90,7 +90,7 @@ class ScalpEmaRsi(BaseStrategy):
             # Additional Filters (Optimized 2026)
             if close > current_trend and trend_slope > min_slope:  # Above 200 EMA AND Slope Positive
                 # Asymmetric RSI Bull: 50 - 75
-                if 50 < current_rsi < params.get("rsi_overbought", 75):  
+                if 50 < current_rsi < params.get("rsi_overbought", 72):  # FIX: Relaxed 75→72
                     # Volume Filter: Use config multiplier
                     if 'volume' in df.columns:
                         current_vol = df['volume'].iloc[-2]

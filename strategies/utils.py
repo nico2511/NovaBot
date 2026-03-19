@@ -26,28 +26,22 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame, regime: str
     # ==========================================
     # Bollinger Bounce is a RANGE strategy. If ADX > 30, the range has broken
     # and we're in a trend. Holding a range trade in a trend = disaster.
+    # NOTE: bollinger_bounce strategy not implemented - keeping for future reference
     
-    if strategy_name == "bollinger_bounce":
-        if 'ADX_14' in current_df.columns:
-            current_adx = current_df['ADX_14'].iloc[-1]
-            
-            # ADX > 30 = Strong trend (kill switch threshold)
-            if current_adx > 30:
-                return (
-                    True, 
-                    f"ADX breakout detected ({current_adx:.1f} > 30): Range strategy in trending market"
-                )
+    # if strategy_name == "bollinger_bounce":
+    #     if 'ADX_14' in current_df.columns:
+    #         current_adx = current_df['ADX_14'].iloc[-1]
+    #         if current_adx > 30:
+    #             return (True, f"ADX breakout detected ({current_adx:.1f} > 30): Range strategy in trending market")
     
     # KILL SWITCH 2: Mean Reversion in Strong Trend
     # ==============================================
-    # Any mean reversion strategy (elastic_reversion, smart_mean_reversion, institutional_scalp)
-    # should exit if ADX spikes above 30 (strong trend forming)
+    # Any mean reversion strategy should exit if ADX spikes above 30 (strong trend forming)
+    # NOTE: smart_mean_reversion, rsi_ping_pong not implemented
     
     mean_reversion_strategies = [
         "elastic_reversion",
-        "smart_mean_reversion", 
         "institutional_scalp",
-        "rsi_ping_pong"
     ]
     
     if strategy_name in mean_reversion_strategies:
@@ -58,22 +52,20 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame, regime: str
             # But the strategy itself usually handles that.
             # Here we just check if we are fighting a strong trend.
             
-            if current_adx > 30:
+            if current_adx > 35:
                 return (
                     True,
-                    f"Strong trend detected ({current_adx:.1f} > 30): Mean reversion strategy at risk"
+                    f"Strong trend detected ({current_adx:.1f} > 35): Mean reversion strategy at risk"
                 )
     
     # KILL SWITCH 3: Trend Following in Range Collapse
     # =================================================
     # If a trend strategy is in a position and ADX drops below 20,
     # the trend has died and we should exit before whipsaw.
-    # EXCEPTION: If regime is "TREND_BEAR_STRONG", it means engine detected a crash despite low ADX (lag).
-    # In that case, DO NOT kill trend strategies.
+    # NOTE: smart_trend not implemented
     
     trend_strategies = [
         "scalp_ema_rsi",
-        "smart_trend"
     ]
     
     if strategy_name in trend_strategies:

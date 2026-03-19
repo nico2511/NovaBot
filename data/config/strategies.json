@@ -34,7 +34,7 @@
             "bb_period": 20,
             "bb_std": 2.2,
             "rsi_period": 14,
-            "volume_multiplier": 2.0,
+            "volume_multiplier": 1.5,
             "adx_threshold": 25,
             "min_bb_width_pct": 0.5,
             "sl_atr_mult": 2.0,
@@ -59,9 +59,9 @@
         "params": {
             "ema_period": 20,
             "rsi_period": 14,
-            "extension_pct": 0.04,
-            "rsi_overbought": 76,
-            "rsi_oversold": 24,
+            "extension_pct": 0.025,
+            "rsi_overbought": 72,
+            "rsi_oversold": 28,
             "sl_lookback": 5,
             "sl_buffer_pct": 0.005,
             "min_rr": 1.5
@@ -126,7 +126,7 @@
         "params": {
             "period": 10,
             "multiplier": 3.0,
-            "ema_filter_period": 20,
+            "ema_filter_period": 200,
             "adx_threshold": 25,
             "volume_multiplier": 1.2,
             "min_rr": 2.0,

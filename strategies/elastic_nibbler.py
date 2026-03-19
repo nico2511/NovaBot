@@ -74,10 +74,11 @@ Tu es un scalper de MEAN REVERSION agressif spécialisé dans les excès de marc
                 if current_price < 5000:  # Likely ETH or other, not BTC
                     return None
                     
-        # 0B. Time Filter (Grok Recommendation) - Avoid Asia Low Liq (02:00-06:00 UTC)
+        # 0B. Time Filter (Grok Recommendation) - Avoid Asia Lowest Liq (03:00-05:00 UTC)
+        # FIX: Reduced from 4h (02-06) to 2h (03-05) for better coverage
         from datetime import datetime
         current_hour = datetime.utcnow().hour
-        if 2 <= current_hour < 6:
+        if 3 <= current_hour < 5:
             return None
 
         # 1. Indicators
