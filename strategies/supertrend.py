@@ -170,23 +170,31 @@ class StrategySupertrend(BaseStrategy):
             stages = []
             score = 0
             
-            # --- Stage 1: Trend Filter (SMA) ---
+            # --- Stage 1: Trend Alignment (SMA/ST) ---
             ema_col = f"SMA_{self.ema_filter}"
             is_bullish = last_15m['close'] > last_15m[ema_col]
             is_bearish = last_15m['close'] < last_15m[ema_col]
-            st_align = (is_bullish and last_15m['ST_Direction'] == 1) or \
-                       (is_bearish and last_15m['ST_Direction'] == -1)
+            st_dir = last_15m['ST_Direction']
+            
+            st_align = (is_bullish and st_dir == 1) or \
+                       (is_bearish and st_dir == -1)
             
             s1_status = "PASS" if st_align else "WAIT"
             bias_text = "BULL" if is_bullish else "BEAR"
-            s1_details = f"15m {bias_text} Bias (Price vs {ema_col})" if st_align else "Waiting for Trend Alignment"
+            
+            if st_align:
+                s1_details = f"15m {bias_text} Aligned (Price & ST)"
+            else:
+                target_dir = "BULL (Green)" if is_bullish else "BEAR (Red)"
+                s1_details = f"Waiting for Supertrend to flip {target_dir}"
             
             stages.append({
-                "name": "1. Trend Regime",
+                "name": "1. Trend Alignment",
                 "status": s1_status,
                 "details": s1_details,
                 "metrics": {
-                    "bias": {"value": bias_text, "align": "YES" if st_align else "NO"}
+                    "bias": {"value": bias_text, "align": "YES" if st_align else "NO"},
+                    "st_dir": {"value": "BULL" if st_dir == 1 else "BEAR"}
                 }
             })
             if st_align: score += 40
