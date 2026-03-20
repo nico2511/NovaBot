@@ -185,37 +185,42 @@ class StrategyEngine:
             except Exception as e:
                 print(f"⚠️ Panic check error: {e}")
             
-            # Normal Signal Generation
-            sig = strat.generate_signal(df, extra_data=extra_data)
-            
-            if sig:
-                print(f"[BOT] ✅ Signal généré par {strat.name}: {sig.get('signal')}")
-                # Check execution type
-                params = strat.config.get("params", {})
-                is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
+            try:
+                # Normal Signal Generation
+                sig = strat.generate_signal(df, extra_data=extra_data)
                 
-                symbol = extra_data.get("symbol") if extra_data else None
-                if isinstance(sig, dict):
-                    # Strategy returned rich object
-                    signal_data = sig
-                    signal_data["strategy"] = strat.name
-                    signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
-                    signal_data["price"] = sig.get("price", df['close'].iloc[-1])
-                    signal_data["timestamp"] = df.index[-1]
-                    if is_manual:
-                        signal_data["manual_approval"] = True
+                if sig:
+                    print(f"[BOT] ✅ Signal généré par {strat.name}: {sig.get('signal')}")
+                    # Check execution type
+                    params = strat.config.get("params", {})
+                    is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
+                    
+                    symbol = extra_data.get("symbol") if extra_data else None
+                    if isinstance(sig, dict):
+                        # Strategy returned rich object
+                        signal_data = sig
+                        signal_data["strategy"] = strat.name
+                        signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
+                        signal_data["price"] = sig.get("price", df['close'].iloc[-1])
+                        signal_data["timestamp"] = df.index[-1]
+                        if is_manual:
+                            signal_data["manual_approval"] = True
+                    else:
+                        # Legacy string return
+                        signal_data = {
+                            "strategy": strat.name,
+                            "signal": sig, 
+                            "symbol": symbol or "UNKNOWN",
+                            "price": df['close'].iloc[-1],
+                            "timestamp": df.index[-1]
+                        }
                 else:
-                    # Legacy string return
-                    signal_data = {
-                        "strategy": strat.name,
-                        "signal": sig, 
-                        "symbol": symbol or "UNKNOWN",
-                        "price": df['close'].iloc[-1],
-                        "timestamp": df.index[-1]
-                    }
-            else:
-                print(f"[BOT] ❌ {strat.name} n'a pas généré de signal")
-                continue  # Skip to next strategy
+                    print(f"[BOT] ❌ {strat.name} n'a pas généré de signal")
+                    continue  # Skip to next strategy
+            except Exception as e:
+                print(f"[BOT] ⚠️ Strategy CRASH ({strat.name}): {e}")
+                # We do NOT crash the engine, just skip this strategy
+                continue
                 
             # --- GLOBAL DIRECTION FILTER ---
             # This ensures ALL strategies respect allow_longs/allow_shorts from config

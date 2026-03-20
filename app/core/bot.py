@@ -1585,6 +1585,7 @@ class BotContext:
             self.add_log("🕵️ Starting Position Reconciler...")
             
         while self.is_running:
+            self._loop_heartbeat = time.time()  # Update heartbeat FIRST
             try:
                 # 1. Reconciliation & State Sync (The Heartbeat)
                 # Run reconciler (fixes SL/TP)
@@ -1592,9 +1593,6 @@ class BotContext:
                     self.position_reconciler.run_tick()
                 
                 # Check Exchange State (Adopt/Close)
-                # Update heartbeat (thread health monitoring)
-                self._loop_heartbeat = time.time()
-                
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
@@ -1603,10 +1601,13 @@ class BotContext:
                 self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
 
             # Dynamic Leverage & Gamification Enforcement
-            if self.trading_enabled and not self._leverage_synced:
-                self._enforce_leverage()
-            elif not self.trading_enabled:
-                self._leverage_synced = False
+            try:
+                if self.trading_enabled and not self._leverage_synced:
+                    self._enforce_leverage()
+                elif not self.trading_enabled:
+                    self._leverage_synced = False
+            except Exception as e:
+                self.add_log(f"⚠️ Leverage Enforcement Error: {e}")
 
             action = None
             sl = None
