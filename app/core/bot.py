@@ -875,8 +875,9 @@ class BotContext:
                      size = 0
                      side = "BUY"
                      
+                     trade_being_closed = self.active_trades.get(symbol)
+                     
                      if position_data:
-                         # Use actual position data
                          entry_price = position_data.get("entry_price", 0)
                          size = position_data.get("size", 0)
                          side = position_data.get("side", "BUY")
@@ -885,45 +886,42 @@ class BotContext:
                              pnl_usdc = (exit_price - entry_price) * size
                          else:
                              pnl_usdc = (entry_price - exit_price) * size
-                     elif self.active_trade:
-                         # Fallback to active_trade if position_data unavailable
-                         entry_price = self.active_trade.get("entry", 0)
-                         size = self.active_trade.get("size", 0)
-                         side = self.active_trade.get("side", "BUY")
+                     elif trade_being_closed:
+                         entry_price = trade_being_closed.get("entry", 0)
+                         size = trade_being_closed.get("size", 0)
+                         side = trade_being_closed.get("side", "BUY")
                          
                          if side == "BUY":
                              pnl_usdc = (exit_price - entry_price) * size
                          else:
                              pnl_usdc = (entry_price - exit_price) * size
                      
-                     # Record trade
                      with self.trade_lock:
-                         self.trade_recorder.add_trade({
-                             "symbol": symbol,
-                             "strategy": self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual",
-                             "side": side,
-                             "entry_price": entry_price,
-                             "exit_price": exit_price,
-                             "size": size,
-                             "pnl_usdc": pnl_usdc,
-                             "exit_reason": reason,
-                             "exit_time": pd.Timestamp.now().isoformat(),
-                             "entry_indicators": self.active_trade.get("entry_indicators", {}) if self.active_trade else {}
-                         })
-                         
-                         discord_service.send_alert(
-                             f"🏁 TRADE CLOSED: {symbol}",
-                             f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
-                             color="FFFF00"
-                         )
-                         self.risk_manager.record_trade_close(pnl_usdc)
-                         
-                         # Clear active_trade only if this was the active trade
-                         if self.active_trade and self.active_trade.get("symbol") == symbol:
-                             self.active_trade = None
-                         
-                         StateManager.save_state(self)
-                         self._sync_state(silent=False)
+                          self.trade_recorder.add_trade({
+                              "symbol": symbol,
+                              "strategy": trade_being_closed.get("strategy", "Manual") if trade_being_closed else "Manual",
+                              "side": side,
+                              "entry_price": entry_price,
+                              "exit_price": exit_price,
+                              "size": size,
+                              "pnl_usdc": pnl_usdc,
+                              "exit_reason": reason,
+                              "exit_time": pd.Timestamp.now().isoformat(),
+                              "entry_indicators": trade_being_closed.get("entry_indicators", {}) if trade_being_closed else {}
+                          })
+                          
+                          discord_service.send_alert(
+                              f"🏁 TRADE CLOSED: {symbol}",
+                              f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
+                              color="FFFF00"
+                          )
+                          self.risk_manager.record_trade_close(pnl_usdc)
+                          
+                          if symbol in self.active_trades:
+                              self.active_trades.pop(symbol, None)
+                          
+                          StateManager.save_state(self)
+                          self._sync_state(silent=False)
 
                      return True
                 else:
@@ -2265,7 +2263,8 @@ class BotContext:
             if self.execution_mode == "Dry Run":
                 self.add_log(f"[DRY] Would close {symbol} ({reason})")
                 with self.trade_lock:
-                    self.active_trade = None
+                    if symbol in self.active_trades:
+                        self.active_trades.pop(symbol, None)
                     StateManager.save_state(self)
                 return True, "[DRY] Trade closed (simulated)"
             
@@ -2297,7 +2296,8 @@ class BotContext:
             if not real_pos:
                 self.add_log(f"⚠️ Recalibration aborted: No position found on exchange for {symbol}")
                 with self.trade_lock:
-                    self.active_trade = None 
+                    if symbol in self.active_trades:
+                        self.active_trades.pop(symbol, None)
                 return "ERROR", "No real position found (Local state cleared)."
 
             entry_price = float(real_pos["entry_price"])
