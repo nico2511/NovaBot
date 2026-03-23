@@ -6,8 +6,7 @@ from datetime import datetime
 # Fix: Use absolute path to ensure both backend and main bot access the same file
 # app/core/state_manager.py -> app/core -> app -> ROOT
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Hardening for Coolify: Keep state in the persistent data volume
-STATE_FILE = os.path.join(ROOT_DIR, "data", "bot_state.json")
+STATE_FILE = os.path.join(ROOT_DIR, "bot_state.json")
 
 class StateManager:
     @staticmethod

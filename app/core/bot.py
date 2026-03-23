@@ -128,7 +128,7 @@ class BotContext:
         self.startup_sync_done = False
         
         # Periodic Reporting Timers
-        self._last_copilot_report_time = time.time()
+        self._last_copilot_report_time = None
         self._copilot_report_interval = 600  # 10 minutes
         self._initial_position_analyzed = False
         
@@ -152,16 +152,12 @@ class BotContext:
         # Sync Timers
         self._last_state_sync_time = 0
         self._state_sync_interval = 10  # Seconds
-        self._last_pnl_sync = 0  # To track daily PnL sync
-        
-        # Execution Mode
-        self.execution_mode = os.getenv("EXECUTION_MODE", "Live") # Default to Live
         
         # Cooldown tracking (anti-overtrading)
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
         
         # Open Interest History (InMemory)
-        self.oi_history = deque(maxlen=2000) 
+        self.oi_history = deque(maxlen=2000) # Keep ~2 days of history at 15m intervals roughly (or more)
         
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
@@ -297,25 +293,6 @@ class BotContext:
         """Backward compatibility: Sets data for active_symbol"""
         self.latest_data_map[self.active_symbol] = value
 
-    @property
-    def copilot_sentiment(self) -> str:
-        """Returns the latest market sentiment from Copilot analysis"""
-        cache = self.ai_cache.get("last_market_analysis")
-        if not cache:
-            return "N/A (No analysis yet)"
-        
-        # New structure: cache is a dict of timeframes
-        if isinstance(cache, dict) and "1h" in cache:
-            parts = []
-            for tf in ["5m", "1h", "4h"]:
-                s = cache.get(tf, {})
-                sentiment = s.get('sentiment', 'N/A')
-                score = s.get('score', 0)
-                parts.append(f"{tf}: {sentiment} ({score})")
-            return " | ".join(parts)
-        
-        return "N/A (Analysis pending)"
-
     def _prepare_ai_context(self, position_data: dict = None) -> dict:
         """Prepare comprehensive market context for professional AI analysis"""
         if not hasattr(self, 'latest_data') or self.latest_data.empty:
@@ -325,8 +302,8 @@ class BotContext:
         current_price = float(df['close'].iloc[-1])
         
         # Technical Indicators
-        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else 0.0
-        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else 0.0
+        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else None
+        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else None
         
         # EMAs
         ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
@@ -377,10 +354,10 @@ class BotContext:
         
         # Add ADX and MACD to dynamic context
         dynamic_ctx = get_dynamic_context(df)
-        dynamic_ctx['adx'] = round(float(adx_value or 0), 2)
-        dynamic_ctx['macd_line'] = round(float(macd_line or 0), 4)
-        dynamic_ctx['macd_signal'] = round(float(macd_signal or 0), 4)
-        dynamic_ctx['macd_hist'] = round(float(macd_hist or 0), 4)
+        dynamic_ctx['adx'] = round(adx_value, 2)
+        dynamic_ctx['macd_line'] = round(macd_line, 4)
+        dynamic_ctx['macd_signal'] = round(macd_signal, 4)
+        dynamic_ctx['macd_hist'] = round(macd_hist, 4)
         
         # === ENHANCED CONTEXT: Bollinger Bands ===
         bb_period = 20
@@ -404,11 +381,11 @@ class BotContext:
             # BB Width (volatility indicator)
             bb_width = ((bb_upper - bb_lower) / bb_middle) * 100 if bb_middle > 0 else 0
             
-            dynamic_ctx['bb_upper'] = round(float(bb_upper or 0), 4)
-            dynamic_ctx['bb_middle'] = round(float(bb_middle or 0), 4)
-            dynamic_ctx['bb_lower'] = round(float(bb_lower or 0), 4)
+            dynamic_ctx['bb_upper'] = round(bb_upper, 4)
+            dynamic_ctx['bb_middle'] = round(bb_middle, 4)
+            dynamic_ctx['bb_lower'] = round(bb_lower, 4)
             dynamic_ctx['bb_position'] = bb_position
-            dynamic_ctx['bb_width'] = round(float(bb_width or 0), 2)
+            dynamic_ctx['bb_width'] = round(bb_width, 2)
         except Exception:
             pass
         
@@ -583,14 +560,11 @@ class BotContext:
         cache = self.ai_cache.get("last_market_analysis")
         cache_time = self.ai_cache.get("last_market_analysis_time")
         
-        # Robust check: cache must be a dict
-        if isinstance(cache, dict) and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
+        if cache and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
             parts = []
             for tf in ["5m", "1h", "4h"]:
-                s = cache.get(tf, {}) or {}
-                sentiment = s.get('sentiment', 'N/A')
-                score = s.get('score', 0)
-                parts.append(f"{tf}: {sentiment} (Score {score})")
+                s = cache.get(tf, {})
+                parts.append(f"{tf}: {s.get('sentiment', 'N/A')} (Score {s.get('score', 0)})")
             return " | ".join(parts)
 
         try:
@@ -875,9 +849,8 @@ class BotContext:
                      size = 0
                      side = "BUY"
                      
-                     trade_being_closed = self.active_trades.get(symbol)
-                     
                      if position_data:
+                         # Use actual position data
                          entry_price = position_data.get("entry_price", 0)
                          size = position_data.get("size", 0)
                          side = position_data.get("side", "BUY")
@@ -886,42 +859,45 @@ class BotContext:
                              pnl_usdc = (exit_price - entry_price) * size
                          else:
                              pnl_usdc = (entry_price - exit_price) * size
-                     elif trade_being_closed:
-                         entry_price = trade_being_closed.get("entry", 0)
-                         size = trade_being_closed.get("size", 0)
-                         side = trade_being_closed.get("side", "BUY")
+                     elif self.active_trade:
+                         # Fallback to active_trade if position_data unavailable
+                         entry_price = self.active_trade.get("entry", 0)
+                         size = self.active_trade.get("size", 0)
+                         side = self.active_trade.get("side", "BUY")
                          
                          if side == "BUY":
                              pnl_usdc = (exit_price - entry_price) * size
                          else:
                              pnl_usdc = (entry_price - exit_price) * size
                      
+                     # Record trade
                      with self.trade_lock:
-                          self.trade_recorder.add_trade({
-                              "symbol": symbol,
-                              "strategy": trade_being_closed.get("strategy", "Manual") if trade_being_closed else "Manual",
-                              "side": side,
-                              "entry_price": entry_price,
-                              "exit_price": exit_price,
-                              "size": size,
-                              "pnl_usdc": pnl_usdc,
-                              "exit_reason": reason,
-                              "exit_time": pd.Timestamp.now().isoformat(),
-                              "entry_indicators": trade_being_closed.get("entry_indicators", {}) if trade_being_closed else {}
-                          })
-                          
-                          discord_service.send_alert(
-                              f"🏁 TRADE CLOSED: {symbol}",
-                              f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
-                              color="FFFF00"
-                          )
-                          self.risk_manager.record_trade_close(pnl_usdc)
-                          
-                          if symbol in self.active_trades:
-                              self.active_trades.pop(symbol, None)
-                          
-                          StateManager.save_state(self)
-                          self._sync_state(silent=False)
+                         self.trade_recorder.add_trade({
+                             "symbol": symbol,
+                             "strategy": self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual",
+                             "side": side,
+                             "entry_price": entry_price,
+                             "exit_price": exit_price,
+                             "size": size,
+                             "pnl_usdc": pnl_usdc,
+                             "exit_reason": reason,
+                             "exit_time": pd.Timestamp.now().isoformat(),
+                             "entry_indicators": self.active_trade.get("entry_indicators", {}) if self.active_trade else {}
+                         })
+                         
+                         discord_service.send_alert(
+                             f"🏁 TRADE CLOSED: {symbol}",
+                             f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
+                             color="FFFF00"
+                         )
+                         self.risk_manager.record_trade_close(pnl_usdc)
+                         
+                         # Clear active_trade only if this was the active trade
+                         if self.active_trade and self.active_trade.get("symbol") == symbol:
+                             self.active_trade = None
+                         
+                         StateManager.save_state(self)
+                         self._sync_state(silent=False)
 
                      return True
                 else:
@@ -970,10 +946,6 @@ class BotContext:
         # GUARD: Only enforce if trading is ENABLED (Real Trading)
         if not self.trading_enabled:
              return
-
-        # PREVENT SYSTEMATIC RECALIBRATION: Only enforce on initial adoption or explicit trailing/BE
-        if not bypass_cooldown and trade_data.get("initial_sl_tp_set", False):
-            return
 
         # COOLDOWN: Skip verification if we just synced (prevent infinite loop)
         if not bypass_cooldown and self._last_sltp_sync_time:
@@ -1162,27 +1134,26 @@ class BotContext:
                                 t_ref = self.active_trades.get(symbol)
                                 if t_ref:
                                     if "sl" in custom_updates:
-                                        t_ref["sl"] = custom_updates["sl"]
-                                        changed = True
-                                        self.add_log(f"🤖 Strategy {strategy_name} updated SL for {symbol} to {custom_updates['sl']}")
+                                         t_ref["sl"] = custom_updates["sl"]
+                                         changed = True
+                                         self.add_log(f"🤖 Strategy {strategy_name} updated SL for {symbol} to {custom_updates['sl']}")
                                     if "tp" in custom_updates:
-                                        t_ref["tp"] = custom_updates["tp"]
-                                        changed = True
-                                        self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
-                                        
+                                         t_ref["tp"] = custom_updates["tp"]
+                                         changed = True
+                                         self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
+                                         
                                     if changed:
-                                        t_ref["initial_sl_tp_set"] = True
                                         self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                                         StateManager.save_state(self)
 
-                # 2. Default Smart Trailing (Fallback) - Only on actual change
+                # 2. Default Smart Trailing (Fallback)
                 if not handled_by_strategy:
                     if self._update_trailing_stops(trade, current_price):
                          self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing...")
                          with self.trade_lock:
+                             # Sync with exchange using current trade data
                              t_ref = self.active_trades.get(symbol)
                              if t_ref:
-                                t_ref["initial_sl_tp_set"] = True
                                 self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
 
                 # 3. Local Exit Check (Safety)
@@ -1583,7 +1554,6 @@ class BotContext:
             self.add_log("🕵️ Starting Position Reconciler...")
             
         while self.is_running:
-            self._loop_heartbeat = time.time()  # Update heartbeat FIRST
             try:
                 # 1. Reconciliation & State Sync (The Heartbeat)
                 # Run reconciler (fixes SL/TP)
@@ -1591,6 +1561,9 @@ class BotContext:
                     self.position_reconciler.run_tick()
                 
                 # Check Exchange State (Adopt/Close)
+                # Update heartbeat (thread health monitoring)
+                self._loop_heartbeat = time.time()
+                
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
@@ -1599,13 +1572,10 @@ class BotContext:
                 self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
 
             # Dynamic Leverage & Gamification Enforcement
-            try:
-                if self.trading_enabled and not self._leverage_synced:
-                    self._enforce_leverage()
-                elif not self.trading_enabled:
-                    self._leverage_synced = False
-            except Exception as e:
-                self.add_log(f"⚠️ Leverage Enforcement Error: {e}")
+            if self.trading_enabled and not self._leverage_synced:
+                self._enforce_leverage()
+            elif not self.trading_enabled:
+                self._leverage_synced = False
 
             action = None
             sl = None
@@ -1698,17 +1668,16 @@ class BotContext:
                 # If we have trades, cycle through them?
                 # For now, let's keep it simple: manage all trades every loop tick.
                 
-                # Skip NEW ENTRY analysis only if we are at max positions
-                # We still analyze for new opportunities even with open trades
-                if len(self.active_trades) >= self.max_positions:
-                     self.add_log(f"⏸️ Max positions reached ({len(self.active_trades)}/{self.max_positions}). Skipping new entries.")
+                # Skip entry analysis if:
+                # 1. We already have a trade for the scanned symbol
+                # 2. We are at our global max positions limit
+                if self.active_trades.get(self.active_symbol) or len(self.active_trades) >= self.max_positions:
+                     # We still sleep but management loop is fast above
                      time.sleep(10)
                      continue
-                if self.active_trades.get(self.active_symbol):
-                     self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
 
                 self.add_log("🔄 Entering strategy analysis...")
-                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)  # FIX: 200→300 for SMA_200 validity
+                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=200)
                 df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
                 
                 if df_15m.empty or df_1m.empty:
@@ -1856,26 +1825,28 @@ class BotContext:
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
                         
-                        # Score threshold removed - risk thresholds are already configured in settings
-                        # AI validation handles the filtering based on configured risk thresholds
+                        # ANTI-CREDIT BURN: Skip AI if signal score too low or cooldown active
+                        signal_score = sig.get("score", 0)
+                        if signal_score < 60:
+                            self.add_log(f"⏭️ Low score signal skipped (score={signal_score}) - no AI call")
+                            continue
                         
                         if time_since_last_call < 45:  # 45s cooldown to save credits
                             self.add_log(f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)")
                             continue
                         
                         approved = False
-                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
+                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')} (score={signal_score})")
                         val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
                         self.last_ai_call = current_time
                         
                         try:
                             import json
-                            if val_res and val_res.get("raw_output"):
+                            if val_res.get("raw_output"):
                                 ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
                                 approved = ai_data.get("approved", False)
                                 confidence = ai_data.get("confidence", 0)
-                                risk_level_raw = ai_data.get("risk_level")
-                                risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
+                                risk_level = ai_data.get("risk_level", "MEDIUM").upper()
                                 
                                 if approved:
                                     # HYBRID CONFIDENCE THRESHOLD CHECK
@@ -2037,17 +2008,14 @@ class BotContext:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                 
                 # Optimized Sleep Loop + Anti-Signal Spam
-                has_active_trade = len(self.active_trades) > 0
-                sleep_duration = 10 if has_active_trade else (15 if signals else 10)
+                sleep_duration = 10 if self.active_trade else (15 if signals else 10)
                 self.add_log(f"⏸️ Next analysis in {sleep_duration}s... (signals detected: {len(signals)})")
                 for _ in range(int(sleep_duration)):
                     if not self.is_running: break
                     time.sleep(1)
                 
             except Exception as e:
-                import traceback
                 self.add_log(f"❌ Error in trading loop: {e}")
-                self.add_log(f"🔍 Traceback: {traceback.format_exc()}")
                 time.sleep(5)
         
         self.add_log("⏸️ Trading loop stopped")
@@ -2152,7 +2120,6 @@ class BotContext:
                         t_ref["tp"] = tp_price
                         t_ref["strategy"] = strategy_name
                         t_ref["status"] = "OPEN (ADOPTED)"
-                        t_ref["initial_sl_tp_set"] = True
                         if should_set_sl_tp:
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                         StateManager.save_state(self)
@@ -2263,8 +2230,7 @@ class BotContext:
             if self.execution_mode == "Dry Run":
                 self.add_log(f"[DRY] Would close {symbol} ({reason})")
                 with self.trade_lock:
-                    if symbol in self.active_trades:
-                        self.active_trades.pop(symbol, None)
+                    self.active_trade = None
                     StateManager.save_state(self)
                 return True, "[DRY] Trade closed (simulated)"
             
@@ -2296,8 +2262,7 @@ class BotContext:
             if not real_pos:
                 self.add_log(f"⚠️ Recalibration aborted: No position found on exchange for {symbol}")
                 with self.trade_lock:
-                    if symbol in self.active_trades:
-                        self.active_trades.pop(symbol, None)
+                    self.active_trade = None 
                 return "ERROR", "No real position found (Local state cleared)."
 
             entry_price = float(real_pos["entry_price"])
