@@ -981,10 +981,22 @@ class BotContext:
                 needs_sync = True
                 
             if needs_sync:
+                positions = hyperliquid_service.get_positions()
+                position = next((p for p in positions if p.get("symbol") == symbol), None)
+                
+                if position:
+                    pos_size = position.get("size", 0)
+                    pos_side = position.get("side", "BUY")
+                    self.add_log(f"📊 Using ACTUAL position: {pos_side} {pos_size}")
+                else:
+                    pos_size = float(trade_data.get("size", 0))
+                    pos_side = trade_data.get("side", "BUY")
+                    self.add_log(f"⚠️ No position found on exchange, using signal size: {pos_size}")
+                
                 result = hyperliquid_service.sync_sl_tp(
                     symbol,
-                    trade_data.get("side") == "BUY",
-                    float(trade_data.get("size", 0)),
+                    pos_side == "BUY",
+                    pos_size,
                     desired_sl,
                     desired_tp
                 )
