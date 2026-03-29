@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import useSWR from 'swr';
-import { TrendingUp, TrendingDown, Minus, Anchor, AlertTriangle, ShieldCheck, Activity, BarChart2, Bell } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Anchor, AlertTriangle, ShieldCheck, Activity, BarChart2, Bell, Brain, Zap, Loader2 } from 'lucide-react';
+import { api, AskAIResponse } from '@/lib/api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -76,6 +77,8 @@ export default function PositionCopilot({ symbol }: ComponentProps) {
     );
 
     const [alertMsg, setAlertMsg] = useState<string | null>(null);
+    const [askAIResult, setAskAIResult] = useState<AskAIResponse | null>(null);
+    const [isAskingAI, setIsAskingAI] = useState(false);
     const lastSentimentRef = useRef<string | null>(null);
 
     // Alert Logic
@@ -155,29 +158,102 @@ export default function PositionCopilot({ symbol }: ComponentProps) {
                 </div>
             )}
 
-            {/* Header */}
-            <div className="flex justify-between items-start mb-6 mt-2">
-                <div>
-                    <h2 className="text-gray-200 font-bold text-lg flex items-center gap-2">
-                        <Anchor className="w-5 h-5 text-blue-500" />
-                        Position Copilot
-                        <span className="text-xs font-normal text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
-                            {data.symbol}
-                        </span>
-                    </h2>
-                    <p className="text-gray-500 text-xs mt-1">Multi-Timeframe Sentiment Analysis v2</p>
-                </div>
-
-                {hasPosition && activePos && activePos.analysis && (
-                    <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${getAdviceStyle(activePos.analysis.advice)}`}>
-                        {activePos.analysis.advice === 'DANGER' ? <AlertTriangle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                        <div className="flex flex-col items-end">
-                            <span className="text-xs font-bold tracking-wider opacity-70">ADVICE</span>
-                            <span className="font-bold">{activePos.analysis.advice}</span>
-                        </div>
-                    </div>
-                )}
+    {/* Header */}
+    <div className="flex flex-col gap-4 mb-6 mt-2">
+        <div className="flex justify-between items-start">
+            <div>
+                <h2 className="text-gray-200 font-bold text-lg flex items-center gap-2">
+                    <Anchor className="w-5 h-5 text-blue-500" />
+                    Position Copilot
+                    <span className="text-xs font-normal text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
+                        {data.symbol}
+                    </span>
+                </h2>
+                <p className="text-gray-500 text-xs mt-1">Multi-Timeframe Sentiment Analysis v2</p>
             </div>
+
+            {hasPosition && activePos && activePos.analysis && (
+                <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${getAdviceStyle(activePos.analysis.advice)}`}>
+                    {activePos.analysis.advice === 'DANGER' ? <AlertTriangle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                    <div className="flex flex-col items-end">
+                        <span className="text-xs font-bold tracking-wider opacity-70">ADVICE</span>
+                        <span className="font-bold">{activePos.analysis.advice}</span>
+                    </div>
+                </div>
+            )}
+        </div>
+
+        {/* Ask AI Button */}
+        <button
+            onClick={async () => {
+                setIsAskingAI(true);
+                setAskAIResult(null);
+                try {
+                    const res = await api.askAI(symbol || data?.symbol);
+                    setAskAIResult(res);
+                } catch (error) {
+                    console.error('Ask AI failed:', error);
+                    setAskAIResult({
+                        symbol: data?.symbol || 'ERROR',
+                        trade_possible: false,
+                        direction: null,
+                        confidence: 0,
+                        reasoning: 'API call failed. Check console.',
+                        regime: 'UNKNOWN',
+                        adx: 0,
+                        rsi: 0,
+                        current_price: 0
+                    } as AskAIResponse);
+                } finally {
+                    setIsAskingAI(false);
+                }
+            }}
+            disabled={isAskingAI}
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600/80 to-blue-600/80 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-3 px-6 rounded-xl border-2 border-purple-500/50 shadow-lg hover:shadow-purple-500/25 transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100"
+        >
+            {isAskingAI ? (
+                <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Asking AI...
+                </>
+            ) : (
+                <>
+                    <Brain className="w-5 h-5" />
+                    Ask AI: Trade Possible Now?
+                </>
+            )}
+        </button>
+
+        {/* Ask AI Result */}
+        {askAIResult && (
+            <div className={`p-4 rounded-xl border-2 transition-all duration-300 animate-in slide-in-from-bottom-2 ${
+                askAIResult.trade_possible 
+                    ? 'bg-green-500/10 border-green-500/30 text-green-300' 
+                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+            }`}>
+                <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-3 h-3 rounded-full ${askAIResult.trade_possible ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                    <span className="font-bold text-lg">
+                        {askAIResult.trade_possible ? '✅ YES' : '❌ NO'}
+                    </span>
+                    {askAIResult.direction && (
+                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                            askAIResult.direction === 'LONG' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}>
+                            {askAIResult.direction}
+                        </span>
+                    )}
+                    <span className="ml-auto text-sm opacity-75">Conf: {askAIResult.confidence}%</span>
+                </div>
+                <p className="text-sm opacity-90">{askAIResult.reasoning}</p>
+                <div className="mt-3 text-xs opacity-70 grid grid-cols-3 gap-2">
+                    <div>Regime: {askAIResult.regime}</div>
+                    <div>ADX: {askAIResult.adx.toFixed(1)}</div>
+                    <div>RSI: {askAIResult.rsi.toFixed(1)}</div>
+                </div>
+            </div>
+        )}
+    </div>
 
             {/* Timeframe Grid - Mobile Optimized */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
