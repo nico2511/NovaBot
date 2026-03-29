@@ -44,6 +44,18 @@ export interface Strategy {
     description: string;
 }
 
+export interface AskAIResponse {
+    symbol: string;
+    trade_possible: boolean;
+    direction: string | null;
+    confidence: number;
+    reasoning: string;
+    regime: string;
+    adx: number;
+    rsi: number;
+    current_price: number;
+}
+
 // API Client
 export const api = {
     async getStatus(): Promise<BotStatus> {
@@ -180,6 +192,18 @@ export const api = {
         });
         if (!response.ok) {
             throw new Error('Failed to select strategy');
+        }
+        return response.json();
+    },
+
+    async askAI(symbol?: string): Promise<AskAIResponse> {
+        const response = await fetch(`${API_BASE_URL}/api/analysis/ask-ai`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol }),
+        });
+        if (!response.ok) {
+            throw new Error('Failed to ask AI for trade signal');
         }
         return response.json();
     },
