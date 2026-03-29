@@ -1591,5 +1591,117 @@
       "funding_rate": 1.5774e-06,
       "open_interest": 1891950327.2736
     }
+  },
+  {
+    "timestamp": "2026-03-20T08:11:10.326311",
+    "symbol": "SUI",
+    "direction": "BUY",
+    "strategy": "lambda_test",
+    "approved": false,
+    "confidence": 42,
+    "reasoning": "Rejecting BUY signal despite volume spike because RSI is plunging and price is in a clear downtrend with falling EMA slopes. The current price at $0.96347 is only slightly above the recent swing low of $0.95869, offering poor risk-reward. Market bias shows 5m bullish but 1h and 4h neutral, indicating weak higher timeframe confirmation.",
+    "risk_level": "HIGH",
+    "risk_score": 8,
+    "decisive_factors": [
+      "RSI plunging (-10.2 change to 44.0)",
+      "Price below 23.6% Fibonacci level",
+      "EMA 20 and EMA 50 both with negative slopes"
+    ],
+    "rejection_reason_category": "COUNTER_TREND",
+    "market_price": 0.96347,
+    "suggested_sl": null,
+    "suggested_tp": null,
+    "indicators": {
+      "regime": "TREND",
+      "adx": 28.28,
+      "adx_slope": -1.32,
+      "rsi": 44.0,
+      "ema_9": 0.9697,
+      "ema_20": 0.9658,
+      "ema_50": 0.9657,
+      "bb_upper": 0.98,
+      "bb_lower": 0.9581,
+      "bb_width": 2.25,
+      "volume_ratio": 18.6,
+      "current_price": 0.96347
+    },
+    "copilot_sentiment": {
+      "5m": {
+        "sentiment": "BULLISH",
+        "score": 31,
+        "rsi": 27.9
+      },
+      "1h": {
+        "sentiment": "NEUTRAL",
+        "score": -17,
+        "rsi": 47.3,
+        "trend": "BEARISH"
+      },
+      "4h": {
+        "sentiment": "NEUTRAL",
+        "score": 25,
+        "rsi": 39.7
+      }
+    },
+    "market_data": {
+      "funding_rate": -2.82881e-05,
+      "open_interest": 19330191.11493
+    }
+  },
+  {
+    "timestamp": "2026-03-20T08:11:45.356111",
+    "symbol": "SUI",
+    "direction": "BUY",
+    "strategy": "lambda_test",
+    "approved": false,
+    "confidence": 42,
+    "reasoning": "Rejecting BUY signal despite volume spike because RSI is plunging and price is in a clear downtrend with falling EMA slopes. The current price at $0.96347 is only slightly above the recent swing low of $0.95869, offering poor risk-reward. Market bias shows 5m bullish but 1h and 4h neutral, indicating weak higher timeframe confirmation.",
+    "risk_level": "HIGH",
+    "risk_score": 8,
+    "decisive_factors": [
+      "RSI plunging (-10.2 change to 44.0)",
+      "Price below 23.6% Fibonacci level",
+      "EMA 20 and EMA 50 both with negative slopes"
+    ],
+    "rejection_reason_category": "COUNTER_TREND",
+    "market_price": 0.96306,
+    "suggested_sl": null,
+    "suggested_tp": null,
+    "indicators": {
+      "regime": "TREND",
+      "adx": 28.28,
+      "adx_slope": -1.32,
+      "rsi": 43.53,
+      "ema_9": 0.9696,
+      "ema_20": 0.9658,
+      "ema_50": 0.9657,
+      "bb_upper": 0.98,
+      "bb_lower": 0.9581,
+      "bb_width": 2.26,
+      "volume_ratio": 18.6,
+      "current_price": 0.96306
+    },
+    "copilot_sentiment": {
+      "5m": {
+        "sentiment": "BULLISH",
+        "score": 31,
+        "rsi": 27.9
+      },
+      "1h": {
+        "sentiment": "NEUTRAL",
+        "score": -17,
+        "rsi": 47.3,
+        "trend": "BEARISH"
+      },
+      "4h": {
+        "sentiment": "NEUTRAL",
+        "score": 25,
+        "rsi": 39.7
+      }
+    },
+    "market_data": {
+      "funding_rate": -2.78311e-05,
+      "open_interest": 19311068.60432
+    }
   }
 ]

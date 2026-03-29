@@ -6,10 +6,15 @@ from app.core.risk_manager import RiskManager
 from strategies.base import BaseStrategy
 from strategies.elastic_reversion import ElasticReversionStrategy
 from strategies.scalp_ema_rsi import ScalpEmaRsi
+from strategies.breakout_squeeze import BreakoutSqueezeStrategy
 
+from strategies.bollinger_middle_bounce import BollingerMiddleBounceStrategy
 from strategies.institutional_scalp import InstitutionalScalp
 from strategies.fibo_pullback import StrategyFiboPullback
 from strategies.elastic_nibbler import ElasticNibblerStrategy
+from strategies.liquidity_lightning import LiquidityLightning
+from strategies.sniper_precision_trend import SniperPrecisionTrend
+from strategies.gamma_bear_vortex import GammaBearVortex
 from strategies.supertrend import StrategySupertrend
 
 # Import robuste pour Panic Close
@@ -34,15 +39,24 @@ class StrategyEngine:
         strats_config = self.config
         
         self.strategies = {
-            # Trend strategies
-            "supertrend": StrategySupertrend(strats_config.get("supertrend")),
+            # Active strategies
             "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
-            "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
-            
-            # Range / Reversion strategies
-            "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
+            
+            # Trend strategies
+            "bollinger_middle_bounce": BollingerMiddleBounceStrategy(strats_config.get("bollinger_middle_bounce")),
+            
+            # Range trading strategies
             "institutional_scalp": InstitutionalScalp(strats_config.get("institutional_scalp")),
+            "fibo_pullback": StrategyFiboPullback(strats_config.get("fibo_pullback")),
+            "elastic_nibbler": ElasticNibblerStrategy(strats_config.get("elastic_nibbler")),
+            "liquidity_lightning": LiquidityLightning(strats_config.get("liquidity_lightning")),
+            "sniper_precision_trend": SniperPrecisionTrend(strats_config.get("sniper_precision_trend")),
+            "gamma_bear_vortex": GammaBearVortex(strats_config.get("gamma_bear_vortex")),
+            "supertrend": StrategySupertrend(strats_config.get("supertrend")),
+            
+            # Breakout strategy
+            "breakout_squeeze": BreakoutSqueezeStrategy(strats_config.get("breakout_squeeze")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
@@ -141,11 +155,6 @@ class StrategyEngine:
             if not params.get("enabled"):
                 continue
             
-            # Skip strategies not registered in the engine (dead config entries)
-            if name not in self.strategies:
-                print(f"[BOT] ⚠️ Config entry '{name}' has no implementation, skipping")
-                continue
-                
             strat_type = params.get("type")
             
             # FIX: Logic for Strategy Selection
@@ -166,8 +175,6 @@ class StrategyEngine:
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])
             print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
-        else:
-            print(f"[BOT] ⚠️ Aucune stratégie active pour le régime {regime}")
 
         # 4. Generate Signals
         signals = []
@@ -185,94 +192,98 @@ class StrategyEngine:
             except Exception as e:
                 print(f"⚠️ Panic check error: {e}")
             
-            try:
-                # Normal Signal Generation
-                sig = strat.generate_signal(df, extra_data=extra_data)
+            # Normal Signal Generation
+            sig = strat.generate_signal(df, extra_data=extra_data)
+            
+            if sig:
+                # Check execution type
+                params = strat.config.get("params", {})
+                is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
                 
-                if sig:
-                    print(f"[BOT] ✅ Signal généré par {strat.name}: {sig.get('signal')}")
-                    # Check execution type
-                    params = strat.config.get("params", {})
-                    is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
-                    
-                    symbol = extra_data.get("symbol") if extra_data else None
-                    if isinstance(sig, dict):
-                        # Strategy returned rich object
-                        signal_data = sig
-                        signal_data["strategy"] = strat.name
-                        signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
-                        signal_data["price"] = sig.get("price", df['close'].iloc[-1])
-                        signal_data["timestamp"] = df.index[-1]
-                        if is_manual:
-                            signal_data["manual_approval"] = True
-                    else:
-                        # Legacy string return
-                        signal_data = {
-                            "strategy": strat.name,
-                            "signal": sig, 
-                            "symbol": symbol or "UNKNOWN",
-                            "price": df['close'].iloc[-1],
-                            "timestamp": df.index[-1]
-                        }
+                symbol = extra_data.get("symbol") if extra_data else None
+                if isinstance(sig, dict):
+                    # Strategy returned rich object
+                    signal_data = sig
+                    signal_data["strategy"] = strat.name
+                    signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
+                    signal_data["price"] = sig.get("price", df['close'].iloc[-1])
+                    signal_data["timestamp"] = df.index[-1]
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    signals.append(signal_data)
                 else:
-                    print(f"[BOT] ❌ {strat.name} n'a pas généré de signal")
-                    continue  # Skip to next strategy
-            except Exception as e:
-                print(f"[BOT] ⚠️ Strategy CRASH ({strat.name}): {e}")
-                # We do NOT crash the engine, just skip this strategy
-                continue
+                    # Legacy string return
+                    signal_data = {
+                        "strategy": strat.name,
+                        "signal": sig, 
+                        "symbol": symbol or "UNKNOWN",
+                        "price": df['close'].iloc[-1],
+                        "timestamp": df.index[-1]
+                    }
                 
-            # --- GLOBAL DIRECTION FILTER ---
-            # This ensures ALL strategies respect allow_longs/allow_shorts from config
-            # even if the strategy code doesn't implement it explicitly.
-            
-            signal_type = signal_data.get("signal", "").upper()
-            allow_longs = params.get("allow_longs", True) 
-            allow_shorts = params.get("allow_shorts", True)
-            
-            direction_allowed = True
-            rejection_reason = ""
+                # --- GLOBAL DIRECTION FILTER ---
+                # This ensures ALL strategies respect allow_longs/allow_shorts from config
+                # even if the strategy code doesn't implement it explicitly.
+                
+                signal_type = signal_data.get("signal", "").upper()
+                allow_longs = params.get("allow_longs", True) 
+                allow_shorts = params.get("allow_shorts", True)
+                
+                direction_allowed = True
+                rejection_reason = ""
 
-            if signal_type == "BUY" and not allow_longs:
-                direction_allowed = False
-                rejection_reason = "Longs disabled"
-            elif signal_type == "SELL" and not allow_shorts:
-                if signal_data.get("metadata", {}).get("panic_close"):
-                    direction_allowed = True  # ALWAYS allow panic exit
-                else:
+                if signal_type == "BUY" and not allow_longs:
                     direction_allowed = False
-                    rejection_reason = "Shorts disabled"
-            
-            # --- ANTI-CHASING FILTER (Bollinger Bands) ---
-            # FIX: Applies to ALL signal types (BUY and SELL)
-            if direction_allowed:
-                try:
-                    sma_20 = df['close'].rolling(window=20).mean().iloc[-1]
-                    std_20 = df['close'].rolling(window=20).std().iloc[-1]
-                    bb_upper = sma_20 + (std_20 * 2)
-                    bb_lower = sma_20 - (std_20 * 2)
-                    curr_close = df['close'].iloc[-1]
-                    
-                    if signal_type == "SELL":
-                        if not signal_data.get("metadata", {}).get("panic_close"):
-                            if curr_close <= (bb_lower * 1.01):
-                                direction_allowed = False
-                                rejection_reason = "Price too close to support/lower band (Oversold)"
+                    rejection_reason = "Longs disabled"
+                elif signal_type == "SELL" and not allow_shorts:
+                    # Exception: Panic close should override 'allow_shorts' if it's just closing a long?
+                    # But 'SELL' here usually means 'Open Short' or 'Close Long'.
+                    # If it's a CLOSE signal specifically, we should allow it.
+                    # But our signals are usually BUY/SELL.
+                    if signal_data.get("metadata", {}).get("panic_close"):
+                        direction_allowed = True # ALWAYS allow panic exit
+                    else:
+                        direction_allowed = False
+                        rejection_reason = "Shorts disabled"
+                
+                # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
+                # Calculate BB only if we have a signal to verify
+                if direction_allowed:
+                    try:
+                        # 20 SMA for BB
+                        sma_20 = df['close'].rolling(window=20).mean().iloc[-1]
+                        std_20 = df['close'].rolling(window=20).std().iloc[-1]
+                        bb_upper = sma_20 + (std_20 * 2)
+                        bb_lower = sma_20 - (std_20 * 2)
+                        curr_close = df['close'].iloc[-1]
+                        
+                        # Filter Logic
+                        if signal_type == "SELL":
+                            # Reject if close <= Lower Band * 1.01 (1% from support)
+                            # Prevents shorting the bottom
+                            # EXCEPTION: Panic Close ignores this
+                            if not signal_data.get("metadata", {}).get("panic_close"):
+                                if curr_close <= (bb_lower * 1.01):
+                                    direction_allowed = False
+                                    rejection_reason = "Price too close to support/lower band (Oversold)"
                                 
-                    elif signal_type == "BUY":
-                        if curr_close >= (bb_upper * 0.99):
-                            direction_allowed = False
-                            rejection_reason = "Price too close to resistance/upper band (Overbought)"
-                except Exception as e:
-                    print(f"⚠️ BB Filter Error: {e}")
+                        elif signal_type == "BUY":
+                            # Reject if close >= Upper Band * 0.99 (1% from resistance)
+                            # Prevents longing the top
+                            if curr_close >= (bb_upper * 0.99):
+                                direction_allowed = False
+                                rejection_reason = "Price too close to resistance/upper band (Overbought)"
+                    except Exception as e:
+                        print(f"⚠️ BB Filter Error: {e}")
 
-            # FIX: Signal is only appended AFTER passing all filters
-            if direction_allowed:
-                if is_manual:
-                    signal_data["manual_approval"] = True
-                signals.append(signal_data)
-            elif rejection_reason:
-                print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
+                if direction_allowed:
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    signals.append(signal_data)
+                elif rejection_reason:
+                     # Optional: Log rejection
+                     pass
+                     # print(f"🚫 Signal REJECTED: {strat.name} {signal_type} -> {rejection_reason}")
         
         # 5. Calculate Progress, Conditions AND Threshold Comparisons + Signal Scoring (STORY-004)
         progress = {}
@@ -329,20 +340,20 @@ class StrategyEngine:
             volume_ratio = 100
 
         return {
-            "regime": str(regime),
-            "adx": float(current_adx),
-            "adx_slope": float(adx_slope),
-            "rsi": float(rsi_series.iloc[-1]),
-            "ema_9": float(ema_9.iloc[-1]),
-            "ema_20": float(ema_20.iloc[-1]),
-            "ema_50": float(ema_50.iloc[-1]),
-            "sma_20": float(sma_20 or 0),
-            "bb_upper": float(bb_upper or 0),
-            "bb_lower": float(bb_lower or 0),
-            "bb_width": float(bb_width or 0),
-            "volume_ratio": float(volume_ratio or 0),
-            "current_price": float(df['close'].iloc[-1]),
-            "strategies": [str(s.name) for s in active_strategies],
+            "regime": regime,
+            "adx": current_adx,
+            "adx_slope": adx_slope,
+            "rsi": rsi_series.iloc[-1],
+            "ema_9": ema_9.iloc[-1],
+            "ema_20": ema_20.iloc[-1],
+            "ema_50": ema_50.iloc[-1],
+            "sma_20": sma_20,
+            "bb_upper": bb_upper,
+            "bb_lower": bb_lower,
+            "bb_width": bb_width,
+            "volume_ratio": volume_ratio,
+            "current_price": df['close'].iloc[-1],
+            "strategies": [s.name for s in active_strategies],
             "progress": progress,
             "conditions": conditions,
             "thresholds": thresholds,

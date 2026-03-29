@@ -72,9 +72,6 @@ class InstitutionalScalp(BaseStrategy):
         recent_high = recent['high'].iloc[:-1].max()
         recent_low = recent['low'].iloc[:-1].min()
 
-        # FIX: Calculate candle_range (was missing, causing NameError crash)
-        candle_range = high - low
-
         # BULLISH LIQUIDITY GRAB
         if low < recent_low and close > recent_low:
             wick_ratio = params.get("wick_ratio", 0.25)
@@ -113,7 +110,7 @@ class InstitutionalScalp(BaseStrategy):
         # BEARISH LIQUIDITY GRAB
         if high > recent_high and close < recent_high:
             wick_ratio = params.get("wick_ratio", 0.25)
-            if candle_range > 0 and (high - close) / candle_range > wick_ratio:  # candle_range now defined above
+            if candle_range > 0 and (high - close) / candle_range > wick_ratio:
                 # PHASE 2: Volume Spike Filter
                 vol_mult = params.get("volume_multiplier", 1.5) # OPTIMIZED 2026-02
                 if 'volume' in df.columns:

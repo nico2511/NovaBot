@@ -464,6 +464,11 @@ class HyperliquidService:
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
+        # GUARD: Check if exchange is configured
+        if not self.exchange:
+            self.log(f"❌ Cannot place protection orders for {symbol}: Exchange not configured (no private key)", "ERROR")
+            return {"status": "error", "message": "Exchange not configured"}
+        
         try:
             sz_decimals, price_decimals = self._get_precision(symbol)
             

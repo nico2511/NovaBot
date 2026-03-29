@@ -53,8 +53,7 @@ class StrategySupertrend(BaseStrategy):
 
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
-        ema_col = f"SMA_{self.ema_filter}"
-        df[ema_col] = ta.sma(df['close'], length=self.ema_filter)
+        df['SMA_200'] = ta.sma(df['close'], length=self.ema_filter)
         df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'])['ADX']
         st_data = ta.supertrend(df['high'], df['low'], df['close'], period=self.st_period, multiplier=self.st_multiplier)
         df['Supertrend'] = st_data['Supertrend']
@@ -68,9 +67,7 @@ class StrategySupertrend(BaseStrategy):
             df: 15m context
             extra_data: {"1m": df_1m} trigger
         """
-        # FIX: Always need 210+ candles for SMA_200 to have valid non-NaN values
-        min_candles = max(self.ema_filter + 10, 210)
-        if df.empty or len(df) < min_candles:
+        if df.empty or len(df) < (self.ema_filter + 10):
             return None
             
         if not extra_data or "1m" not in extra_data:
@@ -83,12 +80,10 @@ class StrategySupertrend(BaseStrategy):
         # 1. Add 15m indicators
         self.add_indicators(df)
         
-        
         # Latest 15m values (completed candle)
         last_15m = df.iloc[-2]
         close_15m = last_15m['close']
-        ema_col = f"SMA_{self.ema_filter}"
-        sma_15m = last_15m[ema_col]
+        sma_200_15m = last_15m['SMA_200']
         st_dir_15m = last_15m['ST_Direction']
         adx_15m = last_15m['ADX_14']
         
@@ -97,10 +92,10 @@ class StrategySupertrend(BaseStrategy):
             self.looking_for_entry = False
             return None
             
-        if close_15m > sma_15m and st_dir_15m == 1:
+        if close_15m > sma_200_15m and st_dir_15m == 1:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
-        elif close_15m < sma_15m and st_dir_15m == -1:
+        elif close_15m < sma_200_15m and st_dir_15m == -1:
             self.entry_direction = "SHORT"
             self.looking_for_entry = True
         else:
@@ -170,55 +165,45 @@ class StrategySupertrend(BaseStrategy):
             stages = []
             score = 0
             
-            # --- Stage 1: Trend Context (SMA/ADX) ---
-            ema_col = f"SMA_{self.ema_filter}"
-            is_bullish = last_15m['close'] > last_15m[ema_col]
-            is_bearish = last_15m['close'] < last_15m[ema_col]
-            adx_val = last_15m['ADX_14']
-            adx_ok = adx_val >= self.adx_threshold
+            # --- Stage 1: Trend Filter (SMA 200) ---
+            is_bullish = last_15m['close'] > last_15m['SMA_200']
+            is_bearish = last_15m['close'] < last_15m['SMA_200']
+            st_align = (is_bullish and last_15m['ST_Direction'] == 1) or \
+                       (is_bearish and last_15m['ST_Direction'] == -1)
             
-            s1_status = "WAIT"
-            s1_details = "Weak / Neutral"
-            if adx_ok:
-                if is_bullish:
-                    s1_status = "PASS"
-                    s1_details = f"Uptrend (ADX {adx_val:.1f})"
-                elif is_bearish:
-                    s1_status = "PASS"
-                    s1_details = f"Downtrend (ADX {adx_val:.1f})"
-            elif (is_bullish or is_bearish):
-                s1_details = f"Low ADX ({adx_val:.1f} < {self.adx_threshold})"
-
+            s1_status = "PASS" if st_align else "WAIT"
+            bias_text = "BULL" if is_bullish else "BEAR"
+            s1_details = f"15m {bias_text} Bias (Price vs SMA200)" if st_align else "Waiting for Trend Alignment"
+            
             stages.append({
-                "name": "1. Trend Context",
+                "name": "1. Trend Regime",
                 "status": s1_status,
                 "details": s1_details,
                 "metrics": {
-                    "adx": {"value": round(float(adx_val), 1), "threshold": self.adx_threshold, "op": ">="}
-                }
-            })
-            if s1_status == "PASS": score += 30
-
-            # --- Stage 2: Strategy Alignment (Supertrend) ---
-            st_dir = last_15m['ST_Direction']
-            st_align = (is_bullish and st_dir == 1) or \
-                       (is_bearish and st_dir == -1)
-            
-            s2_status = "PASS" if st_align else "WAIT"
-            target_dir = "BULL (Green)" if is_bullish else "BEAR (Red)"
-            s2_details = "Supertrend Aligned" if st_align else f"Waiting for Supertrend {target_dir}"
-            
-            stages.append({
-                "name": "2. Strategy Alignment",
-                "status": s2_status,
-                "details": s2_details,
-                "metrics": {
-                    "st_dir": {"value": "BULL" if st_dir == 1 else "BEAR"}
+                    "bias": {"value": bias_text, "align": "YES" if st_align else "NO"}
                 }
             })
             if st_align: score += 40
 
-            # --- Stage 3: Execution Sync (1m) ---
+            # --- Stage 2: ADX Filter ---
+            adx_val = last_15m['ADX_14']
+            adx_ok = adx_val >= self.adx_threshold
+            
+            s2_status = "PASS" if adx_ok else "WAIT"
+            s2_details = f"ADX {adx_val:.1f} (Trend Active)" if adx_ok else f"ADX Low ({adx_val:.1f} < {self.adx_threshold})"
+            
+            stages.append({
+                "name": "2. Trend Strength",
+                "status": s2_status,
+                "details": s2_details,
+                "metrics": {
+                    "adx": {"value": round(adx_val, 1), "threshold": self.adx_threshold, "op": ">"}
+                }
+            })
+            if adx_ok: score += 30
+            else: score += int((adx_val / self.adx_threshold) * 20)
+
+            # --- Stage 3: 1m Alignment ---
             s3_status = "WAIT"
             s3_details = "Waiting for 1m sync..."
             
@@ -229,7 +214,7 @@ class StrategySupertrend(BaseStrategy):
                     curr_st_1m = st_data_1m['Direction'].iloc[-1]
                     prev_st_1m = st_data_1m['Direction'].iloc[-2]
                     
-                    if curr_st_1m == st_dir: # Using 15m direction
+                    if curr_st_1m == last_15m['ST_Direction']:
                         # Check for the actual TRIGGER (Flip)
                         if prev_st_1m != curr_st_1m:
                             s3_status = "TRIGGER!"
@@ -238,7 +223,7 @@ class StrategySupertrend(BaseStrategy):
                         else:
                             s3_status = "PASS"
                             s3_details = "1m Aligned (Waiting for new Flip)"
-                            score += 10 
+                            score += 20 # Lower score for alignment vs trigger
                     else:
                         s3_details = "1m Counter-trend"
             

@@ -1,19 +1,5 @@
 [
   {
-    "timestamp": 1769453757.81116,
-    "symbol": "HYPE",
-    "sentiment": "BULLISH",
-    "score": 35,
-    "details": "RSI 77.5 | MACD Bull"
-  },
-  {
-    "timestamp": 1769456397.863933,
-    "symbol": "ETH",
-    "sentiment": "NEUTRAL",
-    "score": -25,
-    "details": "RSI 60.0 | MACD Bull"
-  },
-  {
     "timestamp": 1769460154.5990477,
     "symbol": "FARTCOIN",
     "sentiment": "NEUTRAL",
@@ -698,5 +684,19 @@
     "sentiment": "BEARISH",
     "score": -35,
     "details": "RSI 28.1 | MACD Bear"
+  },
+  {
+    "timestamp": 1773989716.6602075,
+    "symbol": "BTC",
+    "sentiment": "NEUTRAL",
+    "score": -17,
+    "details": "RSI 49.6 | MACD Bull"
+  },
+  {
+    "timestamp": 1774295374.4812076,
+    "symbol": "BTC",
+    "sentiment": "NEUTRAL",
+    "score": -25,
+    "details": "RSI 61.0 | MACD Bull"
   }
 ]

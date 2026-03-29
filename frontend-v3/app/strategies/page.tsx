@@ -90,7 +90,7 @@ export default function StrategiesPage() {
                                         const type = strat.type || 'unknown';
 
                                         // Universal types always show
-                                        if (['liquidity', 'scalp_choc', 'institutional_scalp', 'scalp'].includes(type)) return true;
+                                        if (['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning', 'scalp'].includes(type)) return true;
 
                                         if (regime === 'TREND') {
                                             return ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback', 'scalp'].includes(type);
@@ -108,7 +108,7 @@ export default function StrategiesPage() {
                                         // Check if ALL got filtered out
                                         const regime = data.regime || 'UNKNOWN';
                                         const type = s.type || 'unknown';
-                                        const isUniversal = ['liquidity', 'scalp_choc', 'institutional_scalp', 'scalp'].includes(type);
+                                        const isUniversal = ['liquidity', 'scalp_choc', 'institutional_scalp', 'liquidity_lightning', 'scalp'].includes(type);
                                         if (isUniversal) return false;
                                         if (regime === 'TREND' && ['trend', 'trend_dip', 'trend_continuation', 'fibo_pullback', 'scalp'].includes(type)) return false;
                                         if (regime === 'RANGE' && ['range', 'reversion', 'reversion_extreme', 'scalp'].includes(type)) return false;

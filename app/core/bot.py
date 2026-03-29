@@ -981,14 +981,18 @@ class BotContext:
                 needs_sync = True
                 
             if needs_sync:
-                hyperliquid_service.sync_sl_tp(
-                    symbol, 
-                    trade_data.get("side") == "BUY", 
-                    float(trade_data.get("size", 0)), 
-                    desired_sl, 
+                result = hyperliquid_service.sync_sl_tp(
+                    symbol,
+                    trade_data.get("side") == "BUY",
+                    float(trade_data.get("size", 0)),
+                    desired_sl,
                     desired_tp
                 )
-                self.add_log("✅ Audit: SL/TP enforced via Sync.")
+                if result.get("status") == "success":
+                    self.add_log("✅ Audit: SL/TP enforced via Sync.")
+                else:
+                    error_msg = result.get("message", "Unknown error")
+                    self.add_log(f"❌ Audit: Failed to enforce SL/TP: {error_msg}")
                 self._last_sltp_sync_time = pd.Timestamp.now()  # Mark sync time for cooldown
                 
         except Exception as e:
@@ -2121,6 +2125,7 @@ class BotContext:
                         t_ref["strategy"] = strategy_name
                         t_ref["status"] = "OPEN (ADOPTED)"
                         if should_set_sl_tp:
+                            self.add_log(f"🛡️ Placing default TP/SL protection for adopted {symbol} trade...")
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                         StateManager.save_state(self)
                 self.add_log(f"✅ Adoption Complete for {symbol}.")
