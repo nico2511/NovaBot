@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MainApp")
 
 # Import routers
-from backend.api.routers import engine, trading, market, settings, history, analysis
+from backend.api.routers import engine, trading, market, settings, history
 
 # Settings Watcher
 from backend.services.settings_watcher import SettingsWatcher
@@ -155,11 +155,8 @@ app.include_router(market.router)
 app.include_router(settings.router)
 app.include_router(history.router)
 app.include_router(history.logs_router)  # Logs at /api/logs
-app.include_router(analysis.router)
-from backend.api.routers import scanner
-app.include_router(scanner.router)
 
-logger.info("✅ Routers registered: engine, trading, market, settings, history, logs, scanner")
+logger.info("✅ Routers registered: engine, trading, market, settings, history, logs")
 
 
 # Root endpoint

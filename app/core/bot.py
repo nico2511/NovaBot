@@ -21,13 +21,10 @@ from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
-from app.core.scanner_job import ScannerJob
 from app.core.trade_recorder import TradeRecorder
-from app.core.asset_gamification import AssetGamification, AccountLevel
 from strategies.engine import StrategyEngine
 from app.services.ia import ia_service
 from app.services.indicators import Indicators
-from app.services.analyst_service import analyst_service
 from app.services.discord_service import discord_service
 from app.utils.data_processing import get_dynamic_context
 
@@ -165,7 +162,6 @@ class BotContext:
         
         # Data Persistence (Core)
         self.trade_recorder = TradeRecorder()
-        self.gamification = AssetGamification(0)
         self.latest_analysis = {}
         
         # Phase 0 Hardening Services
@@ -182,48 +178,17 @@ class BotContext:
         try:
             state = StateManager.load_state(self)
             
-            
             # Load trading params from global_settings (centralized source)
             requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
             
-            # Only apply gamification limits if enabled
-            gamification_enabled = self.scanner_settings.get("gamification_enabled", False)
-            
-            if gamification_enabled:
-                try:
-                    balance_data = hyperliquid_service.get_account_balance()
-                    equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-                    gam = AssetGamification(equity)
-                    
-                    if gam.level == AccountLevel.GOBLIN:
-                        max_allowed = 1
-                    elif gam.level == AccountLevel.MERCENARY:
-                        max_allowed = 2
-                    else:
-                        max_allowed = 3
-                    
-                    self.max_positions = min(requested_max, max_allowed)
-                    
-                    if requested_max > max_allowed:
-                        self.add_log(f"⚙️ Max positions capped: {requested_max} → {self.max_positions} (Level {gam.level.value})")
-                    else:
-                        self.add_log(f"⚙️ Max positions: {self.max_positions}")
-                        
-                except Exception as e:
-                    self.max_positions = requested_max
-                    print(f"⚠️ Gamification check failed: {e}. Using requested: {requested_max}")
-            else:
-                # Gamification disabled - use requested max directly
-                self.max_positions = requested_max
-                self.add_log(f"⚙️ Max positions: {self.max_positions} (Gamification disabled)")
+            self.max_positions = requested_max
+            self.add_log(f"⚙️ Max positions: {self.max_positions}")
                     
         except Exception as e:
             print(f"Error loading state: {e}")
             
         # Initialize Services
-        self.scanner_job = ScannerJob(self)
         self.trade_recorder = TradeRecorder()
-        self.gamification = AssetGamification(0)
         self.latest_analysis = {}
 
     def add_log(self, message: str, metadata: dict = None):
@@ -561,59 +526,12 @@ class BotContext:
         }
 
     async def _update_market_analysis(self):
-        """Update market sentiment analysis in cache (Background Task)"""
-        try:
-            symbol = self.active_symbol
-            self.add_log(f"🧠 Updating Market Sentiment for {symbol}...")
-            
-            # This is an async call to AnalystService
-            sentiment = await analyst_service.analyze_market_sentiment(symbol)
-            
-            if sentiment:
-                self.ai_cache["last_market_analysis"] = sentiment
-                self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now()
-                self.add_log(f"🧠 Market Sentiment Updated: {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}")
-            
-        except Exception as e:
-            self.add_log(f"⚠️ Market analysis update failed: {e}")
+        """Disabled"""
+        pass
 
     def _fetch_mtf_sentiment(self, symbol: str) -> str:
-        """Fetch and calculate Multi-Timeframe Sentiment (Copilot) synchronously"""
-        # If we have it in cache and it's fresh (< 15 min), use it
-        cache = self.ai_cache.get("last_market_analysis")
-        cache_time = self.ai_cache.get("last_market_analysis_time")
-        
-        # Robust check: cache must be a dict
-        if isinstance(cache, dict) and cache_time and (pd.Timestamp.now() - cache_time).total_seconds() < 900:
-            parts = []
-            for tf in ["5m", "1h", "4h"]:
-                s = cache.get(tf, {}) or {}
-                sentiment = s.get('sentiment', 'N/A')
-                score = s.get('score', 0)
-                parts.append(f"{tf}: {sentiment} (Score {score})")
-            return " | ".join(parts)
-
-        try:
-            summary_parts = []
-            timeframes = ["5m", "1h", "4h"]
-            
-            self.add_log("🧠 Fetching Copilot MTF Context (Live)...")
-            
-            for tf in timeframes:
-                df = hyperliquid_service.get_candles(symbol, interval=tf, limit=100)
-                if df is not None and not df.empty:
-                    res = analyst_service.calculate_sentiment(df)
-                    sentiment = res.get("sentiment", "N/A")
-                    score = res.get("score", 0)
-                    summary_parts.append(f"{tf}: {sentiment} (Score {score})")
-                else:
-                    summary_parts.append(f"{tf}: N/A")
-            
-            return " | ".join(summary_parts)
-            
-        except Exception as e:
-            self.add_log(f"⚠️ Failed to fetch MTF sentiment: {e}")
-            return "Multi-Timeframe Data Unavailable"
+        """Disabled"""
+        return "Multi-Timeframe Data Unavailable"
 
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
@@ -2183,11 +2101,6 @@ class BotContext:
             self.thread.start()
             self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
             
-            if self.scanner_job:
-                self.scanner_settings['enabled'] = True
-                self.scanner_job.start()
-                self.add_log("🕵️ Scanner auto-enabled with engine start")
-                
             StateManager.save_state(self)
         else:
             self.add_log("⚠️ Bot already running with active thread, skipping start")
