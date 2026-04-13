@@ -15,8 +15,8 @@ def _load_bot_state_settings():
              with open(config_file, 'r') as f:
                 return json.load(f)
         
-        # Fallback: bot_state.json (Legacy/Migration)
-        state_file = Path("bot_state.json")
+        # Fallback: data/bot_state.json (Operational State fallback)
+        state_file = Path("data/bot_state.json")
         if state_file.exists():
             with open(state_file, 'r') as f:
                 state = json.load(f)

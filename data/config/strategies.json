@@ -1,4 +1,7 @@
 {
+    "market_regime": {
+        "adx_threshold": 25
+    },
     "scalp_ema_rsi": {
         "enabled": true,
         "type": "trend",
@@ -16,39 +19,9 @@
             "sl_atr_mult": 1.5,
             "min_rr": 1.5
         },
-        "display_conditions": [
-            "EMA_9",
-            "EMA_21",
-            "RSI_14"
-        ],
+        "display_conditions": ["EMA_9", "EMA_21", "RSI_14"],
         "version": "2026-02-monthly-v2",
         "expected_freq": "High (Scalp)"
-    },
-    "elastic_nibbler": {
-        "enabled": true,
-        "type": "range",
-        "description": "Mean reversion scalping using Bollinger Bands and RSI.",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "bb_period": 20,
-            "bb_std": 2.2,
-            "rsi_period": 14,
-            "volume_multiplier": 2.0,
-            "adx_threshold": 25,
-            "min_bb_width_pct": 0.5,
-            "sl_atr_mult": 2.0,
-            "tp_atr_mult": 2.5,
-            "rsi_min": 28,
-            "rsi_max": 76
-        },
-        "display_conditions": [
-            "BBU",
-            "BBL",
-            "RSI_14"
-        ],
-        "version": "2026-02-monthly-v2",
-        "expected_freq": "Medium"
     },
     "elastic_reversion": {
         "enabled": true,
@@ -66,144 +39,8 @@
             "sl_buffer_pct": 0.005,
             "min_rr": 1.5
         },
-        "display_conditions": [
-            "EMA_20",
-            "RSI_14"
-        ],
+        "display_conditions": ["EMA_20", "RSI_14"],
         "version": "2026-02-refacto-v2",
-        "expected_freq": "Medium"
-    },
-    "bollinger_middle_bounce": {
-        "enabled": true,
-        "type": "trend",
-        "description": "Trend following strategy entering on pullbacks to the middle Bollinger Band.",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "bb_period": 20,
-            "bb_std": 2.0,
-            "ema_trend_short": 20,
-            "ema_trend_long": 50,
-            "adx_threshold": 25,
-            "rsi_min": 45,
-            "min_rr": 2.0,
-            "sl_buffer_pct": 0.02,
-            "volume_multiplier": 1.3
-        },
-        "display_conditions": [
-            "BBM",
-            "ADX_14"
-        ],
-        "version": "2026-02-monthly-v2-STABLE",
-        "expected_freq": "Medium"
-    },
-    "institutional_scalp": {
-        "enabled": true,
-        "type": "range",
-        "description": "Detects liquidity grabs (wicks) followed by volume spikes.",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "liq_grab_lookback": 18,
-            "adx_extreme_limit": 60,
-            "wick_ratio": 0.35,
-            "volume_multiplier": 1.8,
-            "sl_atr_mult": 1.2,
-            "min_rr": 1.5
-        },
-        "display_conditions": [
-            "Volume"
-        ],
-        "version": "2026-02-monthly-v2",
-        "expected_freq": "High"
-    },
-    "fibo_pullback": {
-        "enabled": true,
-        "type": "trend",
-        "description": "Enters trend pullbacks at key Fibonacci levels (38.2% - 78.6%).",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "ema_period": 200,
-            "adx_threshold": 25,
-            "swing_lookback": 35,
-            "swing_confirmation_bars": 10,
-            "min_rr": 1.5,
-            "volume_multiplier": 1.5,
-            "fibo_entry_min": 0.50,
-            "fibo_entry_max": 0.786
-        },
-        "display_conditions": [
-            "Fib_382",
-            "Fib_618",
-            "ADX_14"
-        ],
-        "version": "2026-02-monthly-v2",
-        "expected_freq": "Medium"
-    },
-    "liquidity_lightning": {
-        "enabled": true,
-        "type": "sniper",
-        "description": "Hunts for stop-hunts and rapid reversals (Lightning movements).",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "lookback": 30,
-            "wick_pct": 0.45,
-            "volume_multiplier": 2.2,
-            "min_rr": 1.0
-        },
-        "display_conditions": [
-            "Volume",
-            "Wick%"
-        ],
-        "version": "2026-02-monthly-v2",
-        "expected_freq": "Low (Sniper)"
-    },
-    "sniper_precision_trend": {
-        "enabled": true,
-        "type": "trend",
-        "description": "High precision trend entries using multi-timeframe analysis (15m Setup / 1m Trigger).",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "adx_strong_trend": 28,
-            "rsi_min": 38,
-            "rsi_pullback_limit": 60,
-            "volume_confirmation_mult": 1.3,
-            "rr_ratio": 1.6,
-            "pullback_tolerance": 0.005,
-            "sl_atr_mult": 0.7,
-            "bos_lookback": 3
-        },
-        "display_conditions": [
-            "ADX_14",
-            "RSI_14"
-        ],
-        "version": "2026-02-monthly-v2",
-        "expected_freq": "Medium"
-    },
-    "gamma_bear_vortex": {
-        "enabled": true,
-        "type": "trend",
-        "description": "Short-only strategy catching bearish momentum acceleration (Vortex).",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "adx_min": 25,
-            "vortex_period": 14,
-            "vortex_threshold": 1.1,
-            "gamma_pin_width": 0.015,
-            "sl_atr_mult": 1.5,
-            "tp_atr_mult": 3.0,
-            "rsi_max_oversold": 40
-        },
-        "display_conditions": [
-            "VI+",
-            "VI-",
-            "ADX_14"
-        ],
-        "version": "2026-02-monthly-v2",
         "expected_freq": "Medium"
     },
     "supertrend": {
@@ -221,39 +58,48 @@
             "min_rr": 2.0,
             "sl_atr_mult": 1.5
         },
-        "display_conditions": [
-            "Supertrend",
-            "EMA_200",
-            "ADX_14"
-        ],
+        "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-02-v2",
         "expected_freq": "Medium"
     },
-    "breakout_squeeze": {
-        "enabled": true,
+    "elastic_nibbler": {
+        "enabled": false,
+        "type": "range",
+        "description": "Disabled — redundant with elastic_reversion."
+    },
+    "bollinger_middle_bounce": {
+        "enabled": false,
         "type": "trend",
-        "description": "Breakout on Bollinger Band squeeze — compression-to-expansion trades with volume confirmation.",
-        "active": true,
-        "timeframe": "15m",
-        "params": {
-            "bb_period": 20,
-            "bb_std": 2.0,
-            "squeeze_width_pct": 1.5,
-            "squeeze_lookback": 6,
-            "adx_min": 20,
-            "volume_multiplier": 1.8,
-            "min_rr": 1.5,
-            "sl_atr_mult": 1.2,
-            "tp_atr_mult": 2.5
-        },
-        "display_conditions": [
-            "BBU",
-            "BBL",
-            "ADX_14",
-            "EMA_9",
-            "EMA_21"
-        ],
-        "version": "2026-02-v1",
-        "expected_freq": "Low"
+        "description": "Disabled — keep strategy count minimal."
+    },
+    "institutional_scalp": {
+        "enabled": false,
+        "type": "range",
+        "description": "Disabled — complex, not proven in current config."
+    },
+    "fibo_pullback": {
+        "enabled": false,
+        "type": "trend",
+        "description": "Disabled — too many parameters, EMA200 on 15m unreliable."
+    },
+    "liquidity_lightning": {
+        "enabled": false,
+        "type": "sniper",
+        "description": "Disabled — too rare, insufficient data."
+    },
+    "sniper_precision_trend": {
+        "enabled": false,
+        "type": "trend",
+        "description": "Disabled — multi-timeframe complexity."
+    },
+    "gamma_bear_vortex": {
+        "enabled": false,
+        "type": "trend",
+        "description": "Disabled — short-only, specialized, risky for conservative mode."
+    },
+    "breakout_squeeze": {
+        "enabled": false,
+        "type": "trend",
+        "description": "Disabled — very rare signals."
     }
 }

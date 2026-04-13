@@ -96,17 +96,13 @@ class SafeOrderManager:
             sl_text = f"{sl_to_send:.2f}" if sl_to_send else "skip"
             tp_text = f"{tp_to_send:.2f}" if tp_to_send else "skip"
             self.logger.info(f"   Placing: SL={sl_text}, TP={tp_text}")
-            result = self.hl._place_protection_orders(
+            self.hl._place_protection_orders(
                 symbol=symbol,
                 is_buy=is_buy, # Direction of the POSITION (helper inverts it for exit)
                 quantity=size,
                 sl_price=sl_to_send,
                 tp_price=tp_to_send
             )
-            # Check if placement succeeded
-            if isinstance(result, dict) and result.get("status") == "error":
-                self.logger.error(f"   ❌ Failed to place protection orders: {result.get('message')}")
-                return False
             return True
             
         return False

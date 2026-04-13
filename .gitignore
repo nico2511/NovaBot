@@ -44,3 +44,7 @@ scripts/
 stories/
 docs/
 backtest_lab/
+frontend-v3/
+
+# Secrets — config files containing webhooks/API keys
+data/config/user_settings.json

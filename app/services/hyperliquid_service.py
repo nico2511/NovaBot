@@ -464,11 +464,6 @@ class HyperliquidService:
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
-        # GUARD: Check if exchange is configured
-        if not self.exchange:
-            self.log(f"❌ Cannot place protection orders for {symbol}: Exchange not configured (no private key)", "ERROR")
-            return {"status": "error", "message": "Exchange not configured"}
-        
         try:
             sz_decimals, price_decimals = self._get_precision(symbol)
             
@@ -484,7 +479,9 @@ class HyperliquidService:
             
             if sl_price:
                 sl_price = float(f"{sl_price:.{price_decimals}f}")
-                sl_limit_px = sl_price
+                # For Market Trigger, limit_px must be aggressive to ensure fill
+                sl_limit_px = sl_price * 1.05 if close_is_buy else sl_price * 0.95
+                sl_limit_px = float(f"{sl_limit_px:.{price_decimals}f}")
                 
                 self.log(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price} (sz={quantity}, lim={sl_limit_px})")
                 orders.append({
@@ -498,7 +495,9 @@ class HyperliquidService:
                 
             if tp_price:
                 tp_price = float(f"{tp_price:.{price_decimals}f}")
-                tp_limit_px = tp_price
+                # For TP, logic is same (Market Trigger needs fill)
+                tp_limit_px = tp_price * 1.05 if close_is_buy else tp_price * 0.95
+                tp_limit_px = float(f"{tp_limit_px:.{price_decimals}f}")
                 
                 self.log(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price} (sz={quantity}, lim={tp_limit_px})")
                 orders.append({
@@ -511,39 +510,48 @@ class HyperliquidService:
                 })
             
             if orders:
-                # Use bulk_orders with normalTpsl grouping for reliable TP/SL placement
-                self.log(f"🚀 Placing {len(orders)} protection orders via bulk_orders...")
-                try:
-                    resp = self.exchange.bulk_orders(orders, grouping="normalTpsl")
-                    self.log(f"   🔍 Bulk API Response: {resp}")
-                    
-                    if isinstance(resp, dict) and resp.get("status") == "ok":
-                        response_data = resp.get("response", {})
-                        data_inner = response_data.get("data", {})
-                        statuses = data_inner.get("statuses", [])
+                # Place orders sequentially to ensure robust error handling per order
+                self.log(f"🚀 Placing {len(orders)} protection orders sequentially...")
+                total_success = 0
+                for o in orders:
+                     try:
+                        tpsl_type = o['order_type']['trigger']['tpsl'].upper()
+                        self.log(f"   👉 Sending {tpsl_type} Trigger Order for {symbol} @ {o['order_type']['trigger']['triggerPx']}...")
+                        resp = self.exchange.order(o["coin"], o["is_buy"], o["sz"], o["limit_px"], o["order_type"], o["reduce_only"])
                         
-                        errors = []
-                        successes = 0
-                        for i, status in enumerate(statuses):
-                            if isinstance(status, dict) and status.get("error"):
-                                errors.append(status["error"])
+                        # DEEP RESPONSE VALIDATION (Ported from execute_order)
+                        success = False
+                        error_reason = "Unknown Error"
+                        
+                        if isinstance(resp, dict) and resp.get("status") == "ok":
+                            response_data = resp.get("response", {})
+                            data_inner = response_data.get("data", {})
+                            statuses = data_inner.get("statuses", [])
+                            
+                            if not statuses:
+                                # Sometimes response might be empty list if nothing happened? But usually contains status.
+                                success = True 
                             else:
-                                successes += 1
-                        
-                        if successes == len(orders):
-                            self.log(f"   ✅ All {successes} protection orders CONFIRMED by Exchange.")
-                            return {"status": "success", "message": f"Placed {successes}/{len(orders)} orders"}
+                                # Check the first status (since we send 1 by 1 here)
+                                status = statuses[0]
+                                if isinstance(status, dict) and status.get("error"):
+                                    error_reason = status["error"]
+                                    success = False
+                                else:
+                                    success = True
                         else:
-                            self.log(f"   ❌ Partial success: {successes}/{len(orders)}. Errors: {errors}", "ERROR")
-                            return {"status": "error", "message": f"Placed {successes}/{len(orders)} orders. Errors: {errors}"}
-                    else:
-                        error_reason = f"API Status: {resp.get('status') if isinstance(resp, dict) else resp}"
-                        self.log(f"   ❌ Bulk Order REJECTED: {error_reason}", "ERROR")
-                        return {"status": "error", "message": error_reason}
-                        
-                except Exception as e_ord:
-                    self.log(f"   ❌ Bulk Order Failed Exception: {e_ord}", "ERROR")
-                    return {"status": "error", "message": str(e_ord)}
+                            error_reason = f"API Status: {resp.get('status') if isinstance(resp, dict) else resp}"
+                            
+                        if success:
+                            self.log(f"   ✅ {tpsl_type} Order CONFIRMED by Exchange.")
+                            total_success += 1
+                        else:
+                            self.log(f"   ❌ {tpsl_type} Order REJECTED: {error_reason}", "ERROR")
+                            
+                     except Exception as e_ord:
+                        self.log(f"   ❌ {tpsl_type} Order Failed Exception: {e_ord}", "ERROR")
+
+                return {"status": "success" if total_success > 0 else "error", "message": f"Placed {total_success}/{len(orders)} orders"}
                 
         except Exception as e:
             self.log(f"⚠️ Failed to place protection orders: {e}", "ERROR")
@@ -836,10 +844,7 @@ class HyperliquidService:
             # 1. Cancel existing orders to avoid duplicates/conflicts
             self.cancel_all_orders(symbol)
             
-            # 2. Wait for cancellations to process before placing new orders
-            time.sleep(0.5)
-            
-            # 3. Place new protection orders
+            # 2. Place new protection orders
             if sl_price or tp_price:
                 self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
                 

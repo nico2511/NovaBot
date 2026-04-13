@@ -1,7 +1,7 @@
 {
     "notifications": {
-        "discord_webhook_alerts": "https://discordapp.com/api/webhooks/1452757882469875813/G33zEWM9L-tGUIqXarRHsP8tlw3wTUd_MHpPxCDC89rKct763PjuUuo5UYTorW5zU3ie",
-        "discord_webhook_logs": "https://discordapp.com/api/webhooks/1452757882469875813/G33zEWM9L-tGUIqXarRHsP8tlw3wTUd_MHpPxCDC89rKct763PjuUuo5UYTorW5zU3ie"
+        "discord_webhook_alerts": "",
+        "discord_webhook_logs": ""
     },
     "operations": {
         "log_level": "INFO",
@@ -9,25 +9,25 @@
         "trading_timeframe": "15m"
     },
     "risk_defaults": {
-        "max_positions": 2,
-        "daily_stop_loss": 50.0,
-        "bot_persona": "Aggressive Day Trader",
-        "risk_profile": "High Volatility Hunter",
-        "default_leverage": 5,
+        "max_positions": 1,
+        "daily_stop_loss": 30.0,
+        "bot_persona": "Conservative Scalper",
+        "risk_profile": "Capital Preservation First",
+        "default_leverage": 2,
         "default_margin_type": "ISOLATED"
     },
     "ai_config": {
         "model_name": "deepseek/deepseek-v3.2",
-        "call_cooldown": 10,
+        "call_cooldown": 30,
         "conf_threshold_high": 75,
-        "conf_threshold_medium": 55,
-        "conf_threshold_low": 35
+        "conf_threshold_medium": 60,
+        "conf_threshold_low": 40
     },
     "scanner": {
         "enabled": true,
-        "interval": 5,
-        "min_score": 55,
-        "auto_switch": true,
+        "interval": 15,
+        "min_score": 70,
+        "auto_switch": false,
         "gamification_enabled": false,
         "max_funding_long": 0.0011,
         "min_funding_short": -0.0045,
