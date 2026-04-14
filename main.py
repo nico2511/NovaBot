@@ -35,7 +35,7 @@ try:
     # 1. Initialize Storage Service (FIRST to allow singletons to use it during import)
     logger.info("📁 Initializing Storage Service...")
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    from backend.services.storage import init_storage
+    from app.services.storage import init_storage
     init_storage(BASE_DIR)
 
     # 2. Import Core Components
@@ -43,8 +43,8 @@ try:
     from app.core.config import config
     from app.core.bot import BotContext
 
-    from backend.api.main import app
-    from backend.bot_bridge import bot_bridge
+    from app.api.main import app
+    from app.services.internal.bridge import bot_bridge
     
     # 3. Initialize Bot Instance
     logger.info("🤖 Initializing Bot Engine...")

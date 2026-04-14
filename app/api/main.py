@@ -20,10 +20,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MainApp")
 
 # Import routers
-from backend.api.routers import engine, trading, market, settings, history
+from app.api.routers import engine, trading, market, settings, history
 
 # Settings Watcher
-from backend.services.settings_watcher import SettingsWatcher
+from app.services.settings_watcher import SettingsWatcher
 settings_watcher = None
 
 @asynccontextmanager
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     
     # 1. Initialize Storage Service
     try:
-        from backend.services.storage import init_storage
+        from app.services.storage import init_storage
         init_storage(BASE_DIR)
         logger.info("✅ Storage service initialized")
     except Exception as e:
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     
     # 2. Initialize Bot Bridge
     try:
-        from backend.bot_bridge import bot_bridge
+        from app.services.internal.bridge import bot_bridge
         logger.info("✅ Bot bridge available")
         if bot_bridge.is_connected():
             logger.info("✅ Bot already connected via bridge")
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
         def on_settings_change(new_settings: dict):
             logger.info("🔄 Hot-Reloading Settings...")
             try:
-                from backend.bot_bridge import bot_bridge
+                from app.services.internal.bridge import bot_bridge
                 if bot_bridge and bot_bridge.is_connected():
                     bot = bot_bridge.get_bot_context()
                     
@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI):
     
     # Save final state if bot is connected
     try:
-        from backend.bot_bridge import bot_bridge
+        from app.services.internal.bridge import bot_bridge
         if bot_bridge and bot_bridge.is_connected():
             bot = bot_bridge.get_bot_context()
             from app.core.state_manager import StateManager
@@ -177,7 +177,7 @@ def root():
 def health_check():
     """Health check endpoint for monitoring"""
     try:
-        from backend.bot_bridge import bot_bridge
+        from app.services.internal.bridge import bot_bridge
         bot_connected = bot_bridge.is_connected() if bot_bridge else False
     except:
         bot_connected = False

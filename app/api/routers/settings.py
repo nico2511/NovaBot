@@ -3,9 +3,9 @@ Settings Router - Configuration Endpoints
 Handles global settings, scanner settings, and strategy configuration
 """
 from fastapi import APIRouter, Depends, HTTPException
-from backend.api.dependencies import get_bot_context, get_bot_context_optional
-from backend.models.api_models import GlobalSettingsModel, ScannerSettingsModel
-from backend.services import storage
+from app.api.dependencies import get_bot_context, get_bot_context_optional
+from app.api.models.api_models import GlobalSettingsModel, ScannerSettingsModel
+from app.services import storage
 import logging
 
 logger = logging.getLogger("SettingsRouter")

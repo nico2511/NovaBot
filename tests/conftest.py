@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from tempfile import mkdtemp
 from fastapi.testclient import TestClient
-from backend.api.main import app
-from backend.services.storage import StorageService
+from app.api.main import app
+from app.services.storage import StorageService
 
 @pytest.fixture
 def temp_data_dir():

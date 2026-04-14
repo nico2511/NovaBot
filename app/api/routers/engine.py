@@ -3,11 +3,11 @@ Engine Router - Bot Engine Control Endpoints
 Handles start, stop, restart, panic, and status operations
 """
 from fastapi import APIRouter, Depends, HTTPException
-from backend.api.dependencies import get_bot_context
+from app.api.dependencies import get_bot_context
 from pydantic import BaseModel
 import logging
 import pandas as pd
-from backend.services import storage
+from app.services import storage
 
 logger = logging.getLogger("EngineRouter")
 

@@ -134,6 +134,10 @@ class StrategyEngine:
             strat_type = params.get("type")
             
             # FIX: Logic for Strategy Selection
+            if name not in self.strategies:
+                # Log warning once to avoid spamming
+                continue
+
             if (regime == "TREND" or regime == "TREND_BEAR_STRONG") and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
                 

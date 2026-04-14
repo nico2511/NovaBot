@@ -31,7 +31,7 @@ from app.utils.data_processing import get_dynamic_context
 # Hardening Phase 0
 from app.services.safe_order_manager import SafeOrderManager
 from app.services.position_reconciler import PositionReconciler
-from backend.services.storage import storage_service
+from app.services.storage import storage_service
 
 class BotContext:
     """Main bot context"""
@@ -2229,7 +2229,7 @@ class BotContext:
             if df is None or df.empty:
                 self.add_log("📡 Recalibrate: Cache empty, fetching fresh 15m data...")
                 try:
-                    from backend.market_data import get_hyperliquid_candles
+                    from app.utils.market_data import get_hyperliquid_candles
                     df = await get_hyperliquid_candles(symbol, "15m", 100)
                 except:
                     self.add_log("⚠️ Fresh fetch failed.")

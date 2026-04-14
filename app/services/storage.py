@@ -30,38 +30,12 @@ class StorageService:
         Args:
             base_dir: Base directory for all storage operations
         """
-        # Robust pathing: Ensure we are at the project root even if launched from backend/
-        path_obj = Path(base_dir).absolute()
-        if path_obj.name == "backend":
-            self.base_dir = path_obj.parent
-        else:
-            self.base_dir = path_obj
-            
+        # Robust pathing: Ensure we are at the project root
+        self.base_dir = Path(base_dir).absolute()
         self.data_dir = self.base_dir / "data"
         
         # Initialize directories
         self._ensure_dirs()
-        
-        # Seed default configurations if missing
-        self._seed_defaults()
-    
-    def _seed_defaults(self):
-        """Seed default configuration files from backup if they are missing in the data volume"""
-        defaults_dir = self.base_dir / "backend" / "config_defaults"
-        if not defaults_dir.exists():
-            return
-
-        essential_files = ["strategies.json", "user_settings.json"]
-        for filename in essential_files:
-            target_path = self.config_dir / filename
-            source_path = defaults_dir / filename
-            
-            if not target_path.exists() and source_path.exists():
-                try:
-                    logger.info(f"🌱 Seeding default config: {filename}")
-                    shutil.copy2(source_path, target_path)
-                except Exception as e:
-                    logger.error(f"❌ Failed to seed {filename}: {e}")
     
     def _ensure_dirs(self):
         """Ensure all necessary data subdirectories exist."""

@@ -1,5 +1,5 @@
 from fastapi import HTTPException, Depends
-from backend.bot_bridge import bot_bridge
+from app.services.internal.bridge import bot_bridge
 
 def get_bot_context():
     """

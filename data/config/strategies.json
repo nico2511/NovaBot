@@ -61,45 +61,5 @@
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-02-v2",
         "expected_freq": "Medium"
-    },
-    "elastic_nibbler": {
-        "enabled": false,
-        "type": "range",
-        "description": "Disabled — redundant with elastic_reversion."
-    },
-    "bollinger_middle_bounce": {
-        "enabled": false,
-        "type": "trend",
-        "description": "Disabled — keep strategy count minimal."
-    },
-    "institutional_scalp": {
-        "enabled": false,
-        "type": "range",
-        "description": "Disabled — complex, not proven in current config."
-    },
-    "fibo_pullback": {
-        "enabled": false,
-        "type": "trend",
-        "description": "Disabled — too many parameters, EMA200 on 15m unreliable."
-    },
-    "liquidity_lightning": {
-        "enabled": false,
-        "type": "sniper",
-        "description": "Disabled — too rare, insufficient data."
-    },
-    "sniper_precision_trend": {
-        "enabled": false,
-        "type": "trend",
-        "description": "Disabled — multi-timeframe complexity."
-    },
-    "gamma_bear_vortex": {
-        "enabled": false,
-        "type": "trend",
-        "description": "Disabled — short-only, specialized, risky for conservative mode."
-    },
-    "breakout_squeeze": {
-        "enabled": false,
-        "type": "trend",
-        "description": "Disabled — very rare signals."
     }
 }

@@ -5,7 +5,7 @@ Handles enable/disable trading, symbol switching, position management
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from backend.api.dependencies import get_bot_context
+from app.api.dependencies import get_bot_context
 import logging
 
 logger = logging.getLogger("TradingRouter")

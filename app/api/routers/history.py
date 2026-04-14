@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Union
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from backend.api.dependencies import get_bot_context
+from app.api.dependencies import get_bot_context
 from app.core.trade_recorder import TradeRecorder
 
 logger = logging.getLogger("HistoryRouter")
@@ -72,7 +72,7 @@ def get_equity_history(limit: int = 168): # Default to 1 week of hourly data
     """
     try:
         from app.services.hyperliquid_service import hyperliquid_service
-        from backend.services.storage import storage_service
+        from app.services.storage import storage_service
         
         # 1. Load snapshots from storage
         snapshots = storage_service.load_pnl_snapshot()
@@ -234,7 +234,7 @@ def get_logs(limit: int = 50, bot=Depends(get_bot_context)):
 def get_sentiment_history():
     """Get market sentiment analysis history"""
     try:
-        from backend.services.storage import storage_service
+        from app.services.storage import storage_service
         data = storage_service.load_sentiment_history()
         # Ensure it returns an array
         if isinstance(data, dict):
@@ -249,7 +249,7 @@ def get_sentiment_history():
 def get_signal_analysis():
     """Get signal analysis decision history"""
     try:
-        from backend.services.storage import storage_service
+        from app.services.storage import storage_service
         data = storage_service.load_signal_analysis()
         # Ensure it returns an array
         if isinstance(data, dict):
@@ -264,7 +264,7 @@ def get_signal_analysis():
 def download_signal_analysis():
     """Download signal analysis JSON file"""
     try:
-        from backend.services.storage import storage_service
+        from app.services.storage import storage_service
         import json
         
         file_path = storage_service.analysis_dir / "signal_analysis.json"
@@ -298,7 +298,7 @@ def download_signal_analysis():
 def download_sentiment_history():
     """Download sentiment history JSON file"""
     try:
-        from backend.services.storage import storage_service
+        from app.services.storage import storage_service
         import json
         
         file_path = storage_service.analysis_dir / "sentiment_history.json"

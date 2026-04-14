@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from threading import Thread
 from typing import Callable, Dict, Any, Optional
-from backend.services.storage import storage_service
+from app.services.storage import storage_service
 
 logger = logging.getLogger("SettingsWatcher")
 
