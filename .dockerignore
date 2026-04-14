@@ -19,3 +19,7 @@ docker-compose.yml
 .claude
 .agent
 *.log
+tests/
+scratch/
+pytest.ini
+refactor_bot.py

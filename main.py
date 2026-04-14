@@ -4,11 +4,17 @@ Launches both the Trading Engine (Background) and API Server (Foreground)
 """
 import os
 import sys
+import io
 import threading
 import uvicorn
 import logging
 import traceback
 from dotenv import load_dotenv
+
+# Fix stdout/stderr encoding on Windows to prevent Emoji crashes
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # Load environment variables
 load_dotenv()

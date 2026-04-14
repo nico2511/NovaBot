@@ -1,79 +1,45 @@
-# NovaBot - Procédure de Déploiement Local sur Coolify (Proxmox)
+# NovaBot - Déploiement Headless sur Coolify
 
-Ce document décrit les étapes pour déployer NovaBot sur une instance Coolify hébergée sur Proxmox, accessible uniquement via votre réseau local.
+Ce document décrit la procédure simplifiée pour déployer NovaBot (Backend uniquement) sur Coolify.
 
-## 1. Préparation du Dépôt GitHub
-
-Assurez-vous que les fichiers suivants sont présents à la racine de votre dépôt :
+## 1. Prérequis GitHub
+Vérifiez que ces fichiers sont à la racine de votre dépôt :
 - `Dockerfile`
-- `frontend-v3/Dockerfile`
-- `Dockerfile`
-- `frontend-v3/Dockerfile`
 - `docker-compose.yaml`
 - `.dockerignore`
 - `requirements.txt`
-- `frontend-v3/next.config.js` (avec `output: 'standalone'`)
+- `main.py`
 
 ## 2. Configuration sur Coolify
 
-### Étape 1 : Ajouter une Nouvelle Ressource
-1. Dans votre instance Coolify, allez dans **Resources** > **Create New**.
+### Étape 1 : Création de la ressource
+1. Dans Coolify, allez dans **Resources** > **Create New**.
 2. Choisissez **Docker Compose**.
-3. Sélectionnez votre source GitHub et le dépôt **nico2511/NovaBot**.
-4. Sélectionnez la branche principale (ex: `main`).
+3. Sélectionnez votre dépôt GitHub `nico2511/NovaBot`.
+4. Laissez Coolify analyser le fichier `docker-compose.yaml`.
 
-### Étape 2 : Configuration du Docker Compose
-Coolify devrait détecter automatiquement votre fichier `docker-compose.yaml`. Si ce n'est pas le cas, copiez-collez le contenu de votre fichier local dans l'interface de Coolify.
+### Étape 2 : Variables d'Environnement (VITAL)
+Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes en copiant les valeurs de votre `.env` local :
 
-### Étape 3 : Variables d'Environnement
-Dans l'onglet **Environment Variables** de votre projet Coolify, ajoutez les variables nécessaires (copiez le contenu de votre `.env` local) :
-- `HL_PRIVATE_KEY`
-- `HL_ACCOUNT_ADDRESS`
-- `GEMINI_API_KEY`
-- `OPENROUTER_API_KEY`
-- `DISCORD_WEBHOOK_URL_ALERTS`
-- `DISCORD_WEBHOOK_URL_LOGS`
-- `API_KEY` (pour la sécurité de l'API)
-- `PORT=3001` (Backend)
-- `PORT=3002` (Frontend)
+| Clé | Usage |
+| :--- | :--- |
+| `HL_PRIVATE_KEY` | Clé de l'Agent API (sans 0x) |
+| `HL_ACCOUNT_ADDRESS` | Adresse de votre portefeuille principal |
+| `OPENROUTER_API_KEY` | Clé pour l'analyse IA |
+| `DISCORD_WEBHOOK_URL_ALERTS` | Webhook pour les trades |
+| `DISCORD_WEBHOOK_URL_LOGS` | Webhook pour les logs |
+| `PORT` | `3001` |
 
-### Étape 4 : Stockage Persistant (Volumes)
-Coolify créera automatiquement des volumes basés sur le `docker-compose.yaml`. Vérifiez que les chemins suivants sont persistants pour conserver vos données :
-- `/app/data` (Backend) : contient vos configurations et états.
-- `/app/logs` (Backend) : contient les logs de trading.
+### Étape 3 : Volumes Persistants
+Vérifiez dans l'onglet **Storage** que les volumes sont bien configurés :
+- `/app/data` : Pour conserver vos analyses et l'état du bot.
+- `/app/logs` : Pour garder l'historique des logs de trading.
 
-### Étape 5 : Accès Local et Ports
-1. **Accès IP** : L'application sera accessible via l'adresse IP de votre instance Proxmox/Coolify.
-2. **Configuration Réseau Coolify (CRITIQUE)** :
-   - Dans Coolify, allez dans les paramètres **Network** (Réseau) ou **Destination**.
-   - Assurez-vous que le **Port public** et le **Port de destination** du Frontend sont bien réglés sur **3002**.
-   - Pour le Backend, assurez-vous que le port est **3001**.
-3. **Ports dans l'Application** :
-   - Interface : `http://<IP_COOLIFY>:3002`
-   - API : `http://<IP_COOLIFY>:3001`
-3. **Domaines Locaux** : Si vous utilisez un DNS local (Pi-hole, AdGuard, ou host file), vous pouvez configurer un FQDN comme `novabot.local`.
-
-#### Configuration AdGuard Home :
-- Connectez-vous à votre interface **AdGuard Home**.
-- Allez dans **Filtres** (Filters) -> **Réécritures DNS** (DNS Rewrites).
-- Cliquez sur **Ajouter une réécriture DNS**.
-- **Nom de domaine** : `novabot.local` (ou celui de votre choix).
-- **Adresse IP** : L'adresse IP de votre instance Proxmox/Coolify.
-- Cliquez sur **Enregistrer**.
-
-*Note : Vous devrez toujours ajouter le port dans votre navigateur, par exemple `http://novabot.local:3002`, à moins d'utiliser un reverse proxy qui redirige le trafic HTTP standard.*
-
-## 3. Déploiement
-
-Cliquez sur **Deploy** dans l'interface Coolify.
-
-## 4. Vérification
-
-- **Logs** : Surveillez les logs dans Coolify pour vérifier que le bot démarre et que le frontend est construit correctement.
-- **Accès** : Rendez-vous sur `http://<IP_LOCALE>:3002` (ou votre domaine local) pour accéder à l'interface NovaBot.
-- **API** : Vérifiez que le frontend communique bien avec le backend via le réseau Docker interne.
+## 3. Déploiement et Suivi
+1. Cliquez sur **Deploy**.
+2. **Logs** : Surveillez l'onglet **Logs** de Coolify. Vous devriez voir les messages d'initialisation de NovaBot.
+3. **Vérification** : Si les webhooks Discord sont configurés, vous recevrez une notification au démarrage du bot.
 
 ---
-
-> [!TIP]
-> Si le frontend ne parvient pas à contacter le backend, vérifiez la variable `NEXT_PUBLIC_API_URL` dans le `docker-compose.yaml`. Par défaut, elle est réglée sur `http://novabot.local:3001` pour correspondre à votre configuration réseau locale.
+> [!NOTE]
+> Puisqu'il n'y a plus d'interface graphique (frontend), toute l'interaction se fait via les logs et les alertes Discord. C'est le mode le plus stable pour une utilisation 24/7.

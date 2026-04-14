@@ -1530,17 +1530,11 @@ class BotContext:
             sl = None
             tp = None
             
-            # Continuous Adoption
-            if not self.active_trade:
-                try:
-                    real_positions_manual = hyperliquid_service.get_positions()
-                    if real_positions_manual:
-                        manual_pos = next((p for p in real_positions_manual if p["symbol"] == self.active_symbol and float(p['size']) != 0), None)
-                        if manual_pos:
-                            self.add_log(f"🕵️ MANUAL TRADE DETECTED: Adopting {self.active_symbol} position...")
-                            self._adopt_existing_position(manual_pos)
-                            continue
-                except Exception: pass
+            # --- CONTINUOUS ADOPTION (Manual Trades) ---
+            # Use _sync_state(silent=False) occasionally to detect and notify adoption
+            # instead of a restrictive single-symbol check.
+            if not self.active_trade and int(time.time()) % 30 == 0:
+                self._sync_state(silent=False)
             
             try:
                 acc_data = hyperliquid_service.get_account_balance()
@@ -1999,7 +1993,22 @@ class BotContext:
                     "metadata": {"stage": "1_raw_adoption"}
                 }
                 StateManager.save_state(self)
+            
             self.add_log(f"🕵️ ADOPTED {symbol}: Size {size} | Entry {entry_price}")
+            
+            # --- GLOBAL ADOPTION NOTIFICATION ---
+            direction_label = "LONG 🟢" if side == "BUY" else "SHORT 🔴"
+            try:
+                discord_service.send_alert(
+                    f"📥 Manual Position Detected: {symbol}",
+                    f"Direction: {direction_label}\n"
+                    f"Entry: {entry_price}\n"
+                    f"Size: {size}\n"
+                    f"The bot will now track and protect this position.",
+                    color="FFA500"  # Orange — informational
+                )
+            except Exception as e:
+                self.add_log(f"⚠️ Discord notification failed during adoption: {e}")
             
             try:
                 self.add_log(f"🔍 Analyzing market context for {symbol}...")

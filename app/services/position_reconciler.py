@@ -165,44 +165,12 @@ class PositionReconciler:
                 # Skip adoption rather than adopting with bad data
                 continue
 
-            # ---- Register in bot state ----
-            adopted_trade = {
-                "symbol": symbol,
-                "strategy": "Manual",          # Clear label — this is a human trade
-                "side": side,
-                "entry": entry_price,           # Real entry price from exchange
-                "entry_price": entry_price,     # Alias used by some callers
-                "size": size,
-                "sl": None,                     # Unknown — reconciler will try to enforce
-                "tp": None,
-                "timestamp": __import__("pandas").Timestamp.now().isoformat(),
-                "status": "ADOPTED",
-                "source": "manual",             # Distinguishes manual from bot-opened trades
-                "initial_sl_tp_set": False,     # Triggers SL/TP enforcement on next pass
-            }
-
-            with self.bot_context.trade_lock:
-                self.bot_context.active_trades[symbol] = adopted_trade
-
-            direction_label = "LONG 🟢" if side == "BUY" else "SHORT 🔴"
-            logger.warning(
-                f"📥 Orphan position adopted: {symbol} | {direction_label} | "
-                f"Entry: {entry_price} | Size: {size}"
-            )
-
-            # Notify via Discord so the user knows the bot is aware of the manual trade
+            # ---- Register in bot state via unified method ----
             try:
-                from app.services.discord_service import discord_service
-                discord_service.send_alert(
-                    f"📥 Manual Position Detected: {symbol}",
-                    f"Direction: {direction_label}\n"
-                    f"Entry: {entry_price}\n"
-                    f"Size: {size}\n"
-                    f"The bot will now track and protect this position.",
-                    color="FFA500"  # Orange — informational
-                )
-            except Exception:
-                pass  # Discord failure must never block reconciliation
+                self.bot_context._adopt_existing_position(pos)
+                logger.info(f"✅ Reconciler triggered adoption for {symbol}")
+            except Exception as e:
+                logger.error(f"❌ Reconciler failed to adopt {symbol}: {e}")
 
     # ------------------------------------------------------------------
     # Helpers

@@ -1,17 +1,19 @@
 version: '3.8'
 
 services:
-  novabot-backend:
+  novabot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: novabot-backend
+    container_name: novabot
     restart: always
     ports:
       - "3001:3001"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
-      - PORT=3001
       - PYTHONUNBUFFERED=1
+      - PORT=3001
