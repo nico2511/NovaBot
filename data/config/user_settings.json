@@ -1,8 +1,4 @@
 {
-    "notifications": {
-        "discord_webhook_alerts": "",
-        "discord_webhook_logs": ""
-    },
     "operations": {
         "log_level": "INFO",
         "auto_start_trading": true,
@@ -28,7 +24,6 @@
         "interval": 15,
         "min_score": 70,
         "auto_switch": false,
-        "gamification_enabled": false,
         "max_funding_long": 0.0011,
         "min_funding_short": -0.0045,
         "funding_filter_enabled": true

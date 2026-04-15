@@ -22,11 +22,9 @@ class StorageService:
         Initialize storage service with organized data structure
         
         Directory structure:
-        - data/config/     - Configuration files (user_settings.json, strategies.json, theme.json)
+        - data/config/     - Configuration files (user_settings.json, strategies.json)
         - data/cache/      - Cache files (token_meta_cache.json)
         - data/state/      - State files (daily_pnl_snapshot.json)
-        - data/analysis/   - Analysis files (signal_analysis.json, sentiment_history.json)
-        
         Args:
             base_dir: Base directory for all storage operations
         """
@@ -42,9 +40,8 @@ class StorageService:
         self.config_dir = self.data_dir / "config"
         self.cache_dir = self.data_dir / "cache"
         self.state_dir = self.data_dir / "state"
-        self.analysis_dir = self.data_dir / "analysis"
         
-        for directory in [self.config_dir, self.cache_dir, self.state_dir, self.analysis_dir]:
+        for directory in [self.config_dir, self.cache_dir, self.state_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
     def atomic_write_json(self, filepath: Path, data: Dict[str, Any], indent: int = 2) -> bool:
@@ -161,14 +158,7 @@ class StorageService:
         """Load strategies configuration from data/config/strategies.json"""
         return self.read_json(self.config_dir / "strategies.json", default={})
     
-    def save_theme(self, theme: Dict[str, Any]) -> bool:
-        """Save theme configuration atomically to data/config/theme.json"""
-        return self.atomic_write_json(self.config_dir / "theme.json", theme, indent=2)
-    
-    def load_theme(self) -> Dict[str, Any]:
-        """Load theme configuration from data/config/theme.json"""
-        return self.read_json(self.config_dir / "theme.json", default={})
-    
+
     # Cache files (data/cache/)
     
     def save_token_cache(self, cache: Dict[str, Any]) -> bool:
@@ -189,24 +179,6 @@ class StorageService:
         """Load daily PnL snapshot from data/state/daily_pnl_snapshot.json"""
         return self.read_json(self.state_dir / "daily_pnl_snapshot.json", default={})
     
-    # Analysis files (data/analysis/)
-    
-    def save_signal_analysis(self, analysis: Dict[str, Any]) -> bool:
-        """Save signal analysis atomically to data/analysis/signal_analysis.json"""
-        return self.atomic_write_json(self.analysis_dir / "signal_analysis.json", analysis, indent=2)
-    
-    def load_signal_analysis(self) -> Any:
-        """Load signal analysis from data/analysis/signal_analysis.json"""
-        return self.read_json(self.analysis_dir / "signal_analysis.json", default=[])
-    
-    def save_sentiment_history(self, history: Dict[str, Any]) -> bool:
-        """Save sentiment history atomically to data/analysis/sentiment_history.json"""
-        return self.atomic_write_json(self.analysis_dir / "sentiment_history.json", history, indent=2)
-    
-    def load_sentiment_history(self) -> Any:
-        """Load sentiment history from data/analysis/sentiment_history.json"""
-        return self.read_json(self.analysis_dir / "sentiment_history.json", default=[])
-
 
 # Global storage service instance
 # Will be initialized with BASE_DIR from api.py
@@ -221,5 +193,4 @@ def init_storage(base_dir: str):
     logger.info(f"   - Config: {storage_service.config_dir}")
     logger.info(f"   - Cache: {storage_service.cache_dir}")
     logger.info(f"   - State: {storage_service.state_dir}")
-    logger.info(f"   - Analysis: {storage_service.analysis_dir}")
     return storage_service
