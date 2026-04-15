@@ -16,7 +16,9 @@ class StateManager:
         state = {
             "active_trades": context.active_trades,  # Multi-position support
             "trading_enabled": context.trading_enabled,
-            "is_running": context.is_running,
+            # NOTE: is_running is intentionally NOT saved — it is a runtime-only flag.
+            # Threads never survive a process restart; restoring is_running=True would
+            # cause a misleading 'thread dead, restarting' message on every boot.
             "active_symbol": context.active_symbol,
             "last_updated": str(datetime.now())
         }
@@ -98,7 +100,8 @@ class StateManager:
                 context.active_trades = active_trades  # Multi-position support
             
             context.trading_enabled = state.get("trading_enabled", False)
-            context.is_running = state.get("is_running", False)
+            # is_running is always False at load time — threads do not survive restarts.
+            context.is_running = False
             
             from app.core.config import config
             context.active_symbol = state.get("active_symbol", config.TRADING_SYMBOL)

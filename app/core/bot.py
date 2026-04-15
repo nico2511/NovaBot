@@ -1008,12 +1008,14 @@ class BotContext:
 
             if new_sl:
                 with self.trade_lock:
-                    self.active_trade["sl"] = new_sl
-                    StateManager.save_state(self)
+                    t_ref = self.active_trades.get(trade.get("symbol"))
+                    if t_ref:
+                        t_ref["sl"] = new_sl
+                        StateManager.save_state(self)
                 
                 # Discord Notification for Break-Even
                 discord_service.send_alert(
-                    f"🛡️ BREAK-EVEN TRIGGERED: {self.active_symbol}",
+                    f"🛡️ BREAK-EVEN TRIGGERED: {trade.get('symbol', self.active_symbol)}",
                     f"New SL: {new_sl:.2f}\nCurrent Price: {current_price:.2f}\nEntry: {entry_price:.2f}",
                     color="FFA500"  # Orange
                 )
@@ -2076,9 +2078,6 @@ class BotContext:
                      # Trend Following: Give room to breathe
                      sl_mult *= 1.5
                      tp_mult *= 1.6 # Reward risk
-            except Exception as e:
-                self.add_log(f"⚠️ Context Logic Error: {e}")
-                sl_mult = 2.0; tp_mult = 3.0
             except Exception as e:
                 self.add_log(f"⚠️ Context Logic Error: {e}")
                 sl_mult = 2.0; tp_mult = 3.0
