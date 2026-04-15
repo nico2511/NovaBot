@@ -885,8 +885,7 @@ class HyperliquidService:
             return self._balance_cache["data"]
         
         try:
-            info = Info(config.HYPERLIQUID_API_URL, skip_ws=True)
-            user_state = info.user_state(config.HL_ACCOUNT_ADDRESS)
+            user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
             
             # Extract balance info
             margin_summary = user_state.get("marginSummary", {})

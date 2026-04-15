@@ -1219,12 +1219,9 @@ class BotContext:
 
 
     def _enforce_leverage(self):
-        """Enforce leverage based on Gamification and Settings"""
+        """Enforce leverage based on Risk Profile settings"""
         try:
-            # Check if Gamification is explicitly disabled in settings
-            gamification_active = self.scanner_settings.get("gamification_enabled", True)
-            
-            # Fallback: Use global_settings default_leverage when gamification disabled
+            # Fallback: Use global_settings default_leverage
             default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
             default_margin_type = self.global_settings.get("risk_defaults", {}).get("default_margin_type", "Cross")
             
