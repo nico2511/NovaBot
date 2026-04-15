@@ -51,7 +51,6 @@ class ScannerSettingsModel(BaseModel):
     interval: int
     min_score: int
     auto_switch: bool
-    gamification_enabled: bool
     max_funding_long: float = 0.001
     min_funding_short: float = -0.001
     funding_filter_enabled: bool = True

@@ -144,8 +144,7 @@ class StorageService:
                 "enabled": False,
                 "interval": 15,
                 "min_score": 50,
-                "auto_switch": False,
-                "gamification_enabled": True
+                "auto_switch": False
             },
             "notifications": {}
         })

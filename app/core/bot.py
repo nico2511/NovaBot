@@ -25,7 +25,6 @@ from app.core.trade_recorder import TradeRecorder
 from strategies.engine import StrategyEngine
 from app.services.ia import ia_service
 from app.services.indicators import Indicators
-from app.services.discord_service import discord_service
 from app.utils.data_processing import get_dynamic_context
 
 # Hardening Phase 0
@@ -77,8 +76,7 @@ class BotContext:
             "enabled": config.SCANNER_ENABLED,
             "interval": config.SCANNER_INTERVAL,
             "min_score": config.SCANNER_MIN_SCORE,
-            "auto_switch": config.SCANNER_AUTO_SWITCH,
-            "gamification_enabled": config.SCANNER_GAMIFICATION
+            "auto_switch": config.SCANNER_AUTO_SWITCH
         }
 
         # Global Settings Defaults (Seeded from user_settings API via config)
@@ -1108,28 +1106,8 @@ class BotContext:
                 # 3. Local Exit Check (Safety)
                 self._check_local_exits(trade, symbol, current_price)
                 
-                # 4. Periodic Copilot Reporting
-                self._handle_periodic_copilot_report(trade)
-                
             except Exception as manage_err:
                 self.add_log(f"⚠️ Management Error on {symbol}: {manage_err}")
-
-    def _handle_periodic_copilot_report(self, trade: dict):
-        """Handle periodic analysis report for active trades (Copilot logic)"""
-        pass
-
-    def _handle_periodic_all_positions_report(self):
-        """Send periodic reports for ALL active positions (including manual ones)"""
-        pass
-
-    def _send_position_report_sync(self, position: dict):
-        """Send Discord report for a single position (synchronous wrapper)"""
-        pass
-
-    async def _send_position_report_async(self, position: dict):
-        """Send Discord report for a single position (async)"""
-        pass
-
 
     def _sync_state(self, silent=True):
         """Unified State Synchronization (Stateless Truth) - Multi-Position aware"""
@@ -1404,16 +1382,6 @@ class BotContext:
                     self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now() 
             except: pass
             # --------------------------------------------------------
-            
-            # --------------------------------------------------------
-            # 3. PERIODIC COPILOT REPORTS FOR ALL POSITIONS
-            # Send Discord updates for ALL active positions (including manual ones)
-            # This runs independently of active_trade management
-            # --------------------------------------------------------
-            try:
-                self._handle_periodic_all_positions_report()
-            except Exception as e:
-                self.add_log(f"⚠️ Periodic Multi-Position Report Error: {e}")
             
             try:
                 self._manage_all_trades()

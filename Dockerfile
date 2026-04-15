@@ -36,7 +36,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
 # Ensure data directories exist
-RUN mkdir -p data/config data/state data/cache data/analysis logs
+RUN mkdir -p data/config data/state data/cache logs
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1

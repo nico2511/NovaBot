@@ -63,7 +63,6 @@ class Config:
     SCANNER_INTERVAL: int = _state_settings.get('scanner', {}).get('interval', 5)
     SCANNER_MIN_SCORE: int = _state_settings.get('scanner', {}).get('min_score', 60)
     SCANNER_AUTO_SWITCH: bool = _state_settings.get('scanner', {}).get('auto_switch', True)
-    SCANNER_GAMIFICATION: bool = _state_settings.get('scanner', {}).get('gamification_enabled', False)
 
     # ==============================================================================
     # 🧠 AI MODULAR CONFIGURATION
