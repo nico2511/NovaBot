@@ -1283,10 +1283,12 @@ class BotContext:
                 target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
             
             self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
-            
-            if 'current_equity' in locals():
-                self.account_value = float(current_equity)
-
+            try:
+                balance_data = hyperliquid_service.get_account_balance()
+                if balance_data.get("status") == "success":
+                    self.account_value = float(balance_data.get("total_equity", 0.0))
+            except:
+                pass
             self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
             hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
             self._leverage_synced = True
