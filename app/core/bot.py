@@ -55,9 +55,9 @@ class BotContext:
         
         # Multi-Position Support: Dictionary indexed by symbol
         # MUST be initialized BEFORE any property access (like self.latest_data)
-        self.active_symbol = "BTC"  # Must be set before latest_data
-        self.active_trades = {}  # { "BTC": {...trade_data...}, "ETH": {...} }
-        self.latest_data_map = {}  # { "BTC": DataFrame, "ETH": DataFrame }
+        self.active_symbol = config.TRADING_SYMBOL  # Must be set before latest_data
+        self.active_trades = {}  # { "HYPE": {...trade_data...}, "ETH": {...} }
+        self.latest_data_map = {}  # { "HYPE": DataFrame, "ETH": DataFrame }
         
         self.latest_data = pd.DataFrame()
         self.latest_analysis = {}
@@ -1116,196 +1116,19 @@ class BotContext:
 
     def _handle_periodic_copilot_report(self, trade: dict):
         """Handle periodic analysis report for active trades (Copilot logic)"""
-        now = time.time()
-        if self._last_copilot_report_time is None:
-            self._last_copilot_report_time = now
-            return
-            
-        elapsed = now - self._last_copilot_report_time
-        if elapsed >= self._copilot_report_interval:
-            self._last_copilot_report_time = now
-            symbol = trade["symbol"]
-            
-            def run_async_report_sync():
-                """Bridge to run async report in bot thread"""
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(run_async_report())
-                    loop.close()
-                except Exception as e:
-                    self.add_log(f"⚠️ run_async_report_sync Error: {e}")
-
-            async def run_async_report():
-                try:
-                    self.add_log(f"📊 Periodic Copilot Analysis for {symbol}...")
-                    
-                    # Get Market Sentiment
-                    sentiment = await analyst_service.analyze_market_sentiment(symbol)
-                    
-                    # Format position for AnalystService
-                    entry = float(trade.get("entry", 0))
-                    curr = hyperliquid_service.get_current_price(symbol)
-                    side = trade.get("side", "BUY")
-                    pnl_raw = ((curr - entry) / entry) if side == "BUY" else ((entry - curr) / entry)
-                    
-                    # Fetch Advanced Metrics safely
-                    funding_rate = 0.0
-                    oi = 0.0
-                    try:
-                        raw_funding = hyperliquid_service.get_funding_rate(symbol)
-                        funding_rate = raw_funding * 100.0 # Convert to Percentage
-                        oi = hyperliquid_service.get_open_interest(symbol)
-                    except Exception as e:
-                        self.add_log(f"⚠️ Metrics Fetch Error: {e}")
-
-                    pos_data = {
-                        "symbol": symbol,
-                        "side": side,
-                        "size": trade.get("size", 0),
-                        "returnOnEquity": pnl_raw
-                    }
-                    
-                    # Pass trading_timeframe from settings for dynamic advice weighting
-                    trading_tf = self.global_settings.get("trading_timeframe", "15m")
-                    analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
-                    
-                    # --- UPDATE CACHE FOR FRONTEND ---
-                    self.ai_cache["last_market_analysis"] = sentiment
-                    self.ai_cache["last_market_analysis_time"] = pd.Timestamp.now()
-                    self.ai_cache["last_position_analysis"] = {
-                        "symbol": symbol,
-                        "size": trade.get("size", 0),
-                        "analysis": analysis
-                    }
-                    self.ai_cache["last_position_analysis_time"] = pd.Timestamp.now()
-                    
-                    advice = analysis.get("advice", "HOLD")
-                    reason = analysis.get("reason", "N/A")
-                    
-                    # Notification Discord
-                    pnl_pct = pnl_raw * 100
-                    status_emoji = "🟢" if pnl_pct > 0 else "🔴"
-                    report_msg = (
-                        f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
-                        f"💰 **PnL:** {pnl_pct:+.2f}%\n"
-                        f"🧠 **Advice:** {advice}\n"
-                        f"📝 **Reasoning:** {reason}\n"
-                        f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
-                        f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
-                    )
-                    
-                    # Send to Discord & Internal Logs
-                    discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
-                    self.add_log(f"📊 Copilot Report Sent: {advice} | PnL: {pnl_pct:.2f}%")
-                    
-                except Exception as e:
-                    self.add_log(f"⚠️ Periodic Report Failed: {e}")
-
-
-            # Run in separate thread or use current loop if possible
-            threading.Thread(target=run_async_report_sync, daemon=True).start()
+        pass
 
     def _handle_periodic_all_positions_report(self):
         """Send periodic reports for ALL active positions (including manual ones)"""
-        now = time.time()
-        
-        # Use same interval tracking as single position reports
-        if self._last_copilot_report_time is None:
-            self._last_copilot_report_time = now
-            return
-            
-        elapsed = now - self._last_copilot_report_time
-        if elapsed >= self._copilot_report_interval:
-            self._last_copilot_report_time = now
-            
-            # Get ALL active positions from Hyperliquid
-            try:
-                positions = hyperliquid_service.get_positions()
-                active_positions = [p for p in positions if float(p.get("size", 0)) > 0]
-                
-                if not active_positions:
-                    return
-                
-                self.add_log(f"📊 Sending periodic reports for {len(active_positions)} position(s)...")
-                
-                # Send report for each position
-                for pos in active_positions:
-                    self._send_position_report_sync(pos)
-                    
-            except Exception as e:
-                self.add_log(f"⚠️ Multi-Position Report Error: {e}")
+        pass
 
     def _send_position_report_sync(self, position: dict):
         """Send Discord report for a single position (synchronous wrapper)"""
-        def run_report():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._send_position_report_async(position))
-                loop.close()
-            except Exception as e:
-                self.add_log(f"⚠️ Position Report Error: {e}")
-        
-        threading.Thread(target=run_report, daemon=True).start()
+        pass
 
     async def _send_position_report_async(self, position: dict):
         """Send Discord report for a single position (async)"""
-        try:
-            symbol = position.get("symbol")
-            side = position.get("side", "BUY")
-            size = float(position.get("size", 0))
-            entry_price = float(position.get("entry_price", 0))
-            
-            # Get current price and calculate PnL
-            curr = hyperliquid_service.get_current_price(symbol)
-            pnl_raw = ((curr - entry_price) / entry_price) if side == "BUY" else ((entry_price - curr) / entry_price)
-            pnl_pct = pnl_raw * 100
-            
-            # Get market sentiment
-            sentiment = await analyst_service.analyze_market_sentiment(symbol)
-            
-            # Fetch metrics
-            funding_rate = 0.0
-            oi = 0.0
-            try:
-                raw_funding = hyperliquid_service.get_funding_rate(symbol)
-                funding_rate = raw_funding * 100.0
-                oi = hyperliquid_service.get_open_interest(symbol)
-            except:
-                pass
-            
-            # Analyze position
-            pos_data = {
-                "symbol": symbol,
-                "side": side,
-                "size": size,
-                "returnOnEquity": pnl_raw
-            }
-            
-            trading_tf = self.global_settings.get("trading_timeframe", "15m")
-            analysis = analyst_service.analyze_position(pos_data, sentiment, trading_timeframe=trading_tf)
-            
-            advice = analysis.get("advice", "HOLD")
-            reason = analysis.get("reason", "N/A")
-            
-            # Build Discord message
-            status_emoji = "🟢" if pnl_pct > 0 else "🔴"
-            report_msg = (
-                f"{status_emoji} **Copilot Report: {symbol}** ({side})\n"
-                f"💰 **PnL:** {pnl_pct:+.2f}%\n"
-                f"🧠 **Advice:** {advice}\n"
-                f"📝 **Reasoning:** {reason}\n"
-                f"🌊 **Sentiment (1h):** {sentiment.get('1h', {}).get('sentiment', 'UNKNOWN')}\n"
-                f"📊 **Data:** Funding `{funding_rate:.4f}%` | OI `${oi/1e6:.1f}M`"
-            )
-            
-            # Send to Discord
-            discord_service.send_alert(f"📊 Copilot Report: {symbol}", report_msg, color="0000ff")
-            self.add_log(f"📊 Report sent for {symbol}: {advice} | PnL: {pnl_pct:.2f}%")
-            
-        except Exception as e:
-            self.add_log(f"⚠️ Failed to send report for {position.get('symbol', 'UNKNOWN')}: {e}")
+        pass
 
 
     def _sync_state(self, silent=True):
@@ -1447,33 +1270,19 @@ class BotContext:
             
             target_leverage = requested_leverage
             
-            if gamification_active:
-                try:
-                    balance_data = hyperliquid_service.get_account_balance()
-                    current_equity = balance_data.get("total_equity", 0.0) if balance_data.get("status") == "success" else 0.0
-                    gam = AssetGamification(current_equity)
-                    max_leverage = gam.get_max_leverage()
-                    
-                    target_leverage = min(requested_leverage, max_leverage)
-                    
-                    if requested_leverage > max_leverage:
-                        self.add_log(f"🎮 GAMIFICATION: Leverage capped {requested_leverage}x → {target_leverage}x (Level: {gam.level.value})")
-                except Exception as gam_err:
-                    self.add_log(f"⚠️ Gamification check failed: {gam_err}")
+            # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
+            risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
+            
+            if risk_profile == "Capital Preservation First":
+                target_leverage = 3
+            elif risk_profile == "Balanced Growth":
+                target_leverage = 5
+            elif risk_profile == "High Volatility Hunter":
+                target_leverage = 10
             else:
-                # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
-                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                
-                if risk_profile == "Capital Preservation First":
-                    target_leverage = 3
-                elif risk_profile == "Balanced Growth":
-                    target_leverage = 5
-                elif risk_profile == "High Volatility Hunter":
-                    target_leverage = 10
-                else:
-                    target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
-                
-                self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
+                target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
+            
+            self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
             
             if 'current_equity' in locals():
                 self.account_value = float(current_equity)
@@ -1614,7 +1423,7 @@ class BotContext:
                 # Skip NEW ENTRY analysis only if we are at max positions
                 # We still analyze for new opportunities even with open trades
                 if len(self.active_trades) >= self.max_positions:
-                     self.add_log(f"⏸️ Max positions reached ({len(self.active_trades)}/{self.max_positions}). Skipping new entries.")
+                     # Log désactivé pour éviter le spam dans Coolify
                      time.sleep(10)
                      continue
                 if self.active_trades.get(self.active_symbol):

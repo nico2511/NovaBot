@@ -7,9 +7,10 @@ import numpy as np
 from datetime import datetime
 import aiohttp
 from app.services.indicators import Indicators
+from app.core.config import config
 
 
-async def get_hyperliquid_candles(symbol: str = "BTC", interval: str = "15m", limit: int = 100):
+async def get_hyperliquid_candles(symbol: str = config.TRADING_SYMBOL, interval: str = "15m", limit: int = 100):
     """Fetch candles from HyperLiquid API"""
     try:
         url = 'https://api.hyperliquid.xyz/info'
@@ -91,7 +92,7 @@ async def get_hyperliquid_candles(symbol: str = "BTC", interval: str = "15m", li
         return None
 
 
-async def get_current_price(symbol: str = "BTC") -> float:
+async def get_current_price(symbol: str = config.TRADING_SYMBOL) -> float:
     """Get current price from HyperLiquid"""
     try:
         url = 'https://api.hyperliquid.xyz/info'
@@ -108,7 +109,7 @@ async def get_current_price(symbol: str = "BTC") -> float:
     return 87000.0
 
 
-async def get_formatted_candles(symbol: str = "BTC", interval: str = "15m", limit: int = 100):
+async def get_formatted_candles(symbol: str = config.TRADING_SYMBOL, interval: str = "15m", limit: int = 100):
     """Get candles formatted for frontend chart (lightweight-charts)"""
     df = await get_hyperliquid_candles(symbol, interval, limit)
     if df is None or df.empty:
@@ -130,7 +131,7 @@ async def get_formatted_candles(symbol: str = "BTC", interval: str = "15m", limi
     return candles
 
 
-async def get_open_interest(symbol: str = "BTC") -> float:
+async def get_open_interest(symbol: str = config.TRADING_SYMBOL) -> float:
     """Get Open Interest for a symbol (Mock or Real)"""
     # Hyperliquid doesn't expose clean OI in public info endpoint easily without iteration
     # returns value in USD

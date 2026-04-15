@@ -6,7 +6,6 @@ from app.services.token_scanner import HyperliquidScanner
 from app.services.discord_service import discord_service
 from app.core.state_manager import StateManager
 from app.core.config import config
-from app.core.asset_gamification import AssetGamification
 
 class ScannerJob:
     """
@@ -59,39 +58,9 @@ class ScannerJob:
     
     def _get_scan_context(self) -> Tuple[Optional[List[str]], str]:
         """
-        Context Resolver - DRY Extraction
-        
-        Handles gamification logic and returns whitelist + log message
-        
-        Returns:
-            (whitelist, log_message): 
-                - whitelist: List of allowed symbols or None (full access)
-                - log_message: String to log about gamification status
+        Context Resolver - Gamification disabled/removed, full access default
         """
-        whitelist = None
-        log_message = ""
-        
-        gamification_enabled = self.bot.scanner_settings.get('gamification_enabled', True)
-        
-        if gamification_enabled:
-            try:
-                # Fetch equity to determine tier
-                balance_data = self.scanner.hl_service.get_account_balance()
-                equity = balance_data.get("total_equity", 0) if balance_data.get("status") == "success" else 0
-                
-                gamification = AssetGamification(equity)
-                whitelist = gamification.get_allowed_assets()
-                log_message = f"🎮 Gamification ON: Level {gamification.level.value} (${equity:.2f}) - {len(whitelist)} assets allowed"
-                
-            except Exception as e:
-                self.bot.add_log(f"⚠️ Context Resolver Error: {e}")
-                whitelist = ["BTC", "ETH"]  # Panic fallback
-                log_message = "⚠️ Gamification Error - Fallback to BTC/ETH"
-        else:
-            # Gamification disabled - Full market access
-            log_message = "🌍 Gamification OFF: Full Market Access"
-        
-        return whitelist, log_message
+        return None, "🌍 Full Market Access"
 
     def _run_loop(self):
         self.bot.add_log("🔍 Scanner Loop Entered")

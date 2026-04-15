@@ -173,7 +173,11 @@ class StrategyEngine:
                 print(f"⚠️ Panic check error: {e}")
             
             # Normal Signal Generation
-            sig = strat.generate_signal(df, extra_data=extra_data)
+            try:
+                sig = strat.generate_signal(df, extra_data=extra_data)
+            except Exception as e:
+                print(f"⚠️ Strategy {strat.name} crashed during signal generation: {e}")
+                continue
             
             if sig:
                 # Check execution type

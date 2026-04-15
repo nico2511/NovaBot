@@ -28,6 +28,7 @@ Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes 
 | `OPENROUTER_API_KEY` | Clé pour l'analyse IA |
 | `DISCORD_WEBHOOK_URL_ALERTS` | Webhook pour les trades |
 | `DISCORD_WEBHOOK_URL_LOGS` | Webhook pour les logs |
+| `TRADING_SYMBOL` | Symbole à trader (ex: HYPE, BTC) |
 | `PORT` | `3001` |
 
 ### Étape 3 : Volumes Persistants

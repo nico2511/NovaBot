@@ -56,6 +56,7 @@ class Config:
     
     # Operations (from bot_state.json or .env fallback)
     AUTO_START_TRADING: bool = _state_settings.get('operations', {}).get('auto_start_trading') if _state_settings.get('operations', {}).get('auto_start_trading') is not None else (os.getenv("AUTO_START_TRADING", "false").lower() == "true")
+    TRADING_SYMBOL: str = os.getenv("TRADING_SYMBOL", "HYPE")
     
     # Scanner Settings (New in v2 - from user_settings.json)
     SCANNER_ENABLED: bool = _state_settings.get('scanner', {}).get('enabled', True)

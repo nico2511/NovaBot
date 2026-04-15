@@ -121,5 +121,6 @@ def test_reconciler_adopts_orphan_positions(position_reconciler, mock_hl_service
     position_reconciler.reconcile()
     
     # Assert
-    assert "ETH" in mock_bot.active_trades
-    assert mock_bot.active_trades["ETH"]["strategy"] == "Adopted-Orphan"
+    mock_bot._adopt_existing_position.assert_called_once()
+    args, _ = mock_bot._adopt_existing_position.call_args
+    assert args[0]["symbol"] == "ETH"

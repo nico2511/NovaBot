@@ -82,7 +82,8 @@ class StateManager:
             if "active_trade" in state and "active_trades" not in state:
                 old_trade = state.get("active_trade")
                 if old_trade:
-                    symbol = old_trade.get("symbol", "BTC")
+                    from app.core.config import config
+                    symbol = old_trade.get("symbol", config.TRADING_SYMBOL)
                     context.active_trades = {symbol: old_trade}
                     print(f"🔄 Migrated legacy active_trade to active_trades[{symbol}]")
                     state_modified = True
@@ -98,7 +99,9 @@ class StateManager:
             
             context.trading_enabled = state.get("trading_enabled", False)
             context.is_running = state.get("is_running", False)
-            context.active_symbol = state.get("active_symbol", "BTC")
+            
+            from app.core.config import config
+            context.active_symbol = state.get("active_symbol", config.TRADING_SYMBOL)
             
             # Restore Risk Manager
             if "risk_state" in state:
