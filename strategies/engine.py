@@ -156,9 +156,143 @@ class StrategyEngine:
             # print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
 
         # 4. Generate Signals
-        # ... (same loop as before)
+        signals = []
+        for strat in active_strategies:
+            
+            # --- PANIC CLOSE / KILL SWITCH ---
+            try:
+                should_panic, panic_reason = should_panic_close(strat.name, df, regime=regime)
+                if should_panic:
+                    # print(f"🚨 KILL SWITCH: {strat.name} BLOCKED - {panic_reason}")
+                    continue  
+            except Exception as e:
+                print(f"⚠️ Panic check error: {e}")
+            
+            # Normal Signal Generation
+            try:
+                sig = strat.generate_signal(df, extra_data=extra_data)
+            except Exception as e:
+                print(f"⚠️ Strategy {strat.name} crashed during signal generation: {e}")
+                continue
+            
+            if sig:
+                # Check execution type
+                params = strat.config.get("params", {})
+                is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
+                
+                symbol = extra_data.get("symbol") if extra_data else None
+                if isinstance(sig, dict):
+                    # Strategy returned rich object
+                    signal_data = sig
+                    signal_data["strategy"] = strat.name
+                    signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
+                    signal_data["price"] = float(sig.get("price", df['close'].iloc[-1]))
+                    signal_data["timestamp"] = str(df.index[-1])
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    
+                    # Ensure numeric fields in rich object are serializable
+                    for key in ["sl", "tp", "confidence", "score"]:
+                        if key in signal_data and signal_data[key] is not None:
+                            try:
+                                signal_data[key] = float(signal_data[key])
+                            except:
+                                pass
+                                
+                    signals.append(signal_data)
+                else:
+                    # Legacy string return
+                    signal_data = {
+                        "strategy": strat.name,
+                        "signal": sig, 
+                        "symbol": symbol or "UNKNOWN",
+                        "price": float(df['close'].iloc[-1]),
+                        "timestamp": str(df.index[-1])
+                    }
+                
+                # --- GLOBAL DIRECTION FILTER ---
+                signal_type = signal_data.get("signal", "").upper()
+                allow_longs = params.get("allow_longs", True) 
+                allow_shorts = params.get("allow_shorts", True)
+                
+                direction_allowed = True
+                rejection_reason = ""
+
+                if signal_type == "BUY" and not allow_longs:
+                    direction_allowed = False
+                    rejection_reason = "Longs disabled"
+                elif signal_type == "SELL" and not allow_shorts:
+                    if signal_data.get("metadata", {}).get("panic_close"):
+                        direction_allowed = True 
+                    else:
+                        direction_allowed = False
+                        rejection_reason = "Shorts disabled"
+                
+                # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
+                if direction_allowed:
+                    try:
+                        sma_20_val = float(df['close'].rolling(window=20).mean().iloc[-1])
+                        std_20_val = float(df['close'].rolling(window=20).std().iloc[-1])
+                        bb_upper_val = sma_20_val + (std_20_val * 2)
+                        bb_lower_val = sma_20_val - (std_20_val * 2)
+                        curr_close = float(df['close'].iloc[-1])
+                        
+                        if signal_type == "SELL":
+                            if not signal_data.get("metadata", {}).get("panic_close"):
+                                if curr_close <= (bb_lower_val * 1.01):
+                                    direction_allowed = False
+                                    # rejection_reason = "Price too close to support"
+                                
+                        elif signal_type == "BUY":
+                            if curr_close >= (bb_upper_val * 0.99):
+                                direction_allowed = False
+                                # rejection_reason = "Price too close to resistance"
+                    except Exception as e:
+                        pass
+
+                if direction_allowed:
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    signals.append(signal_data)
+
+        # 5. Calculate Progress, Conditions & Snapshots
+        progress = {}
+        conditions = {}
+        thresholds = {}
+        for strat in active_strategies:
+            try:
+                progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
+                if hasattr(strat, "check_conditions"):
+                    conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
+                if hasattr(strat, "get_threshold_comparisons"):
+                    thresholds[strat.name] = strat.get_threshold_comparisons(df, extra_data=extra_data)
+            except:
+                pass
+
+        # === CAPTURE FULL MARKET SNAPSHOT ===
+        try:
+            sma_20 = float(df['close'].rolling(window=20).mean().iloc[-1])
+            std_20 = float(df['close'].rolling(window=20).std().iloc[-1])
+            bb_upper = sma_20 + (std_20 * 2)
+            bb_lower = sma_20 - (std_20 * 2)
+            bb_width = ((bb_upper - bb_lower) / sma_20) * 100 if sma_20 > 0 else 0
+        except:
+            sma_20 = bb_upper = bb_lower = bb_width = 0
         
-        # ... later in the return block ...
+        try:
+            avg_volume = float(df['volume'].iloc[:-1].rolling(50).mean().iloc[-1])
+            current_volume = float(df['volume'].iloc[-2])
+            volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
+        except:
+            volume_ratio = 100
+
+        # Scoring Logic (Basic)
+        for signal in signals:
+            score = 50
+            if signal.get("confidence"): score += int(signal.get("confidence", 0))
+            signal["score"] = score
+        signals.sort(key=lambda s: s.get("score", 0), reverse=True)
+
         return {
             "regime": regime,
             "adx": float(current_adx),
