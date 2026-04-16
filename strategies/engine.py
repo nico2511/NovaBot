@@ -153,7 +153,7 @@ class StrategyEngine:
         # Log active strategies
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])
-            # print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+            print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
 
         # 4. Generate Signals
         signals = []
