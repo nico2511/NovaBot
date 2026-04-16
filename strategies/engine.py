@@ -138,6 +138,7 @@ class StrategyEngine:
                 continue
 
             # ALWAYS ACTIVE strategies (Sniper, MemeHunter, etc.)
+            print(f"[DEBUG] Checking {name}: type={strat_type}, enabled={params.get('enabled')}")
             if strat_type in ["sniper", "scalp_choc", "always_active"]: 
                 active_strategies.append(self.strategies[name])
                 continue # Already added
