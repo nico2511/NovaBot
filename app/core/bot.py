@@ -1839,17 +1839,70 @@ class BotContext:
                         sl_price = sl_to_use
                         tp_price = tp_to_use
                 else:
-                    self.add_log(f"⚠️ No protection orders for {symbol}. Setting defaults.")
+                    self.add_log(f"⚠️ No protection orders for {symbol}. Calculating rational ATR-based stops.")
                     should_set_sl_tp = True
-                    # Profile based defaults
-                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Balanced Growth")
-                    # DANGER: Default SL might be near liquidation at high leverage. 
-                    # Use a tighter relative SL for adoption if not specified.
-                    sl_dist_pct = 0.03 if risk_profile != "Capital Preservation First" else 0.02
-                    if risk_profile == "High Volatility Hunter": sl_dist_pct = 0.05
                     
-                    sl_price = entry_price * (1 - sl_dist_pct) if side == "BUY" else entry_price * (1 + sl_dist_pct)
-                    tp_price = entry_price * (1 + (sl_dist_pct * 1.5)) if side == "BUY" else entry_price * (1 - (sl_dist_pct * 1.5))
+                    # 1. Determine ATR multiplier based on profile
+                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Balanced Growth")
+                    atr_mult = 1.5
+                    if risk_profile == "Capital Preservation First": atr_mult = 1.0
+                    elif risk_profile == "High Volatility Hunter": atr_mult = 2.5
+                    
+                    # 2. Get ATR from data
+                    atr_val = 0
+                    if not df_15m.empty:
+                        try:
+                            # Try to find ATR in columns
+                            atr_col = next((c for c in df_15m.columns if 'ATR' in c.upper()), None)
+                            if atr_col:
+                                atr_val = float(df_15m[atr_col].iloc[-1])
+                            else:
+                                # Quick manual ATR
+                                tr = pd.concat([
+                                    df_15m['high'] - df_15m['low'],
+                                    (df_15m['high'] - df_15m['close'].shift(1)).abs(),
+                                    (df_15m['low'] - df_15m['close'].shift(1)).abs()
+                                ], axis=1).max(axis=1)
+                                atr_val = tr.rolling(14).mean().iloc[-1]
+                        except Exception as e:
+                            self.add_log(f"⚠️ ATR Calculation failed during adoption: {e}")
+                    
+                    # 3. Fallback if ATR is 0
+                    if not atr_val or pd.isna(atr_val):
+                        self.add_log("⚠️ ATR unavailable, falling back to 3% distance")
+                        sl_dist = entry_price * 0.03
+                    else:
+                        sl_dist = atr_val * atr_mult
+                        self.add_log(f"📏 Using {atr_mult}x ATR ({atr_val:.4f}) for SL distance: {sl_dist:.4f}")
+
+                    # 4. Calculate proposed SL/TP
+                    if side == "BUY":
+                        proposed_sl = entry_price - sl_dist
+                        proposed_tp = entry_price + (sl_dist * 1.5) # RR 1:1.5
+                    else:
+                        proposed_sl = entry_price + sl_dist
+                        proposed_tp = entry_price - (sl_dist * 1.5)
+
+                    # 5. LIQUIDATION GUARD
+                    liq_price = active_pos.get("liquidation_price")
+                    if liq_price and liq_price > 0:
+                        # Ensure SL is at least 15% distance from liquidation (of the entry-to-liq gap)
+                        gap = abs(entry_price - liq_price)
+                        buffer = gap * 0.15
+                        
+                        if side == "BUY":
+                            min_sl = liq_price + buffer
+                            if proposed_sl <= min_sl:
+                                self.add_log(f"🛡️ LIQUIDATION GUARD: Proposed SL ({proposed_sl:.4f}) too close to Liquidation ({liq_price:.4f}). Adjusted to {min_sl:.4f}")
+                                proposed_sl = min_sl
+                        else:
+                            max_sl = liq_price - buffer
+                            if proposed_sl >= max_sl:
+                                self.add_log(f"🛡️ LIQUIDATION GUARD: Proposed SL ({proposed_sl:.4f}) too close to Liquidation ({liq_price:.4f}). Adjusted to {max_sl:.4f}")
+                                proposed_sl = max_sl
+
+                    sl_price = proposed_sl
+                    tp_price = proposed_tp
 
                 with self.trade_lock:
                     t_ref = self.active_trades.get(symbol)

@@ -988,6 +988,7 @@ class HyperliquidService:
                     "entry_price": float(pos.get("entryPx", 0.0)),
                     "pnl": float(pos.get("unrealizedPnl", 0.0)),
                     "leverage": leverage,
+                    "liquidation_price": float(pos.get("liquidationPx", 0.0)) if pos.get("liquidationPx") else None,
                     "entry_time": entry_time
                 })
                 

@@ -15,9 +15,18 @@ class Indicators:
 
     @staticmethod
     def ema(series: pd.Series, length: int = 14, min_periods: int = None) -> pd.Series:
-        """Exponential Moving Average (Wilder style)"""
+        """Exponential Moving Average (Wilder style - alpha=1/N)"""
         return series.ewm(
             alpha=1/length,
+            adjust=False,
+            min_periods=min_periods or length
+        ).mean()
+
+    @staticmethod
+    def ema_std(series: pd.Series, length: int = 14, min_periods: int = None) -> pd.Series:
+        """Standard Exponential Moving Average (TradingView style - alpha=2/(N+1))"""
+        return series.ewm(
+            span=length,
             adjust=False,
             min_periods=min_periods or length
         ).mean()
@@ -204,6 +213,9 @@ class Indicators:
 class TaAdapter:
     def ema(self, close, length=14):
         return Indicators.ema(close, length)
+
+    def ema_std(self, close, length=14):
+        return Indicators.ema_std(close, length)
 
     def sma(self, close, length=20):
         return Indicators.sma(close, length)
