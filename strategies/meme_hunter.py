@@ -89,9 +89,9 @@ class StrategyMemeHunter(BaseStrategy):
                         
                         return {
                             "signal": "BUY",
-                            "price": curr['close'],
-                            "sl": sl,
-                            "tp": tp,
+                            "price": float(curr['close']),
+                            "sl": float(sl),
+                            "tp": float(tp),
                             "strategy": "MemeVolatilityHunter",
                             "comment": f"EMA {self.ema_fast}/{self.ema_slow} Golden Cross | RSI: {curr['RSI']:.1f}"
                         }
@@ -109,9 +109,9 @@ class StrategyMemeHunter(BaseStrategy):
                         
                         return {
                             "signal": "SELL",
-                            "price": curr['close'],
-                            "sl": sl,
-                            "tp": tp,
+                            "price": float(curr['close']),
+                            "sl": float(sl),
+                            "tp": float(tp),
                             "strategy": "MemeVolatilityHunter",
                             "comment": f"EMA {self.ema_fast}/{self.ema_slow} Death Cross | RSI: {curr['RSI']:.1f}"
                         }
