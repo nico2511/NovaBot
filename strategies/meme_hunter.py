@@ -63,58 +63,109 @@ class StrategyMemeHunter(BaseStrategy):
 
     def generate_signal(self, df, extra_data=None):
         """Generate signals based on EMA crossover and volatility"""
-        if len(df) < self.ema_trend:
+        if len(df) < self.ema_trend + 10: # Extra padding for accurate EMA/Slope
             return None
             
         df = self.add_indicators(df.copy())
         
-        curr = df.iloc[-1]
-        prev = df.iloc[-2]
+        # --- STABILITY FIX ---
+        # Use iloc[-2] (last confirmed candle) and iloc[-3] (previous confirmed)
+        # to detect the crossover on CLOSED data. This prevents repainting.
+        curr = df.iloc[-2]
+        prev = df.iloc[-3]
+        
+        # Also get forming candle (iloc[-1]) just for logging price context
+        live = df.iloc[-1]
         
         ema_fast_col = f'EMA_{self.ema_fast}'
         ema_slow_col = f'EMA_{self.ema_slow}'
         ema_trend_col = f'EMA_{self.ema_trend}'
         
-        # --- BULLISH SIGNAL (EMA 20 crosses above EMA 50) ---
-        if prev[ema_fast_col] <= prev[ema_slow_col] and curr[ema_fast_col] > curr[ema_slow_col]:
-            # Basic Trend Filter
-            if curr['close'] > curr[ema_trend_col]:
-                # Supple RSI Filter
-                if curr['RSI'] < self.rsi_buy_max:
-                    # Volatility Check: BB Width expanding or > threshold
-                    if curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02:
-                        sl = curr['close'] - (self.atr_mult * curr['ATR'])
-                        risk = curr['close'] - sl
-                        tp = curr['close'] + (risk * self.rr_ratio)
-                        
-                        return {
-                            "signal": "BUY",
-                            "price": float(curr['close']),
-                            "sl": float(sl),
-                            "tp": float(tp),
-                            "strategy": "MemeVolatilityHunter",
-                            "comment": f"EMA {self.ema_fast}/{self.ema_slow} Golden Cross | RSI: {curr['RSI']:.1f}"
-                        }
+        # Calculate Slope (EMA 50 orientation)
+        ema_slow_prev_slope = df[ema_slow_col].iloc[-7] # 5 candles lookback
+        ema_slope = (curr[ema_slow_col] - ema_slow_prev_slope) / ema_slow_prev_slope * 100
+        min_slope = self.config.get("params", {}).get("min_slope", 0.001)
 
-        # --- BEARISH SIGNAL (EMA 20 crosses below EMA 50) ---
-        elif prev[ema_fast_col] >= prev[ema_slow_col] and curr[ema_fast_col] < curr[ema_slow_col]:
-            # Basic Trend Filter
-            if curr['close'] < curr[ema_trend_col]:
-                # Supple RSI Filter
-                if curr['RSI'] > self.rsi_sell_min:
-                    if curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02:
-                        sl = curr['close'] + (self.atr_mult * curr['ATR'])
-                        risk = sl - curr['close']
-                        tp = curr['close'] - (risk * self.rr_ratio)
+        # Crossover Detection
+        is_bullish_cross = prev[ema_fast_col] <= prev[ema_slow_col] and curr[ema_fast_col] > curr[ema_slow_col]
+        is_bearish_cross = prev[ema_fast_col] >= prev[ema_slow_col] and curr[ema_fast_col] < curr[ema_slow_col]
+
+        # --- BULLISH SIGNAL ---
+        if is_bullish_cross:
+            # 1. Trend Filter
+            if not curr['close'] > curr[ema_trend_col]:
+                print(f"[MemeHunter] Cross UP detected but rejected: Price ({curr['close']:.4f}) below EMA 200 ({curr[ema_trend_col]:.4f})")
+                return None
+            
+            # 2. Slope Filter
+            if ema_slope < min_slope:
+                print(f"[MemeHunter] Cross UP detected but rejected: EMA 50 Slope ({ema_slope:.5f}) below Min ({min_slope})")
+                return None
+
+            # 3. RSI Filter
+            if not curr['RSI'] < self.rsi_buy_max:
+                print(f"[MemeHunter] Cross UP detected but rejected: RSI ({curr['RSI']:.1f}) above limit ({self.rsi_buy_max})")
+                return None
+
+            # 4. Volatility Filter
+            vol_ok = curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02
+            if not vol_ok:
+                print(f"[MemeHunter] Cross UP detected but rejected: BB Width ({curr['BB_Width']:.4f}) not expanding")
+                return None
+
+            # If all PASS -> BUY
+            sl = curr['close'] - (self.atr_mult * curr['ATR'])
+            risk = curr['close'] - sl
+            tp = curr['close'] + (risk * self.rr_ratio)
+            
+            return {
+                "signal": "BUY",
+                "price": float(live['close']), # Use live price for entry
+                "sl": float(sl),
+                "tp": float(tp),
+                "strategy": "MemeVolatilityHunter",
+                "comment": f"EMA {self.ema_fast}/{self.ema_slow} Golden Cross | Slope: {ema_slope:.4f}"
+            }
+
+        # --- BEARISH SIGNAL ---
+        elif is_bearish_cross:
+            # 1. Trend Filter
+            if not curr['close'] < curr[ema_trend_col]:
+                print(f"[MemeHunter] Cross DOWN detected but rejected: Price ({curr['close']:.4f}) above EMA 200")
+                return None
+                
+            # 2. Slope Filter
+            if ema_slope > -min_slope:
+                print(f"[MemeHunter] Cross DOWN detected but rejected: EMA 50 Slope ({ema_slope:.5f}) not negative enough (< {-min_slope})")
+                return None
+
+            # 3. RSI Filter
+            if not curr['RSI'] > self.rsi_sell_min:
+                print(f"[MemeHunter] Cross DOWN detected but rejected: RSI ({curr['RSI']:.1f}) below limit ({self.rsi_sell_min})")
+                return None
+
+            # 4. Volatility Filter
+            vol_ok = curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02
+            if not vol_ok:
+                print(f"[MemeHunter] Cross DOWN detected but rejected: BB Width not expanding")
+                return None
+
+            # If all PASS -> SELL
+            sl = curr['close'] + (self.atr_mult * curr['ATR'])
+            risk = sl - curr['close']
+            tp = curr['close'] - (risk * self.rr_ratio)
+            
+            return {
+                "signal": "SELL",
+                "price": float(live['close']),
+                "sl": float(sl),
+                "tp": float(tp),
+                "strategy": "MemeVolatilityHunter",
+                "comment": f"EMA {self.ema_fast}/{self.ema_slow} Death Cross | Slope: {ema_slope:.4f}"
+            }
                         
-                        return {
-                            "signal": "SELL",
-                            "price": float(curr['close']),
-                            "sl": float(sl),
-                            "tp": float(tp),
-                            "strategy": "MemeVolatilityHunter",
-                            "comment": f"EMA {self.ema_fast}/{self.ema_slow} Death Cross | RSI: {curr['RSI']:.1f}"
-                        }
+        return None
+
                         
         return None
 

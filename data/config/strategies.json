@@ -76,6 +76,7 @@
             "rsi_sell_min": 15,
             "atr_multiplier": 2.2,
             "min_rr": 1.5,
+            "min_slope": 0.001,
             "allow_longs": true,
             "allow_shorts": true
         },
