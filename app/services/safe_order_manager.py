@@ -14,6 +14,7 @@ class SafeOrderManager:
     def __init__(self, hl_service: HyperliquidService):
         self.hl = hl_service
         self.logger = logging.getLogger("SafeOrderManager")
+        self.bot_context = None  # Injected by BotContext
         
         # Fallback settings (load from config or defaults)
         self.default_sl_pct = 0.02  # 2% SL by default
@@ -72,6 +73,19 @@ class SafeOrderManager:
         
         has_sl = count_sl >= 1
         has_tp = count_tp >= 1
+        
+        # 🛡️ BI-DIRECTIONAL SYNC: Update internal state with exchange reality
+        if self.bot_context and symbol in self.bot_context.active_trades:
+            trade = self.bot_context.active_trades[symbol]
+            exchange_sl = float(sl_orders[0].get("triggerPx", 0)) if has_sl else 0
+            exchange_tp = float(tp_orders[0].get("triggerPx", 0)) if has_tp else 0
+            
+            # Update memory if exchange has a real value and bot was at 0 or different
+            if (exchange_sl > 0 and trade.get("sl") != exchange_sl) or \
+               (exchange_tp > 0 and trade.get("tp") != exchange_tp):
+                self.logger.info(f"🔄 Syncing memory with exchange for {symbol}: SL={exchange_sl}, TP={exchange_tp}")
+                trade["sl"] = exchange_sl
+                trade["tp"] = exchange_tp
         
         if has_sl and has_tp:
             self.logger.debug(f"✅ {symbol} already has protection (SL + TP)")

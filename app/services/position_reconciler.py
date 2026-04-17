@@ -167,10 +167,34 @@ class PositionReconciler:
 
             # ---- Register in bot state via unified method ----
             try:
-                self.bot_context._adopt_existing_position(pos)
-                logger.info(f"✅ Reconciler triggered adoption for {symbol}")
+                # 🛡️ IMPROVEMENT: Detect existing SL/TP on exchange BEFORE adopting
+                # This prevents "arbitrary" SL/TP placement if the user already has them
+                sl_val = 0
+                tp_val = 0
+                try:
+                    open_orders = self.hl.get_open_orders(symbol)
+                    for o in open_orders:
+                        if o.get("reduceOnly"):
+                            trigger_px = float(o.get("triggerPx", 0) or o.get("limitPx", 0) or 0)
+                            if trigger_px > 0:
+                                # Determine SL vs TP
+                                if side == "BUY":
+                                    if trigger_px < entry_price: sl_val = trigger_px
+                                    else: tp_val = trigger_px
+                                else: # SELL
+                                    if trigger_px > entry_price: sl_val = trigger_px
+                                    else: tp_val = trigger_px
+                    
+                    if sl_val > 0 or tp_val > 0:
+                        logger.info(f"🔍 Reconciler detected existing protection for {symbol}: SL={sl_val}, TP={tp_val}")
+                except Exception as detect_err:
+                    logger.warning(f"⚠️ Could not pre-detect SL/TP for {symbol} during adoption: {detect_err}")
+
+                self.bot_context._adopt_existing_position(pos, sl=sl_val, tp=tp_val)
+                logger.info(f"✅ Reconciler triggered adoption for {symbol} (SL={sl_val}, TP={tp_val})")
             except Exception as e:
                 logger.error(f"❌ Reconciler failed to adopt {symbol}: {e}")
+
 
     # ------------------------------------------------------------------
     # Helpers

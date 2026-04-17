@@ -164,6 +164,7 @@ class BotContext:
         
         # Phase 0 Hardening Services
         self.safe_order_manager = SafeOrderManager(hyperliquid_service)
+        self.safe_order_manager.bot_context = self
         # Position Reconciler - Set reference to self for adoption check
         self.position_reconciler = PositionReconciler(hyperliquid_service, self.safe_order_manager)
         self.position_reconciler.bot_context = self
@@ -1557,6 +1558,8 @@ class BotContext:
                         approved = False
                         self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
                         val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
+
+
                         self.last_ai_call = current_time
                         
                         try:
@@ -1743,7 +1746,7 @@ class BotContext:
         
         self.add_log("⏸️ Trading loop stopped")
 
-    def _adopt_existing_position(self, active_pos):
+    def _adopt_existing_position(self, active_pos, sl=0, tp=0):
         """Adopt an existing position from the exchange into the bot's memory."""
         try:
             symbol = active_pos['symbol']
@@ -1760,10 +1763,11 @@ class BotContext:
                     "size": size,
                     "leverage": leverage,
                     "oid": "external_position",
-                    "sl": 0,
-                    "tp": 0,
+                    "sl": float(sl or 0),
+                    "tp": float(tp or 0),
                     "strategy": "Manual (Adopted)",
                     "entry_time": pd.Timestamp.now().isoformat(),
+
                     "pnl": float(active_pos.get('pnl', 0)),
                     "max_pnl": float(active_pos.get('pnl', 0)),
                     "status": "OPEN",

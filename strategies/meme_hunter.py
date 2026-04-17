@@ -84,11 +84,15 @@ class StrategyMemeHunter(BaseStrategy):
         # Calculate Slope (EMA 50 orientation)
         ema_slow_prev_slope = df[ema_slow_col].iloc[-7] # 5 candles lookback
         ema_slope = (curr[ema_slow_col] - ema_slow_prev_slope) / ema_slow_prev_slope * 100
-        min_slope = self.config.get("params", {}).get("min_slope", 0.001)
+        
+        params = self.config.get("params", {})
+        min_slope = params.get("min_slope", 0.001)
+        test_mode = params.get("test_mode", False)
 
         # Crossover Detection
         is_bullish_cross = prev[ema_fast_col] <= prev[ema_slow_col] and curr[ema_fast_col] > curr[ema_slow_col]
         is_bearish_cross = prev[ema_fast_col] >= prev[ema_slow_col] and curr[ema_fast_col] < curr[ema_slow_col]
+
 
         # --- BULLISH SIGNAL ---
         if is_bullish_cross:
@@ -104,10 +108,9 @@ class StrategyMemeHunter(BaseStrategy):
 
             # 3. RSI Filter
             if not curr['RSI'] < self.rsi_buy_max:
-                print(f"[MemeHunter] Cross UP detected but rejected: RSI ({curr['RSI']:.1f}) above limit ({self.rsi_buy_max})")
+                print(f"[MemeHunter] Cross UP detected but rejected: RSI ({curr['RSI']:.1f}) above limit ({limit_rsi})")
                 return None
 
-            # 4. Volatility Filter
             vol_ok = curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02
             if not vol_ok:
                 print(f"[MemeHunter] Cross UP detected but rejected: BB Width ({curr['BB_Width']:.4f}) not expanding")
@@ -118,6 +121,7 @@ class StrategyMemeHunter(BaseStrategy):
             risk = curr['close'] - sl
             tp = curr['close'] + (risk * self.rr_ratio)
             
+            msg = "[TEST MODE] " if test_mode else ""
             return {
                 "signal": "BUY",
                 "price": float(live['close']), # Use live price for entry
@@ -141,10 +145,9 @@ class StrategyMemeHunter(BaseStrategy):
 
             # 3. RSI Filter
             if not curr['RSI'] > self.rsi_sell_min:
-                print(f"[MemeHunter] Cross DOWN detected but rejected: RSI ({curr['RSI']:.1f}) below limit ({self.rsi_sell_min})")
+                print(f"[MemeHunter] Cross DOWN detected but rejected: RSI ({curr['RSI']:.1f}) below limit ({limit_rsi})")
                 return None
 
-            # 4. Volatility Filter
             vol_ok = curr['BB_Width'] > prev['BB_Width'] or curr['BB_Width'] > 0.02
             if not vol_ok:
                 print(f"[MemeHunter] Cross DOWN detected but rejected: BB Width not expanding")
@@ -163,6 +166,9 @@ class StrategyMemeHunter(BaseStrategy):
                 "strategy": "MemeVolatilityHunter",
                 "comment": f"EMA {self.ema_fast}/{self.ema_slow} Death Cross | Slope: {ema_slope:.4f}"
             }
+                        
+        return None
+
                         
         return None
 

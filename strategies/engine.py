@@ -198,8 +198,6 @@ class StrategyEngine:
                                 signal_data[key] = float(signal_data[key])
                             except:
                                 pass
-                                
-                    signals.append(signal_data)
                 else:
                     # Legacy string return
                     signal_data = {
@@ -230,30 +228,35 @@ class StrategyEngine:
                 
                 # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
                 if direction_allowed:
-                    try:
-                        sma_20_val = float(df['close'].rolling(window=20).mean().iloc[-1])
-                        std_20_val = float(df['close'].rolling(window=20).std().iloc[-1])
-                        bb_upper_val = sma_20_val + (std_20_val * 2)
-                        bb_lower_val = sma_20_val - (std_20_val * 2)
-                        curr_close = float(df['close'].iloc[-1])
-                        
-                        if signal_type == "SELL":
-                            if not signal_data.get("metadata", {}).get("panic_close"):
-                                if curr_close <= (bb_lower_val * 1.01):
+                    # 🔧 TEST MODE BYPASS: If strategy has test_mode=True, skip BB anti-chasing
+                    is_test_mode = params.get("test_mode", False)
+                    
+                    if not is_test_mode:
+                        try:
+                            sma_20_val = float(df['close'].rolling(window=20).mean().iloc[-1])
+                            std_20_val = float(df['close'].rolling(window=20).std().iloc[-1])
+                            bb_upper_val = sma_20_val + (std_20_val * 2)
+                            bb_lower_val = sma_20_val - (std_20_val * 2)
+                            curr_close = float(df['close'].iloc[-1])
+                            
+                            if signal_type == "SELL":
+                                if not signal_data.get("metadata", {}).get("panic_close"):
+                                    if curr_close <= (bb_lower_val * 1.01):
+                                        direction_allowed = False
+                                        # rejection_reason = "Price too close to support"
+                                    
+                            elif signal_type == "BUY":
+                                if curr_close >= (bb_upper_val * 0.99):
                                     direction_allowed = False
-                                    # rejection_reason = "Price too close to support"
-                                
-                        elif signal_type == "BUY":
-                            if curr_close >= (bb_upper_val * 0.99):
-                                direction_allowed = False
-                                # rejection_reason = "Price too close to resistance"
-                    except Exception as e:
-                        pass
+                                    # rejection_reason = "Price too close to resistance"
+                        except Exception as e:
+                            pass
 
                 if direction_allowed:
                     if is_manual:
                         signal_data["manual_approval"] = True
                     signals.append(signal_data)
+
 
         # 5. Calculate Progress, Conditions & Snapshots
         progress = {}
