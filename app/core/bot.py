@@ -208,7 +208,16 @@ class BotContext:
         # String representation for Console/File
         log_str = f"{timestamp} {message}"
         print(f"[BOT] {message}")
-        if metadata:
+        # Reduce console noise: keep metadata for API/history, print it only on important events.
+        metadata_quiet_prefixes = (
+            "📊 Regime:",
+            "🟡 Live (forming):",
+            "⏸️ Next analysis",
+            "🔄 Entering strategy analysis",
+            "🎯 Stratégies actives >",
+        )
+        should_print_metadata = bool(metadata) and not message.startswith(metadata_quiet_prefixes)
+        if should_print_metadata:
             print(f"   >>> Metadata: {metadata}")
             
         try:
