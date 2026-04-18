@@ -84,5 +84,33 @@
         "display_conditions": ["EMA_20", "EMA_50", "EMA_200", "RSI_14"],
         "version": "2026-04-alpha",
         "expected_freq": "Medium (Opportunistic)"
+    },
+    "meme_breakout_retest": {
+        "enabled": true,
+        "type": "always_active",
+        "description": "Meme-oriented breakout and retest continuation with volume confirmation.",
+        "active": true,
+        "timeframe": "15m",
+        "params": {
+            "ema_trend": 200,
+            "rsi_period": 14,
+            "atr_period": 14,
+            "breakout_lookback": 20,
+            "max_breakout_age": 8,
+            "breakout_buffer": 0.0015,
+            "retest_tolerance": 0.003,
+            "volume_multiplier": 1.4,
+            "sl_atr_mult": 1.2,
+            "min_rr": 1.7,
+            "rsi_buy_min": 48,
+            "rsi_buy_max": 72,
+            "rsi_sell_min": 28,
+            "rsi_sell_max": 52,
+            "allow_longs": true,
+            "allow_shorts": true
+        },
+        "display_conditions": ["EMA_200", "RSI_14", "ATRr_14", "Volume"],
+        "version": "2026-04-beta",
+        "expected_freq": "Low-Medium (Selective)"
     }
 }

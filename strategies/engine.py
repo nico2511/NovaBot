@@ -8,6 +8,7 @@ from strategies.elastic_reversion import ElasticReversionStrategy
 from strategies.scalp_ema_rsi import ScalpEmaRsi
 from strategies.supertrend import StrategySupertrend
 from strategies.meme_hunter import StrategyMemeHunter
+from strategies.meme_breakout_retest import StrategyMemeBreakoutRetest
 
 # Import robuste pour Panic Close
 try:
@@ -35,6 +36,7 @@ class StrategyEngine:
             "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
             "meme_hunter": StrategyMemeHunter(strats_config.get("meme_hunter")),
+            "meme_breakout_retest": StrategyMemeBreakoutRetest(strats_config.get("meme_breakout_retest")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
