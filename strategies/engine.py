@@ -243,12 +243,12 @@ class StrategyEngine:
                                 if not signal_data.get("metadata", {}).get("panic_close"):
                                     if curr_close <= (bb_lower_val * 1.01):
                                         direction_allowed = False
-                                        # rejection_reason = "Price too close to support"
+                                        rejection_reason = "Price too close to lower Bollinger band (support)"
                                     
                             elif signal_type == "BUY":
                                 if curr_close >= (bb_upper_val * 0.99):
                                     direction_allowed = False
-                                    # rejection_reason = "Price too close to resistance"
+                                    rejection_reason = "Price too close to upper Bollinger band (resistance)"
                         except Exception as e:
                             pass
 
@@ -256,6 +256,8 @@ class StrategyEngine:
                     if is_manual:
                         signal_data["manual_approval"] = True
                     signals.append(signal_data)
+                else:
+                    print(f"[BOT] 🚫 Signal rejected ({strat.name}/{signal_type}): {rejection_reason or 'Filtered by global guard'}")
 
 
         # 5. Calculate Progress, Conditions & Snapshots
@@ -296,20 +298,27 @@ class StrategyEngine:
             signal["score"] = score
         signals.sort(key=lambda s: s.get("score", 0), reverse=True)
 
+        # Coherent snapshot for logging/UI: use confirmed candle (-2) for all core metrics.
+        # Live values are still exposed separately for debugging.
         return {
             "regime": regime,
             "adx": float(current_adx),
             "adx_slope": float(adx_slope),
-            "rsi": float(rsi_series.iloc[-1]),
-            "ema_9": float(ema_9.iloc[-1]),
-            "ema_20": float(ema_20.iloc[-1]),
-            "ema_50": float(ema_50.iloc[-1]),
+            "rsi": float(rsi_series.iloc[-2]),
+            "ema_9": float(ema_9.iloc[-2]),
+            "ema_20": float(ema_20.iloc[-2]),
+            "ema_50": float(ema_50.iloc[-2]),
             "sma_20": float(sma_20),
             "bb_upper": float(bb_upper),
             "bb_lower": float(bb_lower),
             "bb_width": float(bb_width),
             "volume_ratio": float(volume_ratio),
-            "current_price": float(df['close'].iloc[-1]),
+            "current_price": float(df['close'].iloc[-2]),
+            "current_price_live": float(df['close'].iloc[-1]),
+            "rsi_live": float(rsi_series.iloc[-1]),
+            "ema_9_live": float(ema_9.iloc[-1]),
+            "ema_20_live": float(ema_20.iloc[-1]),
+            "ema_50_live": float(ema_50.iloc[-1]),
             "strategies": [s.name for s in active_strategies],
             "progress": progress,
             "conditions": conditions,

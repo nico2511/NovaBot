@@ -155,6 +155,9 @@ class BotContext:
         # Cooldown tracking (anti-overtrading)
         self._last_trade_info = {"symbol": None, "direction": None, "time": None}
         
+        # Discord signal detection anti-spam (same signal repeating every loop)
+        self._last_signal_discord = {"signature": None, "time": 0}
+        
         # Open Interest History (InMemory)
         self.oi_history = deque(maxlen=2000) 
         
@@ -213,6 +216,75 @@ class BotContext:
                 f.write(f"{log_str}\n")
         except Exception as e:
             print(f"⚠️ Log write error: {e}")
+
+    def _notify_signal_detected_discord(self, sig: dict, technical_context: dict):
+        """Send a Discord notification when a strategy signal is detected (pre-AI)."""
+        try:
+            symbol = sig.get("symbol", self.active_symbol)
+            side = str(sig.get("signal", "UNKNOWN")).upper()
+            strategy = sig.get("strategy", "unknown")
+            price = float(sig.get("price", 0) or 0)
+            sl = sig.get("sl")
+            tp = sig.get("tp")
+            sig_ts = str(sig.get("timestamp", "n/a"))
+
+            # Avoid Discord spam: only notify on a materially new signal or after cooldown.
+            signature = f"{symbol}|{strategy}|{side}|{round(price, 8)}|{round(float(sl), 8) if sl else 'na'}|{round(float(tp), 8) if tp else 'na'}|{sig_ts}"
+            now_ts = time.time()
+            if (
+                self._last_signal_discord.get("signature") == signature and
+                (now_ts - float(self._last_signal_discord.get("time", 0) or 0)) < 300
+            ):
+                return
+
+            self._last_signal_discord = {"signature": signature, "time": now_ts}
+
+            regime = technical_context.get("regime", "UNKNOWN")
+            adx = technical_context.get("adx", 0)
+            adx_slope = technical_context.get("adx_slope", 0)
+            rsi = technical_context.get("rsi", 0)
+            ema20 = technical_context.get("ema_20", 0)
+            ema50 = technical_context.get("ema_50", 0)
+            vol_ratio = technical_context.get("volume_ratio", 0)
+            ema_trend = "↗" if ema20 > ema50 else "↘" if ema20 < ema50 else "→"
+
+            debug_payload = {
+                "symbol": symbol,
+                "strategy": strategy,
+                "signal": side,
+                "price": round(price, 8),
+                "sl": round(float(sl), 8) if sl is not None else None,
+                "tp": round(float(tp), 8) if tp is not None else None,
+                "regime": regime,
+                "adx": adx,
+                "adx_slope": adx_slope,
+                "rsi": rsi,
+                "ema_20": ema20,
+                "ema_50": ema50,
+                "ema_trend": ema_trend,
+                "volume_ratio": vol_ratio,
+                "timestamp": sig_ts,
+            }
+            payload_str = json.dumps(debug_payload, ensure_ascii=False)
+
+            color = "00FF00" if side == "BUY" else "FF0000" if side == "SELL" else "FFD166"
+            title = f"📡 SIGNAL DETECTED (Pre-AI): {side} {symbol}"
+            description = (
+                f"Strategy: {strategy}\n"
+                f"Entry: {price:.8f}\n"
+                f"SL/TP: {sl if sl is not None else 'N/A'} / {tp if tp is not None else 'N/A'}\n"
+                f"Regime: {regime} | ADX: {adx} ({adx_slope:+.2f}) | RSI: {rsi}\n"
+                f"EMA20/50: {ema_trend} | Vol: {vol_ratio}%\n"
+                f"Payload: `{payload_str[:1200]}`"
+            )
+            discord_service.send_alert(title, description, color=color)
+
+            self.add_log(
+                f"📨 Discord signal notification sent for {side} {symbol} ({strategy})",
+                metadata=debug_payload
+            )
+        except Exception as notify_err:
+            self.add_log(f"⚠️ Failed to send Discord signal notification: {notify_err}")
 
     def switch_active_symbol(self, new_symbol: str):
         """Securely switch active symbol and update WebSocket subscription"""
@@ -1491,7 +1563,7 @@ class BotContext:
                 # Enhanced regime log with calculations context
                 ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
                 adx_note = ">25=TREND" if adx < 25 else "TRENDING"
-                current_price = float(df_15m['close'].iloc[-1])
+                current_price = float(result.get('current_price', df_15m['close'].iloc[-2]))
                 
                 analysis_metrics = {
                     "regime": regime,
@@ -1501,6 +1573,14 @@ class BotContext:
                     "current_price": current_price
                 }
                 self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%", metadata=analysis_metrics)
+                
+                # Optional live view (forming candle) to avoid "stuck" feeling between 15m closes.
+                live_price = float(result.get("current_price_live", df_15m['close'].iloc[-1]))
+                live_rsi = float(result.get("rsi_live", rsi))
+                live_ema20 = float(result.get("ema_20_live", ema_20))
+                live_ema50 = float(result.get("ema_50_live", ema_50))
+                live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
+                self.add_log(f"🟡 Live (forming): Price {live_price:.2f} | RSI {live_rsi:.1f} | EMA20/50 {live_ema_trend} | Vol(conf) {volume_ratio:.0f}%")
                 
                 # Capture full technical context for audit (Approved or Rejected)
                 technical_context = {
@@ -1522,6 +1602,8 @@ class BotContext:
                 if signals:
                     sig = signals[0]
                     if sig.get("signal") and sig.get("price"):
+                        # Discord debug notification at strategy-detection stage (before AI gate).
+                        self._notify_signal_detected_discord(sig, technical_context)
                         
                         # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
                         cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
