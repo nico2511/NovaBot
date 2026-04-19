@@ -36,7 +36,10 @@ try:
     logger.info("📁 Initializing Storage Service...")
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     from app.services.storage import init_storage
-    init_storage(BASE_DIR)
+    ss = init_storage(BASE_DIR)
+    # Auto-sync runtime strategies config with versioned defaults (non-destructive)
+    if ss:
+        ss.sync_strategies_from_defaults()
 
     # 2. Import Core Components
     logger.info("📦 Importing Core Components...")

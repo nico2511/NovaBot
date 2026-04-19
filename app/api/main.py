@@ -38,7 +38,10 @@ async def lifespan(app: FastAPI):
     # 1. Initialize Storage Service
     try:
         from app.services.storage import init_storage
-        init_storage(BASE_DIR)
+        ss = init_storage(BASE_DIR)
+        # Auto-sync runtime strategies config with versioned defaults (non-destructive)
+        if ss:
+            ss.sync_strategies_from_defaults()
         logger.info("✅ Storage service initialized")
     except Exception as e:
         logger.error(f"❌ Storage service initialization failed: {e}")

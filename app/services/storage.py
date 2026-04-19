@@ -31,6 +31,8 @@ class StorageService:
         # Robust pathing: Ensure we are at the project root
         self.base_dir = Path(base_dir).absolute()
         self.data_dir = self.base_dir / "data"
+        self.defaults_dir = self.base_dir / "app" / "core" / "defaults"
+        self.default_strategies_path = self.defaults_dir / "strategies.default.json"
         
         # Initialize directories
         self._ensure_dirs()
@@ -156,6 +158,90 @@ class StorageService:
     def load_strategies(self) -> Dict[str, Any]:
         """Load strategies configuration from data/config/strategies.json"""
         return self.read_json(self.config_dir / "strategies.json", default={})
+
+    def _merge_missing(self, target: Any, source: Any) -> Any:
+        """
+        Merge source into target without overwriting existing user/runtime values.
+        - Dict: recursively add missing keys
+        - List/scalars: keep target as-is if present, else take source
+        """
+        if isinstance(target, dict) and isinstance(source, dict):
+            merged = dict(target)
+            for k, v in source.items():
+                if k in merged:
+                    merged[k] = self._merge_missing(merged[k], v)
+                else:
+                    merged[k] = v
+            return merged
+        return target if target is not None else source
+
+    def sync_strategies_from_defaults(self) -> Dict[str, Any]:
+        """
+        Ensure runtime data/config/strategies.json contains all new default strategies/keys.
+        Preserves user-modified existing values.
+        """
+        result = {"status": "noop", "added_top_level": [], "added_keys_count": 0}
+        try:
+            if not self.default_strategies_path.exists():
+                logger.warning(f"⚠️ Default strategies file not found: {self.default_strategies_path}")
+                result["status"] = "missing_default"
+                return result
+
+            default_cfg = self.read_json(self.default_strategies_path, default={})
+            runtime_path = self.config_dir / "strategies.json"
+            runtime_cfg = self.read_json(runtime_path, default={})
+
+            if not isinstance(default_cfg, dict):
+                logger.error("❌ Invalid default strategies format (not a dict)")
+                result["status"] = "invalid_default"
+                return result
+            if not isinstance(runtime_cfg, dict):
+                runtime_cfg = {}
+
+            old_top = set(runtime_cfg.keys())
+            merged_cfg = self._merge_missing(runtime_cfg, default_cfg)
+            new_top = set(merged_cfg.keys())
+            added_top_level = sorted(list(new_top - old_top))
+
+            # Count added nested keys roughly by serializing path walk
+            def count_missing_added(a, b):
+                # a = original runtime, b = merged
+                if isinstance(a, dict) and isinstance(b, dict):
+                    total = 0
+                    for k, bv in b.items():
+                        if k not in a:
+                            total += 1
+                        else:
+                            total += count_missing_added(a[k], bv)
+                    return total
+                return 0
+
+            added_keys_count = count_missing_added(runtime_cfg, merged_cfg)
+
+            changed = (merged_cfg != runtime_cfg)
+            if changed:
+                ok = self.save_strategies(merged_cfg)
+                if not ok:
+                    result["status"] = "save_failed"
+                    return result
+
+                logger.info("✅ Strategy config synced from defaults (non-destructive merge)")
+                if added_top_level:
+                    logger.info(f"   + Added strategies: {', '.join(added_top_level)}")
+                logger.info(f"   + Added missing keys: {added_keys_count}")
+                result["status"] = "updated"
+            else:
+                logger.info("ℹ️ Strategy config already up to date with defaults")
+                result["status"] = "noop"
+
+            result["added_top_level"] = added_top_level
+            result["added_keys_count"] = added_keys_count
+            return result
+        except Exception as e:
+            logger.error(f"❌ Failed to sync strategies from defaults: {e}")
+            result["status"] = "error"
+            result["error"] = str(e)
+            return result
     
 
     # Cache files (data/cache/)
