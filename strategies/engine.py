@@ -9,6 +9,7 @@ from strategies.scalp_ema_rsi import ScalpEmaRsi
 from strategies.supertrend import StrategySupertrend
 from strategies.meme_hunter import StrategyMemeHunter
 from strategies.meme_breakout_retest import StrategyMemeBreakoutRetest
+from strategies.meme_range_funding_oi import StrategyMemeRangeFundingOi
 
 # Import robuste pour Panic Close
 try:
@@ -37,6 +38,7 @@ class StrategyEngine:
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
             "meme_hunter": StrategyMemeHunter(strats_config.get("meme_hunter")),
             "meme_breakout_retest": StrategyMemeBreakoutRetest(strats_config.get("meme_breakout_retest")),
+            "meme_range_funding_oi": StrategyMemeRangeFundingOi(strats_config.get("meme_range_funding_oi")),
         }
 
         # 🔧 FIX: Enforce strategy names to match config keys (snake_case)

@@ -112,5 +112,35 @@
         "display_conditions": ["EMA_200", "RSI_14", "ATRr_14", "Volume"],
         "version": "2026-04-beta",
         "expected_freq": "Low-Medium (Selective)"
+    },
+    "meme_range_funding_oi": {
+        "enabled": true,
+        "type": "range",
+        "description": "Contrarian range fade using funding/OI crowding at range extremes (alert-only by default).",
+        "active": true,
+        "timeframe": "15m",
+        "params": {
+            "range_lookback": 48,
+            "rsi_period": 14,
+            "atr_period": 14,
+            "adx_max": 24,
+            "upper_zone": 0.82,
+            "lower_zone": 0.18,
+            "min_funding_short": 0.00015,
+            "max_funding_long": -0.00015,
+            "min_oi_vs_ma": 1.03,
+            "min_oi_change_pct": 0.15,
+            "rsi_sell_min": 56,
+            "rsi_buy_max": 44,
+            "sl_atr_mult": 1.2,
+            "min_rr": 1.4,
+            "allow_longs": false,
+            "allow_shorts": true,
+            "execution_type": "manual",
+            "requires_confirmation": true
+        },
+        "display_conditions": ["RangeHigh/Low", "RSI_14", "OI_vs_MA", "Funding"],
+        "version": "2026-04-alpha",
+        "expected_freq": "Low (Selective contrarian)"
     }
 }

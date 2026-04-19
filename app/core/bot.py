@@ -1588,7 +1588,20 @@ class BotContext:
                 except Exception as e:
                     self.add_log(f"⚠️ OI Processing Error: {e}")
                 
-                result = self.strategy_engine.analyze(df_15m, extra_data={"1m": df_1m, "symbol": self.active_symbol})
+                funding_rate_live = 0.0
+                try:
+                    funding_rate_live = float(hyperliquid_service.get_funding_rate(self.active_symbol) or 0.0)
+                except Exception:
+                    funding_rate_live = 0.0
+
+                result = self.strategy_engine.analyze(
+                    df_15m,
+                    extra_data={
+                        "1m": df_1m,
+                        "symbol": self.active_symbol,
+                        "funding_rate": funding_rate_live
+                    }
+                )
                 self.active_strategies = result.get('strategies', [])
                 self.latest_strategy_result = result
                 
@@ -1817,6 +1830,22 @@ class BotContext:
                             # 2. EXECUTION LOGIC (Live)
                             # ---------------------------------------------------
                             if self.trading_enabled:
+                                if sig.get("manual_approval"):
+                                    self.add_log(
+                                        f"📝 MANUAL SIGNAL ONLY: {sig.get('strategy')} approved but auto-execution disabled (manual_approval=True)"
+                                    )
+                                    try:
+                                        discord_service.send_alert(
+                                            f"📝 MANUAL ACTION REQUIRED: {sig.get('signal')} {sig.get('symbol')}",
+                                            f"Strategy: {sig.get('strategy')}\n"
+                                            f"Entry: {float(entry_price or 0):.8f}\n"
+                                            f"SL/TP: {sig.get('sl')} / {sig.get('tp')}\n"
+                                            f"AI approved this setup, but the strategy is configured in alert-only mode.",
+                                            color="FFD166"
+                                        )
+                                    except Exception as manual_alert_err:
+                                        self.add_log(f"⚠️ Manual alert notification failed: {manual_alert_err}")
+                                    continue
                                 
                                 # Sync Positions periodically
                                 if int(time.time()) % 60 == 0:
