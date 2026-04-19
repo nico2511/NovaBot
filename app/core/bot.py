@@ -237,8 +237,14 @@ class BotContext:
             tp = sig.get("tp")
             sig_ts = str(sig.get("timestamp", "n/a"))
 
-            # Avoid Discord spam: only notify on a materially new signal or after cooldown.
-            signature = f"{symbol}|{strategy}|{side}|{round(price, 8)}|{round(float(sl), 8) if sl else 'na'}|{round(float(tp), 8) if tp else 'na'}|{sig_ts}"
+            # Avoid Discord spam: dedupe by strategy signal candle, not by live price ticks.
+            # Same candle can trigger repeated loops with tiny price changes.
+            signature = (
+                f"{symbol}|{strategy}|{side}|"
+                f"{round(float(sl), 8) if sl else 'na'}|"
+                f"{round(float(tp), 8) if tp else 'na'}|"
+                f"{sig_ts}"
+            )
             now_ts = time.time()
             if (
                 self._last_signal_discord.get("signature") == signature and
@@ -1239,21 +1245,41 @@ class BotContext:
             # 1. Fetch recent history from Exchange to find REAL exit price
             recent_trades = hyperliquid_service.get_trade_history(limit=50)
             # FIX: get_trade_history returns 'symbol', NOT 'coin'
-            closing_trade = next((t for t in recent_trades if t.get('symbol') == symbol), None)
+            symbol_trades = [t for t in recent_trades if t.get('symbol') == symbol]
+            # Prefer latest trade by timestamp if available.
+            def _trade_ts(t):
+                ts = t.get("timestamp", t.get("time", 0))
+                try:
+                    return int(ts)
+                except:
+                    return 0
+            symbol_trades.sort(key=_trade_ts, reverse=True)
+            closing_trade = symbol_trades[0] if symbol_trades else None
             
             entry_price = float(trade.get("entry", 0))
             size = float(trade.get("size", 0))
             side = trade.get("side")
             
+            exchange_close_time = None
             if closing_trade:
                 exit_price = float(closing_trade.get("entry_price", 0)) # in trade history, entry_price is the fill price
                 pnl_usdc = float(closing_trade.get("pnl", 0))
+                raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
+                try:
+                    if raw_ts is not None:
+                        ts_val = int(raw_ts)
+                        exchange_close_time = pd.to_datetime(ts_val, unit="ms", utc=True).isoformat()
+                except:
+                    exchange_close_time = None
                 
                 if pnl_usdc == 0 and entry_price > 0:
                     pnl_usdc = (float(exit_price) - float(entry_price)) * float(size) if side == "BUY" else (float(entry_price) - float(exit_price)) * float(size)
                 
                 # ALWAYS log closure details (critical for debugging)
-                self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})")
+                if exchange_close_time:
+                    self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}, ExchangeTime: {exchange_close_time})")
+                else:
+                    self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})")
             else:
                  # Fallback recording based on current market price
                  exit_price = hyperliquid_service.get_current_price(symbol)
@@ -1277,7 +1303,10 @@ class BotContext:
             
             discord_service.send_alert(
                 f"🏁 TRADE CLOSED (Exchange): {symbol}",
-                f"Reason: External Close (SL/TP?)\nPnL: ${pnl_usdc:.2f}",
+                f"Reason: External Close (SL/TP?)\n"
+                f"PnL: ${pnl_usdc:.2f}\n"
+                f"Exchange close time (if available): {exchange_close_time or 'N/A'}\n"
+                f"Detected by bot at: {pd.Timestamp.now(tz='UTC').isoformat()}",
                 color="00FF00" if pnl_usdc >= 0 else "FF0000"
             )
 

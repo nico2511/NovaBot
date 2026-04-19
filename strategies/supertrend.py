@@ -68,14 +68,14 @@ class StrategySupertrend(BaseStrategy):
             extra_data: {"1m": df_1m} trigger
         """
         if df.empty or len(df) < (self.ema_filter + 10):
-            return None
+            return self._reject("Not enough 15m candles for supertrend context")
             
         if not extra_data or "1m" not in extra_data:
-            return None
+            return self._reject("Missing 1m trigger data for MTF supertrend")
             
         df_1m = extra_data["1m"]
         if df_1m.empty or len(df_1m) < 20:
-            return None
+            return self._reject("Insufficient 1m candles for trigger")
 
         # 1. Add 15m indicators
         self.add_indicators(df)
@@ -90,7 +90,7 @@ class StrategySupertrend(BaseStrategy):
         # --- 15m SETUP ---
         if adx_15m < self.adx_threshold:
             self.looking_for_entry = False
-            return None
+            return self._reject(f"ADX below threshold ({adx_15m:.1f} < {self.adx_threshold})")
             
         if close_15m > sma_200_15m and st_dir_15m == 1:
             self.entry_direction = "LONG"
@@ -100,7 +100,7 @@ class StrategySupertrend(BaseStrategy):
             self.looking_for_entry = True
         else:
             self.looking_for_entry = False
-            return None
+            return self._reject("15m trend filter not aligned (SMA200/Supertrend)")
             
         # --- 1m TRIGGER ---
         if self.looking_for_entry:
@@ -146,7 +146,7 @@ class StrategySupertrend(BaseStrategy):
                         "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip. ADX: {adx_15m:.1f}"
                     }
                     
-        return None
+        return self._reject("No 1m supertrend flip aligned with 15m bias")
 
     def calculate_progress(self, df, extra_data=None):
         """UI Progress calculation with structured stages"""

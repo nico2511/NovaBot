@@ -3,6 +3,7 @@ Engine Router - Bot Engine Control Endpoints
 Handles start, stop, restart, panic, and status operations
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from app.api.dependencies import get_bot_context
 from pydantic import BaseModel
 import logging
@@ -351,6 +352,161 @@ def update_strategy_params(data: StrategyParamsRequest, bot=Depends(get_bot_cont
     except Exception as e:
         logger.error(f"Error updating strategy params: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/config/strategies-config")
+def get_strategies_config():
+    """Return full strategies configuration from persistent storage."""
+    try:
+        return storage.storage_service.load_strategies()
+    except Exception as e:
+        logger.error(f"Error loading strategies config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calibration", response_class=HTMLResponse)
+def calibration_page():
+    """Simple built-in calibration page for strategy params tuning."""
+    return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NovaBot Calibration</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#ffffff; --text:#1b1f24; --muted:#68707a; --ok:#0b6bcb; --line:#d9dee6; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: "Segoe UI", Tahoma, sans-serif; }
+    .wrap { max-width: 1100px; margin: 20px auto; padding: 0 12px; }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    .sub { color: var(--muted); margin-bottom: 14px; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+    button { border:1px solid var(--line); background:var(--card); padding:8px 12px; border-radius:8px; cursor:pointer; }
+    button.primary { background:var(--ok); color:#fff; border-color:var(--ok); }
+    .grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+    .name { font-size:18px; font-weight:700; margin-bottom:4px; }
+    .meta { color:var(--muted); font-size:12px; margin-bottom:10px; }
+    .rows { display:grid; gap:8px; }
+    .row { display:grid; grid-template-columns: 1fr 120px; gap:8px; align-items:center; }
+    .row label { font-size:13px; color:#2f3742; }
+    .row input { width:100%; box-sizing:border-box; border:1px solid var(--line); border-radius:8px; padding:7px; }
+    .status { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Strategy Calibration</h1>
+    <div class="sub">Tune numeric params, save per strategy, then restart engine if needed.</div>
+    <div class="toolbar">
+      <button id="reloadBtn">Reload Config</button>
+      <button class="primary" id="saveAllBtn">Save All Edited Strategies</button>
+      <button id="restartBtn">Restart Engine</button>
+    </div>
+    <div id="grid" class="grid"></div>
+  </div>
+  <script>
+    const grid = document.getElementById("grid");
+    let config = {};
+    const dirty = new Set();
+
+    const isNumeric = (v) => typeof v === "number" && Number.isFinite(v);
+    const parseMaybeNumber = (txt, current) => {
+      if (typeof current === "boolean") return txt === "true";
+      if (typeof current === "number") {
+        const n = Number(txt);
+        return Number.isFinite(n) ? n : current;
+      }
+      return txt;
+    };
+
+    async function fetchConfig() {
+      const r = await fetch("/api/config/strategies-config");
+      if (!r.ok) throw new Error(await r.text());
+      return await r.json();
+    }
+
+    async function saveStrategy(strategyId) {
+      const card = document.querySelector(`[data-strategy='${strategyId}']`);
+      if (!card) return;
+      const params = {};
+      const original = config[strategyId]?.params || {};
+      card.querySelectorAll("input[data-param]").forEach(inp => {
+        const key = inp.getAttribute("data-param");
+        params[key] = parseMaybeNumber(inp.value, original[key]);
+      });
+      const res = await fetch("/api/config/strategy-params", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ strategy_id: strategyId, params })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      dirty.delete(strategyId);
+      card.querySelector(".status").textContent = "Saved";
+    }
+
+    function render() {
+      grid.innerHTML = "";
+      Object.entries(config).forEach(([name, cfg]) => {
+        if (!cfg || typeof cfg !== "object" || !cfg.params) return;
+        const card = document.createElement("div");
+        card.className = "card";
+        card.setAttribute("data-strategy", name);
+        const rows = Object.entries(cfg.params)
+          .map(([k,v]) => `<div class="row"><label>${k}</label><input data-param="${k}" value="${String(v)}"></div>`)
+          .join("");
+        card.innerHTML = `
+          <div class="name">${name}</div>
+          <div class="meta">type=${cfg.type || "n/a"} | enabled=${cfg.enabled ? "true":"false"}</div>
+          <div class="rows">${rows}</div>
+          <div class="toolbar" style="margin-top:10px;">
+            <button class="primary" data-save="${name}">Save ${name}</button>
+          </div>
+          <div class="status"></div>
+        `;
+        card.querySelectorAll("input[data-param]").forEach(inp => {
+          inp.addEventListener("input", () => {
+            dirty.add(name);
+            card.querySelector(".status").textContent = "Edited (not saved)";
+          });
+        });
+        card.querySelector(`[data-save='${name}']`).addEventListener("click", async () => {
+          try { await saveStrategy(name); }
+          catch (e) { card.querySelector(".status").textContent = "Error: " + e.message; }
+        });
+        grid.appendChild(card);
+      });
+    }
+
+    async function reload() {
+      config = await fetchConfig();
+      dirty.clear();
+      render();
+    }
+
+    document.getElementById("reloadBtn").addEventListener("click", async () => {
+      try { await reload(); } catch (e) { alert("Reload failed: " + e.message); }
+    });
+
+    document.getElementById("saveAllBtn").addEventListener("click", async () => {
+      const targets = Array.from(dirty);
+      for (const s of targets) {
+        try { await saveStrategy(s); } catch (e) { console.error(s, e); }
+      }
+      if (targets.length === 0) alert("No edited strategy to save.");
+    });
+
+    document.getElementById("restartBtn").addEventListener("click", async () => {
+      const r = await fetch("/api/engine/restart", { method: "POST" });
+      if (!r.ok) alert("Restart failed");
+      else alert("Engine restart requested.");
+    });
+
+    reload().catch(e => alert("Init failed: " + e.message));
+  </script>
+</body>
+</html>
+"""
 @router.get("/strategies/monitor")
 def monitor_strategies(bot=Depends(get_bot_context)):
     """Get real-time monitoring data for all strategies"""

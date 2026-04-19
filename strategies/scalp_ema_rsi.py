@@ -38,7 +38,8 @@ class ScalpEmaRsi(BaseStrategy):
         return df
 
     def generate_signal(self, df, extra_data=None):
-        if df.empty or len(df) < 200: return None
+        if df.empty or len(df) < 200:
+            return self._reject("Not enough candles for EMA200 context")
 
         self.add_indicators(df)
             
@@ -53,14 +54,15 @@ class ScalpEmaRsi(BaseStrategy):
         rsi_col = f"RSI_{rsi_len}"
         atr_col = "ATRr_14"
         
-        if trend_col not in df.columns or atr_col not in df.columns: return None
+        if trend_col not in df.columns or atr_col not in df.columns:
+            return self._reject("Required indicators missing (EMA200/ATR)")
         
         # GUARD CLAUSE: Trend Following only in Trend (ADX > threshold)
         adx_threshold = params.get("adx_threshold", 22)
         if 'ADX_14' in df.columns:
             current_adx = df['ADX_14'].iloc[-2]
             if current_adx < adx_threshold: 
-                return None  # No trend, skip trend following strategy
+                return self._reject(f"ADX below threshold ({current_adx:.1f} < {adx_threshold})")
 
         # Values (Use iloc[-2] for signal stability / avoiding repainting)
         current_fast = df[fast_col].iloc[-2]
@@ -146,7 +148,7 @@ class ScalpEmaRsi(BaseStrategy):
                             "comment": f"EMA Bearish Cross + Vol {params.get('volume_multiplier', 1.15)}x"
                         }
         
-        return None
+        return self._reject("No valid EMA crossover setup after filters")
 
     def calculate_progress(self, df, extra_data=None):
         """

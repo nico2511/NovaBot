@@ -85,7 +85,7 @@ class StrategyMemeBreakoutRetest(BaseStrategy):
 
     def generate_signal(self, df, extra_data=None):
         if df is None or df.empty or len(df) < max(self.ema_trend + 20, 260):
-            return None
+            return self._reject("Not enough candles for breakout/retest model")
 
         df = self.add_indicators(df.copy())
 
@@ -104,7 +104,7 @@ class StrategyMemeBreakoutRetest(BaseStrategy):
         trend_ema = float(curr.get(ema_trend_col, curr_close))
 
         if curr_atr <= 0:
-            return None
+            return self._reject("ATR unavailable or zero")
 
         # BUY setup: trend up + recent bullish breakout + retest confirmation.
         if curr_close > trend_ema:
@@ -150,7 +150,7 @@ class StrategyMemeBreakoutRetest(BaseStrategy):
                             "comment": f"Breakout retest short | lvl={sell_level:.6f} | RSI={curr_rsi:.1f}"
                         }
 
-        return None
+        return self._reject("No confirmed breakout-retest continuation setup")
 
     def calculate_progress(self, df, extra_data=None):
         if df is None or df.empty or len(df) < max(self.ema_trend + 20, 260):

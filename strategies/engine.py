@@ -45,6 +45,9 @@ class StrategyEngine:
             if strategy:
                 strategy.name = key
 
+        # De-duplicate repetitive rejection logs (same strategy, same candle, same reason)
+        self._last_rejection_log = {}
+
     def load_config(self):
         try:
             with open("data/config/strategies.json", "r") as f:
@@ -160,6 +163,9 @@ class StrategyEngine:
         # 4. Generate Signals
         signals = []
         for strat in active_strategies:
+            # Reset per-run strategy diagnostic reason
+            if hasattr(strat, "last_rejection_reason"):
+                strat.last_rejection_reason = None
             
             # --- PANIC CLOSE / KILL SWITCH ---
             try:
@@ -260,6 +266,17 @@ class StrategyEngine:
                     signals.append(signal_data)
                 else:
                     print(f"[BOT] 🚫 Signal rejected ({strat.name}/{signal_type}): {rejection_reason or 'Filtered by global guard'}")
+            else:
+                reason = getattr(strat, "last_rejection_reason", None)
+                if reason:
+                    try:
+                        candle_ref = str(df.index[-2])
+                    except Exception:
+                        candle_ref = "n/a"
+                    sig_key = f"{candle_ref}|{reason}"
+                    if self._last_rejection_log.get(strat.name) != sig_key:
+                        self._last_rejection_log[strat.name] = sig_key
+                        print(f"[BOT] ⛔ No signal ({strat.name}): {reason}")
 
 
         # 5. Calculate Progress, Conditions & Snapshots

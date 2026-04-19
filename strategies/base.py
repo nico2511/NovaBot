@@ -6,6 +6,7 @@ class BaseStrategy(ABC):
         self.name = self.__class__.__name__
         self.config = config or {}
         self.params = self.config.get("params", {})
+        self.last_rejection_reason = None
 
     @abstractmethod
     def generate_signal(self, df, extra_data=None):
@@ -131,4 +132,9 @@ class BaseStrategy(ABC):
                     - Return empty dict {} to signal "I handled it, do nothing else"
         """
         return None # Default: Fallback to bot logic
+
+    def _reject(self, reason: str):
+        """Set a human-readable rejection reason for diagnostics and return None."""
+        self.last_rejection_reason = reason
+        return None
 
