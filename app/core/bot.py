@@ -78,6 +78,7 @@ class BotContext:
             "min_score": config.SCANNER_MIN_SCORE,
             "auto_switch": config.SCANNER_AUTO_SWITCH
         }
+        self.scanner_job = None
 
         # Global Settings Defaults (Seeded from user_settings API via config)
         self.global_settings = {
@@ -2106,10 +2107,11 @@ class BotContext:
             except Exception as e:
                 self.add_log(f"⚠️ Failed to stop WebSocket: {e}")
             
-            if self.scanner_job:
+            scanner_job = getattr(self, "scanner_job", None)
+            if scanner_job:
                 try:
                     self.scanner_settings['enabled'] = False
-                    self.scanner_job.stop()
+                    scanner_job.stop()
                     self.add_log("✅ Scanner stopped")
                 except Exception as e:
                     self.add_log(f"⚠️ Failed to stop scanner: {e}")
