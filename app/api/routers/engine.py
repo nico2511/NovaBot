@@ -148,14 +148,50 @@ def stop_engine(bot=Depends(get_bot_context)):
 
 @router.post("/engine/restart")
 def restart_engine(bot=Depends(get_bot_context)):
-    """Restart the trading engine (stop + start)"""
+    """Restart the trading engine (verified stop + verified start)."""
     try:
+        import time
+
+        before_state = {
+            "is_running": bool(getattr(bot, "is_running", False)),
+            "thread_alive": bool(getattr(bot, "thread", None) and bot.thread.is_alive())
+        }
+
         bot.add_log("🔄 RESTART: Stopping engine...")
         bot.stop()
-        import time
-        time.sleep(2)  # Brief pause to allow clean shutdown
+
+        # Safeguard: wait for thread termination
+        stop_deadline = time.time() + 12
+        while time.time() < stop_deadline:
+            thread_alive = bool(getattr(bot, "thread", None) and bot.thread.is_alive())
+            if not thread_alive:
+                break
+            time.sleep(0.25)
+
+        still_alive = bool(getattr(bot, "thread", None) and bot.thread.is_alive())
+        if still_alive:
+            msg = "Restart aborted: trading thread did not stop cleanly"
+            bot.add_log(f"❌ RESTART FAILED: {msg}")
+            raise HTTPException(status_code=500, detail=msg)
+
         bot.add_log("🔄 RESTART: Starting engine...")
         bot.start()
+
+        # Safeguard: wait for running + thread alive
+        start_deadline = time.time() + 10
+        started_ok = False
+        while time.time() < start_deadline:
+            running = bool(getattr(bot, "is_running", False))
+            thread_alive = bool(getattr(bot, "thread", None) and bot.thread.is_alive())
+            if running and thread_alive:
+                started_ok = True
+                break
+            time.sleep(0.25)
+
+        if not started_ok:
+            msg = "Restart failed: engine did not come back up"
+            bot.add_log(f"❌ RESTART FAILED: {msg}")
+            raise HTTPException(status_code=500, detail=msg)
         
         # Save state after restart
         try:
@@ -164,10 +200,43 @@ def restart_engine(bot=Depends(get_bot_context)):
         except Exception as e:
             logger.warning(f"Failed to save state after restart: {e}")
         
-        return {"status": "restarted", "message": "Engine restarted successfully"}
+        return {
+            "status": "restarted",
+            "message": "Engine restarted successfully",
+            "before": before_state,
+            "after": {
+                "is_running": bool(getattr(bot, "is_running", False)),
+                "thread_alive": bool(getattr(bot, "thread", None) and bot.thread.is_alive()),
+                "loop_responsive": bool(bot.is_loop_responsive() if hasattr(bot, "is_loop_responsive") else True)
+            }
+        }
     except Exception as e:
         logger.error(f"Restart failed: {e}")
         raise HTTPException(status_code=500, detail=f"Restart failed: {str(e)}")
+
+
+@router.post("/engine/reload-config")
+def reload_engine_config(bot=Depends(get_bot_context)):
+    """
+    Reload strategy configuration from disk and rebuild strategy engine instances
+    without a full process restart.
+    """
+    try:
+        from strategies.engine import StrategyEngine
+
+        bot.add_log("🔁 RELOAD CONFIG: Rebuilding strategy engine from disk...")
+        bot.strategy_engine = StrategyEngine(bot.risk_manager)
+        bot.add_log("✅ RELOAD CONFIG: Strategy engine rebuilt successfully")
+
+        loaded = list(bot.strategy_engine.strategies.keys()) if hasattr(bot, "strategy_engine") else []
+        return {
+            "status": "reloaded",
+            "message": "Strategy engine reloaded from latest config",
+            "strategies_loaded": loaded
+        }
+    except Exception as e:
+        logger.error(f"Reload config failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Reload config failed: {str(e)}")
 
 
 @router.post("/engine/panic")
@@ -401,6 +470,7 @@ def calibration_page():
     <div class="toolbar">
       <button id="reloadBtn">Reload Config</button>
       <button class="primary" id="saveAllBtn">Save All Edited Strategies</button>
+      <button id="reloadEngineBtn">Reload Strategy Config</button>
       <button id="restartBtn">Restart Engine</button>
     </div>
     <div id="grid" class="grid"></div>
@@ -498,8 +568,25 @@ def calibration_page():
 
     document.getElementById("restartBtn").addEventListener("click", async () => {
       const r = await fetch("/api/engine/restart", { method: "POST" });
-      if (!r.ok) alert("Restart failed");
-      else alert("Engine restart requested.");
+      let body = {};
+      try { body = await r.json(); } catch {}
+      if (!r.ok) {
+        alert("Restart failed: " + (body.detail || JSON.stringify(body) || r.statusText));
+        return;
+      }
+      alert("Engine restarted. after=" + JSON.stringify(body.after || {}));
+    });
+
+    document.getElementById("reloadEngineBtn").addEventListener("click", async () => {
+      const r = await fetch("/api/engine/reload-config", { method: "POST" });
+      let body = {};
+      try { body = await r.json(); } catch {}
+      if (!r.ok) {
+        alert("Reload config failed: " + (body.detail || JSON.stringify(body) || r.statusText));
+        return;
+      }
+      alert("Reload config OK. Strategies: " + (body.strategies_loaded || []).join(", "));
+      await reload();
     });
 
     reload().catch(e => alert("Init failed: " + e.message));
