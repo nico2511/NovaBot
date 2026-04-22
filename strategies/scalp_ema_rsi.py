@@ -98,7 +98,7 @@ class ScalpEmaRsi(BaseStrategy):
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
                         if current_vol < avg_vol * params.get("volume_multiplier", 1.15):
-                            return None  # Insufficient volume
+                            return self._reject(f"BUY rejeté — volume insuffisant ({current_vol/avg_vol:.2f}x < {params.get('volume_multiplier', 1.15)}x)")
                     
                     # Check RR
                     sl_atr_mult = params.get("sl_atr_mult", 1.2)
@@ -129,7 +129,7 @@ class ScalpEmaRsi(BaseStrategy):
                         current_vol = df['volume'].iloc[-2]
                         avg_vol = df['volume'].iloc[-22:-2].mean()
                         if current_vol < avg_vol * params.get("volume_multiplier", 1.15):
-                            return None  # Insufficient volume
+                            return self._reject(f"SELL rejeté — volume insuffisant ({current_vol/avg_vol:.2f}x < {params.get('volume_multiplier', 1.15)}x)")
                     
                     # Check RR
                     sl_atr_mult = params.get("sl_atr_mult", 1.2)

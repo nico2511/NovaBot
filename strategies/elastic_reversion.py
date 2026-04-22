@@ -56,8 +56,8 @@ class ElasticReversionStrategy(BaseStrategy):
         Generate signal based on Elastic Reversion logic.
         """
         # Ensure enough data
-        if df is None or df.empty or len(df) < 50: 
-            return None
+        if df is None or df.empty or len(df) < 50:
+            return self._reject("Not enough candles (need 50+)")
         
         # Add indicators locally (idempotent usually)
         self.add_indicators(df)
@@ -72,7 +72,7 @@ class ElasticReversionStrategy(BaseStrategy):
         
         # Check columns exist
         if rsi_col not in df.columns or ema_col not in df.columns:
-            return None
+            return self._reject("Indicateurs RSI/EMA manquants")
 
         # CANDLE DATA POINTERS
         # T (Current/Trigger) -> iloc[-1] (Just Closed)
@@ -91,14 +91,14 @@ class ElasticReversionStrategy(BaseStrategy):
             p_rsi = df[rsi_col].iloc[-2]
             p_ema = df[ema_col].iloc[-2]
             
-            if pd.isna(p_ema) or pd.isna(p_rsi): return None
+            if pd.isna(p_ema) or pd.isna(p_rsi): return self._reject("EMA/RSI NaN — pas assez de données")
             
             # GUARD CLAUSE: Elasticity limit (ADX < 60)
             # CHANGED 2026-02: Relaxed 50 -> 60
             if 'ADX_14' in df.columns:
                 current_adx = df['ADX_14'].iloc[-2]
                 if current_adx > 60:
-                    return None  # Trend too strong (Runaway), skip mean reversion
+                    return self._reject(f"ADX trop fort ({current_adx:.1f} > 60) — tendance runaway")
 
             # ==========================================
             # 1. SETUP LOGIC (Checked on Previous Candle P)
@@ -138,16 +138,14 @@ class ElasticReversionStrategy(BaseStrategy):
                 tp = c_ema 
                 
                 # Filter: Mean Reversion TP must be below Entry for Short
-                if tp >= c_close: 
-                    # If EMA is above price, we literally reverted past mean? Unlikely if Setup verified.
-                    # Or EMA moved fast. Fallback or skip.
-                    return None
+                if tp >= c_close:
+                    return self._reject(f"EMA TP ({tp:.4f}) >= entrée ({c_close:.4f}) — reversion déjà effectuée")
 
                 # Risk/Reward Check
                 risk = abs(sl - c_close)
                 reward = abs(c_close - tp)
                 
-                if risk == 0: return None
+                if risk == 0: return self._reject("Risque SL=0 — invalide")
                 rr_ratio = reward / risk
                 
                 # RSI Delta Check (momentum filter)
@@ -173,8 +171,7 @@ class ElasticReversionStrategy(BaseStrategy):
             if is_setup_long and (c_close > p_high):
                 # CHECK DIVERGENCE (Flag Bearish Divergence = No Longs)
                 if self.detect_bearish_divergence(df, rsi_col=rsi_col, lookback=10):
-                    # print("⚠️ Elastic Long Skipped: BEARISH DIVERGENCE detected")
-                    return None
+                    return self._reject("Divergence baissière détectée — Long annulé")
                 
                 bonus_rsi = params.get("bonus_rsi_long", 25)
                 
@@ -188,12 +185,12 @@ class ElasticReversionStrategy(BaseStrategy):
                 tp = c_ema
                 
                 if tp <= c_close:
-                    return None
+                    return self._reject(f"EMA TP ({tp:.4f}) <= entrée ({c_close:.4f}) — reversion déjà effectuée")
                     
                 risk = abs(c_close - sl)
                 reward = abs(tp - c_close)
                 
-                if risk == 0: return None
+                if risk == 0: return self._reject("Risque SL=0 — invalide")
                 rr_ratio = reward / risk
                 
                 # RSI Delta Check
@@ -282,8 +279,9 @@ class ElasticReversionStrategy(BaseStrategy):
             long_ext_thresh = -ext_pct
             short_ext_thresh = ext_pct
             
-            rsi_long_thresh = params.get("oversold_rsi", 24)
-            rsi_short_thresh = params.get("overbought_rsi", 76)
+            # P3 FIX: clés alignées avec strategies.json (rsi_oversold/rsi_overbought)
+            rsi_long_thresh = params.get("rsi_oversold", 24)
+            rsi_short_thresh = params.get("rsi_overbought", 76)
             
             s2_status = "WAIT"
             s2_details = "Neutral Zone"

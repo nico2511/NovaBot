@@ -32,9 +32,9 @@
         "params": {
             "ema_period": 20,
             "rsi_period": 14,
-            "extension_pct": 0.04,
-            "rsi_overbought": 76,
-            "rsi_oversold": 24,
+            "extension_pct": 0.02,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
             "sl_lookback": 5,
             "sl_buffer_pct": 0.005,
             "min_rr": 1.5
@@ -134,7 +134,7 @@
             "rsi_buy_max": 44,
             "sl_atr_mult": 1.2,
             "min_rr": 1.4,
-            "allow_longs": false,
+            "allow_longs": true,
             "allow_shorts": true,
             "execution_type": "manual",
             "requires_confirmation": true

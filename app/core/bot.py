@@ -1494,15 +1494,17 @@ class BotContext:
             except: pass
             # --------------------------------------------------------
             
+            # P1 FIX: Gérer les trades ouverts ET détecter les clôtures AVANT le guard max_positions.
+            # Avant ce fix, _manage_all_trades() était dans le même bloc que le guard,
+            # ce qui faisait que la détection de clôture (TP/SL hit) était sautée via `continue`.
             try:
                 self._manage_all_trades()
-                
-                # If we are flat, analyzed current symbol. 
-                # If we have trades, cycle through them?
-                # For now, let's keep it simple: manage all trades every loop tick.
-                
+            except Exception as manage_err:
+                self.add_log(f"⚠️ _manage_all_trades Error: {manage_err}")
+
+            try:
                 # Skip NEW ENTRY analysis only if we are at max positions
-                # We still analyze for new opportunities even with open trades
+                # Trade management and close detection always run (see above)
                 if len(self.active_trades) >= self.max_positions:
                      # Log désactivé pour éviter le spam dans Coolify
                      time.sleep(10)
@@ -1639,6 +1641,9 @@ class BotContext:
                     "regime": result.get("regime"),
                     "adx": round(result.get("adx", 0), 2),
                     "adx_slope": round(result.get("adx_slope", 0), 2),
+                    "regime": result.get("regime"),
+                    "adx": round(result.get("adx", 0), 2),
+                    "adx_slope": round(result.get("adx_slope", 0), 2),
                     "rsi": round(result.get("rsi", 0), 2),
                     "ema_9": round(result.get("ema_9", 0), 4),
                     "ema_20": round(result.get("ema_20", 0), 4),
@@ -1654,6 +1659,15 @@ class BotContext:
                 if signals:
                     sig = signals[0]
                     if sig.get("signal") and sig.get("price"):
+                        # --- P2 FIX: ANTI-DOUBLON GUARD ---
+                        # Si un trade actif existe déjà sur ce symbole dans la même direction,
+                        # ignorer le signal pour éviter les doublons (ex: 2x SELL meme_breakout_retest).
+                        existing_trade = self.active_trades.get(self.active_symbol)
+                        if existing_trade and existing_trade.get("side") == sig.get("signal"):
+                            self.add_log(f"⛔ ANTI-DOUBLON: {sig.get('signal')} {self.active_symbol} ignoré (trade {existing_trade.get('side')} déjà actif via {existing_trade.get('strategy', '?')})")
+                            time.sleep(10)
+                            continue
+
                         # Discord debug notification at strategy-detection stage (before AI gate).
                         self._notify_signal_detected_discord(sig, technical_context)
                         

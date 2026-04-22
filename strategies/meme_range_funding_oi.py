@@ -86,6 +86,12 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
         if curr_adx > self.adx_max:
             return self._reject(f"ADX too high for range fade ({curr_adx:.1f} > {self.adx_max:.1f})")
 
+        # P5 FIX: Vérification explicite des colonnes OI (calculées dans trading_loop).
+        # Si absentes, la stratégie lirait 0.0 et ne se déclencherait jamais silencieusement.
+        oi_cols_present = "OI_vs_MA" in curr.index and "OI_Change_Pct" in curr.index
+        if not oi_cols_present:
+            return self._reject("Colonnes OI (OI_vs_MA / OI_Change_Pct) absentes du df — vérifier l'intégration OI dans trading_loop")
+
         pos = self._range_position(curr_close, range_low, range_high)
 
         # Preferred use-case: SELL upper range under crowded longs.
