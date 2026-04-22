@@ -160,18 +160,25 @@ class Indicators:
         st = np.zeros(m)
         direction = np.zeros(m)
         
-        # Initialize
-        final_ub[0] = basic_ub.iloc[0]
-        final_lb[0] = basic_lb.iloc[0]
-        st[0] = basic_ub.iloc[0]
-        direction[0] = -1
+        # Find first non-nan index of ATR
+        first_valid_idx = 0
+        for i in range(m):
+            if not np.isnan(basic_ub.iloc[i]):
+                first_valid_idx = i
+                break
+        
+        # Initialize at first valid index
+        final_ub[first_valid_idx] = basic_ub.iloc[first_valid_idx]
+        final_lb[first_valid_idx] = basic_lb.iloc[first_valid_idx]
+        st[first_valid_idx] = basic_ub.iloc[first_valid_idx]
+        direction[first_valid_idx] = -1
         
         # Loop for stateful logic (Final Bands & Supertrend)
         close_values = close.values
         basic_ub_values = basic_ub.values
         basic_lb_values = basic_lb.values
         
-        for i in range(1, m):
+        for i in range(first_valid_idx + 1, m):
             # Final Upper Band
             if (basic_ub_values[i] < final_ub[i-1]) or (close_values[i-1] > final_ub[i-1]):
                 final_ub[i] = basic_ub_values[i]

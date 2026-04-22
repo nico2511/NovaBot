@@ -113,29 +113,49 @@ class StrategySupertrend(BaseStrategy):
             # TRIGGER: 1m Supertrend Alignment with 15m trend (removed strict flip)
             if self.entry_direction == "LONG":
                 if last_1m['ST_Direction'] == 1:
-                    sl = min(last_1m['Supertrend'], last_1m['close'] - (self.sl_atr_mult * last_15m['ATR_14']))
+                    atr_val = last_15m.get('ATR_14', 0)
+                    st_val = last_1m.get('Supertrend', 0)
+                    
+                    if np.isnan(atr_val) or np.isnan(st_val):
+                        return self._reject(f"NaN indicators detected (ATR: {atr_val}, ST: {st_val})")
+                        
+                    sl = min(st_val, last_1m['close'] - (self.sl_atr_mult * atr_val))
                     risk = last_1m['close'] - sl
                     tp = last_1m['close'] + (self.rr_ratio * risk)
+                    
+                    if np.isnan(sl) or np.isnan(tp):
+                        return self._reject("Failed to calculate valid SL/TP (NaN result)")
+                        
                     self.looking_for_entry = False
                     return {
                         "signal": "BUY",
-                        "sl": sl,
-                        "tp": tp,
-                        "price": last_1m['close'],
+                        "sl": float(sl),
+                        "tp": float(tp),
+                        "price": float(last_1m['close']),
                         "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
                     }
 
             elif self.entry_direction == "SHORT":
                 if last_1m['ST_Direction'] == -1:
-                    sl = max(last_1m['Supertrend'], last_1m['close'] + (self.sl_atr_mult * last_15m['ATR_14']))
+                    atr_val = last_15m.get('ATR_14', 0)
+                    st_val = last_1m.get('Supertrend', 0)
+                    
+                    if np.isnan(atr_val) or np.isnan(st_val):
+                        return self._reject(f"NaN indicators detected (ATR: {atr_val}, ST: {st_val})")
+                        
+                    sl = max(st_val, last_1m['close'] + (self.sl_atr_mult * atr_val))
                     risk = sl - last_1m['close']
                     tp = last_1m['close'] - (self.rr_ratio * risk)
+                    
+                    if np.isnan(sl) or np.isnan(tp):
+                        return self._reject("Failed to calculate valid SL/TP (NaN result)")
+                        
                     self.looking_for_entry = False
                     return {
                         "signal": "SELL",
-                        "sl": sl,
-                        "tp": tp,
-                        "price": last_1m['close'],
+                        "sl": float(sl),
+                        "tp": float(tp),
+                        "price": float(last_1m['close']),
                         "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
                     }
 
