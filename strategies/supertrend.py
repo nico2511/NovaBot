@@ -109,14 +109,10 @@ class StrategySupertrend(BaseStrategy):
             df_1m['Supertrend'] = st_data_1m['Supertrend']
 
             last_1m = df_1m.iloc[-2]
-            prev_1m = df_1m.iloc[-3]
 
-            # P6: Log de debug pour diagnostiquer les non-déclenchements
-            print(f"[Supertrend] 15m bias={self.entry_direction} | ADX={adx_15m:.1f} | 1m ST_Dir curr={last_1m['ST_Direction']} prev={prev_1m['ST_Direction']}")
-
-            # TRIGGER: 1m Supertrend Flip in direction of 15m trend
+            # TRIGGER: 1m Supertrend Alignment with 15m trend (removed strict flip)
             if self.entry_direction == "LONG":
-                if last_1m['ST_Direction'] == 1 and prev_1m['ST_Direction'] == -1:
+                if last_1m['ST_Direction'] == 1:
                     sl = min(last_1m['Supertrend'], last_1m['close'] - (self.sl_atr_mult * last_15m['ATR_14']))
                     risk = last_1m['close'] - sl
                     tp = last_1m['close'] + (self.rr_ratio * risk)
@@ -126,13 +122,11 @@ class StrategySupertrend(BaseStrategy):
                         "sl": sl,
                         "tp": tp,
                         "price": last_1m['close'],
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip. ADX: {adx_15m:.1f}"
+                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
                     }
-                else:
-                    print(f"[Supertrend] LONG setup prêt mais flip 1m absent (ST_Dir={last_1m['ST_Direction']}, need: -1 → 1)")
 
             elif self.entry_direction == "SHORT":
-                if last_1m['ST_Direction'] == -1 and prev_1m['ST_Direction'] == 1:
+                if last_1m['ST_Direction'] == -1:
                     sl = max(last_1m['Supertrend'], last_1m['close'] + (self.sl_atr_mult * last_15m['ATR_14']))
                     risk = sl - last_1m['close']
                     tp = last_1m['close'] - (self.rr_ratio * risk)
@@ -142,12 +136,10 @@ class StrategySupertrend(BaseStrategy):
                         "sl": sl,
                         "tp": tp,
                         "price": last_1m['close'],
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip. ADX: {adx_15m:.1f}"
+                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
                     }
-                else:
-                    print(f"[Supertrend] SHORT setup prêt mais flip 1m absent (ST_Dir={last_1m['ST_Direction']}, need: 1 → -1)")
 
-        return self._reject("No 1m supertrend flip aligned with 15m bias")
+        return self._reject(f"1m supertrend not aligned with 15m {self.entry_direction} bias")
 
     def calculate_progress(self, df, extra_data=None):
         """UI Progress calculation with structured stages"""
