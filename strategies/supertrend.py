@@ -40,6 +40,7 @@ class StrategySupertrend(BaseStrategy):
         super().__init__(config)
         self.looking_for_entry = False
         self.entry_direction = None
+        self._last_entry_time = None
 
         params = self.config.get("params", {})
         self.st_period = params.get("period", 10)
@@ -49,6 +50,64 @@ class StrategySupertrend(BaseStrategy):
         self.vol_mult = params.get("volume_multiplier", 1.2)
         self.rr_ratio = params.get("min_rr", 1.5)
         self.sl_atr_mult = params.get("sl_atr_mult", 1.0)
+        self.trigger_flip_lookback = int(params.get("trigger_flip_lookback", 3))
+        self.cooldown_minutes = int(params.get("cooldown_minutes", 0))
+
+    def _get_timestamp(self, df, iloc_idx: int):
+        """Best-effort timestamp extraction for cooldown logic."""
+        try:
+            ts = df.index[iloc_idx]
+            if isinstance(ts, (pd.Timestamp,)):
+                return ts
+            # try coercion for string / datetime / numpy types
+            return pd.to_datetime(ts, errors="coerce")
+        except Exception:
+            return None
+
+    def _cooldown_ok(self, now_ts):
+        if self.cooldown_minutes <= 0:
+            return True
+        if now_ts is None or pd.isna(now_ts):
+            return True  # can't enforce without time
+        if self._last_entry_time is None or pd.isna(self._last_entry_time):
+            return True
+        try:
+            elapsed = now_ts - self._last_entry_time
+            return elapsed >= pd.Timedelta(minutes=self.cooldown_minutes)
+        except Exception:
+            return True
+
+    def _recent_flip_ok(self, dir_series: pd.Series, desired_dir: int) -> bool:
+        """
+        Require last confirmed 1m direction == desired_dir AND
+        the most recent flip happened within trigger_flip_lookback confirmed candles.
+        """
+        if dir_series is None or dir_series.empty:
+            return False
+
+        # Exclude live candle direction (last element corresponds to iloc[-1] in df_1m)
+        confirmed = dir_series.iloc[:-1] if len(dir_series) >= 2 else dir_series
+        if confirmed.empty:
+            return False
+
+        last_dir = int(confirmed.iloc[-1])
+        if last_dir != int(desired_dir):
+            return False
+
+        # Find flip points (where direction changes)
+        changes = confirmed != confirmed.shift(1)
+        change_positions = np.where(changes.fillna(False).to_numpy())[0]
+        if change_positions.size == 0:
+            return False
+
+        last_change_pos = int(change_positions[-1])
+        # If last change is the first element, it's not reliable (no prior context)
+        if last_change_pos <= 0:
+            return False
+
+        # Lookback window measured in confirmed candles from the end
+        min_allowed_pos = max(0, len(confirmed) - 1 - self.trigger_flip_lookback)
+        return last_change_pos >= min_allowed_pos
 
     def add_indicators(self, df):
         """Add indicators to 15m dataframe"""
@@ -85,6 +144,10 @@ class StrategySupertrend(BaseStrategy):
         sma_200_15m = last_15m['SMA_200']
         st_dir_15m = last_15m['ST_Direction']
         adx_15m = last_15m['ADX_14']
+        now_ts = self._get_timestamp(df, -2)
+
+        if not self._cooldown_ok(now_ts):
+            return self._reject(f"Cooldown active ({self.cooldown_minutes}m) — skipping entry")
 
         # --- 15m SETUP ---
         if adx_15m < self.adx_threshold:
@@ -110,9 +173,9 @@ class StrategySupertrend(BaseStrategy):
 
             last_1m = df_1m.iloc[-2]
 
-            # TRIGGER: 1m Supertrend Alignment with 15m trend (removed strict flip)
+            # TRIGGER: require a RECENT 1m flip into the 15m direction (prevents spam on mere alignment)
             if self.entry_direction == "LONG":
-                if last_1m['ST_Direction'] == 1:
+                if self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=1):
                     atr_val = last_15m.get('ATR_14', 0)
                     st_val = last_1m.get('Supertrend', 0)
                     
@@ -127,16 +190,18 @@ class StrategySupertrend(BaseStrategy):
                         return self._reject("Failed to calculate valid SL/TP (NaN result)")
                         
                     self.looking_for_entry = False
+                    if now_ts is not None and not pd.isna(now_ts):
+                        self._last_entry_time = now_ts
                     return {
                         "signal": "BUY",
                         "sl": float(sl),
                         "tp": float(tp),
                         "price": float(last_1m['close']),
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
+                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip (lookback={self.trigger_flip_lookback}). ADX: {adx_15m:.1f}"
                     }
 
             elif self.entry_direction == "SHORT":
-                if last_1m['ST_Direction'] == -1:
+                if self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=-1):
                     atr_val = last_15m.get('ATR_14', 0)
                     st_val = last_1m.get('Supertrend', 0)
                     
@@ -151,15 +216,17 @@ class StrategySupertrend(BaseStrategy):
                         return self._reject("Failed to calculate valid SL/TP (NaN result)")
                         
                     self.looking_for_entry = False
+                    if now_ts is not None and not pd.isna(now_ts):
+                        self._last_entry_time = now_ts
                     return {
                         "signal": "SELL",
                         "sl": float(sl),
                         "tp": float(tp),
                         "price": float(last_1m['close']),
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Aligned. ADX: {adx_15m:.1f}"
+                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip (lookback={self.trigger_flip_lookback}). ADX: {adx_15m:.1f}"
                     }
 
-        return self._reject(f"1m supertrend not aligned with 15m {self.entry_direction} bias")
+        return self._reject(f"1m supertrend flip not detected within lookback={self.trigger_flip_lookback} for 15m {self.entry_direction} bias")
 
     def calculate_progress(self, df, extra_data=None):
         """UI Progress calculation with structured stages"""
