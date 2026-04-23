@@ -931,13 +931,13 @@ class HyperliquidService:
         # Rate limiting protection
         if not rate_limiter.can_call("user_state"):
             self.log("⚠️ Rate limit protection: skipping get_positions")
-            return None # Return None to indicate skip/error, not empty
+            return []
         rate_limiter.record_call("user_state")
         
         try:
             user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
             if not user_state:
-                return None # API error
+                return []
             
             # assetPositions contains list of { position: {...}, type: 'oneWay' }
             raw_positions = user_state.get("assetPositions", [])
@@ -995,7 +995,7 @@ class HyperliquidService:
             return positions
         except Exception as e:
             self.log(f"Error fetching positions: {e}")
-            return None # Return None to indicate error
+            return []
 
     @lightweight_operation
     def cancel_all_orders(self, symbol: str):

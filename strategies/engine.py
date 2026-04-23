@@ -10,7 +10,6 @@ from strategies.supertrend import StrategySupertrend
 from strategies.meme_hunter import StrategyMemeHunter
 from strategies.meme_breakout_retest import StrategyMemeBreakoutRetest
 from strategies.meme_range_funding_oi import StrategyMemeRangeFundingOi
-import time
 
 # Import robuste pour Panic Close
 try:
@@ -50,10 +49,6 @@ class StrategyEngine:
 
         # De-duplicate repetitive rejection logs (same strategy, same candle, same reason)
         self._last_rejection_log = {}
-
-        # Throttle noisy "active strategies" logging
-        self._last_active_strats_sig = None
-        self._last_active_strats_log_time = 0.0
 
     def load_config(self):
         try:
@@ -165,12 +160,7 @@ class StrategyEngine:
         # Log active strategies
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])
-            now = time.time()
-            sig = f"{regime}|{strat_names}"
-            if sig != self._last_active_strats_sig or (now - self._last_active_strats_log_time) > 60:
-                self._last_active_strats_sig = sig
-                self._last_active_strats_log_time = now
-                print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+            print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
 
         # 4. Generate Signals
         signals = []
