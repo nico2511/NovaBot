@@ -623,6 +623,10 @@ class BotContext:
         self.add_log(f"🕵️ ADOPTED {symbol}")
 
     def start(self):
+        # Guard against double-start (can happen if start is called twice by different entrypoints)
+        if getattr(self, "thread", None) and self.thread.is_alive():
+            self.is_running = True
+            return
         self.is_running = True
         self.thread = threading.Thread(target=self.trading_loop, daemon=True)
         self.thread.start()
