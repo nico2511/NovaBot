@@ -9,6 +9,7 @@ import threading
 import time
 import asyncio
 import json
+import uuid
 import pandas as pd
 from collections import deque
 
@@ -193,6 +194,15 @@ class BotContext:
         # Initialize Services
         self.trade_recorder = TradeRecorder()
         self.latest_analysis = {}
+
+    def _new_trade_id(self, symbol: str) -> str:
+        """Create a stable internal identifier for a trade lifecycle."""
+        try:
+            sym = (symbol or "UNKNOWN").upper()
+        except Exception:
+            sym = "UNKNOWN"
+        # Keep it short and log-friendly while still unique.
+        return f"{sym}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
     def add_log(self, message: str, metadata: dict = None):
         """Add log message with optional metadata"""
@@ -793,7 +803,9 @@ class BotContext:
                         if self.active_symbol != symbol:
                             self.active_symbol = symbol
                             
+                        trade_id = self._new_trade_id(symbol)
                         self.active_trade = {
+                            "trade_id": trade_id,
                             "symbol": symbol,
                             "side": side,
                             "entry": entry_px,
@@ -852,7 +864,14 @@ class BotContext:
             self.add_log(f"⚠️ Failed to verify position for {symbol}: {e}")
             # Continue anyway - let Hyperliquid API handle the error
             
-        self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})")
+        tid = None
+        try:
+            with self.trade_lock:
+                t = self.active_trades.get(symbol)
+                tid = t.get("trade_id") if isinstance(t, dict) else None
+        except Exception:
+            tid = None
+        self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})" + (f" | id={tid}" if tid else ""))
         
         # Get position data BEFORE closing for accurate PnL calculation
         positions_before = hyperliquid_service.get_positions()
@@ -904,6 +923,7 @@ class BotContext:
                      # Record trade
                      with self.trade_lock:
                          self.trade_recorder.add_trade({
+                             "trade_id": (self.active_trades.get(symbol) or {}).get("trade_id") if isinstance(self.active_trades.get(symbol), dict) else None,
                              "symbol": symbol,
                              "strategy": self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual",
                              "side": side,
@@ -1009,10 +1029,18 @@ class BotContext:
             
             needs_sync = False
             if desired_sl > 0 and not found_sl:
-                self.add_log(f"⚠️ Audit: SL missing/mismatched on exchange (Target: {desired_sl:.4f}). Enforcing...")
+                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
+                self.add_log(
+                    f"⚠️ Audit: SL missing/mismatched on exchange (Target: {desired_sl:.4f}). Enforcing..." +
+                    (f" | id={tid}" if tid else "")
+                )
                 needs_sync = True
             if desired_tp > 0 and not found_tp:
-                self.add_log(f"⚠️ Audit: TP missing/mismatched on exchange (Target: {desired_tp:.4f}). Enforcing...")
+                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
+                self.add_log(
+                    f"⚠️ Audit: TP missing/mismatched on exchange (Target: {desired_tp:.4f}). Enforcing..." +
+                    (f" | id={tid}" if tid else "")
+                )
                 needs_sync = True
                 
             if needs_sync:
@@ -1023,7 +1051,8 @@ class BotContext:
                     desired_sl, 
                     desired_tp
                 )
-                self.add_log("✅ Audit: SL/TP enforced via Sync.")
+                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
+                self.add_log("✅ Audit: SL/TP enforced via Sync." + (f" | id={tid}" if tid else ""))
                 self._last_sltp_sync_time = pd.Timestamp.now()  # Mark sync time for cooldown
                 
         except Exception as e:
@@ -1036,6 +1065,7 @@ class BotContext:
         tp_price = trade.get("tp")
         sl_price = trade.get("sl")
         side = trade.get("side")
+        tid = trade.get("trade_id") if isinstance(trade, dict) else None
         new_sl = None
         
         if entry_price and tp_price and sl_price:
@@ -1052,21 +1082,32 @@ class BotContext:
                     # Safety: Ensure current price is at least 0.3% away from new SL
                     if sl_price < be_price and current_price > (be_price * 1.003):
                         new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: Progress {progress_pct:.1f}% / PnL {pnl_pct:.2f}%. Moving SL to {new_sl:.2f}")
+                        self.add_log(
+                            f"🛡️ Smart BE: Progress {progress_pct:.1f}% / PnL {pnl_pct:.2f}%. "
+                            f"Moving SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
+                            (f" | id={tid}" if tid else "")
+                        )
 
                 # 2. Trailing Profit (Locks 20% of gains at 65% progress)
                 if progress_pct > 65:
                     secure_price = entry_price + (total_dist * 0.20)
                     if sl_price < secure_price:
                          new_sl = secure_price
-                         self.add_log(f"🛡️ Trailing: >65% target. Locking 20% at {new_sl:.2f} (Price: {current_price:.2f})")
+                         self.add_log(
+                             f"🛡️ Trailing: >65% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
+                             f"(Price: {current_price:.4f})" +
+                             (f" | id={tid}" if tid else "")
+                         )
 
                 # 3. Aggressive Lock (Locks 40% of gains)
                 if progress_pct > 75:
                     lock_price = entry_price + (total_dist * 0.40)
                     if sl_price < lock_price:
                          new_sl = lock_price
-                         self.add_log(f"🛡️ Trailing: >75% target. Locking 40% at {new_sl:.2f}")
+                         self.add_log(
+                             f"🛡️ Trailing: >75% target. SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
+                             (f" | id={tid}" if tid else "")
+                         )
                 
             else: # SELL
                 total_dist = entry_price - tp_price
@@ -1079,21 +1120,32 @@ class BotContext:
                     # Safety: Ensure current price is at least 0.3% away from new SL
                     if sl_price > be_price and current_price < (be_price * 0.997):
                         new_sl = be_price
-                        self.add_log(f"🛡️ Smart BE: >60% target. Moving SL to {new_sl:.2f} (Price: {current_price:.2f})")
+                        self.add_log(
+                            f"🛡️ Smart BE: >60% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
+                            f"(Price: {current_price:.4f})" +
+                            (f" | id={tid}" if tid else "")
+                        )
 
                 # 2. Trailing Profit (65% progress)
                 if progress_pct > 65:
                     secure_price = entry_price - (total_dist * 0.20)
                     if sl_price > secure_price:
                         new_sl = secure_price
-                        self.add_log(f"🛡️ Trailing: >65% target. Locking 20% at {new_sl:.2f} (Price: {current_price:.2f})")
+                        self.add_log(
+                            f"🛡️ Trailing: >65% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
+                            f"(Price: {current_price:.4f})" +
+                            (f" | id={tid}" if tid else "")
+                        )
                         
                 # 3. Aggressive Lock
                 if progress_pct > 75:
                     lock_price = entry_price - (total_dist * 0.40)
                     if sl_price > lock_price:
                         new_sl = lock_price
-                        self.add_log(f"🛡️ Trailing: >75% target. Locking 40% at {new_sl:.2f}")
+                        self.add_log(
+                            f"🛡️ Trailing: >75% target. SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
+                            (f" | id={tid}" if tid else "")
+                        )
 
             if new_sl:
                 with self.trade_lock:
@@ -1117,6 +1169,7 @@ class BotContext:
         side = trade.get("side")
         sl_val = float(trade.get("sl") or 0)
         tp_val = float(trade.get("tp") or 0)
+        tid = trade.get("trade_id") if isinstance(trade, dict) else None
         
         exit_triggered = False
         reason = ""
@@ -1133,7 +1186,7 @@ class BotContext:
                 exit_triggered = True; reason = "TAKE_PROFIT"
                 
         if exit_triggered:
-            self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}")
+            self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}" + (f" | id={tid}" if tid else ""))
             self.execute_exit_atomically(symbol, reason)
 
     def _manage_all_trades(self):
@@ -1187,7 +1240,8 @@ class BotContext:
                 # 2. Default Smart Trailing (Fallback) - Only on actual change
                 if not handled_by_strategy:
                     if self._update_trailing_stops(trade, current_price):
-                         self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing...")
+                         tid = trade.get("trade_id") if isinstance(trade, dict) else None
+                         self.add_log(f"🔄 Trailing Stop Updated for {symbol}. Enforcing..." + (f" | id={tid}" if tid else ""))
                          with self.trade_lock:
                              t_ref = self.active_trades.get(symbol)
                              if t_ref:
@@ -1220,6 +1274,8 @@ class BotContext:
                 else:
                     # Update Existing Memory
                     with self.trade_lock:
+                        if "trade_id" not in trade or not trade.get("trade_id"):
+                            trade["trade_id"] = self._new_trade_id(symbol)
                         trade["pnl"] = float(pos.get("pnl", 0))
                         trade["size"] = float(pos.get("size", 0))
                         trade["leverage"] = float(pos.get("leverage", 1.0))
@@ -1232,7 +1288,8 @@ class BotContext:
                     if not trade: continue
                     
                     # ALWAYS log closure detections (critical state transition)
-                    self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure...")
+                    tid = trade.get("trade_id") if isinstance(trade, dict) else None
+                    self.add_log(f"🕵️ SYNC: Position {symbol} vanished from exchange. Handling closure..." + (f" | id={tid}" if tid else ""))
                     self._handle_external_closure(symbol, trade, silent)
         except Exception as e:
             # ALWAYS log sync errors (was silent=True before, hiding ghost trade bugs)
@@ -1240,7 +1297,8 @@ class BotContext:
 
     def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
         """Logic to record and clean up a trade closed externally"""
-        self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing...")
+        tid = trade.get("trade_id") if isinstance(trade, dict) else None
+        self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing..." + (f" | id={tid}" if tid else ""))
         pnl_usdc = 0
         try:
             # 1. Fetch recent history from Exchange to find REAL exit price
@@ -1253,7 +1311,14 @@ class BotContext:
                 try:
                     return int(ts)
                 except:
-                    return 0
+                    try:
+                        # Our trade_history uses ISO timestamps like "2026-04-23T15:24:47..."
+                        dt = pd.to_datetime(ts, utc=True, errors="coerce")
+                        if pd.isna(dt):
+                            return 0
+                        return int(dt.value // 1_000_000)  # ms
+                    except Exception:
+                        return 0
             symbol_trades.sort(key=_trade_ts, reverse=True)
             closing_trade = symbol_trades[0] if symbol_trades else None
             
@@ -1268,9 +1333,15 @@ class BotContext:
                 raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
                 try:
                     if raw_ts is not None:
-                        ts_val = int(raw_ts)
-                        exchange_close_time = pd.to_datetime(ts_val, unit="ms", utc=True).isoformat()
-                except:
+                        # raw_ts may be ms int OR ISO string depending on parser
+                        try:
+                            ts_val = int(raw_ts)
+                            exchange_close_time = pd.to_datetime(ts_val, unit="ms", utc=True).isoformat()
+                        except Exception:
+                            dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
+                            if not pd.isna(dt):
+                                exchange_close_time = dt.isoformat()
+                except Exception:
                     exchange_close_time = None
                 
                 if pnl_usdc == 0 and entry_price > 0:
@@ -1278,17 +1349,27 @@ class BotContext:
                 
                 # ALWAYS log closure details (critical for debugging)
                 if exchange_close_time:
-                    self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}, ExchangeTime: {exchange_close_time})")
+                    self.add_log(
+                        f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}, ExchangeTime: {exchange_close_time})" +
+                        (f" | id={tid}" if tid else "")
+                    )
                 else:
-                    self.add_log(f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})")
+                    self.add_log(
+                        f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})" +
+                        (f" | id={tid}" if tid else "")
+                    )
             else:
                  # Fallback recording based on current market price
                  exit_price = hyperliquid_service.get_current_price(symbol)
                  pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
-                 self.add_log(f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL: ${pnl_usdc:.2f}")
+                 self.add_log(
+                     f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL: ${pnl_usdc:.2f}" +
+                     (f" | id={tid}" if tid else "")
+                 )
 
             # Record
             self.trade_recorder.add_trade({
+                  "trade_id": tid,
                   "symbol": symbol,
                   "strategy": trade.get("strategy", "Unknown"),
                   "side": side,
@@ -1920,7 +2001,9 @@ class BotContext:
             leverage = float(active_pos.get('leverage', 1.0))
             
             with self.trade_lock:
+                trade_id = self._new_trade_id(symbol)
                 self.active_trades[symbol] = {
+                    "trade_id": trade_id,
                     "symbol": symbol,
                     "side": side,
                     "entry": entry_price,

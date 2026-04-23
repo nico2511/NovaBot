@@ -66,6 +66,12 @@ class HyperliquidService:
         # Balance cache to prevent 429s from frontend polling
         self._balance_cache = {"time": 0, "data": None}
         self._cache_ttl = 10 # 10 seconds TTL
+        
+        # Positions cache to keep bot state coherent under rate limiting.
+        # If get_positions() is rate-limited, returning [] can make the bot think
+        # positions vanished (or that none exist) and cause "ghost" state issues.
+        self._positions_cache = {"time": 0, "data": []}
+        self._positions_cache_ttl = 10  # seconds TTL for cached positions
     
         # Log callback for UI integration
         self.log_callback = None
@@ -930,7 +936,12 @@ class HyperliquidService:
         
         # Rate limiting protection
         if not rate_limiter.can_call("user_state"):
-            self.log("⚠️ Rate limit protection: skipping get_positions")
+            self.log("⚠️ Rate limit protection: skipping get_positions", "WARNING")
+            cached = self._positions_cache.get("data") or []
+            cache_time = float(self._positions_cache.get("time", 0) or 0)
+            if cached and (time.time() - cache_time) <= float(self._positions_cache_ttl or 0):
+                self.log("ℹ️ Returning cached positions due to rate limit", "INFO")
+                return cached
             return []
         rate_limiter.record_call("user_state")
         
@@ -991,10 +1002,17 @@ class HyperliquidService:
                     "liquidation_price": float(pos.get("liquidationPx", 0.0)) if pos.get("liquidationPx") else None,
                     "entry_time": entry_time
                 })
-                
+            
+            # Update cache (even if empty, it reflects truth at this time)
+            self._positions_cache = {"time": time.time(), "data": positions}
             return positions
         except Exception as e:
             self.log(f"Error fetching positions: {e}")
+            cached = self._positions_cache.get("data") or []
+            cache_time = float(self._positions_cache.get("time", 0) or 0)
+            if cached and (time.time() - cache_time) <= float(self._positions_cache_ttl or 0):
+                self.log("⚠️ Returning cached positions due to get_positions error", "WARNING")
+                return cached
             return []
 
     @lightweight_operation
