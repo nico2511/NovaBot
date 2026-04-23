@@ -548,7 +548,51 @@ class BotContext:
                     df_15m = hyperliquid_service.get_candles(self.active_symbol, "15m", 200)
                     if not df_15m.empty:
                         self.latest_data = df_15m
-                        result = self.strategy_engine.analyze(df_15m, {"symbol": self.active_symbol})
+                        # Enrich analysis context (Funding + Open Interest derived columns)
+                        try:
+                            funding_rate = hyperliquid_service.get_funding_rate(self.active_symbol)
+                        except Exception:
+                            funding_rate = 0.0
+
+                        try:
+                            oi_val = float(hyperliquid_service.get_open_interest(self.active_symbol) or 0.0)
+                        except Exception:
+                            oi_val = 0.0
+
+                        # Keep a short OI history to compute simple derived metrics
+                        try:
+                            if oi_val > 0:
+                                self.oi_history.append({"ts": time.time(), "oi": oi_val})
+                        except Exception:
+                            pass
+
+                        oi_ma = 0.0
+                        oi_vs_ma = 1.0
+                        oi_change_pct = 0.0
+                        try:
+                            vals = [float(x.get("oi", 0) or 0) for x in list(self.oi_history)[-20:]]
+                            vals = [v for v in vals if v > 0]
+                            if vals:
+                                oi_ma = sum(vals) / len(vals)
+                                if oi_ma > 0:
+                                    oi_vs_ma = oi_val / oi_ma if oi_val > 0 else 1.0
+                            if len(vals) >= 2:
+                                prev = vals[-2]
+                                if prev > 0 and oi_val > 0:
+                                    oi_change_pct = ((oi_val - prev) / prev) * 100.0
+                        except Exception:
+                            pass
+
+                        df_enriched = df_15m.copy()
+                        df_enriched["OI"] = oi_val
+                        df_enriched["OI_MA"] = oi_ma
+                        df_enriched["OI_vs_MA"] = oi_vs_ma
+                        df_enriched["OI_Change_Pct"] = oi_change_pct
+
+                        result = self.strategy_engine.analyze(
+                            df_enriched,
+                            {"symbol": self.active_symbol, "funding_rate": funding_rate, "open_interest": oi_val},
+                        )
                         signals = result.get("signals", [])
                         if signals:
                             sig = signals[0]
