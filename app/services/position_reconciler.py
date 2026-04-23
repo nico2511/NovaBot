@@ -44,19 +44,21 @@ class PositionReconciler:
         """Single reconciliation pass — the source of truth is always the exchange."""
         try:
             exchange_positions = self.hl.get_positions()
+            if exchange_positions is None:
+                # API Error or rate limiting, skip this pass to protect state
+                return
+                
             # Only positions with a non-zero size are truly open
             active_positions = [
                 p for p in exchange_positions
                 if abs(float(p.get("size", 0) or 0)) > 0
             ]
 
-            # Step 1 — Remove ghost trades (bot tracks a position that no longer exists)
-            self._cleanup_ghost_trades(active_positions)
-
-            # Step 2 — Adopt orphan positions (manual trades opened directly on exchange)
+            # Step 1 — Adopt orphan positions (manual trades opened directly on exchange)
+            # Ghost cleanup is now handled centrally in BotContext._sync_state
             self._adopt_orphan_positions(active_positions)
 
-            # Step 3 — Ensure SL/TP on all tracked positions
+            # Step 2 — Ensure SL/TP on all tracked positions
             for pos in active_positions:
                 symbol = pos.get("symbol")
                 now = time.time()
