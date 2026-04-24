@@ -34,6 +34,10 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
             "adx_max":             float(self.get_param("adx_max", 24)),
             "upper_zone":          float(self.get_param("upper_zone", 0.82)),
             "lower_zone":          float(self.get_param("lower_zone", 0.18)),
+            # Guards
+            "breakout_buffer":     float(self.get_param("breakout_buffer", 0.003)),
+            "volume_ma_len":       int(self.get_param("volume_ma_len", 50)),
+            "min_volume_ratio":    float(self.get_param("min_volume_ratio", 0.6)),
             "min_funding_short":   float(self.get_param("min_funding_short", 0.00015)),
             "max_funding_long":    float(self.get_param("max_funding_long", -0.00015)),
             "min_oi_vs_ma":        float(self.get_param("min_oi_vs_ma", 1.03)),
@@ -92,6 +96,20 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
         if curr_adx > p["adx_max"]:
             return self._reject(f"ADX too high for range fade ({curr_adx:.1f} > {p['adx_max']:.1f})")
 
+        # ------------------------------------------------------------------
+        # GUARD 1: Liquidity/participation filter (avoid thin-market traps)
+        # ------------------------------------------------------------------
+        try:
+            v_len = max(5, int(p["volume_ma_len"]))
+            vol_ma = float(df["volume"].iloc[:-1].rolling(v_len).mean().iloc[-2])
+            vol_now = float(df["volume"].iloc[-2])
+            vol_ratio = (vol_now / vol_ma) if vol_ma > 0 else 0.0
+            if vol_ratio < float(p["min_volume_ratio"]):
+                return self._reject(f"Volume too low for contrarian fade ({vol_ratio:.2f}x < {p['min_volume_ratio']:.2f}x)")
+        except Exception:
+            # If volume is missing/unusable we do NOT trade (safer default).
+            return self._reject("Volume ratio unavailable — skip contrarian fade")
+
         # P5 FIX: Vérification explicite des colonnes OI (calculées dans trading_loop).
         # Si absentes, la stratégie lirait 0.0 et ne se déclencherait jamais silencieusement.
         oi_cols_present = "OI_vs_MA" in curr.index and "OI_Change_Pct" in curr.index
@@ -99,9 +117,17 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
             return self._reject("Colonnes OI (OI_vs_MA / OI_Change_Pct) absentes du df — vérifier l'intégration OI dans trading_loop")
 
         pos = self._range_position(curr_close, range_low, range_high)
+        breakout_buf = max(0.0, float(p["breakout_buffer"]))
 
         # Preferred use-case: SELL upper range under crowded longs.
         if p["allow_shorts"]:
+            # ------------------------------------------------------------------
+            # GUARD 2: Anti-breakout (do not fade when range is breaking upward)
+            # If price is already above the range high by a buffer, the range is invalid.
+            # ------------------------------------------------------------------
+            if curr_close > (range_high * (1.0 + breakout_buf)):
+                return self._reject(f"Range breakout up detected (close>{(1.0 + breakout_buf):.3f}x high) — skip short fade")
+
             short_crowding_ok = (
                 funding_rate >= p["min_funding_short"] and
                 oi_vs_ma >= p["min_oi_vs_ma"] and
@@ -137,6 +163,10 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
 
         # Optional mirror setup: BUY lower range under crowded shorts.
         if p["allow_longs"]:
+            # Anti-breakout down: do not fade if price broke below the range low.
+            if curr_close < (range_low * (1.0 - breakout_buf)):
+                return self._reject(f"Range breakdown detected (close<{(1.0 - breakout_buf):.3f}x low) — skip long fade")
+
             long_crowding_ok = (
                 funding_rate <= p["max_funding_long"] and
                 oi_vs_ma >= p["min_oi_vs_ma"] and
