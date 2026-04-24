@@ -1,6 +1,9 @@
-import threading
 import datetime
+import logging
+import threading
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class RiskState:
@@ -85,27 +88,24 @@ class RiskManager:
                 # IMPORTANT: Hyperliquid est la source de vérité
                 # On force TOUJOURS la synchronisation
                 if self.state.open_positions != real_count:
-                    print(f"⚠️ SYNC: Position mismatch detected!")
-                    print(f"   Bot thinks: {self.state.open_positions}")
-                    print(f"   Hyperliquid has: {real_count} (SOURCE OF TRUTH)")
-                    
-                    # Force sync - PAS DE POSITIONS FANTÔMES
                     old_count = self.state.open_positions
+                    logger.warning(
+                        "Position mismatch: bot=%s, hyperliquid=%s (source of truth). Forcing sync.",
+                        old_count,
+                        real_count,
+                    )
                     self.state.open_positions = real_count
-                    
-                    print(f"✅ SYNC: Forced sync {old_count} → {real_count}")
-                    
                     return {
                         "synced": True,
                         "old_count": old_count,
                         "new_count": real_count,
-                        "positions": real_positions
+                        "positions": real_positions,
                     }
-            
+
             return {"synced": False, "count": real_count}
-            
+
         except Exception as e:
-            print(f"Error syncing with Hyperliquid: {e}")
+            logger.error("Error syncing with Hyperliquid: %s", e)
             return {"synced": False, "error": str(e)}
 
     def calculate_position_size(self, price: float, sl_price: float, equity: float, method: str = "fixed", size_value: float = 20.0, leverage: int = 5, size_type: str = "margin") -> float:
@@ -146,20 +146,26 @@ class RiskManager:
             
             # Check Minimum Size
             if position_notional < MIN_POSITION_SIZE_USD:
-                print(f"⚠️ Position size ${position_notional:.2f} < Min ${MIN_POSITION_SIZE_USD}. Clamping to Min.")
+                logger.warning(
+                    "Position size $%.2f < Min $%s. Clamping to Min.",
+                    position_notional, MIN_POSITION_SIZE_USD,
+                )
                 size_coins = MIN_POSITION_SIZE_USD / price
                 position_notional = MIN_POSITION_SIZE_USD
-                
+
             # Check Maximum Leverage Cap (Safety Net)
-            max_allowed_notional = equity * 20 # Hard cap 20x equity even if leverage is higher
+            max_allowed_notional = equity * 20  # Hard cap 20x equity even if leverage is higher
             if position_notional > max_allowed_notional:
-                 print(f"⚠️ Position size ${position_notional:.2f} exceeds Max Cap. Clamping.")
-                 size_coins = max_allowed_notional / price
+                logger.warning(
+                    "Position size $%.2f exceeds Max Cap. Clamping.",
+                    position_notional,
+                )
+                size_coins = max_allowed_notional / price
 
             return size_coins
-                
+
         except Exception as e:
-            print(f"Error calculating position size: {e}")
+            logger.error("Error calculating position size: %s", e)
             # Fallback safe size ($12 min)
             return 12.0 / price if price > 0 else 0.0
 

@@ -632,6 +632,9 @@ class HyperliquidService:
                     orders = []
                     
                     # 1. ENTRY ORDER
+                    # Hyperliquid bulk_orders does not support a native "market" entry;
+                    # we simulate market behavior with an aggressive crossing limit + IOC,
+                    # so we don't miss fast moves while still keeping SL/TP atomic grouping.
                     entry_order = {
                         "coin": symbol,
                         "is_buy": is_buy,
@@ -644,7 +647,7 @@ class HyperliquidService:
                         # For bulk, we need explicit type.
                         # If price is None, we want MARKET.
                         # Using a very aggressive limit price simulates Market.
-                        "order_type": {"limit": {"tif": "Gtc"}}, 
+                        "order_type": {"limit": {"tif": "Ioc"}},
                         "reduce_only": False
                     }
                     
@@ -664,22 +667,28 @@ class HyperliquidService:
                     
                     if sl_price:
                         sl_px_fmt = float(f"{sl_price:.{price_decimals}f}")
+                        # For Market Trigger, limit_px should be aggressive to ensure fill when triggered.
+                        sl_limit_px = sl_px_fmt * 1.05 if close_is_buy else sl_px_fmt * 0.95
+                        sl_limit_px = float(f"{sl_limit_px:.{price_decimals}f}")
                         orders.append({
                             "coin": symbol,
                             "is_buy": close_is_buy,
                             "sz": quantity,
-                            "limit_px": sl_px_fmt,
+                            "limit_px": sl_limit_px,
                             "order_type": {"trigger": {"triggerPx": sl_px_fmt, "isMarket": True, "tpsl": "sl"}},
                             "reduce_only": True
                         })
                         
                     if tp_price:
                         tp_px_fmt = float(f"{tp_price:.{price_decimals}f}")
+                        # Same aggressive limit behavior for market-trigger TP.
+                        tp_limit_px = tp_px_fmt * 1.05 if close_is_buy else tp_px_fmt * 0.95
+                        tp_limit_px = float(f"{tp_limit_px:.{price_decimals}f}")
                         orders.append({
                             "coin": symbol,
                             "is_buy": close_is_buy,
                             "sz": quantity,
-                            "limit_px": tp_px_fmt,
+                            "limit_px": tp_limit_px,
                             "order_type": {"trigger": {"triggerPx": tp_px_fmt, "isMarket": True, "tpsl": "tp"}},
                             "reduce_only": True
                         })

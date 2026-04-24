@@ -74,18 +74,23 @@ class SafeOrderManager:
         has_sl = count_sl >= 1
         has_tp = count_tp >= 1
         
-        # 🛡️ BI-DIRECTIONAL SYNC: Update internal state with exchange reality
-        if self.bot_context and symbol in self.bot_context.active_trades:
-            trade = self.bot_context.active_trades[symbol]
-            exchange_sl = float(sl_orders[0].get("triggerPx", 0)) if has_sl else 0
-            exchange_tp = float(tp_orders[0].get("triggerPx", 0)) if has_tp else 0
-            
-            # Update memory if exchange has a real value and bot was at 0 or different
-            if (exchange_sl > 0 and trade.get("sl") != exchange_sl) or \
-               (exchange_tp > 0 and trade.get("tp") != exchange_tp):
-                self.logger.info(f"🔄 Syncing memory with exchange for {symbol}: SL={exchange_sl}, TP={exchange_tp}")
-                trade["sl"] = exchange_sl
-                trade["tp"] = exchange_tp
+        # 🛡️ BI-DIRECTIONAL SYNC: Update internal state with exchange reality.
+        # Guarded by the bot's trade_lock to avoid racing with the trading loop.
+        if self.bot_context is not None:
+            trade_lock = getattr(self.bot_context, "trade_lock", None)
+            if trade_lock is not None:
+                with trade_lock:
+                    trade = self.bot_context.active_trades.get(symbol)
+                    if trade is not None:
+                        exchange_sl = float(sl_orders[0].get("triggerPx", 0)) if has_sl else 0
+                        exchange_tp = float(tp_orders[0].get("triggerPx", 0)) if has_tp else 0
+                        if (exchange_sl > 0 and trade.get("sl") != exchange_sl) or \
+                           (exchange_tp > 0 and trade.get("tp") != exchange_tp):
+                            self.logger.info(
+                                f"🔄 Syncing memory with exchange for {symbol}: SL={exchange_sl}, TP={exchange_tp}"
+                            )
+                            trade["sl"] = exchange_sl
+                            trade["tp"] = exchange_tp
         
         if has_sl and has_tp:
             self.logger.debug(f"✅ {symbol} already has protection (SL + TP)")

@@ -24,27 +24,32 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
 
     def __init__(self, config=None):
         super().__init__(config)
-        p = self.config.get("params", {})
-        self.range_lookback = int(p.get("range_lookback", 48))
-        self.rsi_period = int(p.get("rsi_period", 14))
-        self.atr_period = int(p.get("atr_period", 14))
-        self.adx_max = float(p.get("adx_max", 24))
-        self.upper_zone = float(p.get("upper_zone", 0.82))
-        self.lower_zone = float(p.get("lower_zone", 0.18))
-        self.min_funding_short = float(p.get("min_funding_short", 0.00015))
-        self.max_funding_long = float(p.get("max_funding_long", -0.00015))
-        self.min_oi_vs_ma = float(p.get("min_oi_vs_ma", 1.03))
-        self.min_oi_change_pct = float(p.get("min_oi_change_pct", 0.15))
-        self.rsi_sell_min = float(p.get("rsi_sell_min", 56))
-        self.rsi_buy_max = float(p.get("rsi_buy_max", 44))
-        self.sl_atr_mult = float(p.get("sl_atr_mult", 1.2))
-        self.min_rr = float(p.get("min_rr", 1.4))
-        self.allow_longs = bool(p.get("allow_longs", False))
-        self.allow_shorts = bool(p.get("allow_shorts", True))
+        # All tunable params read dynamically via self.get_param().
 
-    def add_indicators(self, df):
-        df["RSI_14"] = ta.rsi(df["close"], length=self.rsi_period)
-        df["ATRr_14"] = ta.atr(df["high"], df["low"], df["close"], length=self.atr_period)
+    def _params_snapshot(self):
+        return {
+            "range_lookback":      int(self.get_param("range_lookback", 48)),
+            "rsi_period":          int(self.get_param("rsi_period", 14)),
+            "atr_period":          int(self.get_param("atr_period", 14)),
+            "adx_max":             float(self.get_param("adx_max", 24)),
+            "upper_zone":          float(self.get_param("upper_zone", 0.82)),
+            "lower_zone":          float(self.get_param("lower_zone", 0.18)),
+            "min_funding_short":   float(self.get_param("min_funding_short", 0.00015)),
+            "max_funding_long":    float(self.get_param("max_funding_long", -0.00015)),
+            "min_oi_vs_ma":        float(self.get_param("min_oi_vs_ma", 1.03)),
+            "min_oi_change_pct":   float(self.get_param("min_oi_change_pct", 0.15)),
+            "rsi_sell_min":        float(self.get_param("rsi_sell_min", 56)),
+            "rsi_buy_max":         float(self.get_param("rsi_buy_max", 44)),
+            "sl_atr_mult":         float(self.get_param("sl_atr_mult", 1.2)),
+            "min_rr":              float(self.get_param("min_rr", 1.4)),
+            "allow_longs":         bool(self.get_param("allow_longs", False)),
+            "allow_shorts":        bool(self.get_param("allow_shorts", True)),
+        }
+
+    def add_indicators(self, df, p=None):
+        p = p or self._params_snapshot()
+        df["RSI_14"] = ta.rsi(df["close"], length=p["rsi_period"])
+        df["ATRr_14"] = ta.atr(df["high"], df["low"], df["close"], length=p["atr_period"])
         if "ADX_14" not in df.columns:
             adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
             df["ADX_14"] = adx_df["ADX"]
@@ -57,16 +62,17 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
         return (close_price - range_low) / width
 
     def generate_signal(self, df, extra_data=None):
-        if df is None or df.empty or len(df) < max(120, self.range_lookback + 5):
+        p = self._params_snapshot()
+        if df is None or df.empty or len(df) < max(120, p["range_lookback"] + 5):
             return self._reject("Not enough candles for range crowd fade")
 
         extra_data = extra_data or {}
         funding_rate = float(extra_data.get("funding_rate", 0.0) or 0.0)
 
-        df = self.add_indicators(df.copy())
+        df = self.add_indicators(df.copy(), p)
         curr = df.iloc[-2]  # confirmed candle
         live = df.iloc[-1]  # execution price context
-        window = df.iloc[-(self.range_lookback + 2):-2]
+        window = df.iloc[-(p["range_lookback"] + 2):-2]
         if window.empty:
             return self._reject("Range window unavailable")
 
@@ -83,8 +89,8 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
 
         if curr_atr <= 0:
             return self._reject("ATR unavailable or zero")
-        if curr_adx > self.adx_max:
-            return self._reject(f"ADX too high for range fade ({curr_adx:.1f} > {self.adx_max:.1f})")
+        if curr_adx > p["adx_max"]:
+            return self._reject(f"ADX too high for range fade ({curr_adx:.1f} > {p['adx_max']:.1f})")
 
         # P5 FIX: Vérification explicite des colonnes OI (calculées dans trading_loop).
         # Si absentes, la stratégie lirait 0.0 et ne se déclencherait jamais silencieusement.
@@ -95,21 +101,21 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
         pos = self._range_position(curr_close, range_low, range_high)
 
         # Preferred use-case: SELL upper range under crowded longs.
-        if self.allow_shorts:
+        if p["allow_shorts"]:
             short_crowding_ok = (
-                funding_rate >= self.min_funding_short and
-                oi_vs_ma >= self.min_oi_vs_ma and
-                oi_change >= self.min_oi_change_pct
+                funding_rate >= p["min_funding_short"] and
+                oi_vs_ma >= p["min_oi_vs_ma"] and
+                oi_change >= p["min_oi_change_pct"]
             )
-            short_zone_ok = pos >= self.upper_zone
-            short_momentum_ok = curr_rsi >= self.rsi_sell_min
+            short_zone_ok = pos >= p["upper_zone"]
+            short_momentum_ok = curr_rsi >= p["rsi_sell_min"]
             rejection_wick_ok = (curr_high - curr_close) >= (0.15 * max(1e-9, (curr_high - curr_low)))
 
             if short_crowding_ok and short_zone_ok and short_momentum_ok and rejection_wick_ok:
-                sl = max(curr_high, range_high) + (self.sl_atr_mult * curr_atr)
+                sl = max(curr_high, range_high) + (p["sl_atr_mult"] * curr_atr)
                 risk = sl - curr_close
                 if risk > 0:
-                    tp = curr_close - (self.min_rr * risk)
+                    tp = curr_close - (p["min_rr"] * risk)
                     return {
                         "signal": "SELL",
                         "price": float(live["close"]),
@@ -130,21 +136,21 @@ class StrategyMemeRangeFundingOi(BaseStrategy):
                     }
 
         # Optional mirror setup: BUY lower range under crowded shorts.
-        if self.allow_longs:
+        if p["allow_longs"]:
             long_crowding_ok = (
-                funding_rate <= self.max_funding_long and
-                oi_vs_ma >= self.min_oi_vs_ma and
-                oi_change >= self.min_oi_change_pct
+                funding_rate <= p["max_funding_long"] and
+                oi_vs_ma >= p["min_oi_vs_ma"] and
+                oi_change >= p["min_oi_change_pct"]
             )
-            long_zone_ok = pos <= self.lower_zone
-            long_momentum_ok = curr_rsi <= self.rsi_buy_max
+            long_zone_ok = pos <= p["lower_zone"]
+            long_momentum_ok = curr_rsi <= p["rsi_buy_max"]
             rejection_wick_ok = (curr_close - curr_low) >= (0.15 * max(1e-9, (curr_high - curr_low)))
 
             if long_crowding_ok and long_zone_ok and long_momentum_ok and rejection_wick_ok:
-                sl = min(curr_low, range_low) - (self.sl_atr_mult * curr_atr)
+                sl = min(curr_low, range_low) - (p["sl_atr_mult"] * curr_atr)
                 risk = curr_close - sl
                 if risk > 0:
-                    tp = curr_close + (self.min_rr * risk)
+                    tp = curr_close + (p["min_rr"] * risk)
                     return {
                         "signal": "BUY",
                         "price": float(live["close"]),

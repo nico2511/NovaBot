@@ -87,7 +87,8 @@ class PositionReconciler:
             return
 
         exchange_symbols = {p.get("symbol") for p in exchange_positions}
-        tracked_symbols = list(self.bot_context.active_trades.keys())
+        with self.bot_context.trade_lock:
+            tracked_symbols = list(self.bot_context.active_trades.keys())
 
         for symbol in tracked_symbols:
             if symbol not in exchange_symbols:
@@ -125,7 +126,8 @@ class PositionReconciler:
         if not self.bot_context:
             return
 
-        local_symbols = set(self.bot_context.active_trades.keys())
+        with self.bot_context.trade_lock:
+            local_symbols = set(self.bot_context.active_trades.keys())
 
         for pos in exchange_positions:
             symbol = pos.get("symbol")
@@ -190,7 +192,16 @@ class PositionReconciler:
                 except Exception as detect_err:
                     logger.warning(f"⚠️ Could not pre-detect SL/TP for {symbol} during adoption: {detect_err}")
 
-                self.bot_context._adopt_existing_position(pos, sl=sl_val, tp=tp_val)
+                # Propagate the canonicalized side/size/entry we just parsed.
+                # BotContext._adopt_existing_position uses pos['side'] directly, so
+                # without this override it would persist "LONG"/"SHORT" instead of
+                # the "BUY"/"SELL" convention used everywhere else, breaking SL/TP
+                # and exit logic for shorts.
+                normalized_pos = dict(pos)
+                normalized_pos["side"] = side
+                normalized_pos["size"] = size
+                normalized_pos["entry_price"] = entry_price
+                self.bot_context._adopt_existing_position(normalized_pos, sl=sl_val, tp=tp_val)
                 logger.info(f"✅ Reconciler triggered adoption for {symbol} (SL={sl_val}, TP={tp_val})")
             except Exception as e:
                 logger.error(f"❌ Reconciler failed to adopt {symbol}: {e}")

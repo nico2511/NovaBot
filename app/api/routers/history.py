@@ -10,12 +10,13 @@ from typing import Union
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from app.api.dependencies import get_bot_context
+from app.api.auth import require_api_key
 from app.core.trade_recorder import TradeRecorder
 
 logger = logging.getLogger("HistoryRouter")
 
-router = APIRouter(prefix="/api/history", tags=["history"])
-logs_router = APIRouter(prefix="/api", tags=["logs"])  # For backward compatibility
+router = APIRouter(prefix="/api/history", tags=["history"], dependencies=[Depends(require_api_key)])
+logs_router = APIRouter(prefix="/api", tags=["logs"], dependencies=[Depends(require_api_key)])
 
 
 # ==========================================

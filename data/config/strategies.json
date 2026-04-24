@@ -37,10 +37,11 @@
             "rsi_oversold": 30,
             "sl_lookback": 5,
             "sl_buffer_pct": 0.005,
-            "min_rr": 1.5
+            "min_rr": 1.5,
+            "adx_max": 60
         },
         "display_conditions": ["EMA_20", "RSI_14"],
-        "version": "2026-02-refacto-v2",
+        "version": "2026-04-refacto-v3",
         "expected_freq": "Medium"
     },
     "supertrend": {

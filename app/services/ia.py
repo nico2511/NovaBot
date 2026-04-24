@@ -6,10 +6,13 @@ from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from collections import OrderedDict
 import json
+import logging
 import re
 
 from app.core.config import config
 from app.core.prompts import get_system_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class IAService:
@@ -39,15 +42,15 @@ class IAService:
                     base_url="https://openrouter.ai/api/v1",
                     api_key=self.openrouter_key,
                 )
-                print(f"✅ AI Service (OpenRouter) initialized with model: {self.model}")
+                logger.info("AI Service (OpenRouter) initialized with model: %s", self.model)
             except ImportError:
-                print("⚠️ OpenAI module not found. AI Service disabled.")
+                logger.warning("OpenAI module not found. AI Service disabled.")
                 self.client = None
             except Exception as e:
-                print(f"⚠️ Failed to init AI Service: {e}")
+                logger.warning("Failed to init AI Service: %s", e)
                 self.client = None
         else:
-            print("ℹ️ OpenRouter Key not found. AI Service disabled.")
+            logger.info("OpenRouter Key not found. AI Service disabled.")
     
     def get_dynamic_system_prompt(self) -> str:
         """
@@ -141,24 +144,22 @@ class IAService:
         if self.circuit_breaker_until:
             if datetime.now() < self.circuit_breaker_until:
                 remaining = int((self.circuit_breaker_until - datetime.now()).total_seconds() / 60)
-                print(f"🛡️ AI Circuit Breaker active ({remaining} min left). Using rule-based fallback.")
+                logger.warning("AI Circuit Breaker active (%s min left). Using rule-based fallback.", remaining)
                 return self._rule_based_fallback(prompt)
-            else:
-                self.circuit_breaker_until = None
-                print("⚡ AI Circuit Breaker RESET - Resuming AI calls")
-        
+            self.circuit_breaker_until = None
+            logger.info("AI Circuit Breaker RESET - Resuming AI calls")
+
         try:
-            # Inject dynamic system prompt here
             system_prompt = self.get_dynamic_system_prompt()
             return self._call_openrouter_api(prompt, system_prompt=system_prompt)
         except Exception as e:
             error_str = str(e).lower()
-            print(f"⚠️ AI Call failed: {e}")
-            
+            logger.warning("AI Call failed: %s", e)
+
             # Trigger Circuit Breaker on quota errors
             if "quota" in error_str or "429" in error_str:
                 self.circuit_breaker_until = datetime.now() + timedelta(minutes=10)
-                print("❄️ AI CIRCUIT BREAKER TRIGGERED: Pausing AI for 10 minutes")
+                logger.error("AI CIRCUIT BREAKER TRIGGERED: Pausing AI for 10 minutes")
             
             return {
                 "raw_output": json.dumps({
@@ -352,12 +353,12 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
             factors = result.get("decisive_factors", [])
             reject_cat = result.get("rejection_reason_category")
             
-            log_icon = "✅" if is_approved else "❌"
-            print(f"{log_icon} AI VALIDATION: {symbol} | Conf: {conf}% | {reason[:100]}...")
+            verdict = "APPROVED" if is_approved else "REJECTED"
+            logger.info("AI VALIDATION %s: %s | Conf: %s%% | %s", verdict, symbol, conf, reason[:100])
             if factors:
-                print(f"   Key Factors: {', '.join(factors[:3])}")
+                logger.info("  Key Factors: %s", ", ".join(factors[:3]))
             if not is_approved and reject_cat:
-                print(f"   Rejection Category: {reject_cat}")
+                logger.info("  Rejection Category: %s", reject_cat)
 
             self._set_cache(key, result, ttl_minutes=1)
         
@@ -388,14 +389,20 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
                     min_rr = RISK_PARAMS_MAP.get(risk_profile, {}).get("min_rr", 1.5)
                     
                     if rr_ratio < min_rr:
-                        print(f"🛑 [HARD CONSTRAINT] R:R Violation detected! Calculated: {rr_ratio:.2f} < Min: {min_rr}")
+                        logger.warning(
+                            "[HARD CONSTRAINT] R:R Violation detected! Calculated: %.2f < Min: %s",
+                            rr_ratio, min_rr,
+                        )
                         ai_result["approved"] = False
                         ai_result["rejection_reason_category"] = "BAD_RR"
-                        ai_result["reasoning"] = f"CRITICAL: Calculated R:R ({rr_ratio:.2f}) is below minimum requirement ({min_rr}) for {risk_profile}. Trade Rejected."
-                        ai_result["risk_score"] = 9 # Validating a bad R:R is high risk behavior
-        
+                        ai_result["reasoning"] = (
+                            f"CRITICAL: Calculated R:R ({rr_ratio:.2f}) is below minimum requirement "
+                            f"({min_rr}) for {risk_profile}. Trade Rejected."
+                        )
+                        ai_result["risk_score"] = 9
+
         except Exception as e:
-            print(f"⚠️ Failed to verify hard constraints: {e}")
+            logger.warning("Failed to verify hard constraints: %s", e)
             
         return ai_result
     

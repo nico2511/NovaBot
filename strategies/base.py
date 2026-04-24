@@ -8,6 +8,40 @@ class BaseStrategy(ABC):
         self.params = self.config.get("params", {})
         self.last_rejection_reason = None
 
+    # ==========================
+    # DYNAMIC PARAM ACCESS
+    # ==========================
+
+    def get_param(self, key, default=None):
+        """
+        Always read a parameter from the LIVE self.config["params"] dict.
+
+        Rationale:
+        - The API endpoint POST /api/engine/config/strategy-params mutates
+          strategy.config["params"] at runtime.
+        - Subclasses that cache params in __init__ will not see those updates
+          until the engine is rebuilt. Using get_param() inside
+          generate_signal()/calculate_progress() guarantees hot-edit support.
+        """
+        try:
+            params = self.config.get("params") or {}
+            if key in params:
+                return params[key]
+            return default
+        except Exception:
+            return default
+
+    def refresh_params(self):
+        """
+        Best-effort sync of self.params with self.config['params'].
+        Called by the API after strategy-params updates to keep the legacy
+        'self.params' attribute in sync for any consumer that still reads it.
+        """
+        try:
+            self.params = self.config.get("params", {}) or {}
+        except Exception:
+            self.params = {}
+
     @abstractmethod
     def generate_signal(self, df, extra_data=None):
         """
@@ -22,36 +56,6 @@ class BaseStrategy(ABC):
     def add_indicators(self, df):
         """Add indicators to the dataframe. Should be overridden by subclasses."""
         pass
-    
-    def calculate_progress(self, df, extra_data=None):
-        """
-        Calculate how close the strategy is to triggering a signal (0-100%).
-        
-        Args:
-            df: Primary dataframe
-            extra_data: Optional dict with additional dataframes
-            
-        Returns:
-            int: Progress percentage (0-100)
-        """
-        return 0  # Default: no progress
-
-    def check_conditions(self, df, extra_data=None):
-        """
-        Check specific conditions for UI display.
-        
-        Returns:
-            dict: A dictionary containing strategy status, score, bias, and stages.
-        """
-        score = 0 # Default score for base class
-        return {
-            "strategy": self.name,
-            "score": score,
-            "bias": "NEUTRAL",
-            "stages": [
-                {"name": "Status", "status": "ACTIVE", "details": f"Monitoring {len(df)} candles"}
-            ]
-        }
 
     # ==========================
     # DYNAMIC ANALYSIS HELPERS

@@ -2,13 +2,14 @@
 Market Router - Market Data Endpoints
 Handles candles, symbols, ticker, funding rates, open interest
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 import logging
+from app.api.auth import require_api_key
 
 logger = logging.getLogger("MarketRouter")
 
-router = APIRouter(prefix="/api/market", tags=["market"])
+router = APIRouter(prefix="/api/market", tags=["market"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("/candles")

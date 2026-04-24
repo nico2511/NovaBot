@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 
@@ -9,12 +10,23 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 # Hardening for Coolify: Keep state in the persistent data volume
 STATE_FILE = os.path.join(ROOT_DIR, "data", "bot_state.json")
 
+logger = logging.getLogger(__name__)
+
 class StateManager:
     @staticmethod
     def save_state(context):
         """Saves critical bot state to JSON."""
+        # Snapshot active_trades under the trade_lock so we don't serialize a
+        # dict being mutated by the trading loop (RuntimeError: dict changed size).
+        trade_lock = getattr(context, "trade_lock", None)
+        if trade_lock is not None:
+            with trade_lock:
+                active_trades_snapshot = dict(context.active_trades)
+        else:
+            active_trades_snapshot = dict(context.active_trades)
+
         state = {
-            "active_trades": context.active_trades,  # Multi-position support
+            "active_trades": active_trades_snapshot,  # Multi-position support
             "trading_enabled": context.trading_enabled,
             # NOTE: is_running is intentionally NOT saved — it is a runtime-only flag.
             # Threads never survive a process restart; restoring is_running=True would
@@ -22,7 +34,7 @@ class StateManager:
             "active_symbol": context.active_symbol,
             "last_updated": str(datetime.now())
         }
-        
+
         # Save Risk Manager State as well
         risk_status = context.risk_manager.get_status()
         state["risk_state"] = {
@@ -60,18 +72,20 @@ class StateManager:
                 os.fsync(f.fileno()) 
             
             os.replace(temp_file, STATE_FILE)
-            print(f"✅ State saved atomically to {STATE_FILE}")
+            logger.debug("State saved atomically to %s", STATE_FILE)
         except Exception as e:
-            print(f"❌ Failed to save state: {e}")
+            logger.error("Failed to save state: %s", e)
             if os.path.exists(temp_file):
-                try: os.remove(temp_file)
-                except: pass
+                try:
+                    os.remove(temp_file)
+                except OSError:
+                    pass
 
     @staticmethod
     def load_state(context):
         """Restores bot state from JSON."""
         if not os.path.exists(STATE_FILE):
-            print(f"⚠️ State file {STATE_FILE} not found. Starting fresh.")
+            logger.info("State file %s not found. Starting fresh.", STATE_FILE)
             return {}
 
         try:
@@ -87,7 +101,7 @@ class StateManager:
                     from app.core.config import config
                     symbol = old_trade.get("symbol", config.TRADING_SYMBOL)
                     context.active_trades = {symbol: old_trade}
-                    print(f"🔄 Migrated legacy active_trade to active_trades[{symbol}]")
+                    logger.info("Migrated legacy active_trade to active_trades[%s]", symbol)
                     state_modified = True
                 else:
                     context.active_trades = {}
@@ -95,7 +109,10 @@ class StateManager:
                 # Restore Context
                 active_trades = state.get("active_trades", {})
                 if not isinstance(active_trades, dict):
-                    print(f"⚠️ Corrupted active_trades in state file (got {type(active_trades)}). Resetting to empty dict.")
+                    logger.warning(
+                        "Corrupted active_trades in state file (got %s). Resetting to empty dict.",
+                        type(active_trades),
+                    )
                     active_trades = {}
                 context.active_trades = active_trades  # Multi-position support
             
@@ -118,77 +135,31 @@ class StateManager:
             num_active_trades = len(context.active_trades)
             if num_active_trades == 0:
                 if context.risk_manager.state.open_positions > 0:
-                    print(f"⚠️ Detected phantom positions in RiskManager ({context.risk_manager.state.open_positions}). Reseting to 0.")
+                    logger.warning(
+                        "Detected phantom positions in RiskManager (%s). Resetting to 0.",
+                        context.risk_manager.state.open_positions,
+                    )
                     context.risk_manager.state.open_positions = 0
-            else:
-                # Sync position count with number of active trades
-                if context.risk_manager.state.open_positions != num_active_trades:
-                    print(f"🔄 Syncing RiskManager position count: {context.risk_manager.state.open_positions} -> {num_active_trades}")
-                    context.risk_manager.state.open_positions = num_active_trades
+            elif context.risk_manager.state.open_positions != num_active_trades:
+                logger.info(
+                    "Syncing RiskManager position count: %s -> %s",
+                    context.risk_manager.state.open_positions,
+                    num_active_trades,
+                )
+                context.risk_manager.state.open_positions = num_active_trades
             
-            # (sidebar_settings removed - use scanner_settings)
-            
-            # Restore Scanner Settings
-            # Restore Scanner Settings
-            # DISABLED: Now managed via user_settings.json
-            if False: # if "scanner_settings" in state:
-                context.scanner_settings = state["scanner_settings"]
-                print(f"✅ Loaded scanner settings: {context.scanner_settings}")
-            else:
-                 # Initialized in BotContext.__init__ via config
-                 pass
-                # context.scanner_settings = {
-                #     "enabled": False,
-                #     "interval": 15, 
-                #     "min_score": 50,
-                #     "auto_switch": False
-                # }
-                # state_modified = True  # Mark state as modified
+            # Scanner + Global settings are NOT restored from bot_state.json.
+            # They come from data/config/user_settings.json (or .env defaults) and are
+            # seeded in BotContext.__init__ via app.core.config. This avoids persisting
+            # stale configuration back into runtime.
 
-            # Restore Global Settings (Deprioritized - Config/User Settings are Source of Truth)
-            # We ONLY load from state if context.global_settings is somehow empty (unlikely with new init)
-            # But to be safe and respect user_settings.json, we generally SKIP overwriting from state 
-            # unless we implement a specific field-level timestamp check (overkill).
-            
-            # For now: We assume bot.py __init__ loaded the fresh user_settings.json via config.py.
-            # We DO NOT overwrite it with stale state data.
-            print("ℹ️ Configuration Strategy: Keeping defaults/user_settings (ignoring potentially stale state global_settings)")
-
-            if False: # DISABLED - See note above.
-            # if "global_settings" in state:
-                gs = state["global_settings"]
-                
-                # MIGRATION V1 -> V2 (Integer Threshold -> Tri-Level Object)
-                if "ai_conf_threshold" in gs and "ai_thresholds" not in gs:
-                    old_val = gs.pop("ai_conf_threshold", 55)
-                    print(f"🔄 Migrating legacy AI threshold ({old_val}) to tri-level structure...")
-                    gs["ai_thresholds"] = {
-                        "high": 101,
-                        "medium": old_val, # Use legacy value as medium
-                        "low": 101
-                    }
-                    state_modified = True # Mark state as modified
-                    
-                # Perform Merge (File overrides Defaults)
-                merged_settings = context.global_settings.copy()
-                merged_settings.update(gs)
-                context.global_settings = merged_settings
-                
-                print(f"✅ Loaded global settings (merged): {context.global_settings}")
-            else:
-                # Default global settings
-                # context.global_settings = { ... } # Already set in bot.py __init__ via config
-                pass
-                # End of load_state
-                pass
-                
             # If state was modified (defaults applied or migration occurred), persist it immediately
             if state_modified:
-                print("💾 State modified during load (defaults applied). Saving updates...")
+                logger.info("State modified during load (defaults applied). Saving updates...")
                 StateManager.save_state(context)
 
-            print("✅ State restored from persistence file.")
+            logger.info("State restored from persistence file.")
             return state
         except Exception as e:
-            print(f"❌ Failed to load state: {e}")
+            logger.error("Failed to load state: %s", e)
             return {}

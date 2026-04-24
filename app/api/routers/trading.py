@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from app.api.dependencies import get_bot_context
+from app.api.auth import require_api_key
 import logging
 
 logger = logging.getLogger("TradingRouter")
 
-router = APIRouter(prefix="/api", tags=["trading"])
+router = APIRouter(prefix="/api", tags=["trading"], dependencies=[Depends(require_api_key)])
 
 
 
@@ -190,20 +191,18 @@ def force_breakeven(data: SymbolRequest, bot=Depends(get_bot_context)):
         symbol = bot.get_canonical_symbol(raw_symbol)
         
         bot.add_log(f"🔍 Force BE requested for {raw_symbol} (Resolved: {symbol})")
-        
-        # Get trade for this symbol
-        trade = bot.active_trades.get(symbol)
-        if not trade:
-            # Try fuzzy match if exact match fails
-            if "-" in symbol:
+
+        with bot.trade_lock:
+            trade = bot.active_trades.get(symbol)
+            if not trade and "-" in symbol:
                 base = symbol.split("-")[0]
                 trade = bot.active_trades.get(base)
                 if trade:
                     symbol = base
                     bot.add_log(f"ℹ️ Fuzzy match found: {raw_symbol} -> {symbol}")
-            
-            if not trade:
-                return {"status": "error", "message": f"No active trade for {symbol}"}
+
+        if not trade:
+            return {"status": "error", "message": f"No active trade for {symbol}"}
         
         entry = trade.get("entry")
         side = trade.get("side")
@@ -236,12 +235,12 @@ def recalibrate_stops(data: SymbolRequest, bot=Depends(get_bot_context)):
     try:
         # Determine target symbol
         symbol = data.symbol if data.symbol else bot.active_symbol
-        
-        # Get trade for this symbol
-        trade = bot.active_trades.get(symbol)
+
+        with bot.trade_lock:
+            trade = bot.active_trades.get(symbol)
         if not trade:
             return {"status": "error", "message": f"No active trade for {symbol}"}
-        
+
         bot._verify_and_enforce_sl_tp(symbol, trade, bypass_cooldown=True)
         bot.add_log(f"🔧 Recalibrated SL/TP for {symbol}")
         return {"status": "success", "message": f"SL/TP recalibrated for {symbol}"}
@@ -250,20 +249,9 @@ def recalibrate_stops(data: SymbolRequest, bot=Depends(get_bot_context)):
 
 @router.post("/close_trade")
 def close_trade(data: SymbolRequest, bot=Depends(get_bot_context)):
-    """Close specified trade or active trade"""
-    try:
-        # Determine target symbol
-        symbol = data.symbol if data.symbol else bot.active_symbol
-        
-        if not symbol:
-            return {"status": "error", "message": "No symbol specified"}
-        
-        # execute_exit_atomically will validate position exists
-        res = bot.execute_exit_atomically(symbol, reason="Manual Close (API)")
-        if res:
-            return {"status": "success", "message": f"Trade closed for {symbol}"}
-        else:
-            return {"status": "error", "message": f"Failed to close {symbol}"}
-    except Exception as e:
-        logger.error(f"Close trade failed: {e}")
-        return {"status": "error", "message": str(e)}
+    """Legacy alias for /close_position. Falls back to the bot's active symbol
+    when no symbol is provided."""
+    symbol = (data.symbol or "").strip().upper() if data.symbol else (bot.active_symbol or "")
+    if not symbol:
+        raise HTTPException(status_code=400, detail="No symbol specified and no active symbol on bot")
+    return close_position(ClosePositionRequest(symbol=symbol), bot=bot)

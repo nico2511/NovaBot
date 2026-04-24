@@ -32,9 +32,14 @@ def _load_bot_state_settings():
 
 _state_settings = _load_bot_state_settings()
 
+def _parse_csv_env(name: str, default: str) -> list:
+    """Parse a comma-separated env var into a list of stripped non-empty values."""
+    raw = os.getenv(name, default) or ""
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 @dataclass
 class Config:
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
     AI_MODEL_NAME: str = _state_settings.get('ai_config', {}).get('model_name') or os.getenv("AI_MODEL_NAME", "deepseek/deepseek-v3.2")
     AI_PROVIDER: str = "openrouter"  # Always openrouter
@@ -88,6 +93,20 @@ class Config:
     AI_CONF_THRESHOLD_LOW: int = _state_settings.get('ai_config', {}).get('conf_threshold_low') or int(os.getenv("AI_CONF_THRESHOLD_LOW", "40"))
     
     # API Security
-    API_KEY: str = os.getenv("API_KEY", "dev_secret_change_in_production")
+    # API_KEY_REQUIRED: if "true", every protected endpoint must send the key in the
+    # X-API-Key header. Defaults to "false" so local dev keeps working transparently.
+    API_KEY: str = os.getenv("API_KEY", "")
+    API_KEY_REQUIRED: bool = os.getenv("API_KEY_REQUIRED", "false").lower() == "true"
+
+    # CORS: comma-separated origins. Use "*" only when explicitly set (dev only).
+    CORS_ALLOWED_ORIGINS: list = None  # set in __post_init__
+
+
+    def __post_init__(self):
+        # Parsed at instance-level to keep dataclass defaults immutable/safe.
+        self.CORS_ALLOWED_ORIGINS = _parse_csv_env(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:3000,http://localhost:5173"
+        )
 
 config = Config()

@@ -281,20 +281,6 @@ class StrategyEngine:
                         print(f"[BOT] ⛔ No signal ({strat.name}): {reason}")
 
 
-        # 5. Calculate Progress, Conditions & Snapshots
-        progress = {}
-        conditions = {}
-        thresholds = {}
-        for strat in active_strategies:
-            try:
-                progress[strat.name] = strat.calculate_progress(df, extra_data=extra_data)
-                if hasattr(strat, "check_conditions"):
-                    conditions[strat.name] = strat.check_conditions(df, extra_data=extra_data)
-                if hasattr(strat, "get_threshold_comparisons"):
-                    thresholds[strat.name] = strat.get_threshold_comparisons(df, extra_data=extra_data)
-            except:
-                pass
-
         # === CAPTURE FULL MARKET SNAPSHOT ===
         try:
             sma_20 = float(df['close'].rolling(window=20).mean().iloc[-1])
@@ -341,8 +327,5 @@ class StrategyEngine:
             "ema_20_live": float(ema_20.iloc[-1]),
             "ema_50_live": float(ema_50.iloc[-1]),
             "strategies": [s.name for s in active_strategies],
-            "progress": progress,
-            "conditions": conditions,
-            "thresholds": thresholds,
             "signals": signals
         }

@@ -46,5 +46,11 @@ ENV PORT=3001
 # Expose API port
 EXPOSE 3001
 
+# Healthcheck: Coolify / docker will restart the container if /health stops
+# answering. We give the bot 60s to boot before the first probe, then poll
+# every 30s. Two consecutive failures = unhealthy = restart.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-3001}/health" > /dev/null || exit 1
+
 # Run the unified entry point
 CMD ["python", "main.py"]

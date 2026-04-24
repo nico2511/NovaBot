@@ -5,6 +5,7 @@ Contains the central BotContext class that manages the trading loop, state, and 
 """
 import sys
 import os
+import logging
 import threading
 import time
 import asyncio
@@ -16,10 +17,14 @@ from collections import deque
 # Root Directory Logic
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+logger = logging.getLogger(__name__)
+
 from app.core.config import config
 from app.core.risk_manager import RiskManager
 from app.core.constants import *
 from app.core.state_manager import StateManager
+from app.core.trailing_logic import compute_trailing_decision
+from app.core.veto_checker import check_hard_veto
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
 from app.core.trade_recorder import TradeRecorder
@@ -36,10 +41,13 @@ from app.services.storage import storage_service
 class BotContext:
     """Main bot context"""
     def __init__(self):
-        print("\n\n🤖 [BOOT] BotContext v1.1.0 (Refactored Core)\n")
+        logger.info("BotContext v1.1.0 booting (Refactored Core)")
         
         # Thread Safety Lock
-        self.trade_lock = threading.Lock()
+        # Re-entrant lock: the trading loop sometimes calls helper methods that
+        # also take the lock (e.g. state save → read active_trades). A plain Lock
+        # would deadlock; an RLock lets the same thread re-acquire safely.
+        self.trade_lock = threading.RLock()
         
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
@@ -79,8 +87,6 @@ class BotContext:
             "min_score": config.SCANNER_MIN_SCORE,
             "auto_switch": config.SCANNER_AUTO_SWITCH
         }
-        self.scanner_job = None
-
         # Global Settings Defaults (Seeded from user_settings API via config)
         self.global_settings = {
             "operations": {
@@ -189,8 +195,8 @@ class BotContext:
             self.add_log(f"⚙️ Max positions: {self.max_positions}")
                     
         except Exception as e:
-            print(f"Error loading state: {e}")
-            
+            logger.error("Error loading state: %s", e)
+
         # Initialize Services
         self.trade_recorder = TradeRecorder()
         self.latest_analysis = {}
@@ -232,10 +238,36 @@ class BotContext:
             print(f"   >>> Metadata: {metadata}")
             
         try:
-            with open("bot_activity.log", "a", encoding="utf-8") as f:
-                f.write(f"{log_str}\n")
+            self._write_activity_log(log_str)
         except Exception as e:
-            print(f"⚠️ Log write error: {e}")
+            logger.warning("Log write error: %s", e)
+
+    # Lightweight rotation for bot_activity.log: when the file exceeds
+    # _ACTIVITY_LOG_MAX_BYTES, it is rotated to .1 (keeping a single backup).
+    # Using a custom rotation instead of logging.RotatingFileHandler because
+    # add_log writes pre-formatted lines (with its own timestamp format).
+    _ACTIVITY_LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+    _ACTIVITY_LOG_PATH = os.path.join(BASE_DIR, "logs", "bot_activity.log")
+
+    def _write_activity_log(self, line: str) -> None:
+        path = self._ACTIVITY_LOG_PATH
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            if os.path.exists(path) and os.path.getsize(path) >= self._ACTIVITY_LOG_MAX_BYTES:
+                backup = path + ".1"
+                try:
+                    if os.path.exists(backup):
+                        os.remove(backup)
+                    os.rename(path, backup)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{line}\n")
 
     def _notify_signal_detected_discord(self, sig: dict, technical_context: dict):
         """Send a Discord notification when a strategy signal is detected (pre-AI)."""
@@ -583,7 +615,8 @@ class BotContext:
         funding_rate = 0.0
         try:
             funding_rate = hyperliquid_service.get_funding_rate(self.active_symbol)
-        except Exception: pass
+        except Exception as e:
+            logger.debug("Funding rate fetch failed for %s: %s", self.active_symbol, e)
             
         # Extract OI Metrics calculated in trading_loop
         oi_change_pct = float(df['OI_Change_Pct'].iloc[-1]) if 'OI_Change_Pct' in df.columns else 0.0
@@ -963,35 +996,8 @@ class BotContext:
             return False
 
     def _check_hard_veto(self, signal: str, market_context: dict):
-        """HARD VETO: Technical guardrails (RSI + Volume + ADX)."""
-        try:
-            price = market_context.get("current_price", 0)
-            
-            # 1. RSI Veto (Relaxed: 30 for SELL, 80 for BUY)
-            rsi = market_context.get("rsi")
-            if rsi is not None:
-                if signal == "BUY" and rsi > 80:
-                    return f"HARD VETO: RSI Overbought ({rsi:.1f} > 80) @ {price:.2f}"
-                if signal == "SELL" and rsi < 30:
-                    return f"HARD VETO: RSI Oversold ({rsi:.1f} < 30) @ {price:.2f}"
-
-            # 2. ADX Extreme Veto (Trend Runaway Protection)
-            adx = market_context.get("adx", 0)
-            if adx is not None and adx > 55:
-                return f"HARD VETO: ADX Extreme ({adx:.1f} > 55) - Trend runaway @ {price:.2f}"
-
-            # 3. Volume Veto (Low Volume Warning)
-            current_vol = market_context.get("current_volume")
-            avg_vol = market_context.get("avg_volume")
-            if current_vol and avg_vol and avg_vol > 0:
-                vol_ratio = (current_vol / avg_vol) * 100
-                if vol_ratio < 20:
-                    return f"HARD VETO: Low Volume ({vol_ratio:.1f}% avg) @ {price:.2f}"
-            
-            return None
-        except Exception as e:
-            print(f"⚠️ Veto Check Error: {e}")
-            return None
+        """HARD VETO: thin shell around app.core.veto_checker.check_hard_veto."""
+        return check_hard_veto(signal, market_context)
     def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict, bypass_cooldown: bool = False):
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
         # GUARD: Only enforce if trading is ENABLED (Real Trading)
@@ -1060,109 +1066,37 @@ class BotContext:
 
 
     def _update_trailing_stops(self, trade: dict, current_price: float) -> bool:
-        """Check and update Smart Break-Even and Trailing Stops"""
-        entry_price = trade.get("entry")
-        tp_price = trade.get("tp")
-        sl_price = trade.get("sl")
-        side = trade.get("side")
+        """Apply a trailing-stop upgrade if `compute_trailing_decision` suggests one.
+
+        This method is intentionally a thin shell: all math lives in
+        ``app.core.trailing_logic`` so it can be unit-tested without the bot.
+        Side-effects (state save, logging, Discord alert) stay here.
+        """
+        decision = compute_trailing_decision(trade, current_price)
+        if decision is None:
+            return False
+
         tid = trade.get("trade_id") if isinstance(trade, dict) else None
-        new_sl = None
-        
-        if entry_price and tp_price and sl_price:
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100 if side == "BUY" else ((entry_price - current_price) / entry_price) * 100
-            
-            if side == "BUY":
-                total_dist = tp_price - entry_price
-                current_dist = current_price - entry_price
-                progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
-                
-                # 1. Smart BE (Moved to 60% progress OR 1.2% pure profit, locks 0.2% profit with 0.3% buffer)
-                if progress_pct > 60 or pnl_pct > 1.2:
-                    be_price = entry_price * 1.002 # 0.2% profit (covers fees + buffer)
-                    # Safety: Ensure current price is at least 0.3% away from new SL
-                    if sl_price < be_price and current_price > (be_price * 1.003):
-                        new_sl = be_price
-                        self.add_log(
-                            f"🛡️ Smart BE: Progress {progress_pct:.1f}% / PnL {pnl_pct:.2f}%. "
-                            f"Moving SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
-                            (f" | id={tid}" if tid else "")
-                        )
+        sl_price = float(trade.get("sl") or 0)
+        entry_price = float(trade.get("entry") or 0)
 
-                # 2. Trailing Profit (Locks 20% of gains at 65% progress)
-                if progress_pct > 65:
-                    secure_price = entry_price + (total_dist * 0.20)
-                    if sl_price < secure_price:
-                         new_sl = secure_price
-                         self.add_log(
-                             f"🛡️ Trailing: >65% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
-                             f"(Price: {current_price:.4f})" +
-                             (f" | id={tid}" if tid else "")
-                         )
+        self.add_log(
+            f"🛡️ {decision.reason}: Progress {decision.progress_pct:.1f}% / PnL {decision.pnl_pct:.2f}%. "
+            f"Moving SL {sl_price:.4f}→{decision.new_sl:.4f}" + (f" | id={tid}" if tid else "")
+        )
 
-                # 3. Aggressive Lock (Locks 40% of gains)
-                if progress_pct > 75:
-                    lock_price = entry_price + (total_dist * 0.40)
-                    if sl_price < lock_price:
-                         new_sl = lock_price
-                         self.add_log(
-                             f"🛡️ Trailing: >75% target. SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
-                             (f" | id={tid}" if tid else "")
-                         )
-                
-            else: # SELL
-                total_dist = entry_price - tp_price
-                current_dist = entry_price - current_price
-                progress_pct = (current_dist / total_dist) * 100 if total_dist != 0 else 0
-                
-                # 1. Smart BE (60% progress, 0.2% profit lock, 0.3% buffer)
-                if progress_pct > 60:
-                    be_price = entry_price * 0.998 # 0.2% profit
-                    # Safety: Ensure current price is at least 0.3% away from new SL
-                    if sl_price > be_price and current_price < (be_price * 0.997):
-                        new_sl = be_price
-                        self.add_log(
-                            f"🛡️ Smart BE: >60% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
-                            f"(Price: {current_price:.4f})" +
-                            (f" | id={tid}" if tid else "")
-                        )
+        with self.trade_lock:
+            t_ref = self.active_trades.get(trade.get("symbol"))
+            if t_ref:
+                t_ref["sl"] = decision.new_sl
+                StateManager.save_state(self)
 
-                # 2. Trailing Profit (65% progress)
-                if progress_pct > 65:
-                    secure_price = entry_price - (total_dist * 0.20)
-                    if sl_price > secure_price:
-                        new_sl = secure_price
-                        self.add_log(
-                            f"🛡️ Trailing: >65% target. SL {float(sl_price):.4f}→{float(new_sl):.4f} "
-                            f"(Price: {current_price:.4f})" +
-                            (f" | id={tid}" if tid else "")
-                        )
-                        
-                # 3. Aggressive Lock
-                if progress_pct > 75:
-                    lock_price = entry_price - (total_dist * 0.40)
-                    if sl_price > lock_price:
-                        new_sl = lock_price
-                        self.add_log(
-                            f"🛡️ Trailing: >75% target. SL {float(sl_price):.4f}→{float(new_sl):.4f}" +
-                            (f" | id={tid}" if tid else "")
-                        )
-
-            if new_sl:
-                with self.trade_lock:
-                    t_ref = self.active_trades.get(trade.get("symbol"))
-                    if t_ref:
-                        t_ref["sl"] = new_sl
-                        StateManager.save_state(self)
-                
-                # Discord Notification for Break-Even
-                discord_service.send_alert(
-                    f"🛡️ BREAK-EVEN TRIGGERED: {trade.get('symbol', self.active_symbol)}",
-                    f"New SL: {new_sl:.2f}\nCurrent Price: {current_price:.2f}\nEntry: {entry_price:.2f}",
-                    color="FFA500"  # Orange
-                )
-                return True
-                
-        return False
+        discord_service.send_alert(
+            f"🛡️ {decision.reason.upper()} TRIGGERED: {trade.get('symbol', self.active_symbol)}",
+            f"New SL: {decision.new_sl:.2f}\nCurrent Price: {current_price:.2f}\nEntry: {entry_price:.2f}",
+            color="FFA500",  # Orange
+        )
+        return True
 
     def _check_local_exits(self, trade: dict, symbol: str, current_price: float):
         """Check for local SL/TP triggers"""
@@ -1310,7 +1244,7 @@ class BotContext:
                 ts = t.get("timestamp", t.get("time", 0))
                 try:
                     return int(ts)
-                except:
+                except (TypeError, ValueError):
                     try:
                         # Our trade_history uses ISO timestamps like "2026-04-23T15:24:47..."
                         dt = pd.to_datetime(ts, utc=True, errors="coerce")
@@ -1457,8 +1391,8 @@ class BotContext:
                 balance_data = hyperliquid_service.get_account_balance()
                 if balance_data.get("status") == "success":
                     self.account_value = float(balance_data.get("total_equity", 0.0))
-            except:
-                pass
+            except Exception as e:
+                logger.debug("Balance fetch during leverage sync failed: %s", e)
             self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
             hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
             self._leverage_synced = True
@@ -1722,9 +1656,6 @@ class BotContext:
                     "regime": result.get("regime"),
                     "adx": round(result.get("adx", 0), 2),
                     "adx_slope": round(result.get("adx_slope", 0), 2),
-                    "regime": result.get("regime"),
-                    "adx": round(result.get("adx", 0), 2),
-                    "adx_slope": round(result.get("adx_slope", 0), 2),
                     "rsi": round(result.get("rsi", 0), 2),
                     "ema_9": round(result.get("ema_9", 0), 4),
                     "ema_20": round(result.get("ema_20", 0), 4),
@@ -1850,9 +1781,9 @@ class BotContext:
                                     self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
                                     self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
                             else:
-                                approved = True 
-                        except:
-                            self.add_log("⚠️ AI Validation JSON Error. Defaulting to REJECT.")
+                                approved = True
+                        except Exception as ai_err:
+                            self.add_log(f"⚠️ AI Validation JSON Error: {ai_err}. Defaulting to REJECT.")
                             approved = False
                             
                         if approved:
@@ -2233,15 +2164,6 @@ class BotContext:
             except Exception as e:
                 self.add_log(f"⚠️ Failed to stop WebSocket: {e}")
             
-            scanner_job = getattr(self, "scanner_job", None)
-            if scanner_job:
-                try:
-                    self.scanner_settings['enabled'] = False
-                    scanner_job.stop()
-                    self.add_log("✅ Scanner stopped")
-                except Exception as e:
-                    self.add_log(f"⚠️ Failed to stop scanner: {e}")
-            
             if self.thread:
                 self.add_log("⏳ Waiting for trading thread...")
                 self.thread.join(timeout=10)
@@ -2314,8 +2236,8 @@ class BotContext:
                 try:
                     from app.utils.market_data import get_hyperliquid_candles
                     df = await get_hyperliquid_candles(symbol, "15m", 100)
-                except:
-                    self.add_log("⚠️ Fresh fetch failed.")
+                except Exception as fetch_err:
+                    self.add_log(f"⚠️ Fresh fetch failed: {fetch_err}")
             
             atr = 0.0
             try:

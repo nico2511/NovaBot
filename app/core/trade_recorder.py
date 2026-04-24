@@ -1,9 +1,12 @@
 import csv
+import logging
 import os
 import threading
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+
+logger = logging.getLogger(__name__)
 
 class TradeRecorder:
     """
@@ -36,10 +39,10 @@ class TradeRecorder:
             # header=None + skiprows=1 avoids mismatch error between names and file header
             return pd.read_csv(self.csv_file, names=self.headers, header=None, skiprows=1, engine='python')
         except Exception as e:
-            print(f"⚠️ CSV Read Error (Attempting fallback): {e}")
+            logger.warning("CSV Read Error (attempting fallback): %s", e)
             try:
-                return pd.read_csv(self.csv_file) # Fallback to standard read
-            except:
+                return pd.read_csv(self.csv_file)
+            except Exception:
                 return pd.DataFrame(columns=self.headers)
         
     def _ensure_storage(self):
@@ -52,9 +55,9 @@ class TradeRecorder:
                 with open(self.csv_file, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerow(self.headers)
-                print(f"✅ Created new trade history file: {self.csv_file}")
+                logger.info("Created new trade history file: %s", self.csv_file)
             except Exception as e:
-                print(f"❌ critical error creating trade history file: {e}")
+                logger.error("Critical error creating trade history file: %s", e)
 
     def add_trade(self, trade_data: Dict[str, Any]):
         """
@@ -102,12 +105,14 @@ class TradeRecorder:
                     writer.writerow(row)
             
             reasoning_snippet = str(entry_indicators.get("ai_reasoning", "N/A"))[:100]
-            print(f"📝 Trade Recorded: {trade_data.get('symbol')} | PnL: ${pnl:.2f} | Reasoning: {reasoning_snippet}...")
-            
+            logger.info(
+                "Trade recorded: %s | PnL: $%.2f | Reasoning: %s...",
+                trade_data.get("symbol"), pnl, reasoning_snippet,
+            )
+
         except Exception as e:
-            print(f"❌ Failed to record trade: {e}")
-            # Fallback debug
-            print(f"Debug Data: {trade_data}")
+            logger.error("Failed to record trade: %s", e)
+            logger.debug("Debug trade data: %s", trade_data)
 
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         """
@@ -129,9 +134,9 @@ class TradeRecorder:
                 df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%dT%H:%M:%S')
             
             return df.head(limit).fillna("").to_dict('records')
-            
+
         except Exception as e:
-            print(f"⚠️ Error reading trade history: {e}")
+            logger.warning("Error reading trade history: %s", e)
             return []
 
     def get_stats(self) -> Dict[str, Any]:
@@ -164,7 +169,7 @@ class TradeRecorder:
             }
             
         except Exception as e:
-            print(f"⚠️ Error calculating stats: {e}")
+            logger.warning("Error calculating stats: %s", e)
             return self._empty_stats()
 
     def get_equity_curve(self) -> List[Dict[str, Any]]:
@@ -194,7 +199,7 @@ class TradeRecorder:
             return curve
             
         except Exception as e:
-            print(f"⚠️ Error calculating equity curve: {e}")
+            logger.warning("Error calculating equity curve: %s", e)
             return []
 
     def _empty_stats(self):
