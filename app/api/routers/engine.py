@@ -421,6 +421,16 @@ def update_strategy_params(data: StrategyParamsRequest, bot=Depends(get_bot_cont
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# Legacy aliases (deprecated)
+# ---------------------------------------------------------------------------
+# Some docs / code paths historically used /api/engine/config/*.
+# Keep backwards-compatible aliases (hidden from schema) so older clients keep working.
+@router.post("/engine/config/strategy-params", deprecated=True, include_in_schema=False)
+def update_strategy_params_legacy(data: StrategyParamsRequest, bot=Depends(get_bot_context)):
+    return update_strategy_params(data, bot)
+
+
 @router.get("/config/strategies-config")
 def get_strategies_config():
     """Return full strategies configuration from persistent storage."""
@@ -429,6 +439,11 @@ def get_strategies_config():
     except Exception as e:
         logger.error(f"Error loading strategies config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/engine/config/strategies-config", deprecated=True, include_in_schema=False)
+def get_strategies_config_legacy():
+    return get_strategies_config()
 
 
 @router.get("/config/strategy-params-schema")
@@ -457,5 +472,10 @@ def get_strategy_params_schema(strategy_id: str | None = None):
     except Exception as e:
         logger.error(f"Error exposing strategy params schema: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/engine/config/strategy-params-schema", deprecated=True, include_in_schema=False)
+def get_strategy_params_schema_legacy(strategy_id: str | None = None):
+    return get_strategy_params_schema(strategy_id=strategy_id)
 
 

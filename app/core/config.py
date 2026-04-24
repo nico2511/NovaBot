@@ -53,6 +53,19 @@ class Config:
     DISCORD_WEBHOOK_ALERTS: str = _state_settings.get('notifications', {}).get('discord_webhook_alerts') or os.getenv("DISCORD_WEBHOOK_URL_ALERTS", "")
     DISCORD_WEBHOOK_LOGS: str = _state_settings.get('notifications', {}).get('discord_webhook_logs') or os.getenv("DISCORD_WEBHOOK_URL_LOGS", "")
     LOG_LEVEL: str = _state_settings.get('operations', {}).get('log_level') or os.getenv("LOG_LEVEL", "INFO")
+    
+    # AI payload debug (logs what is sent/received from AI)
+    AI_PAYLOAD_DEBUG: bool = (
+        _state_settings.get('operations', {}).get('ai_payload_debug')
+        if _state_settings.get('operations', {}).get('ai_payload_debug') is not None
+        else (os.getenv("AI_PAYLOAD_DEBUG", "false").lower() == "true")
+    )
+    AI_PAYLOAD_DEBUG_DISCORD: bool = (
+        _state_settings.get('operations', {}).get('ai_payload_debug_discord')
+        if _state_settings.get('operations', {}).get('ai_payload_debug_discord') is not None
+        else (os.getenv("AI_PAYLOAD_DEBUG_DISCORD", "false").lower() == "true")
+    )
+    AI_PAYLOAD_DEBUG_MAX_CHARS: int = int(os.getenv("AI_PAYLOAD_DEBUG_MAX_CHARS", "1800"))
 
     # Risk Defaults (from bot_state.json or .env fallback)
     DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "1"))

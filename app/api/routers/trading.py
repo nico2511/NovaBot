@@ -47,6 +47,16 @@ def enable_trading(bot=Depends(get_bot_context)):
         raise HTTPException(status_code=500, detail=f"Failed to enable trading: {str(e)}")
 
 
+# ---------------------------------------------------------------------------
+# Legacy aliases (deprecated)
+# ---------------------------------------------------------------------------
+# The README and some older deployments used /api/enable and /api/disable.
+# Keep them as thin wrappers so external automations don't break.
+@router.post("/enable", deprecated=True, include_in_schema=False)
+def enable_trading_legacy(bot=Depends(get_bot_context)):
+    return enable_trading(bot)
+
+
 @router.post("/trading/disable")
 def disable_trading(bot=Depends(get_bot_context)):
     """Disable live trading"""
@@ -65,6 +75,11 @@ def disable_trading(bot=Depends(get_bot_context)):
     except Exception as e:
         logger.error(f"Error disabling trading: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to disable trading: {str(e)}")
+
+
+@router.post("/disable", deprecated=True, include_in_schema=False)
+def disable_trading_legacy(bot=Depends(get_bot_context)):
+    return disable_trading(bot)
 
 
 @router.post("/switch_symbol")

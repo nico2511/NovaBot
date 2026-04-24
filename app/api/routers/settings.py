@@ -5,7 +5,7 @@ Handles global settings, scanner settings, and strategy configuration
 from fastapi import APIRouter, Depends, HTTPException
 from app.api.dependencies import get_bot_context, get_bot_context_optional
 from app.api.auth import require_api_key
-from app.api.models.api_models import GlobalSettingsModel, ScannerSettingsModel
+from app.api.models.api_models import GlobalSettingsModel
 from app.services import storage
 import logging
 
@@ -157,69 +157,6 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
         raise HTTPException(status_code=500, detail=f"Failed to update settings: {str(e)}")
 
 
-@router.get("/scanner", response_model=ScannerSettingsModel)
-def get_scanner_settings(bot=Depends(get_bot_context_optional)):
-    """Get scanner settings"""
-    try:
-        # 1. Try Live Bot Context
-        if bot and hasattr(bot, 'scanner_settings') and bot.scanner_settings:
-            return bot.scanner_settings
-            
-        # 2. Read from storage
-        settings = storage.storage_service.load_settings()
-        scanner = settings.get("scanner", {})
-        
-        # Ensure minimum required fields exist to satisfy Pydantic
-        if not scanner or "enabled" not in scanner:
-            return {
-                "enabled": scanner.get("enabled", False),
-                "interval": scanner.get("interval", 15),
-                "min_score": scanner.get("min_score", 50),
-                "auto_switch": scanner.get("auto_switch", False),
-                "gamification_enabled": scanner.get("gamification_enabled", True),
-                "max_funding_long": scanner.get("max_funding_long", 0.001),
-                "min_funding_short": scanner.get("min_funding_short", -0.001),
-                "funding_filter_enabled": scanner.get("funding_filter_enabled", True)
-            }
-            
-        return scanner
-    except Exception as e:
-        logger.error(f"Error loading scanner settings: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to load scanner settings: {str(e)}")
-
-
-@router.post("/scanner")
-def update_scanner_settings(settings: ScannerSettingsModel, bot=Depends(get_bot_context_optional)):
-    """Update scanner settings"""
-    try:
-        new_settings = settings.model_dump()
-        
-        # 1. Update user_settings.json
-        full_settings = storage.storage_service.load_settings()
-        full_settings["scanner"] = new_settings
-        storage.storage_service.save_settings(full_settings)
-        
-        # 2. Update Runtime State (if bot connected)
-        if bot:
-            bot.scanner_settings = new_settings
-            bot.add_log(f"🕵️ Scanner Settings Updated: Min Score={settings.min_score}")
-            
-            # Save State
-            try:
-                from app.core.state_manager import StateManager
-                StateManager.save_state(bot)
-            except Exception as e:
-                logger.warning(f"Failed to save state: {e}")
-        else:
-             logger.info("ℹ️ Bot offline - Scanner settings saved to disk only")
-            
-        return {"status": "success", "message": "Scanner settings updated", "settings": new_settings}
-        
-    except Exception as e:
-        logger.error(f"Error updating scanner settings: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update scanner settings: {str(e)}")
-
-
 # ==========================================
 # LEGACY ADAPTER (Frontend Compatibility)
 # ==========================================
@@ -230,7 +167,6 @@ def get_all_settings(bot=Depends(get_bot_context_optional)):
     try:
         # Load sub-components
         glob_sets = get_global_settings(bot)
-        scan_sets = get_scanner_settings(bot)
         
         # Merge into flattened structure expected by frontend v3
         return {
@@ -258,7 +194,8 @@ def get_all_settings(bot=Depends(get_bot_context_optional)):
                 "conf_threshold_medium": glob_sets.get("ai_thresholds", {}).get("medium"),
                 "conf_threshold_low": glob_sets.get("ai_thresholds", {}).get("low")
             },
-            "scanner": scan_sets
+            # Scanner settings are no longer exposed over REST.
+            "scanner": {}
         }
     except Exception as e:
         logger.error(f"Error aggregating settings: {e}")
@@ -283,9 +220,11 @@ def update_legacy_settings(
         logger.info(f"📝 Legacy Update: Section={section}")
         
         if section == "scanner":
-            # Map dict to model
-            model = ScannerSettingsModel(**data)
-            return update_scanner_settings(model, bot)
+            # Scanner is no longer configurable over REST.
+            raise HTTPException(
+                status_code=410,
+                detail="Scanner settings API is deprecated and no longer supported",
+            )
             
         elif section in ["risk_defaults", "operations", "ai_config", "notifications"]:
             # These map to GlobalSettings

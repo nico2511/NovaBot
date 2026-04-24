@@ -56,7 +56,7 @@ Tu devrais voir `bot_connected: true` et un `last_heartbeat_age_sec` qui reste s
 
 **Conseils sécurité locale :**
 
-- `AUTO_START_TRADING=false` dans `.env` pour démarrer en mode observation — tu actives ensuite via `POST /api/enable`.
+- `AUTO_START_TRADING=false` dans `.env` pour démarrer en mode observation — tu actives ensuite via `POST /api/trading/enable`.
 - `API_KEY_REQUIRED=false` est OK en local. Passe à `true` dès que tu exposes l'API sur Internet.
 
 ---

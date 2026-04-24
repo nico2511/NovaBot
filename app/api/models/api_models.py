@@ -45,17 +45,6 @@ class GlobalSettingsModel(BaseModel):
     notifications: Dict[str, str] = {}
 
 
-class ScannerSettingsModel(BaseModel):
-    """Model for scanner configuration settings"""
-    enabled: bool
-    interval: int
-    min_score: int
-    auto_switch: bool
-    max_funding_long: float = 0.001
-    min_funding_short: float = -0.001
-    funding_filter_enabled: bool = True
-
-
 class StrategySelectModel(BaseModel):
     """Request model for strategy selection"""
     strategy_id: str

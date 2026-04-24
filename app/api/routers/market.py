@@ -5,6 +5,7 @@ Handles candles, symbols, ticker, funding rates, open interest
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 import logging
+import pandas as pd
 from app.api.auth import require_api_key
 
 logger = logging.getLogger("MarketRouter")

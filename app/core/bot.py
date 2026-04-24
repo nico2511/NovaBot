@@ -248,6 +248,7 @@ class BotContext:
     # add_log writes pre-formatted lines (with its own timestamp format).
     _ACTIVITY_LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
     _ACTIVITY_LOG_PATH = os.path.join(BASE_DIR, "logs", "bot_activity.log")
+    _AI_PAYLOAD_LOG_PATH = os.path.join(BASE_DIR, "logs", "ai_payload.jsonl")
 
     def _write_activity_log(self, line: str) -> None:
         path = self._ACTIVITY_LOG_PATH
@@ -269,7 +270,56 @@ class BotContext:
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"{line}\n")
 
-    def _notify_signal_detected_discord(self, sig: dict, technical_context: dict):
+    def _write_ai_payload_log(self, obj: dict) -> None:
+        """
+        Write AI payload/response to a dedicated JSONL log file.
+        This is meant for coherence/debugging: what we sent vs what we got back.
+        """
+        try:
+            os.makedirs(os.path.dirname(self._AI_PAYLOAD_LOG_PATH), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            with open(self._AI_PAYLOAD_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(obj, ensure_ascii=False, default=str) + "\n")
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to write AI payload log: {e}")
+
+    def _ai_payload_debug_enabled(self) -> bool:
+        try:
+            return bool(
+                config.AI_PAYLOAD_DEBUG or
+                (self.global_settings.get("operations", {}) or {}).get("ai_payload_debug", False)
+            )
+        except Exception:
+            return bool(config.AI_PAYLOAD_DEBUG)
+
+    def _ai_payload_debug_discord_enabled(self) -> bool:
+        try:
+            return bool(
+                config.AI_PAYLOAD_DEBUG_DISCORD or
+                (self.global_settings.get("operations", {}) or {}).get("ai_payload_debug_discord", False)
+            )
+        except Exception:
+            return bool(config.AI_PAYLOAD_DEBUG_DISCORD)
+
+    @staticmethod
+    def _safe_json_preview(obj: dict, max_chars: int) -> str:
+        try:
+            s = json.dumps(obj, ensure_ascii=False, default=str)
+        except Exception:
+            s = str(obj)
+        if max_chars and len(s) > max_chars:
+            return s[:max_chars] + "…(truncated)"
+        return s
+
+    def _notify_signal_detected_discord(
+        self,
+        sig: dict,
+        technical_context: dict,
+        ai_trace_id: str = None,
+        ai_payload_preview: dict = None,
+    ):
         """Send a Discord notification when a strategy signal is detected (pre-AI)."""
         try:
             symbol = sig.get("symbol", self.active_symbol)
@@ -326,7 +376,15 @@ class BotContext:
             payload_str = json.dumps(debug_payload, ensure_ascii=False)
 
             color = "00FF00" if side == "BUY" else "FF0000" if side == "SELL" else "FFD166"
-            title = f"📡 SIGNAL DETECTED (Pre-AI): {side} {symbol}"
+            trace_part = f" (trace={ai_trace_id})" if ai_trace_id else ""
+            title = f"📡 SIGNAL DETECTED (Pre-AI): {side} {symbol}{trace_part}"
+
+            ai_payload_str = ""
+            if ai_payload_preview:
+                try:
+                    ai_payload_str = json.dumps(ai_payload_preview, ensure_ascii=False, default=str)
+                except Exception:
+                    ai_payload_str = str(ai_payload_preview)
             description = (
                 f"Strategy: {strategy}\n"
                 f"Entry: {price:.8f}\n"
@@ -334,6 +392,7 @@ class BotContext:
                 f"Regime: {regime} | ADX: {adx} ({adx_slope:+.2f}) | RSI: {rsi}\n"
                 f"EMA20/50: {ema_trend} | Vol: {vol_ratio}%\n"
                 f"Payload: `{payload_str[:1200]}`"
+                + (f"\nAI Data Sent (preview): `{ai_payload_str[:1200]}`" if ai_payload_str else "")
             )
             discord_service.send_alert(title, description, color=color)
 
@@ -1680,8 +1739,8 @@ class BotContext:
                             time.sleep(10)
                             continue
 
-                        # Discord debug notification at strategy-detection stage (before AI gate).
-                        self._notify_signal_detected_discord(sig, technical_context)
+                        # Trace id to correlate Pre-AI + AI verdict + (optional) payload logs.
+                        ai_trace_id = uuid.uuid4().hex[:10]
                         
                         # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
                         cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
@@ -1701,6 +1760,38 @@ class BotContext:
                         market_context = self._prepare_ai_context()
                         # Inject Copilot MTF Sentiment
                         market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
+                        
+                        # Discord debug notification at strategy-detection stage (before AI gate).
+                        # Include a compact preview of the *actual* data that will be sent to IA.
+                        ai_payload_preview = {
+                            "trace_id": ai_trace_id,
+                            "signal_data": {
+                                "symbol": sig.get("symbol", self.active_symbol),
+                                "signal": sig.get("signal"),
+                                "strategy": sig.get("strategy"),
+                                "price": sig.get("price"),
+                                "sl": sig.get("sl"),
+                                "tp": sig.get("tp"),
+                                "timestamp": sig.get("timestamp"),
+                            },
+                            "market_context_keys": sorted(list((market_context or {}).keys())),
+                            "market_context_focus": {
+                                # Helpful coherence checks (values may be absent depending on context builder)
+                                "current_price": market_context.get("current_price") if isinstance(market_context, dict) else None,
+                                "regime": market_context.get("regime") if isinstance(market_context, dict) else None,
+                                "market_bias": market_context.get("market_bias") if isinstance(market_context, dict) else None,
+                                "rsi_val": market_context.get("rsi_val") if isinstance(market_context, dict) else None,
+                                "adx_val": market_context.get("adx_val") if isinstance(market_context, dict) else None,
+                                "bb_position": market_context.get("bb_position") if isinstance(market_context, dict) else None,
+                                "volume_ratio": market_context.get("volume_ratio") if isinstance(market_context, dict) else None,
+                            },
+                        }
+                        self._notify_signal_detected_discord(
+                            sig,
+                            technical_context,
+                            ai_trace_id=ai_trace_id,
+                            ai_payload_preview=ai_payload_preview,
+                        )
                         strat_name = sig.get('strategy')
                         strat_obj = self.strategy_engine.strategies.get(strat_name)
                         strategy_persona = getattr(strat_obj, 'AI_PERSONA', None)
@@ -1716,11 +1807,56 @@ class BotContext:
                             continue
                         
                         approved = False
-                        self.add_log(f"🤖 Validating signal: {sig.get('signal')} from {sig.get('strategy')}")
+                        self.add_log(f"🤖 Validating signal (trace={ai_trace_id}): {sig.get('signal')} from {sig.get('strategy')}")
+                        if self._ai_payload_debug_enabled():
+                            payload_obj = {
+                                "ts": pd.Timestamp.now().isoformat(),
+                                "trace_id": ai_trace_id,
+                                "symbol": sig.get("symbol", self.active_symbol),
+                                "strategy": sig.get("strategy"),
+                                "signal_data": sig,
+                                "market_context": market_context,
+                            }
+                            self._write_ai_payload_log({"type": "ai_request", **payload_obj})
+                            # Short preview into regular bot logs (API/history), full stays in ai_payload.jsonl
+                            preview = self._safe_json_preview(
+                                {
+                                    "trace_id": ai_trace_id,
+                                    "signal_data": sig,
+                                    "market_context_keys": sorted(list((market_context or {}).keys())),
+                                },
+                                max_chars=900,
+                            )
+                            self.add_log(f"🧠 AI PAYLOAD (trace={ai_trace_id})", metadata={"preview": preview})
+                            if self._ai_payload_debug_discord_enabled():
+                                try:
+                                    discord_service.send_log(f"AI PAYLOAD trace={ai_trace_id}: {preview}")
+                                except Exception as discord_err:
+                                    self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
                         val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
 
 
                         self.last_ai_call = current_time
+                        if self._ai_payload_debug_enabled():
+                            try:
+                                raw = (val_res or {}).get("raw_output")
+                                resp_obj = {
+                                    "ts": pd.Timestamp.now().isoformat(),
+                                    "trace_id": ai_trace_id,
+                                    "symbol": sig.get("symbol", self.active_symbol),
+                                    "strategy": sig.get("strategy"),
+                                    "raw_output": raw,
+                                    "model": (val_res or {}).get("model"),
+                                }
+                                self._write_ai_payload_log({"type": "ai_response", **resp_obj})
+                                if self._ai_payload_debug_discord_enabled():
+                                    preview = self._safe_json_preview(
+                                        {"trace_id": ai_trace_id, "raw_output": raw},
+                                        max_chars=config.AI_PAYLOAD_DEBUG_MAX_CHARS,
+                                    )
+                                    discord_service.send_log(f"AI RESPONSE trace={ai_trace_id}: {preview}")
+                            except Exception as e:
+                                self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
                         
                         try:
                             import json
@@ -1746,7 +1882,7 @@ class BotContext:
                                         
                                         # Discord Notification for AI Approval
                                         discord_service.send_alert(
-                                            f"✅ AI APPROVED: {sig.get('signal')} {sig.get('symbol')}",
+                                            f"✅ AI APPROVED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
                                             f"Strategy: {sig.get('strategy')}\nConfidence: {confidence}%\nRisk: {risk_level}\n\n{reason}",
                                             color="00FF00"
                                         )
@@ -1775,15 +1911,48 @@ class BotContext:
                                     else:
                                         self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                         self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                        try:
+                                            reason = ai_data.get('reasoning', 'No reason')
+                                            discord_service.send_alert(
+                                                f"⚠️ AI REFUSED (Low confidence) (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
+                                                f"Strategy: {sig.get('strategy')}\n"
+                                                f"Confidence: {confidence}% (required: {required_conf}% for {risk_level})\n"
+                                                f"Risk: {risk_level}\n\n"
+                                                f"{reason}",
+                                                color="FFD166"
+                                            )
+                                        except Exception as discord_err:
+                                            self.add_log(f"⚠️ Discord notification failed (AI low confidence): {discord_err}")
                                         approved = False
                                 else:
                                     reason = ai_data.get('reasoning', 'No reason')
                                     self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
                                     self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                    try:
+                                        discord_service.send_alert(
+                                            f"❌ AI REJECTED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
+                                            f"Strategy: {sig.get('strategy')}\n"
+                                            f"Confidence: {confidence}%\n"
+                                            f"Risk: {risk_level}\n\n"
+                                            f"{reason}",
+                                            color="FF0000"
+                                        )
+                                    except Exception as discord_err:
+                                        self.add_log(f"⚠️ Discord notification failed (AI rejected): {discord_err}")
                             else:
                                 approved = True
                         except Exception as ai_err:
                             self.add_log(f"⚠️ AI Validation JSON Error: {ai_err}. Defaulting to REJECT.")
+                            try:
+                                discord_service.send_alert(
+                                    f"⚠️ AI ERROR (JSON parse): {sig.get('signal')} {sig.get('symbol')}",
+                                    f"Strategy: {sig.get('strategy')}\n"
+                                    f"Error: {ai_err}\n\n"
+                                    f"Signal was defaulted to REJECT for safety.",
+                                    color="FF9900"
+                                )
+                            except Exception as discord_err:
+                                self.add_log(f"⚠️ Discord notification failed (AI JSON error): {discord_err}")
                             approved = False
                             
                         if approved:
