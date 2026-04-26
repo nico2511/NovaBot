@@ -635,11 +635,20 @@ class HyperliquidService:
                     # Hyperliquid bulk_orders does not support a native "market" entry;
                     # we simulate market behavior with an aggressive crossing limit + IOC,
                     # so we don't miss fast moves while still keeping SL/TP atomic grouping.
+                    current_px = self.get_current_price(symbol)
+                    simulated_limit_px = current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE)
+                    entry_limit_px = float(f"{simulated_limit_px:.{price_decimals}f}")
+                    signal_px = float(price) if price else None
+                    self.log(
+                        f"🎯 Atomic entry pricing: signal_px={signal_px}, current_px={current_px}, "
+                        f"limit_px={entry_limit_px}, slippage={self.MARKET_SLIPPAGE:.1%}"
+                    )
+
                     entry_order = {
                         "coin": symbol,
                         "is_buy": is_buy,
                         "sz": quantity,
-                        "limit_px": price if price else float(f"{self.get_current_price(symbol):.{price_decimals}f}"), # Limit px required even for market?
+                        "limit_px": entry_limit_px,
                         # For Market, usually we pass a safe limit offset, but 'limit' type means Limit. 
                         # To do Market Entry, we use "limit": {"tif": "Ioc"} or similar? 
                         # Wait, basic_tpsl.py uses "limit": {"tif": "Gtc"} for entry. It doesn't show Market Entry with SL/TP.
@@ -650,15 +659,6 @@ class HyperliquidService:
                         "order_type": {"limit": {"tif": "Ioc"}},
                         "reduce_only": False
                     }
-                    
-                    # Adjust Entry Price for Market simulation if needed
-                    current_px = self.get_current_price(symbol)
-                    if not price:
-                        # Aggressive crossing: Buy @ +5%, Sell @ -5%
-                        simulated_limit_px = current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE)
-                        entry_order["limit_px"] = float(f"{simulated_limit_px:.{price_decimals}f}")
-                    else:
-                        entry_order["limit_px"] = float(f"{price:.{price_decimals}f}")
 
                     orders.append(entry_order)
 
