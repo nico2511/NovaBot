@@ -503,10 +503,12 @@ class BotContext:
                 volatility_percentile = int((atr_series < atr).sum() / len(atr_series) * 100)
         
         # Custom ADX Calculation for Regime
+        # IMPORTANT: use confirmed candle (-2) to avoid live-candle noise.
         adx_value = 0
         try:
             adx_df = Indicators.adx(df['high'], df['low'], df['close'], 14)
-            adx_value = float(adx_df['ADX'].iloc[-1])
+            adx_idx = -2 if len(adx_df) >= 2 else -1
+            adx_value = float(adx_df['ADX'].iloc[adx_idx])
         except Exception:
             pass
             
@@ -522,8 +524,14 @@ class BotContext:
         except Exception: 
             pass
 
-        # FIX: Regime definition aligned with Architecture (ADX > 25 = TREND)
-        regime = "TREND" if adx_value > 25 else "RANGE"
+        # Regime (15m): avoid binary ADX-only classification.
+        # Use ADX hysteresis + compression (BB width) + EMA slope as tiebreakers.
+        # Goal: identify clean ranges earlier, while still recognizing real trends.
+        adx_trend_on = 27.0
+        adx_range_on = 22.0
+        bb_width_range_max = 3.0  # % width; lower = tighter range
+        ema_slope_flat_max = 0.00015  # ~0.015% per candle
+        regime = "UNKNOWN"
         
         # Market Bias maintained via EMA alignment
         market_bias = "BULLISH" if ema_20 > ema_50 else "BEARISH"
@@ -538,9 +546,12 @@ class BotContext:
         # === ENHANCED CONTEXT: Bollinger Bands ===
         bb_period = 20
         bb_std = 2.0
+        bb_width = None
         try:
-            bb_middle = df['close'].rolling(bb_period).mean().iloc[-1]
-            bb_std_val = df['close'].rolling(bb_period).std().iloc[-1]
+            # Use confirmed candle (-2) for regime stability
+            bb_idx = -2 if len(df) >= 2 else -1
+            bb_middle = df['close'].rolling(bb_period).mean().iloc[bb_idx]
+            bb_std_val = df['close'].rolling(bb_period).std().iloc[bb_idx]
             bb_upper = bb_middle + (bb_std * bb_std_val)
             bb_lower = bb_middle - (bb_std * bb_std_val)
             
@@ -566,13 +577,20 @@ class BotContext:
             pass
         
         # === ENHANCED CONTEXT: EMA Slopes ===
+        ema_20_slope = 0.0
+        ema_50_slope = 0.0
         try:
             # Calculate EMA slopes (current vs previous candle)
-            ema_20_prev = float(df['close'].ewm(span=20).mean().iloc[-2])
-            ema_50_prev = float(df['close'].ewm(span=50).mean().iloc[-2])
+            # Use confirmed candle (-2) vs its previous (-3) where possible
+            ema_now_idx = -2 if len(df) >= 2 else -1
+            ema_prev_idx = -3 if len(df) >= 3 else -2
+            ema_20_now = float(df['close'].ewm(span=20).mean().iloc[ema_now_idx])
+            ema_50_now = float(df['close'].ewm(span=50).mean().iloc[ema_now_idx])
+            ema_20_prev = float(df['close'].ewm(span=20).mean().iloc[ema_prev_idx])
+            ema_50_prev = float(df['close'].ewm(span=50).mean().iloc[ema_prev_idx])
             
-            ema_20_slope = ((ema_20 - ema_20_prev) / ema_20_prev) if ema_20_prev > 0 else 0
-            ema_50_slope = ((ema_50 - ema_50_prev) / ema_50_prev) if ema_50_prev > 0 else 0
+            ema_20_slope = ((ema_20_now - ema_20_prev) / ema_20_prev) if ema_20_prev > 0 else 0
+            ema_50_slope = ((ema_50_now - ema_50_prev) / ema_50_prev) if ema_50_prev > 0 else 0
             
             dynamic_ctx['ema_20_slope'] = round(ema_20_slope, 6)
             dynamic_ctx['ema_50_slope'] = round(ema_50_slope, 6)
@@ -588,6 +606,32 @@ class BotContext:
                 dynamic_ctx['ema_50_slope_label'] = "NEUTRAL"
         except Exception:
             pass
+
+        # Final regime decision (after bb_width + ema slopes are available)
+        try:
+            ema_flat = (abs(float(ema_20_slope or 0)) <= ema_slope_flat_max) and (abs(float(ema_50_slope or 0)) <= ema_slope_flat_max)
+            compressed = (bb_width is not None) and (float(bb_width) <= bb_width_range_max)
+
+            if adx_value >= adx_trend_on:
+                regime = "TREND"
+            elif adx_value <= adx_range_on:
+                regime = "RANGE"
+            else:
+                # Gray zone: decide via structure
+                if compressed and ema_flat:
+                    regime = "RANGE"
+                else:
+                    regime = "TREND"
+
+            dynamic_ctx["regime_reason"] = (
+                f"adx={adx_value:.1f} "
+                f"(range<= {adx_range_on:.0f}, trend>= {adx_trend_on:.0f}), "
+                f"bb_width={float(bb_width or 0):.2f}% (<= {bb_width_range_max:.1f}%), "
+                f"ema_flat={ema_flat}"
+            )
+        except Exception:
+            # fallback to old behavior
+            regime = "TREND" if (adx_value or 0) > 25 else "RANGE"
         
         # === ENHANCED CONTEXT: Fibonacci Levels ===
         try:
