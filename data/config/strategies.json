@@ -54,12 +54,12 @@
             "period": 10,
             "multiplier": 3.0,
             "ema_filter_period": 200,
-            "adx_threshold": 30,
+            "adx_threshold": 12,
             "volume_multiplier": 1.2,
             "min_rr": 2.0,
             "sl_atr_mult": 1.5,
-            "trigger_flip_lookback": 3,
-            "cooldown_minutes": 30
+            "trigger_flip_lookback": 8,
+            "cooldown_minutes": 0
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-02-v2",
