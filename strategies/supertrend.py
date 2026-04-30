@@ -55,6 +55,10 @@ class StrategySupertrend(BaseStrategy):
             "sl_atr_mult":           float(self.get_param("sl_atr_mult", 1.0)),
             "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 3)),
             "cooldown_minutes":      int(self.get_param("cooldown_minutes", 0)),
+            # Anti stop-hunt guard: skip signals in thin liquidity + neutral momentum
+            "min_volume_ratio_pct":  float(self.get_param("min_volume_ratio_pct", 50.0)),
+            "rsi_neutral_low":       float(self.get_param("rsi_neutral_low", 45.0)),
+            "rsi_neutral_high":      float(self.get_param("rsi_neutral_high", 55.0)),
         }
 
     def _get_timestamp(self, df, iloc_idx: int):
@@ -122,6 +126,8 @@ class StrategySupertrend(BaseStrategy):
         df['Supertrend'] = st_data['Supertrend']
         df['ST_Direction'] = st_data['Direction']
         df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        # RSI used as a lightweight momentum sanity check (anti stop-hunt in ranges)
+        df['RSI_14'] = ta.rsi(df['close'], length=14)
         return df
 
     def generate_signal(self, df, extra_data=None):
@@ -150,10 +156,32 @@ class StrategySupertrend(BaseStrategy):
         sma_200_15m = last_15m['SMA_200']
         st_dir_15m = last_15m['ST_Direction']
         adx_15m = last_15m['ADX_14']
+        rsi_15m = float(last_15m.get("RSI_14", np.nan))
         now_ts = self._get_timestamp(df, -2)
 
         if not self._cooldown_ok(now_ts, p["cooldown_minutes"]):
             return self._reject(f"Cooldown active ({p['cooldown_minutes']}m) — skipping entry")
+
+        # --- ANTI STOP-HUNT GUARD (Thin liquidity + neutral RSI) ---
+        # In thin markets, stop-hunts are common; avoid taking trend entries with no momentum edge.
+        try:
+            vol_now = float(df["volume"].iloc[-2]) if "volume" in df.columns else None
+            vol_ma = float(df["volume"].iloc[:-1].rolling(50).mean().iloc[-2]) if "volume" in df.columns else None
+            vol_ratio_pct = (vol_now / vol_ma) * 100.0 if vol_now is not None and vol_ma and vol_ma > 0 else None
+
+            if (
+                vol_ratio_pct is not None
+                and vol_ratio_pct < float(p["min_volume_ratio_pct"])
+                and not np.isnan(rsi_15m)
+                and float(p["rsi_neutral_low"]) <= rsi_15m <= float(p["rsi_neutral_high"])
+            ):
+                return self._reject(
+                    f"Thin liquidity + RSI neutral (vol={vol_ratio_pct:.1f}% < {p['min_volume_ratio_pct']:.0f}%, "
+                    f"RSI={rsi_15m:.1f}) — stop-hunt risk"
+                )
+        except Exception:
+            # If we can't compute the guard reliably, stay permissive (do not block).
+            pass
 
         # --- 15m SETUP ---
         if adx_15m < p["adx_threshold"]:
