@@ -64,6 +64,10 @@ class SupertrendParams(_StrictParams):
     sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
     trigger_flip_lookback: Optional[int] = Field(None, ge=1, le=100)
     cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    # Anti stop-hunt guard (thin liquidity + neutral RSI)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    rsi_neutral_low: Optional[float] = Field(None, ge=0, le=100)
+    rsi_neutral_high: Optional[float] = Field(None, ge=0, le=100)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
 
