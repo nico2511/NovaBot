@@ -54,12 +54,15 @@
             "period": 10,
             "multiplier": 3.0,
             "ema_filter_period": 200,
-            "adx_threshold": 12,
+            "adx_threshold": 18,
             "volume_multiplier": 1.2,
             "min_rr": 2.0,
             "sl_atr_mult": 1.5,
-            "trigger_flip_lookback": 8,
-            "cooldown_minutes": 0
+            "trigger_flip_lookback": 4,
+            "cooldown_minutes": 15,
+            "min_volume_ratio_pct": 60,
+            "rsi_neutral_low": 46,
+            "rsi_neutral_high": 54
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-02-v2",
