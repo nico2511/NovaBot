@@ -124,7 +124,9 @@ class StrategySupertrend(BaseStrategy):
         df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'])['ADX']
         st_data = ta.supertrend(df['high'], df['low'], df['close'], period=p["st_period"], multiplier=p["st_multiplier"])
         df['Supertrend'] = st_data['Supertrend']
-        df['ST_Direction'] = st_data['Direction']
+        # Normalize direction from price vs ST line to avoid convention drift
+        # across Supertrend implementations (some invert +1/-1 labels).
+        df['ST_Direction'] = np.where(df['close'] >= df['Supertrend'], 1, -1)
         df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         # RSI used as a lightweight momentum sanity check (anti stop-hunt in ranges)
         df['RSI_14'] = ta.rsi(df['close'], length=14)
@@ -202,8 +204,9 @@ class StrategySupertrend(BaseStrategy):
         if self.looking_for_entry:
             st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=p["st_period"], multiplier=p["st_multiplier"])
             df_1m = df_1m.copy()
-            df_1m['ST_Direction'] = st_data_1m['Direction']
             df_1m['Supertrend'] = st_data_1m['Supertrend']
+            # Same normalization on trigger timeframe for consistent flip logic.
+            df_1m['ST_Direction'] = np.where(df_1m['close'] >= df_1m['Supertrend'], 1, -1)
 
             last_1m = df_1m.iloc[-2]
 
