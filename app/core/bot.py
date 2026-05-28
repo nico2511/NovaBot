@@ -51,7 +51,8 @@ class BotContext:
         
         self.risk_manager = RiskManager(
             max_positions=config.DEFAULT_MAX_POSITIONS,
-            daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS
+            daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS,
+            max_notional_cap_multiplier=config.MAX_NOTIONAL_CAP_MULTIPLIER,
         )
         # GLOBAL QUOTA - Will be set from global_settings after initialization
         self.max_positions = config.DEFAULT_MAX_POSITIONS
@@ -1695,8 +1696,8 @@ class BotContext:
                          # 2. Moyenne Mobile OI (MA20)
                          df_15m['OI_MA20'] = df_15m['open_interest'].rolling(window=20).mean()
                          
-                         # 3. Ratio OI actuel / MA
-                         df_15m['OI_vs_MA'] = df_15m['open_interest'] / df_15m['OI_MA20']
+                         # 3. Ratio OI actuel / MA (safe division — MA can be 0 on thin history)
+                         df_15m['OI_vs_MA'] = df_15m['open_interest'].div(df_15m['OI_MA20']).replace([float('inf'), float('-inf')], float('nan'))
                          
                          # 4. Divergence Prix vs OI
                          # (Price Chg Prev Candle - OI Chg Current Candle)? 
@@ -2000,8 +2001,19 @@ class BotContext:
                             approved = False
                             
                         if approved:
-                            acc = hyperliquid_service.get_account_balance()
-                            equity = float(acc.get("total_equity", 0) if acc.get("status")=="success" else 0)
+                            acc = hyperliquid_service.get_account_balance(force_refresh=True)
+                            if acc.get("status") == "success":
+                                equity = float(acc.get("total_equity", 0) or 0)
+                            else:
+                                equity = 0.0
+                                self.add_log(
+                                    f"⚠️ Balance API unavailable: {acc.get('message', 'unknown error')}"
+                                )
+                            if equity <= 0 and getattr(self, "account_value", 0) > 0:
+                                equity = float(self.account_value)
+                                self.add_log(
+                                    f"⚠️ Using cached account value ${equity:.2f} (live balance was $0)"
+                                )
                             
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
@@ -2062,9 +2074,26 @@ class BotContext:
                                     sl_price=sl_price, 
                                     equity=equity,
                                     method="fixed",
-                                    size_value=20.0,
+                                    size_value=DEFAULT_SIZE_USDC,
                                     leverage=current_leverage
                                 )
+
+                            target_notional = DEFAULT_SIZE_USDC * int(self.scanner_settings.get("leverage", 5))
+                            self.add_log(
+                                f"📏 Sizing: equity=${equity:.2f}, target notional=${target_notional:.0f}, "
+                                f"size={size:.4f} {self.active_symbol}"
+                            )
+
+                            if size <= 0:
+                                cap_mult = self.risk_manager.max_notional_cap_multiplier
+                                min_eq_target = target_notional / cap_mult
+                                self.add_log(
+                                    f"⛔ Entry skipped: position size is zero (equity=${equity:.2f}). "
+                                    f"Need equity ≥ ~${MIN_POSITION_NOTIONAL_USD / cap_mult:.2f} for min order, "
+                                    f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
+                                )
+                                continue
+
                             # ---------------------------------------------------
                             # 2. EXECUTION LOGIC (Live)
                             # ---------------------------------------------------

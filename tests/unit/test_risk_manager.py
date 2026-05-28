@@ -153,3 +153,30 @@ def test_calculate_position_size_clamps_to_min():
 def test_calculate_position_size_returns_zero_for_invalid_price():
     rm = RiskManager()
     assert rm.calculate_position_size(price=0.0, sl_price=0.0, equity=1000.0) == 0.0
+
+
+def test_calculate_position_size_returns_zero_when_equity_is_zero():
+    rm = RiskManager()
+    assert rm.calculate_position_size(
+        price=100.0, sl_price=99.0, equity=0.0,
+        size_type="margin", size_value=20.0, leverage=5,
+    ) == 0.0
+
+
+def test_calculate_position_size_returns_zero_when_equity_too_low_for_min():
+    """Equity $0.20 × cap 50 → max $10, below Hyperliquid $12 minimum."""
+    rm = RiskManager(max_notional_cap_multiplier=50.0)
+    assert rm.calculate_position_size(
+        price=1.0, sl_price=0.9, equity=0.2,
+        size_type="margin", size_value=20.0, leverage=5,
+    ) == 0.0
+
+
+def test_calculate_position_size_100_target_with_2_dollar_equity():
+    """Cap ×50: $2 equity allows $100 notional (default margin × leverage)."""
+    rm = RiskManager(max_notional_cap_multiplier=50.0)
+    size = rm.calculate_position_size(
+        price=0.5, sl_price=0.49, equity=2.0,
+        size_type="margin", size_value=20.0, leverage=5,
+    )
+    assert size * 0.5 == pytest.approx(100.0)

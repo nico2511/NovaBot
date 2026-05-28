@@ -886,13 +886,15 @@ class HyperliquidService:
     def get_account_balance(self, force_refresh=False):
         """Fetch account balance and margin information from Hyperliquid (Cached)"""
         if not config.HL_ACCOUNT_ADDRESS:
-            return {
+            err = {
                 "status": "error",
-                "message": "No account address configured",
+                "message": "No account address configured (set HL_ACCOUNT_ADDRESS in .env)",
                 "total_equity": 0,
                 "available_balance": 0,
-                "margin_used": 0
+                "margin_used": 0,
             }
+            self.log(f"⚠️ {err['message']}")
+            return err
             
         # Check Cache
         now = time.time()

@@ -71,6 +71,10 @@ class Config:
     DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "1"))
     DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
     DEFAULT_LEVERAGE: int = 1
+    MAX_NOTIONAL_CAP_MULTIPLIER: float = float(
+        _state_settings.get('risk_defaults', {}).get('max_notional_cap_multiplier')
+        or os.getenv("MAX_NOTIONAL_CAP_MULTIPLIER", "50")
+    )
     
     # Operations (from bot_state.json or .env fallback)
     AUTO_START_TRADING: bool = _state_settings.get('operations', {}).get('auto_start_trading') if _state_settings.get('operations', {}).get('auto_start_trading') is not None else (os.getenv("AUTO_START_TRADING", "false").lower() == "true")

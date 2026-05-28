@@ -3,6 +3,8 @@ import logging
 import threading
 from dataclasses import dataclass
 
+from app.core.constants import MAX_NOTIONAL_CAP_MULTIPLIER, MIN_POSITION_NOTIONAL_USD
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -13,12 +15,21 @@ class RiskState:
     stop_reason: str = ""
 
 class RiskManager:
-    def __init__(self, max_positions: int = 1, daily_stop_loss: float = 50.0):
+    def __init__(
+        self,
+        max_positions: int = 1,
+        daily_stop_loss: float = 50.0,
+        max_notional_cap_multiplier: float = MAX_NOTIONAL_CAP_MULTIPLIER,
+    ):
         self._lock = threading.Lock()
         self.max_positions = max_positions
         self.daily_stop_loss = daily_stop_loss  # Positive number
+        self.max_notional_cap_multiplier = float(max_notional_cap_multiplier)
         self.state = RiskState()
         self.last_reset_date = datetime.date.today()
+
+    def _max_notional(self, equity: float) -> float:
+        return equity * self.max_notional_cap_multiplier
 
     def _check_reset(self):
         today = datetime.date.today()
@@ -59,12 +70,19 @@ class RiskManager:
                 self.state.is_stop_mode = True
                 self.state.stop_reason = f"Daily Stop Loss Hit: {self.state.daily_pnl:.2f} <= -{self.daily_stop_loss}"
 
-    def update_settings(self, max_positions: int = None, daily_stop_loss: float = None):
+    def update_settings(
+        self,
+        max_positions: int = None,
+        daily_stop_loss: float = None,
+        max_notional_cap_multiplier: float = None,
+    ):
         with self._lock:
             if max_positions is not None:
                 self.max_positions = max_positions
             if daily_stop_loss is not None:
                 self.daily_stop_loss = daily_stop_loss
+            if max_notional_cap_multiplier is not None:
+                self.max_notional_cap_multiplier = float(max_notional_cap_multiplier)
 
     def get_status(self) -> dict:
         self._check_reset()
@@ -75,7 +93,8 @@ class RiskManager:
                 "is_stop_mode": self.state.is_stop_mode,
                 "stop_reason": self.state.stop_reason,
                 "max_positions": self.max_positions,
-                "daily_stop_loss": self.daily_stop_loss
+                "daily_stop_loss": self.daily_stop_loss,
+                "max_notional_cap_multiplier": self.max_notional_cap_multiplier,
             }
 
     def sync_with_hyperliquid(self, hyperliquid_service):
@@ -116,18 +135,31 @@ class RiskManager:
             size_value: value associated with method
         """
         try:
-            if price <= 0: return 0.0
-            
+            if price <= 0:
+                return 0.0
+
+            MIN_POSITION_SIZE_USD = MIN_POSITION_NOTIONAL_USD
+            max_allowed_notional = self._max_notional(equity)
+
+            if equity <= 0:
+                logger.error(
+                    "Cannot size position: account equity is $%.2f (need equity > 0).",
+                    equity,
+                )
+                return 0.0
+
             size_coins = 0.0
-            MIN_POSITION_SIZE_USD = 12.0 # Hyperliquid minimum
             
             # 1. Risk % Based (Equity %)
-            if method == "risk_pct" and sl_price > 0 and price != sl_price:
+            if method == "risk_pct" and sl_price is not None and sl_price > 0 and price != sl_price:
                 # size_value is treated as % (e.g. 1% = 0.01)
                 risk_per_trade_pct = size_value / 100.0 if size_value > 1 else size_value
                 risk_amount = equity * risk_per_trade_pct
                 price_diff = abs(price - sl_price)
-                size_coins = risk_amount / price_diff
+                if price_diff <= 0:
+                    logger.warning("Risk sizing skipped: entry price equals stop-loss.")
+                else:
+                    size_coins = risk_amount / price_diff
                 
             # 2. Fixed Notional ($ Value)
             elif size_type == "notional":
@@ -137,30 +169,47 @@ class RiskManager:
             # 3. Fixed Margin (Cost $) - DEFAULT
             else:
                 # size_value is Margin Cost (e.g. $20)
-                # Position Value = Margin * Leverage
-                position_value = size_value * leverage
+                # Position Value = Margin * Leverage, capped to equity × multiplier upfront
+                position_value = min(size_value * leverage, max_allowed_notional)
+                if position_value < size_value * leverage:
+                    logger.info(
+                        "Sizing scaled to $%.2f notional (target $%.2f, equity $%.2f).",
+                        position_value,
+                        size_value * leverage,
+                        equity,
+                    )
                 size_coins = position_value / price
 
-            # --- SAFETY CLAMPING ---
+            # --- SAFETY CLAMPING (max cap first, then Hyperliquid minimum) ---
             position_notional = size_coins * price
-            
-            # Check Minimum Size
-            if position_notional < MIN_POSITION_SIZE_USD:
+
+            if position_notional > max_allowed_notional + 1e-6:
                 logger.warning(
-                    "Position size $%.2f < Min $%s. Clamping to Min.",
-                    position_notional, MIN_POSITION_SIZE_USD,
+                    "Position size $%.2f exceeds max cap $%.2f (equity $%.2f × %.0f). Clamping.",
+                    position_notional,
+                    max_allowed_notional,
+                    equity,
+                    self.max_notional_cap_multiplier,
+                )
+                position_notional = max_allowed_notional
+                size_coins = max_allowed_notional / price
+
+            if position_notional < MIN_POSITION_SIZE_USD:
+                if max_allowed_notional < MIN_POSITION_SIZE_USD:
+                    logger.error(
+                        "Position blocked: max affordable notional $%.2f (equity $%.2f) "
+                        "is below Hyperliquid minimum $%.2f.",
+                        max_allowed_notional,
+                        equity,
+                        MIN_POSITION_SIZE_USD,
+                    )
+                    return 0.0
+                logger.warning(
+                    "Position size $%.2f < Min $%.2f. Clamping to Min.",
+                    position_notional,
+                    MIN_POSITION_SIZE_USD,
                 )
                 size_coins = MIN_POSITION_SIZE_USD / price
-                position_notional = MIN_POSITION_SIZE_USD
-
-            # Check Maximum Leverage Cap (Safety Net)
-            max_allowed_notional = equity * 20  # Hard cap 20x equity even if leverage is higher
-            if position_notional > max_allowed_notional:
-                logger.warning(
-                    "Position size $%.2f exceeds Max Cap. Clamping.",
-                    position_notional,
-                )
-                size_coins = max_allowed_notional / price
 
             return size_coins
 
