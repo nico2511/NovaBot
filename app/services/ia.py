@@ -135,6 +135,47 @@ class IAService:
         except Exception as e:
             raise Exception(f"OpenRouter failed: {e}")
     
+    def _parse_validation_payload(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse raw_output JSON into the result dict used for logging and constraints."""
+        if not result:
+            return {}
+        raw = result.get("raw_output")
+        if not raw:
+            return {
+                **result,
+                "approved": False,
+                "confidence": 0,
+                "reasoning": "Empty AI response (no raw_output)",
+                "rejection_reason_category": "AI_PARSE_ERROR",
+            }
+        try:
+            parsed = json.loads(self.extract_json(raw))
+            if not isinstance(parsed, dict):
+                raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
+            if parsed.get("error"):
+                return {
+                    **result,
+                    **parsed,
+                    "approved": False,
+                    "confidence": 0,
+                    "reasoning": parsed.get("details") or parsed.get("error", "AI call failed"),
+                    "rejection_reason_category": "AI_UNAVAILABLE",
+                    "raw_output": raw,
+                }
+            merged = {**result, **parsed}
+            merged["raw_output"] = raw
+            return merged
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("AI validation JSON parse failed: %s | snippet=%s", e, str(raw)[:400])
+            return {
+                **result,
+                "approved": False,
+                "confidence": 0,
+                "reasoning": f"Invalid AI JSON: {e}",
+                "rejection_reason_category": "AI_PARSE_ERROR",
+                "raw_output": raw,
+            }
+
     def _call_ai_generic(self, prompt: str) -> Dict[str, Any]:
         """
         Generic AI call dispatcher with Circuit Breaker logic.
@@ -340,16 +381,17 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
         else:
             # Fallback to Generic Bot Persona
             result = self._call_ai_generic(prompt)
-        
-        if "error" not in result:
+
+        result = self._parse_validation_payload(result or {})
+
+        if result.get("raw_output") and result.get("rejection_reason_category") != "AI_PARSE_ERROR":
             # === CODE-LEVEL HARD CONSTRAINTS (Double-Check) ===
-            # We trust, but verify. If AI misses a hard constraint (like R:R), we override it.
             result = self._enforce_hard_constraints(signal_data, result, config.RISK_PROFILE)
-            
+
             # --- LOGGING V2 IMPROVEMENTS ---
             is_approved = result.get("approved", False)
             conf = result.get("confidence", 0)
-            reason = result.get("reasoning", "No reasoning")
+            reason = result.get("reasoning") or "No reasoning"
             factors = result.get("decisive_factors", [])
             reject_cat = result.get("rejection_reason_category")
             
@@ -361,7 +403,14 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
                 logger.info("  Rejection Category: %s", reject_cat)
 
             self._set_cache(key, result, ttl_minutes=1)
-        
+        elif result.get("rejection_reason_category") == "AI_PARSE_ERROR":
+            reason = result.get("reasoning", "AI_PARSE_ERROR")
+            logger.info(
+                "AI VALIDATION REJECTED: %s | Conf: 0%% | %s",
+                symbol,
+                str(reason)[:100],
+            )
+
         return result
 
     def _enforce_hard_constraints(self, signal: Dict[str, Any], ai_result: Dict[str, Any], risk_profile: str) -> Dict[str, Any]:

@@ -882,6 +882,27 @@ class HyperliquidService:
             self.log(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
+    def _get_account_abstraction_mode(self, address: str) -> str:
+        """Hyperliquid account mode: unifiedAccount, portfolioMargin, default, etc."""
+        try:
+            mode = self.info.post("/info", {"type": "userAbstraction", "user": address})
+            if isinstance(mode, str):
+                return mode.strip().strip('"')
+            return str(mode) if mode is not None else "unknown"
+        except Exception as e:
+            self.log(f"⚠️ userAbstraction query failed: {e}")
+            return "unknown"
+
+    @staticmethod
+    def _usdc_balance_from_spot(spot_state: dict) -> tuple[float, float]:
+        """Return (total_usdc, available_usdc) from spotClearinghouseState."""
+        for bal in (spot_state or {}).get("balances", []):
+            if bal.get("coin") == "USDC":
+                total = float(bal.get("total", 0) or 0)
+                hold = float(bal.get("hold", 0) or 0)
+                return total, max(0.0, total - hold)
+        return 0.0, 0.0
+
     @standard_operation
     def get_account_balance(self, force_refresh=False):
         """Fetch account balance and margin information from Hyperliquid (Cached)"""
@@ -902,18 +923,48 @@ class HyperliquidService:
             return self._balance_cache["data"]
         
         try:
-            user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
-            
-            # Extract balance info
-            margin_summary = user_state.get("marginSummary", {})
-            account_value = float(margin_summary.get("accountValue", 0))
-            total_margin_used = float(margin_summary.get("totalMarginUsed", 0))
-            
+            address = config.HL_ACCOUNT_ADDRESS
+            user_state = self.info.user_state(address)
+            spot_state = self.info.spot_user_state(address)
+            abstraction_mode = self._get_account_abstraction_mode(address)
+
+            margin_summary = user_state.get("marginSummary", {}) or {}
+            perp_account_value = float(margin_summary.get("accountValue", 0) or 0)
+            total_margin_used = float(margin_summary.get("totalMarginUsed", 0) or 0)
+            withdrawable = float(user_state.get("withdrawable", 0) or 0)
+
+            spot_total, spot_available = self._usdc_balance_from_spot(spot_state)
+
+            # Unified / portfolio margin: spot USDC is source of truth (perp-only state can be 0).
+            use_spot = abstraction_mode in ("unifiedAccount", "portfolioMargin") or (
+                perp_account_value <= 0 and spot_total > 0
+            )
+
+            if use_spot and spot_total > 0:
+                account_value = spot_total
+                available_balance = spot_available
+                if abstraction_mode in ("unifiedAccount", "portfolioMargin"):
+                    self.log(
+                        f"💰 Balance from spot (mode={abstraction_mode}): "
+                        f"equity=${account_value:.2f}, available=${available_balance:.2f}"
+                    )
+                else:
+                    self.log(
+                        f"💰 Perp equity $0 — using spot USDC: "
+                        f"equity=${account_value:.2f}, available=${available_balance:.2f}"
+                    )
+            else:
+                account_value = perp_account_value
+                available_balance = withdrawable if withdrawable > 0 else (account_value - total_margin_used)
+
             result = {
                 "status": "success",
                 "total_equity": account_value,
-                "available_balance": account_value - total_margin_used,
-                "margin_used": total_margin_used
+                "available_balance": available_balance,
+                "margin_used": total_margin_used,
+                "account_abstraction_mode": abstraction_mode,
+                "perp_account_value": perp_account_value,
+                "spot_usdc_total": spot_total,
             }
             
             # Update Cache

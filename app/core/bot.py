@@ -2148,6 +2148,13 @@ class BotContext:
                             acc = hyperliquid_service.get_account_balance(force_refresh=True)
                             if acc.get("status") == "success":
                                 equity = float(acc.get("total_equity", 0) or 0)
+                                acct_mode = acc.get("account_abstraction_mode", "unknown")
+                                if acct_mode not in ("unknown", "default", "disabled", ""):
+                                    self.add_log(
+                                        f"💰 Hyperliquid account mode: {acct_mode} | "
+                                        f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
+                                        f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
+                                    )
                             else:
                                 equity = 0.0
                                 err_msg = acc.get("message", "unknown error")
