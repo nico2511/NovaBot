@@ -243,6 +243,13 @@ class BotContext:
         except Exception as e:
             logger.warning("Log write error: %s", e)
 
+    def _discord_execution_error(self, title: str, **fields):
+        """Send execution failures to Discord alerts webhook (non-blocking)."""
+        try:
+            discord_service.send_execution_error(title, **fields)
+        except Exception as e:
+            logger.warning("Discord execution alert failed: %s", e)
+
     # Lightweight rotation for bot_activity.log: when the file exceeds
     # _ACTIVITY_LOG_MAX_BYTES, it is rotated to .1 (keeping a single backup).
     # Using a custom rotation instead of logging.RotatingFileHandler because
@@ -883,22 +890,60 @@ class BotContext:
             self.add_log(f"⚠️ Failed to record signal analysis: {e}")
 
 
-    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None, entry_indicators: dict = None):
+    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None, entry_indicators: dict = None, equity: float = None):
         """ATOMIC ENTRY FLOW (Unified v2) - Now captures entry indicators for analysis"""
+        ctx = dict(
+            symbol=symbol,
+            side=side,
+            strategy=strategy,
+            size=size,
+            price=price,
+            sl=sl,
+            tp=tp,
+            equity=equity,
+        )
         try:
             # 1. LIVE EXECUTION CHECK
             if not self.trading_enabled:
-                self.add_log(f"⚠️ Signal ignored (Trading Disabled): {side} {symbol}")
-                return { "status": "ignored", "reason": "Trading Disabled" }
+                reason = "Trading Disabled"
+                self.add_log(f"⚠️ Signal ignored ({reason}): {side} {symbol}")
+                self._discord_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
+                return { "status": "ignored", "reason": reason }
             
             current_price = price if price else hyperliquid_service.get_current_price(symbol)
+            ctx["price"] = current_price
+            
+            # Pre-check rounding (same rules as Hyperliquid execute_order)
+            canonical = hyperliquid_service.get_canonical_symbol(symbol)
+            sz_decimals, _ = hyperliquid_service._get_precision(canonical)
+            if sz_decimals == 0:
+                rounded_size = int(size)
+            else:
+                rounded_size = round(size, sz_decimals)
+            if rounded_size <= 0:
+                reason = f"Quantity rounds to zero (raw={size}, sz_decimals={sz_decimals})"
+                self.add_log(f"❌ Entry Failed: {reason}")
+                self._discord_execution_error(
+                    f"❌ ENTRY FAILED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
             
             # REAL EXECUTION
             real_positions = hyperliquid_service.get_positions()
             active_count = len([p for p in real_positions if float(p["size"]) > 0])
             
             if active_count >= self.max_positions:
+                reason = f"Max positions reached ({active_count}/{self.max_positions})"
                 self.add_log(f"⛔ QUOTA EXCEEDED ({active_count}/{self.max_positions}). Entry aborted.")
+                self._discord_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
                 return False
 
             self.add_log(f"🔒 ATOMIC ENTRY START: {side} {symbol} ({size}) via {strategy}")
@@ -911,7 +956,16 @@ class BotContext:
             )
             
             if result.get("status") != "success":
-                self.add_log(f"❌ Entry Failed: {result.get('message')}")
+                reason = result.get("message", "Unknown exchange error")
+                self.add_log(f"❌ Entry Failed: {reason}")
+                self._discord_execution_error(
+                    f"❌ ENTRY FAILED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    rounded_size=rounded_size,
+                    sz_decimals=sz_decimals,
+                    **{k: v for k, v in ctx.items() if k not in ("equity",)},
+                )
                 return False
 
             self.add_log("⏳ Verifying Fill...")
@@ -972,13 +1026,27 @@ class BotContext:
                     break
             
             if not filled:
-                self.add_log("⚠️ Order sent but position NOT confirmed after 5s.")
+                reason = "Order sent but position NOT confirmed after 5s"
+                self.add_log(f"⚠️ {reason}.")
+                self._discord_execution_error(
+                    f"⚠️ ENTRY UNCONFIRMED: {side} {symbol}",
+                    reason=reason,
+                    oid=oid,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
                 return False
                 
             return True
 
         except Exception as e:
             self.add_log(f"❌ ATOMIC ENTRY ERROR: {e}")
+            self._discord_execution_error(
+                f"❌ ENTRY CRASH: {side} {symbol}",
+                reason=str(e),
+                equity=equity,
+                **{k: v for k, v in ctx.items() if k != "equity"},
+            )
             return False
 
     def execute_exit_atomically(self, symbol: str, reason: str = "SIGNAL"):
@@ -1504,6 +1572,30 @@ class BotContext:
         except Exception as e:
             self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
 
+    def _resolve_trade_leverage(self) -> int:
+        """Same leverage rules as _enforce_leverage (risk profile overrides scanner default)."""
+        default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
+        requested_leverage = self.scanner_settings.get("leverage")
+        risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
+
+        if requested_leverage is None or int(requested_leverage) <= 1:
+            if risk_profile == "Capital Preservation First":
+                return 3
+            if risk_profile == "Balanced Growth":
+                return 5
+            if risk_profile == "High Volatility Hunter":
+                return 10
+            return int(default_leverage)
+
+        target = int(requested_leverage)
+        if risk_profile == "Capital Preservation First":
+            return 3
+        if risk_profile == "Balanced Growth":
+            return 5
+        if risk_profile == "High Volatility Hunter":
+            return 10
+        return target
+
     def trading_loop(self):
         """Main trading loop"""
         self.add_log("🚀 Trading loop started")
@@ -2006,13 +2098,35 @@ class BotContext:
                                 equity = float(acc.get("total_equity", 0) or 0)
                             else:
                                 equity = 0.0
-                                self.add_log(
-                                    f"⚠️ Balance API unavailable: {acc.get('message', 'unknown error')}"
+                                err_msg = acc.get("message", "unknown error")
+                                self.add_log(f"⚠️ Balance API unavailable: {err_msg}")
+                                self._discord_execution_error(
+                                    f"⚠️ BALANCE API ERROR: {self.active_symbol}",
+                                    reason=err_msg,
+                                    symbol=self.active_symbol,
+                                    side=sig.get("signal"),
+                                    strategy=sig.get("strategy"),
                                 )
                             if equity <= 0 and getattr(self, "account_value", 0) > 0:
                                 equity = float(self.account_value)
                                 self.add_log(
                                     f"⚠️ Using cached account value ${equity:.2f} (live balance was $0)"
+                                )
+                                self._discord_execution_error(
+                                    f"⚠️ EQUITY FALLBACK: {self.active_symbol}",
+                                    reason="Live balance API returned $0; using cached account_value",
+                                    equity=equity,
+                                    symbol=self.active_symbol,
+                                    side=sig.get("signal"),
+                                    strategy=sig.get("strategy"),
+                                )
+                            elif acc.get("status") == "success" and equity <= 0:
+                                self._discord_execution_error(
+                                    f"⚠️ ZERO EQUITY: {self.active_symbol}",
+                                    reason="Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS and wallet funding",
+                                    symbol=self.active_symbol,
+                                    side=sig.get("signal"),
+                                    strategy=sig.get("strategy"),
                                 )
                             
                             sl_price = sig.get("sl")
@@ -2068,7 +2182,7 @@ class BotContext:
                                 )
                             else:
                                 # Standard sizing (Fixed $20 Margin @ Target Leverage)
-                                current_leverage = int(self.scanner_settings.get("leverage", 5))
+                                current_leverage = self._resolve_trade_leverage()
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price, 
                                     sl_price=sl_price, 
@@ -2078,19 +2192,41 @@ class BotContext:
                                     leverage=current_leverage
                                 )
 
-                            target_notional = DEFAULT_SIZE_USDC * int(self.scanner_settings.get("leverage", 5))
+                            current_leverage = self._resolve_trade_leverage()
+                            target_notional = DEFAULT_SIZE_USDC * current_leverage
                             self.add_log(
                                 f"📏 Sizing: equity=${equity:.2f}, target notional=${target_notional:.0f}, "
                                 f"size={size:.4f} {self.active_symbol}"
                             )
+                            try:
+                                discord_service.send_log(
+                                    f"📏 SIZING {sig.get('signal')} {self.active_symbol} | "
+                                    f"equity=${equity:.2f} | target=${target_notional:.0f} | "
+                                    f"size={size:.4f} | lev={current_leverage}x | "
+                                    f"strat={sig.get('strategy')}"
+                                )
+                            except Exception:
+                                pass
 
                             if size <= 0:
                                 cap_mult = self.risk_manager.max_notional_cap_multiplier
                                 min_eq_target = target_notional / cap_mult
-                                self.add_log(
-                                    f"⛔ Entry skipped: position size is zero (equity=${equity:.2f}). "
+                                reason = (
+                                    f"Position size is zero (equity=${equity:.2f}). "
                                     f"Need equity ≥ ~${MIN_POSITION_NOTIONAL_USD / cap_mult:.2f} for min order, "
                                     f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
+                                )
+                                self.add_log(f"⛔ Entry skipped: {reason}")
+                                self._discord_execution_error(
+                                    f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
+                                    reason=reason,
+                                    equity=equity,
+                                    target_notional=target_notional,
+                                    cap_multiplier=cap_mult,
+                                    strategy=sig.get("strategy"),
+                                    entry=entry_price,
+                                    sl=sl_price,
+                                    tp=sig.get("tp"),
                                 )
                                 continue
 
@@ -2127,7 +2263,7 @@ class BotContext:
                                     "ai_reasoning": (ai_data.get("reasoning", "") if 'ai_data' in locals() else sig.get("reason", "Strategy Signal"))[:200]
                                 })
                                 
-                                self.execute_entry_atomically(
+                                entry_ok = self.execute_entry_atomically(
                                     self.active_symbol,
                                     sig.get("signal"),
                                     size,
@@ -2136,17 +2272,28 @@ class BotContext:
                                     sig.get("tp"),
                                     sig.get("strategy"),
                                     sig.get("metadata"),
-                                    entry_indicators
+                                    entry_indicators,
+                                    equity=equity,
                                 )
                                 
-                                # Update last trade info for cooldown
-                                self._last_trade_info = {
-                                    "symbol": self.active_symbol,
-                                    "direction": sig.get("signal"),
-                                    "time": pd.Timestamp.now().isoformat()
-                                }
+                                if entry_ok:
+                                    # Update last trade info for cooldown
+                                    self._last_trade_info = {
+                                        "symbol": self.active_symbol,
+                                        "direction": sig.get("signal"),
+                                        "time": pd.Timestamp.now().isoformat()
+                                    }
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
+                                self._discord_execution_error(
+                                    f"⛔ ENTRY BLOCKED: {sig.get('signal')} {self.active_symbol}",
+                                    reason="trading_enabled=False (observation mode)",
+                                    strategy=sig.get("strategy"),
+                                    entry=entry_price,
+                                    sl=sl_price,
+                                    tp=sig.get("tp"),
+                                    equity=equity,
+                                )
                 
                 # Optimized Sleep Loop + Anti-Signal Spam
                 has_active_trade = len(self.active_trades) > 0
@@ -2158,8 +2305,15 @@ class BotContext:
                 
             except Exception as e:
                 import traceback
+                tb = traceback.format_exc()
                 self.add_log(f"❌ Error in trading loop: {e}")
-                self.add_log(f"🔍 Traceback: {traceback.format_exc()}")
+                self.add_log(f"🔍 Traceback: {tb}")
+                self._discord_execution_error(
+                    "❌ TRADING LOOP ERROR",
+                    reason=str(e),
+                    symbol=self.active_symbol,
+                    traceback=tb[-1500:],
+                )
                 time.sleep(5)
         
         self.add_log("⏸️ Trading loop stopped")

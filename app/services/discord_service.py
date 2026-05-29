@@ -28,6 +28,17 @@ class DiscordService:
         embed.set_timestamp()
         self._send(self.alert_url, embed=embed)
 
+    def send_execution_error(self, title: str, **fields):
+        """Push a structured execution failure alert to the alerts webhook."""
+        lines = []
+        for key, value in fields.items():
+            if value is None or value == "":
+                continue
+            label = key.replace("_", " ").title()
+            lines.append(f"**{label}:** {value}")
+        description = "\n".join(lines) if lines else "No details provided."
+        self.send_alert(title, description, color="FF0000")
+
     def send_log(self, message: str):
         self._send(self.log_url, content=f"`[LOG]` {message}")
     
@@ -45,8 +56,6 @@ class DiscordService:
             f"**Price:** {price}\n"
             f"**Analysis:** {analysis}"
         )
-        self.send_alert(title, desc, color=color)
-
         self.send_alert(title, desc, color=color)
 
 discord_service = DiscordService()
