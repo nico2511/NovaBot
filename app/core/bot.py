@@ -243,12 +243,64 @@ class BotContext:
         except Exception as e:
             logger.warning("Log write error: %s", e)
 
-    def _discord_execution_error(self, title: str, **fields):
-        """Send execution failures to Discord alerts webhook (non-blocking)."""
+        self._forward_log_to_discord(message, metadata)
+
+    def _forward_log_to_discord(self, message: str, metadata: dict = None) -> None:
+        """Mirror bot warnings/errors to Discord alerts (Coolify log limit workaround)."""
+        if metadata and metadata.get("discord_sent"):
+            return
+        if metadata and metadata.get("quiet"):
+            return
+
+        quiet_prefixes = (
+            "📊 Regime:",
+            "🟡 Live (forming):",
+            "⏸️ Next analysis",
+            "🔄 Entering strategy analysis",
+            "🎯 Stratégies actives >",
+            "📏 Sizing:",
+            "📏 SIZING",
+        )
+        if message.startswith(quiet_prefixes):
+            return
+
+        level = None
+        upper = message.upper()
+        if any(marker in message for marker in ("❌", "⛔", "🔥")) or any(
+            token in upper for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
+        ):
+            level = "ERROR"
+        elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
+            level = "WARNING"
+
+        if not level:
+            return
+
+        body = message
+        if metadata:
+            try:
+                import json
+                extra = json.dumps(metadata, default=str)[:900]
+                body = f"{message}\n\n`{extra}`"
+            except Exception:
+                pass
+
+        try:
+            discord_service.notify(level, "NovaBot", body, source="bot")
+        except Exception as e:
+            logger.warning("Discord bot log forward failed: %s", e)
+
+    def _log_execution_error(self, title: str, **fields):
+        """Structured execution failure → Discord + local log (single alert)."""
         try:
             discord_service.send_execution_error(title, **fields)
         except Exception as e:
             logger.warning("Discord execution alert failed: %s", e)
+        summary = title
+        reason = fields.get("reason")
+        if reason:
+            summary = f"{title} — {reason}"
+        self.add_log(f"❌ {summary}", metadata={"discord_sent": True})
 
     # Lightweight rotation for bot_activity.log: when the file exceeds
     # _ACTIVITY_LOG_MAX_BYTES, it is rotated to .1 (keeping a single backup).
@@ -907,7 +959,7 @@ class BotContext:
             if not self.trading_enabled:
                 reason = "Trading Disabled"
                 self.add_log(f"⚠️ Signal ignored ({reason}): {side} {symbol}")
-                self._discord_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
+                self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
             
             current_price = price if price else hyperliquid_service.get_current_price(symbol)
@@ -923,7 +975,7 @@ class BotContext:
             if rounded_size <= 0:
                 reason = f"Quantity rounds to zero (raw={size}, sz_decimals={sz_decimals})"
                 self.add_log(f"❌ Entry Failed: {reason}")
-                self._discord_execution_error(
+                self._log_execution_error(
                     f"❌ ENTRY FAILED: {side} {symbol}",
                     reason=reason,
                     equity=equity,
@@ -938,7 +990,7 @@ class BotContext:
             if active_count >= self.max_positions:
                 reason = f"Max positions reached ({active_count}/{self.max_positions})"
                 self.add_log(f"⛔ QUOTA EXCEEDED ({active_count}/{self.max_positions}). Entry aborted.")
-                self._discord_execution_error(
+                self._log_execution_error(
                     f"⛔ ENTRY BLOCKED: {side} {symbol}",
                     reason=reason,
                     equity=equity,
@@ -958,7 +1010,7 @@ class BotContext:
             if result.get("status") != "success":
                 reason = result.get("message", "Unknown exchange error")
                 self.add_log(f"❌ Entry Failed: {reason}")
-                self._discord_execution_error(
+                self._log_execution_error(
                     f"❌ ENTRY FAILED: {side} {symbol}",
                     reason=reason,
                     equity=equity,
@@ -1028,7 +1080,7 @@ class BotContext:
             if not filled:
                 reason = "Order sent but position NOT confirmed after 5s"
                 self.add_log(f"⚠️ {reason}.")
-                self._discord_execution_error(
+                self._log_execution_error(
                     f"⚠️ ENTRY UNCONFIRMED: {side} {symbol}",
                     reason=reason,
                     oid=oid,
@@ -1041,7 +1093,7 @@ class BotContext:
 
         except Exception as e:
             self.add_log(f"❌ ATOMIC ENTRY ERROR: {e}")
-            self._discord_execution_error(
+            self._log_execution_error(
                 f"❌ ENTRY CRASH: {side} {symbol}",
                 reason=str(e),
                 equity=equity,
@@ -2100,7 +2152,7 @@ class BotContext:
                                 equity = 0.0
                                 err_msg = acc.get("message", "unknown error")
                                 self.add_log(f"⚠️ Balance API unavailable: {err_msg}")
-                                self._discord_execution_error(
+                                self._log_execution_error(
                                     f"⚠️ BALANCE API ERROR: {self.active_symbol}",
                                     reason=err_msg,
                                     symbol=self.active_symbol,
@@ -2112,7 +2164,7 @@ class BotContext:
                                 self.add_log(
                                     f"⚠️ Using cached account value ${equity:.2f} (live balance was $0)"
                                 )
-                                self._discord_execution_error(
+                                self._log_execution_error(
                                     f"⚠️ EQUITY FALLBACK: {self.active_symbol}",
                                     reason="Live balance API returned $0; using cached account_value",
                                     equity=equity,
@@ -2121,7 +2173,7 @@ class BotContext:
                                     strategy=sig.get("strategy"),
                                 )
                             elif acc.get("status") == "success" and equity <= 0:
-                                self._discord_execution_error(
+                                self._log_execution_error(
                                     f"⚠️ ZERO EQUITY: {self.active_symbol}",
                                     reason="Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS and wallet funding",
                                     symbol=self.active_symbol,
@@ -2217,7 +2269,7 @@ class BotContext:
                                     f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
-                                self._discord_execution_error(
+                                self._log_execution_error(
                                     f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
                                     reason=reason,
                                     equity=equity,
@@ -2285,7 +2337,7 @@ class BotContext:
                                     }
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
-                                self._discord_execution_error(
+                                self._log_execution_error(
                                     f"⛔ ENTRY BLOCKED: {sig.get('signal')} {self.active_symbol}",
                                     reason="trading_enabled=False (observation mode)",
                                     strategy=sig.get("strategy"),
@@ -2308,7 +2360,7 @@ class BotContext:
                 tb = traceback.format_exc()
                 self.add_log(f"❌ Error in trading loop: {e}")
                 self.add_log(f"🔍 Traceback: {tb}")
-                self._discord_execution_error(
+                self._log_execution_error(
                     "❌ TRADING LOOP ERROR",
                     reason=str(e),
                     symbol=self.active_symbol,
@@ -2501,8 +2553,23 @@ class BotContext:
         except Exception as e:
             self.add_log(f"❌ Critical Adoption Error: {e}")
 
+    def _on_hyperliquid_log(self, message: str, level: str = "INFO") -> None:
+        """Route Hyperliquid service logs into bot logs (+ Discord for warnings/errors)."""
+        text = (message or "").strip()
+        if not text:
+            return
+        if level in ("ERROR", "CRITICAL") and "❌" not in text:
+            text = f"❌ {text}"
+        elif level == "WARNING" and "⚠️" not in text:
+            text = f"⚠️ {text}"
+        self.add_log(text, metadata={"source": "hyperliquid"})
+
     def start(self):
         """Start the bot"""
+        try:
+            hyperliquid_service.set_log_callback(self._on_hyperliquid_log)
+        except Exception as e:
+            logger.warning("Failed to wire Hyperliquid log callback: %s", e)
         self.add_log(f"🔧 start() called. Current is_running={self.is_running}")
         thread_alive = self.thread and self.thread.is_alive()
         

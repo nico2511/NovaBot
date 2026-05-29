@@ -53,6 +53,13 @@ def _setup_logging(root_dir: str) -> None:
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
 
+    try:
+        from app.utils.discord_log_handler import install_discord_alert_handler
+
+        install_discord_alert_handler(level=logging.WARNING)
+    except Exception as e:
+        print(f"⚠️ Discord log handler not installed: {e}")
+
 
 def main() -> None:
     _setup_stdio_encoding()

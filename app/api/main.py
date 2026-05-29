@@ -8,7 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 # Setup paths
@@ -36,6 +36,13 @@ async def lifespan(app: FastAPI):
     """
     # --- STARTUP ---
     logger.info("🚀 API Startup: Initializing services...")
+
+    try:
+        from app.utils.discord_log_handler import install_discord_alert_handler
+        install_discord_alert_handler(level=logging.WARNING)
+        logger.info("✅ Discord alert handler attached (WARNING+)")
+    except Exception as e:
+        logger.warning("⚠️ Discord alert handler not installed: %s", e)
     
     # 1. Initialize Storage Service
     try:
@@ -174,6 +181,23 @@ app.include_router(history.router)
 app.include_router(history.logs_router)  # Logs at /api/logs
 
 logger.info("✅ Routers registered: engine, trading, market, settings, history, logs")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Report unhandled API errors to logs + Discord."""
+    logger.exception("Unhandled API error on %s %s", request.method, request.url.path)
+    try:
+        from app.services.discord_service import discord_service
+        discord_service.notify(
+            "ERROR",
+            "API",
+            f"{request.method} {request.url.path}\n\n{type(exc).__name__}: {exc}",
+            source="api",
+        )
+    except Exception:
+        pass
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 # ---------------------------------------------------------------------------

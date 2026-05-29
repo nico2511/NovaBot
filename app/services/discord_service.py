@@ -2,6 +2,16 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
 from app.core.config import config
 import threading
 
+from app.utils.discord_dedup import dedup_key, should_send_discord_alert
+
+_LEVEL_COLORS = {
+    "CRITICAL": "FF0000",
+    "ERROR": "FF0000",
+    "WARNING": "FFA500",
+    "WARN": "FFA500",
+}
+
+
 class DiscordService:
     def __init__(self):
         self.alert_url = config.DISCORD_WEBHOOK_ALERTS
@@ -28,8 +38,25 @@ class DiscordService:
         embed.set_timestamp()
         self._send(self.alert_url, embed=embed)
 
+    def notify(self, level: str, title: str, body: str, source: str = "app") -> bool:
+        """
+        Send a warning/error notification to Discord alerts webhook.
+        Returns True if sent, False if skipped (dedup or no webhook).
+        """
+        if not self.alert_url or not body:
+            return False
+        level_upper = (level or "ERROR").upper()
+        key = dedup_key(source, f"{level_upper}:{title}", body)
+        if not should_send_discord_alert(key):
+            return False
+        color = _LEVEL_COLORS.get(level_upper, "FFA500")
+        prefix = {"ERROR": "❌", "CRITICAL": "🔥", "WARNING": "⚠️", "WARN": "⚠️"}.get(level_upper, "⚠️")
+        embed_title = f"{prefix} [{level_upper}] {title}"
+        self.send_alert(embed_title, body[:1900], color=color)
+        return True
+
     def send_execution_error(self, title: str, **fields):
-        """Push a structured execution failure alert to the alerts webhook."""
+        """Structured trade/execution failure (alerts webhook)."""
         lines = []
         for key, value in fields.items():
             if value is None or value == "":
@@ -37,7 +64,7 @@ class DiscordService:
             label = key.replace("_", " ").title()
             lines.append(f"**{label}:** {value}")
         description = "\n".join(lines) if lines else "No details provided."
-        self.send_alert(title, description, color="FF0000")
+        self.notify("ERROR", title, description, source="execution")
 
     def send_log(self, message: str):
         self._send(self.log_url, content=f"`[LOG]` {message}")
