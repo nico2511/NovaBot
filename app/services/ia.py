@@ -71,21 +71,105 @@ class IAService:
     def extract_json(text: str) -> str:
         """
         Robustly extract JSON from text, handling markdown code blocks.
+        Uses brace matching so nested objects are not truncated.
         """
+        if not text:
+            return ""
         try:
-            # Try to find ```json ... ``` block
-            match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-            if match:
-                return match.group(1)
-            
-            # Try to find outer braces { ... }
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
-            if match:
-                return match.group(1)
-            
-            return text.strip()
+            stripped = text.strip()
+            fence = re.search(r"```(?:json)?\s*", stripped, re.IGNORECASE)
+            if fence:
+                start = fence.end()
+                end = stripped.find("```", start)
+                if end != -1:
+                    stripped = stripped[start:end].strip()
+
+            start = stripped.find("{")
+            if start == -1:
+                return stripped
+
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(start, len(stripped)):
+                ch = stripped[i]
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_string = False
+                elif ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return stripped[start : i + 1]
+
+            match = re.search(r"(\{.*\})", stripped, re.DOTALL)
+            return match.group(1) if match else stripped
         except Exception:
             return text.strip()
+
+    @staticmethod
+    def repair_json(text: str) -> str:
+        """
+        Fix common LLM JSON mistakes (template placeholders, trailing commas, etc.).
+        """
+        if not text:
+            return text
+
+        repaired = text
+        repaired = re.sub(r"//.*?$", "", repaired, flags=re.MULTILINE)
+        repaired = re.sub(r"/\*.*?\*/", "", repaired, flags=re.DOTALL)
+        repaired = re.sub(r"\btrue\s*\|\s*false\b", "false", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(
+            r'"confidence"\s*:\s*<[^>]*>',
+            '"confidence": 50',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r'"risk_score"\s*:\s*<[^>]*>',
+            '"risk_score": 5',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(r":\s*<price or null>", ": null", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(
+            r'"rejection_reason_category"\s*:\s*"See System Prompt ENUM"\s*\|\s*null',
+            '"rejection_reason_category": null',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(r":\s*<[^>]+>", ": null", repaired)
+        repaired = re.sub(r":\s*boolean\b", ": false", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r":\s*integer\b", ": 0", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r":\s*number\b", ": 0", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r":\s*string\b", ': ""', repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r":\s*array<string>", ": []", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(r",\s*}", "}", repaired)
+        repaired = re.sub(r",\s*]", "]", repaired)
+        return repaired
+
+    def parse_json_response(self, text: str) -> Dict[str, Any]:
+        """Extract, repair if needed, and parse JSON from an LLM response."""
+        extracted = self.extract_json(text)
+        if not extracted:
+            raise json.JSONDecodeError("Empty JSON payload", text or "", 0)
+
+        try:
+            parsed = json.loads(extracted)
+        except json.JSONDecodeError:
+            repaired = self.repair_json(extracted)
+            parsed = json.loads(repaired)
+
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
+        return parsed
     
     def _clean_cache(self) -> None:
         """
@@ -149,9 +233,7 @@ class IAService:
                 "rejection_reason_category": "AI_PARSE_ERROR",
             }
         try:
-            parsed = json.loads(self.extract_json(raw))
-            if not isinstance(parsed, dict):
-                raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
+            parsed = self.parse_json_response(raw)
             if parsed.get("error"):
                 return {
                     **result,
@@ -358,18 +440,18 @@ Approve the signal ONLY if:
 Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, bad R:R, etc.)
 
 === REQUIRED OUTPUT ===
-Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
+Respond ONLY with valid JSON (no markdown, no placeholders, no comments). The 'reasoning' field must be in ENGLISH:
 {{
-  "approved": true|false,
-  "confidence": <0-100>,
-  "risk_score": <1-10>,
+  "approved": false,
+  "confidence": 72,
+  "risk_score": 4,
   "reasoning": "brief 2-3 sentence explanation in ENGLISH",
   "decisive_factors": ["factor 1", "factor 2"],
-  "rejection_reason_category": "See System Prompt ENUM" | null,
-  "risk_level": "LOW|MEDIUM|HIGH",
+  "rejection_reason_category": null,
+  "risk_level": "MEDIUM",
   "suggested_adjustments": {{
-    "sl": <price or null>,
-    "tp": <price or null>
+    "sl": null,
+    "tp": null
   }}
 }}
 """
@@ -534,9 +616,9 @@ Respond ONLY with valid JSON. The 'reasoning' field must be in ENGLISH:
   "risk_level": "LOW|MEDIUM|HIGH|CRITICAL",
   "recommendation": "HOLD|TIGHTEN_SL|MOVE_TO_BREAKEVEN|TAKE_PROFIT|CLOSE_NOW",
   "reasoning": "2-3 sentence explanation in ENGLISH",
-  "suggested_sl": <price or null>,
-  "suggested_tp": <price or null>,
-  "confidence": <0-100>
+  "suggested_sl": null,
+  "suggested_tp": null,
+  "confidence": 75
 }}
 """
         result = self._call_ai_generic(prompt)
