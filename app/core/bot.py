@@ -2047,102 +2047,104 @@ class BotContext:
                             except Exception as e:
                                 self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
                         
-                        try:
-                            import json
-                            if val_res and val_res.get("raw_output"):
-                                ai_data = json.loads(ia_service.extract_json(val_res["raw_output"]))
-                                approved = ai_data.get("approved", False)
-                                confidence = ai_data.get("confidence", 0)
-                                risk_level_raw = ai_data.get("risk_level")
-                                risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
-                                
-                                if approved:
-                                    # HYBRID CONFIDENCE THRESHOLD CHECK
-                                    required_conf = config.AI_CONF_THRESHOLD_MEDIUM  # Default
-                                    if risk_level == "HIGH":
-                                        required_conf = config.AI_CONF_THRESHOLD_HIGH
-                                    elif risk_level == "LOW":
-                                        required_conf = config.AI_CONF_THRESHOLD_LOW
-                                    
-                                    if confidence >= required_conf:
-                                        reason = ai_data.get('reasoning', 'No reason')
-                                        self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
-                                        self._record_signal_analysis(sig, ai_data, True, indicators=technical_context)
-                                        
-                                        # Discord Notification for AI Approval
-                                        discord_service.send_alert(
-                                            f"✅ AI APPROVED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
-                                            f"Strategy: {sig.get('strategy')}\nConfidence: {confidence}%\nRisk: {risk_level}\n\n{reason}",
-                                            color="00FF00"
-                                        )
-                                        
-                                        if ai_data.get("suggested_adjustments"):
-                                            adj = ai_data["suggested_adjustments"]
-                                            
-                                            # Robust parsing for AI suggestions (handle "$0.50" strings)
-                                            if adj.get("sl"): 
-                                                try:
-                                                    val = adj["sl"]
-                                                    if isinstance(val, str):
-                                                        val = float(val.replace('$', '').replace(',', '').strip())
-                                                    sig["sl"] = float(val)
-                                                except Exception as e:
-                                                    self.add_log(f"⚠️ Failed to parse AI SL adjustment: {adj['sl']} ({e})")
-                                                    
-                                            if adj.get("tp"): 
-                                                try:
-                                                    val = adj["tp"]
-                                                    if isinstance(val, str):
-                                                        val = float(val.replace('$', '').replace(',', '').strip())
-                                                    sig["tp"] = float(val)
-                                                except Exception as e:
-                                                    self.add_log(f"⚠️ Failed to parse AI TP adjustment: {adj['tp']} ({e})")
-                                    else:
-                                        self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
-                                        self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
-                                        try:
-                                            reason = ai_data.get('reasoning', 'No reason')
-                                            discord_service.send_alert(
-                                                f"⚠️ AI REFUSED (Low confidence) (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
-                                                f"Strategy: {sig.get('strategy')}\n"
-                                                f"Confidence: {confidence}% (required: {required_conf}% for {risk_level})\n"
-                                                f"Risk: {risk_level}\n\n"
-                                                f"{reason}",
-                                                color="FFD166"
-                                            )
-                                        except Exception as discord_err:
-                                            self.add_log(f"⚠️ Discord notification failed (AI low confidence): {discord_err}")
-                                        approved = False
-                                else:
-                                    reason = ai_data.get('reasoning', 'No reason')
-                                    self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
-                                    self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
-                                    try:
-                                        discord_service.send_alert(
-                                            f"❌ AI REJECTED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
-                                            f"Strategy: {sig.get('strategy')}\n"
-                                            f"Confidence: {confidence}%\n"
-                                            f"Risk: {risk_level}\n\n"
-                                            f"{reason}",
-                                            color="FF0000"
-                                        )
-                                    except Exception as discord_err:
-                                        self.add_log(f"⚠️ Discord notification failed (AI rejected): {discord_err}")
-                            else:
-                                approved = True
-                        except Exception as ai_err:
-                            self.add_log(f"⚠️ AI Validation JSON Error: {ai_err}. Defaulting to REJECT.")
+                        if not val_res:
+                            approved = False
+                            self.add_log("⚠️ AI Validation: empty response. Defaulting to REJECT.")
+                        elif val_res.get("rejection_reason_category") == "AI_PARSE_ERROR":
+                            approved = False
+                            parse_reason = val_res.get("reasoning", "Invalid AI JSON")
+                            self.add_log(f"⚠️ AI Validation JSON Error: {parse_reason}. Defaulting to REJECT.")
                             try:
                                 discord_service.send_alert(
                                     f"⚠️ AI ERROR (JSON parse): {sig.get('signal')} {sig.get('symbol')}",
                                     f"Strategy: {sig.get('strategy')}\n"
-                                    f"Error: {ai_err}\n\n"
+                                    f"Error: {parse_reason}\n\n"
                                     f"Signal was defaulted to REJECT for safety.",
                                     color="FF9900"
                                 )
                             except Exception as discord_err:
                                 self.add_log(f"⚠️ Discord notification failed (AI JSON error): {discord_err}")
-                            approved = False
+                        elif val_res.get("raw_output") or "approved" in val_res:
+                            ai_data = val_res
+                            approved = ai_data.get("approved", False)
+                            confidence = ai_data.get("confidence", 0)
+                            risk_level_raw = ai_data.get("risk_level")
+                            risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
+                            
+                            if approved:
+                                # HYBRID CONFIDENCE THRESHOLD CHECK
+                                required_conf = config.AI_CONF_THRESHOLD_MEDIUM  # Default
+                                if risk_level == "HIGH":
+                                    required_conf = config.AI_CONF_THRESHOLD_HIGH
+                                elif risk_level == "LOW":
+                                    required_conf = config.AI_CONF_THRESHOLD_LOW
+                                
+                                if confidence >= required_conf:
+                                    reason = ai_data.get('reasoning', 'No reason')
+                                    self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
+                                    self._record_signal_analysis(sig, ai_data, True, indicators=technical_context)
+                                    
+                                    # Discord Notification for AI Approval
+                                    discord_service.send_alert(
+                                        f"✅ AI APPROVED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
+                                        f"Strategy: {sig.get('strategy')}\nConfidence: {confidence}%\nRisk: {risk_level}\n\n{reason}",
+                                        color="00FF00"
+                                    )
+                                    
+                                    if ai_data.get("suggested_adjustments"):
+                                        adj = ai_data["suggested_adjustments"]
+                                        
+                                        # Robust parsing for AI suggestions (handle "$0.50" strings)
+                                        if adj.get("sl"): 
+                                            try:
+                                                val = adj["sl"]
+                                                if isinstance(val, str):
+                                                    val = float(val.replace('$', '').replace(',', '').strip())
+                                                sig["sl"] = float(val)
+                                            except Exception as e:
+                                                self.add_log(f"⚠️ Failed to parse AI SL adjustment: {adj['sl']} ({e})")
+                                                
+                                        if adj.get("tp"): 
+                                            try:
+                                                val = adj["tp"]
+                                                if isinstance(val, str):
+                                                    val = float(val.replace('$', '').replace(',', '').strip())
+                                                sig["tp"] = float(val)
+                                            except Exception as e:
+                                                self.add_log(f"⚠️ Failed to parse AI TP adjustment: {adj['tp']} ({e})")
+                                else:
+                                    self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
+                                    self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                    try:
+                                        reason = ai_data.get('reasoning', 'No reason')
+                                        discord_service.send_alert(
+                                            f"⚠️ AI REFUSED (Low confidence) (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
+                                            f"Strategy: {sig.get('strategy')}\n"
+                                            f"Confidence: {confidence}% (required: {required_conf}% for {risk_level})\n"
+                                            f"Risk: {risk_level}\n\n"
+                                            f"{reason}",
+                                            color="FFD166"
+                                        )
+                                    except Exception as discord_err:
+                                        self.add_log(f"⚠️ Discord notification failed (AI low confidence): {discord_err}")
+                                    approved = False
+                            else:
+                                reason = ai_data.get('reasoning', 'No reason')
+                                self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
+                                self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                try:
+                                    discord_service.send_alert(
+                                        f"❌ AI REJECTED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
+                                        f"Strategy: {sig.get('strategy')}\n"
+                                        f"Confidence: {confidence}%\n"
+                                        f"Risk: {risk_level}\n\n"
+                                        f"{reason}",
+                                        color="FF0000"
+                                    )
+                                except Exception as discord_err:
+                                    self.add_log(f"⚠️ Discord notification failed (AI rejected): {discord_err}")
+                        else:
+                            approved = True
                             
                         if approved:
                             acc = hyperliquid_service.get_account_balance(force_refresh=True)
