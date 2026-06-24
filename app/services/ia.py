@@ -10,7 +10,7 @@ import logging
 import re
 
 from app.core.config import config
-from app.core.prompts import get_system_prompt
+from app.core.prompts import get_system_prompt, SIGNAL_VALIDATION_JSON_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +151,91 @@ class IAService:
         repaired = re.sub(r":\s*number\b", ": 0", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r":\s*string\b", ': ""', repaired, flags=re.IGNORECASE)
         repaired = re.sub(r":\s*array<string>", ": []", repaired, flags=re.IGNORECASE)
+        repaired = re.sub(
+            r'"confidence"\s*:\s*0\s*-\s*100\b',
+            '"confidence": 50',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r'"confidence"\s*:\s*(\d+(?:\.\d+)?)\s*%',
+            r'"confidence": \1',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r':\s*(?:number|string)\s*\|\s*null',
+            ": null",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r':\s*\d+(?:\.\d+)?\s*\|\s*null',
+            ": null",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r'"risk_level"\s*:\s*([A-Z][A-Z_]*(?:\|[A-Z][A-Z_]*)+)',
+            '"risk_level": "MEDIUM"',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r'"rejection_reason_category"\s*:\s*([A-Z][A-Z_]*(?:\|[A-Z][A-Z_]*)+)',
+            '"rejection_reason_category": null',
+            repaired,
+            flags=re.IGNORECASE,
+        )
+        repaired = re.sub(
+            r'"risk_level"\s*:\s*([A-Z]+)\b(?!\s*[\|,"])',
+            r'"risk_level": "\1"',
+            repaired,
+            flags=re.IGNORECASE,
+        )
         repaired = re.sub(r",\s*}", "}", repaired)
         repaired = re.sub(r",\s*]", "]", repaired)
         return repaired
+
+    @staticmethod
+    def _fallback_extract_validation_fields(text: str) -> Optional[Dict[str, Any]]:
+        """Best-effort regex recovery when JSON is still invalid after repair."""
+        if not text:
+            return None
+
+        approved_match = re.search(r'"approved"\s*:\s*(true|false)', text, re.IGNORECASE)
+        confidence_match = re.search(r'"confidence"\s*:\s*(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+        reasoning_match = re.search(r'"reasoning"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.IGNORECASE | re.DOTALL)
+        risk_level_match = re.search(
+            r'"risk_level"\s*:\s*(?:"([^"]+)"|([A-Z]+))',
+            text,
+            re.IGNORECASE,
+        )
+
+        if not approved_match and not confidence_match:
+            return None
+
+        risk_level = "MEDIUM"
+        if risk_level_match:
+            risk_level = (risk_level_match.group(1) or risk_level_match.group(2) or "MEDIUM").upper()
+            if "|" in risk_level:
+                risk_level = "MEDIUM"
+
+        return {
+            "approved": approved_match.group(1).lower() == "true" if approved_match else False,
+            "confidence": int(float(confidence_match.group(1))) if confidence_match else 0,
+            "reasoning": (
+                reasoning_match.group(1).replace('\\"', '"')
+                if reasoning_match
+                else "Recovered from partial AI JSON response"
+            ),
+            "risk_level": risk_level,
+            "risk_score": 5,
+            "decisive_factors": [],
+            "rejection_reason_category": None,
+            "suggested_adjustments": {"sl": None, "tp": None},
+            "_recovered_from_partial_json": True,
+        }
 
     def parse_json_response(self, text: str) -> Dict[str, Any]:
         """Extract, repair if needed, and parse JSON from an LLM response."""
@@ -161,15 +243,32 @@ class IAService:
         if not extracted:
             raise json.JSONDecodeError("Empty JSON payload", text or "", 0)
 
-        try:
-            parsed = json.loads(extracted)
-        except json.JSONDecodeError:
-            repaired = self.repair_json(extracted)
-            parsed = json.loads(repaired)
+        candidates = [extracted]
+        repaired = self.repair_json(extracted)
+        if repaired != extracted:
+            candidates.append(repaired)
 
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
-        return parsed
+        last_error: Optional[json.JSONDecodeError] = None
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+                if not isinstance(parsed, dict):
+                    raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
+                return parsed
+            except json.JSONDecodeError as exc:
+                last_error = exc
+
+        fallback = self._fallback_extract_validation_fields(extracted)
+        if fallback:
+            logger.warning(
+                "AI validation JSON recovered via regex fallback | snippet=%s",
+                str(extracted)[:400],
+            )
+            return fallback
+
+        if last_error is not None:
+            raise last_error
+        raise json.JSONDecodeError("Invalid JSON payload", extracted, 0)
     
     def _clean_cache(self) -> None:
         """
@@ -209,13 +308,22 @@ class IAService:
             # Add user prompt
             messages.append({"role": "user", "content": prompt})
             
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages
-            )
-            raw_content = completion.choices[0].message.content
-            clean_text = self.extract_json(raw_content)
-            return {"raw_output": clean_text, "model": f"openrouter:{self.model}"}
+            request_kwargs: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "response_format": {"type": "json_object"},
+            }
+            try:
+                completion = self.client.chat.completions.create(**request_kwargs)
+            except Exception as format_err:
+                if "response_format" in str(format_err).lower() or "json" in str(format_err).lower():
+                    logger.warning("Model rejected JSON response_format, retrying without it: %s", format_err)
+                    request_kwargs.pop("response_format", None)
+                    completion = self.client.chat.completions.create(**request_kwargs)
+                else:
+                    raise
+            raw_content = completion.choices[0].message.content or ""
+            return {"raw_output": raw_content.strip(), "model": f"openrouter:{self.model}"}
         except Exception as e:
             raise Exception(f"OpenRouter failed: {e}")
     
@@ -456,9 +564,11 @@ Respond ONLY with valid JSON (no markdown, no placeholders, no comments). The 'r
 }}
 """
         if strategy_persona:
-            # Use Strategy Persona directly as System Prompt (Override)
-            # We append the "Output JSON" instruction to ensure format compliance
-            system_prompt_override = strategy_persona + "\n\nIMPORTANT: REPOND TOUJOURS EN JSON VALIDE."
+            system_prompt_override = (
+                strategy_persona
+                + "\n\nIMPORTANT: RESPOND ONLY WITH VALID JSON.\n"
+                + SIGNAL_VALIDATION_JSON_SCHEMA
+            )
             result = self._call_openrouter_api(prompt, system_prompt=system_prompt_override)
         else:
             # Fallback to Generic Bot Persona

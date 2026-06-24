@@ -35,20 +35,23 @@ Technical Framework:
 === RISK PROFILE GUIDELINES ===
 {risk_profile_section}
 
-Output Format – STRICT JSON:
+Output Format – STRICT JSON (use real values, never type names or placeholders):
 {{
-  "approved": boolean,
-  "confidence": integer,              // 0–100. >= {min_confidence_threshold} to approve.
-  "reasoning": string,                // concise, data-backed, in ENGLISH
-  "decisive_factors": array<string>,  // ex: ["ADX 24 rising", "RSI bullish divergence", "Volume 1.2x avg"]
-  "risk_score": integer,              // 1–10 (1=safe, 10=yolo)
+  "approved": false,
+  "confidence": 72,
+  "reasoning": "concise data-backed explanation in ENGLISH",
+  "decisive_factors": ["ADX 24 rising", "RSI bullish divergence", "Volume 1.2x avg"],
+  "risk_score": 4,
   "suggested_adjustments": {{
-    "sl": number | null,
-    "tp": number | null,
-    "note": string | null
+    "sl": null,
+    "tp": null,
+    "note": null
   }},
-  "rejection_reason_category": string | null   // Enum: ["LOW_CONFIDENCE", "BAD_RR", "OVEREXTENDED", "NO_CONFLUENCE", "COUNTER_TREND", "HIGH_RISK", "WEAK_VOLUME", "OTHER"]
+  "rejection_reason_category": null,
+  "risk_level": "MEDIUM"
 }}
+Confidence must be >= {min_confidence_threshold} to approve.
+rejection_reason_category when rejecting: one of LOW_CONFIDENCE, BAD_RR, OVEREXTENDED, NO_CONFLUENCE, COUNTER_TREND, HIGH_RISK, WEAK_VOLUME, OTHER.
 
 Remember: We need execution. If the R:R is good and momentum exists, take the trade.
 """
@@ -120,6 +123,25 @@ RISK_PARAMS_MAP = {
     "Balanced Growth": {"min_rr": 1.3, "max_sl": 0.06, "min_conf": 58},
     "High Volatility Hunter": {"min_rr": 1.0, "max_sl": 0.12, "min_conf": 48}
 }
+
+SIGNAL_VALIDATION_JSON_SCHEMA = """
+Respond ONLY with valid JSON (no markdown, no placeholders, no type names like integer/boolean).
+Example:
+{
+  "approved": false,
+  "confidence": 72,
+  "risk_score": 4,
+  "reasoning": "brief 2-3 sentence explanation in ENGLISH",
+  "decisive_factors": ["factor 1", "factor 2"],
+  "rejection_reason_category": null,
+  "risk_level": "MEDIUM",
+  "suggested_adjustments": {
+    "sl": null,
+    "tp": null
+  }
+}
+"""
+
 
 def get_system_prompt(persona: str, risk_profile: str, timeframe: str) -> str:
     """

@@ -2053,12 +2053,14 @@ class BotContext:
                         elif val_res.get("rejection_reason_category") == "AI_PARSE_ERROR":
                             approved = False
                             parse_reason = val_res.get("reasoning", "Invalid AI JSON")
+                            raw_snippet = str(val_res.get("raw_output") or "")[:500]
                             self.add_log(f"⚠️ AI Validation JSON Error: {parse_reason}. Defaulting to REJECT.")
                             try:
                                 discord_service.send_alert(
                                     f"⚠️ AI ERROR (JSON parse): {sig.get('signal')} {sig.get('symbol')}",
                                     f"Strategy: {sig.get('strategy')}\n"
-                                    f"Error: {parse_reason}\n\n"
+                                    f"Error: {parse_reason}\n"
+                                    f"Raw AI snippet: `{raw_snippet}`\n\n"
                                     f"Signal was defaulted to REJECT for safety.",
                                     color="FF9900"
                                 )

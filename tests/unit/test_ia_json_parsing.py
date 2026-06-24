@@ -85,6 +85,31 @@ def test_parse_validation_payload_handles_malformed_llm_output(ia):
     assert "Counter-trend risk" in out["reasoning"]
 
 
+def test_parse_json_response_repairs_unquoted_risk_level_enum(ia):
+    broken = """{
+  "approved": false,
+  "risk_level": LOW|MEDIUM|HIGH,
+  "confidence": 68,
+  "reasoning": "Weak momentum"
+}"""
+    parsed = ia.parse_json_response(broken)
+    assert parsed["risk_level"] == "MEDIUM"
+    assert parsed["confidence"] == 68
+
+
+def test_parse_json_response_recovers_partial_json_via_fallback(ia):
+    broken = """{
+  "approved": true,
+  "confidence": 81,
+  "reasoning": "Breakout confirmed",
+  "risk_level": LOW|MEDIUM|HIGH,
+  "suggested_adjustments": {"sl": number | null}
+}"""
+    parsed = ia.parse_json_response(broken)
+    assert parsed["approved"] is True
+    assert parsed["confidence"] == 81
+
+
 def test_parse_validation_payload_marks_unrecoverable_as_parse_error(ia):
     result = {"raw_output": "not json at all", "model": "test-model"}
     out = ia._parse_validation_payload(result)
