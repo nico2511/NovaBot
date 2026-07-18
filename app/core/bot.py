@@ -1303,6 +1303,8 @@ class BotContext:
         tid = trade.get("trade_id") if isinstance(trade, dict) else None
         sl_price = float(trade.get("sl") or 0)
         entry_price = float(trade.get("entry") or 0)
+        tp_price = float(trade.get("tp") or 0)
+        symbol = trade.get("symbol", self.active_symbol)
 
         self.add_log(
             f"🛡️ {decision.reason}: Progress {decision.progress_pct:.1f}% / PnL {decision.pnl_pct:.2f}%. "
@@ -1315,9 +1317,20 @@ class BotContext:
                 t_ref["sl"] = decision.new_sl
                 StateManager.save_state(self)
 
+        threshold_hint = {
+            "Smart BE": "threshold 60% (or PnL > 1.2% on LONG)",
+            "Trailing 65%": "threshold 65%",
+            "Aggressive Lock 75%": "threshold 75%",
+        }.get(decision.reason, decision.reason)
+
         discord_service.send_alert(
-            f"🛡️ {decision.reason.upper()} TRIGGERED: {trade.get('symbol', self.active_symbol)}",
-            f"New SL: {decision.new_sl:.2f}\nCurrent Price: {current_price:.2f}\nEntry: {entry_price:.2f}",
+            f"🛡️ TRAILING — {decision.reason} ({threshold_hint}): {symbol}",
+            (
+                f"Progress toward TP: {decision.progress_pct:.1f}%\n"
+                f"Unrealized PnL: {decision.pnl_pct:+.2f}%\n"
+                f"Entry: {entry_price:.2f} | Price: {current_price:.2f} | TP: {tp_price:.2f}\n"
+                f"SL: {sl_price:.2f} → {decision.new_sl:.2f}"
+            ),
             color="FFA500",  # Orange
         )
         return True

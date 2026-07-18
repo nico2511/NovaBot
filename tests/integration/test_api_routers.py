@@ -10,11 +10,13 @@ def test_api_root(test_client):
     assert response.json()["version"] == "2.0"
 
 def test_health_check(test_client):
+    """Without a connected bot bridge, /health must report unhealthy (HTTP 503)."""
     response = test_client.get("/health")
-    assert response.status_code == 200
+    assert response.status_code == 503
     data = response.json()
-    assert data["status"] == "healthy"
-    assert "bot_connected" in data
+    assert data["status"] == "unhealthy"
+    assert data["bot_connected"] is False
+    assert data["reason"] == "bot_not_connected"
 
 def test_settings_global_defaults(test_client):
     """

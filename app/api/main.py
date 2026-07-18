@@ -364,8 +364,12 @@ def root(request: Request):
 
 # Health check endpoint
 # Used by Docker HEALTHCHECK and Coolify to decide whether to restart the
-# container. Returns HTTP 200 when the API is up; the JSON body tells the
-# operator whether the trading engine is actually doing its job.
+# container. HTTP 503 when the trading engine is missing or frozen so the
+# orchestrator can recycle the container; HTTP 200 otherwise (including
+# intentional engine stop → status "degraded").
+_HEARTBEAT_STALE_SEC = 120
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint for monitoring / Docker HEALTHCHECK."""
@@ -409,8 +413,28 @@ def health_check():
     except Exception as e:
         logger.debug("health_check: failed to probe bot bridge: %s", e)
 
-    return {
-        "status": "healthy",
+    reason = None
+    if not bot_connected:
+        overall = "unhealthy"
+        reason = "bot_not_connected"
+    elif is_running and loop_responsive is False:
+        overall = "unhealthy"
+        reason = "loop_unresponsive"
+    elif (
+        is_running
+        and last_heartbeat_age_sec is not None
+        and last_heartbeat_age_sec >= _HEARTBEAT_STALE_SEC
+    ):
+        overall = "unhealthy"
+        reason = "heartbeat_stale"
+    elif not is_running:
+        overall = "degraded"
+        reason = "engine_stopped"
+    else:
+        overall = "healthy"
+
+    payload = {
+        "status": overall,
         "api_version": "2.0",
         "bot_connected": bot_connected,
         "is_running": is_running,
@@ -418,7 +442,11 @@ def health_check():
         "active_trades": active_trades_count,
         "loop_responsive": loop_responsive,
         "last_heartbeat_age_sec": last_heartbeat_age_sec,
+        "api_auth_enabled": bool(_app_config.API_KEY_REQUIRED),
+        "reason": reason,
     }
+    status_code = 503 if overall == "unhealthy" else 200
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 # Restore missing /api/meta endpoint for Frontend

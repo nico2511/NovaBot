@@ -90,7 +90,7 @@ curl http://localhost:3001/health
 curl -H "X-API-Key: ta_clé" https://ton-domaine.coolify/health
 ```
 
-Réponse attendue :
+Réponse attendue (bot OK) :
 
 ```json
 {
@@ -100,20 +100,25 @@ Réponse attendue :
   "trading_enabled": true,
   "active_trades": 1,
   "loop_responsive": true,
-  "last_heartbeat_age_sec": 12
+  "last_heartbeat_age_sec": 12,
+  "api_auth_enabled": true,
+  "reason": null
 }
 ```
+
+HTTP **200** si `healthy` ou `degraded` (moteur volontairement arrêté). HTTP **503** si `unhealthy` (bot absent ou boucle figée) — c’est ce qui déclenche le restart Docker/Coolify.
 
 Ce qu'il faut regarder :
 
 
 | Champ                    | Valeur saine                      | Si anormal                                                                    |
 | ------------------------ | --------------------------------- | ----------------------------------------------------------------------------- |
+| `status`                 | `healthy`                         | `unhealthy` → 503 + restart ; `degraded` → moteur stoppé volontairement       |
 | `bot_connected`          | `true`                            | L'API tourne mais le bot n'est pas initialisé → regarde les logs au démarrage |
 | `is_running`             | `true`                            | La boucle de trading est arrêtée → `POST /api/engine/start` ou redémarrer     |
 | `trading_enabled`        | `true` ou `false` selon ton choix | `false` = mode observation (pas d'entrées)                                    |
-| `loop_responsive`        | `true`                            | La boucle freeze depuis >2 min → restart recommandé                           |
-| `last_heartbeat_age_sec` | `< 120`                           | La boucle ne tourne plus → restart                                            |
+| `loop_responsive`        | `true`                            | La boucle freeze depuis >2 min → HTTP 503 / restart                           |
+| `last_heartbeat_age_sec` | `< 120`                           | Heartbeat stale → HTTP 503 / restart                                          |
 
 
 ### Logs
@@ -131,9 +136,13 @@ Ce qu'il faut regarder :
 - Vérifie l'onglet Logs au démarrage : il y a forcément une exception avant le crash.
 - Causes fréquentes : `.env` incomplet, `HL_PRIVATE_KEY` invalide, `OPENROUTER_API_KEY` expirée.
 
-### `/health` répond mais `is_running: false`
+### `/health` répond `503` / `unhealthy`
 
-Le thread de trading s'est arrêté. Redémarre via :
+Bot absent ou boucle figée — Coolify devrait redémarrer tout seul après 3 échecs. Si ça boucle, regarde les logs de démarrage.
+
+### `/health` répond `degraded` (`is_running: false`)
+
+Le thread de trading s'est arrêté volontairement ou a été stoppé. Relance via :
 
 ```bash
 curl -X POST -H "X-API-Key: ..." https://.../api/engine/restart

@@ -41,7 +41,7 @@ eth-account==0.13.4
 web3==7.6.0
 
 # Hyperliquid SDK
-hyperliquid-python-sdk
+hyperliquid-python-sdk==0.21.0
 
 # Date/Time
 python-dateutil==2.9.0.post0
