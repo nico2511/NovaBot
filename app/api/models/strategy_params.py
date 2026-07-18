@@ -28,6 +28,7 @@ class _StrictParams(BaseModel):
 class ScalpEmaRsiParams(_StrictParams):
     ema_fast: Optional[int] = Field(None, ge=2, le=200)
     ema_slow: Optional[int] = Field(None, ge=3, le=400)
+    rsi_period: Optional[int] = Field(None, ge=2, le=100)
     adx_threshold: Optional[float] = Field(None, ge=0, le=100)
     min_trend_slope: Optional[float] = Field(None, ge=0, le=5)
     rsi_overbought: Optional[float] = Field(None, ge=50, le=100)
@@ -49,8 +50,6 @@ class ElasticReversionParams(_StrictParams):
     sl_buffer_pct: Optional[float] = Field(None, ge=0, le=0.2)
     min_rr: Optional[float] = Field(None, gt=0, le=10)
     adx_max: Optional[float] = Field(None, ge=0, le=100)
-    bonus_rsi_short: Optional[float] = Field(None, ge=50, le=100)
-    bonus_rsi_long: Optional[float] = Field(None, ge=0, le=50)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
 

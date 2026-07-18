@@ -8,18 +8,17 @@ class StrategyMemeHunter(BaseStrategy):
     """
     MEME HUNTER STRATEGY
     Designed for volatile assets using 15m Momentum.
-    
+
     Trigger:
-    - EMA 20 / EMA 50 Crossover (Golden/Death Cross)
-    
-    Filters:
-    - Trend Filter: Price vs EMA 200
-    - Supple RSI: Allows entries up to RSI 85 (Buy) / 15 (Sell) in strong trends.
-    - Volatility Check: Bollinger Band Width should be expanding.
-    
-    Risk Management:
-    - SL: 2.0x ATR
-    - TP: 1.5x Risk (Ratio 1:1.5) or Trend reversal.
+    - EMA fast/slow crossover (defaults 20/50)
+
+    Filters (tunable via strategies.json):
+    - Trend Filter: Price vs ema_trend (default 200)
+    - RSI: buy below rsi_buy_max / sell above rsi_sell_min
+    - Slope: |EMA slow slope %| >= min_slope
+    - Volatility: Bollinger Band Width expanding (or > 0.02)
+
+    Risk: SL = atr_multiplier * ATR ; TP = min_rr * risk
     """
 
     AI_PERSONA = """

@@ -7,18 +7,20 @@ class ElasticReversionStrategy(BaseStrategy):
     """
     Elastic Mean Reversion Strategy (Long & Short)
     Captures "snap-back" from market extremes (Parabolic/Waterfall).
-    
+
+    Tunable via strategies.json params (defaults shown):
     1. SETUP (15m):
-       - Short: RSI > 80 AND Price > EMA20 + 4%
-       - Long: RSI < 20 AND Price < EMA20 - 4%
-       
+       - Short: RSI > rsi_overbought (70) AND Price > EMA * (1 + extension_pct)
+       - Long:  RSI < rsi_oversold (30) AND Price < EMA * (1 - extension_pct)
+       - Guard: ADX < adx_max (skip runaway trends)
+
     2. TRIGGER:
        - Short: Close < Previous Low
-       - Long: Close > Previous High
-       
+       - Long: Close > Previous High (blocked if bearish RSI divergence)
+
     3. EXIT:
-       - TP: Dynamic EMA20
-       - SL: 5-candle extremum +/- 0.5%
+       - TP: Current EMA
+       - SL: sl_lookback extremum +/- sl_buffer_pct
     """
 
     AI_PERSONA = """
@@ -106,11 +108,11 @@ class ElasticReversionStrategy(BaseStrategy):
             # ==========================================
             
             # Short Setup (Overbought)
-            is_setup_short = (p_rsi > params.get("rsi_overbought", 75)) and \
+            is_setup_short = (p_rsi > params.get("rsi_overbought", 70)) and \
                              (p_close > p_ema * (1 + ext_pct))
-            
+
             # Long Setup (Oversold)
-            is_setup_long = (p_rsi < params.get("rsi_oversold", 25)) and \
+            is_setup_long = (p_rsi < params.get("rsi_oversold", 30)) and \
                             (p_close < p_ema * (1 - ext_pct))
 
             # Logging Setups (Debug / Info)
@@ -126,39 +128,29 @@ class ElasticReversionStrategy(BaseStrategy):
             # --- SHORT TRIGGER ---
             # Condition: Setup ARMED on P AND Close(C) < Low(P)
             if is_setup_short and (c_close < p_low):
-                bonus_rsi = params.get("bonus_rsi_short", 75)
-                confidence = "HIGH" if c_rsi < bonus_rsi else "NORMAL"
-                
-                # SL Calculation: Max High of last 5 candles + Margin
+                # SL Calculation: Max High of last N candles + Margin
                 lookback = params.get("sl_lookback", 5)
                 recent_high = df['high'].iloc[-lookback:].max()
                 sl_buffer_pct = params.get("sl_buffer_pct", 0.005)
                 sl = recent_high * (1 + sl_buffer_pct)
-                
-                # TP Calculation: Current EMA 20
-                tp = c_ema 
-                
+
+                # TP Calculation: Current EMA
+                tp = c_ema
+
                 # Filter: Mean Reversion TP must be below Entry for Short
                 if tp >= c_close:
                     return self._reject(f"EMA TP ({tp:.4f}) >= entrée ({c_close:.4f}) — reversion déjà effectuée")
 
-                # Risk/Reward Check
                 risk = abs(sl - c_close)
                 reward = abs(c_close - tp)
-                
-                if risk == 0: return self._reject("Risque SL=0 — invalide")
-                rr_ratio = reward / risk
-                
-                # RSI Delta Check (momentum filter)
-                rsi_delta = df[rsi_col].iloc[-1] - df[rsi_col].iloc[-2] # Simplified delta
 
-                # Min RR 1.3 (Relaxed from 1.5)
-                # CHANGED 2026-02: 1.5 -> 1.3
-                if rr_ratio >= params.get("min_rr", 1.3):
-                    # Soft Entry: Prefer RSI Delta < 0 for Short (Momentum turning down)
-                    # But since this is Reversion, simply repassing < 75 is the main trigger.
-                    # We can use Delta for commentary.
-                    
+                if risk == 0:
+                    return self._reject("Risque SL=0 — invalide")
+                rr_ratio = reward / risk
+
+                rsi_delta = df[rsi_col].iloc[-1] - df[rsi_col].iloc[-2]
+
+                if rr_ratio >= params.get("min_rr", 1.5):
                     print(f"⚡ Elastic Short Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
                     return {
                         "signal": "SELL",
@@ -173,38 +165,34 @@ class ElasticReversionStrategy(BaseStrategy):
                 # CHECK DIVERGENCE (Flag Bearish Divergence = No Longs)
                 if self.detect_bearish_divergence(df, rsi_col=rsi_col, lookback=10):
                     return self._reject("Divergence baissière détectée — Long annulé")
-                
-                bonus_rsi = params.get("bonus_rsi_long", 25)
-                
-                # SL: Min Low of last 5 candles - Margin
+
                 lookback = params.get("sl_lookback", 5)
                 recent_low = df['low'].iloc[-lookback:].min()
                 sl_buffer_pct = params.get("sl_buffer_pct", 0.005)
                 sl = recent_low * (1 - sl_buffer_pct)
-                
-                # TP: Current EMA 20
+
                 tp = c_ema
-                
+
                 if tp <= c_close:
                     return self._reject(f"EMA TP ({tp:.4f}) <= entrée ({c_close:.4f}) — reversion déjà effectuée")
-                    
+
                 risk = abs(c_close - sl)
                 reward = abs(tp - c_close)
-                
-                if risk == 0: return self._reject("Risque SL=0 — invalide")
+
+                if risk == 0:
+                    return self._reject("Risque SL=0 — invalide")
                 rr_ratio = reward / risk
-                
-                # RSI Delta Check
+
                 rsi_delta = self.get_rsi_delta(df)
-                
+
                 if rr_ratio >= params.get("min_rr", 1.5):
-                     print(f"⚡ Elastic Long Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
-                     return {
-                         "signal": "BUY",
-                         "sl": sl,
-                         "tp": tp,
-                         "comment": f"Elastic Long (RSI {p_rsi:.0f}, Delta {rsi_delta:+.1f})"
-                     }
+                    print(f"⚡ Elastic Long Triggered! RSI: {p_rsi:.1f}, RR: {rr_ratio:.2f}")
+                    return {
+                        "signal": "BUY",
+                        "sl": sl,
+                        "tp": tp,
+                        "comment": f"Elastic Long (RSI {p_rsi:.0f}, Delta {rsi_delta:+.1f})"
+                    }
                     
         except Exception as e:
             print(f"Error in ElasticReversion logic: {e}")

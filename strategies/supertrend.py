@@ -8,17 +8,17 @@ class StrategySupertrend(BaseStrategy):
     Supertrend Strategy with MTF Funnel (15m Context / 1m Trigger)
 
     Setup (15m):
-    - Trend Filter: Price > SMA 200 (Long) or Price < SMA 200 (Short)
+    - Trend Filter: Price > EMA filter (Long) or Price < EMA filter (Short)
     - Supertrend Filter: Supertrend must be BULLISH for Long, BEARISH for Short.
     - ADX Filter: ADX > threshold (Trend presence)
+    - Anti stop-hunt: reject thin volume + neutral RSI
 
     Trigger (1m):
     - Supertrend Flip: Enter when 1m Supertrend flips to match 15m bias.
-    - OR: Pullback to 1m Supertrend line if 15m is strong.
 
     Risk:
     - SL: Fixed at Supertrend line or ATR swing.
-    - TP: Risk-Reward 1.5 - 2.0.
+    - TP: Risk-Reward from min_rr.
     """
 
     AI_PERSONA = """
@@ -120,7 +120,9 @@ class StrategySupertrend(BaseStrategy):
     def add_indicators(self, df, p=None):
         """Add indicators to 15m dataframe"""
         p = p or self._params_snapshot()
-        df['SMA_200'] = ta.sma(df['close'], length=p["ema_filter"])
+        # Param is named ema_filter_period — use EMA (not SMA) so docs/UI match behavior.
+        # Column kept as EMA_200 for display_conditions compatibility.
+        df["EMA_200"] = ta.ema(df["close"], length=p["ema_filter"])
         df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'])['ADX']
         st_data = ta.supertrend(df['high'], df['low'], df['close'], period=p["st_period"], multiplier=p["st_multiplier"])
         df['Supertrend'] = st_data['Supertrend']
@@ -155,7 +157,7 @@ class StrategySupertrend(BaseStrategy):
         # Latest 15m values (completed candle)
         last_15m = df.iloc[-2]
         close_15m = last_15m['close']
-        sma_200_15m = last_15m['SMA_200']
+        ema_filter_15m = last_15m['EMA_200']
         st_dir_15m = last_15m['ST_Direction']
         adx_15m = last_15m['ADX_14']
         rsi_15m = float(last_15m.get("RSI_14", np.nan))
@@ -190,15 +192,17 @@ class StrategySupertrend(BaseStrategy):
             self.looking_for_entry = False
             return self._reject(f"ADX below threshold ({adx_15m:.1f} < {p['adx_threshold']})")
 
-        if close_15m > sma_200_15m and st_dir_15m == 1:
+        if close_15m > ema_filter_15m and st_dir_15m == 1:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
-        elif close_15m < sma_200_15m and st_dir_15m == -1:
+        elif close_15m < ema_filter_15m and st_dir_15m == -1:
             self.entry_direction = "SHORT"
             self.looking_for_entry = True
         else:
             self.looking_for_entry = False
-            return self._reject("15m trend filter not aligned (SMA200/Supertrend)")
+            return self._reject(
+                f"15m trend filter not aligned (EMA{p['ema_filter']}/Supertrend)"
+            )
 
         # --- 1m TRIGGER ---
         if self.looking_for_entry:

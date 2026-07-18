@@ -11,16 +11,19 @@
         "params": {
             "ema_fast": 9,
             "ema_slow": 21,
+            "rsi_period": 14,
             "adx_threshold": 22,
-            "min_trend_slope": 0.005,
+            "min_trend_slope": 0.05,
             "rsi_overbought": 70,
             "rsi_oversold": 30,
             "volume_multiplier": 1.2,
             "sl_atr_mult": 1.5,
-            "min_rr": 1.5
+            "min_rr": 1.5,
+            "allow_longs": true,
+            "allow_shorts": true
         },
-        "display_conditions": ["EMA_9", "EMA_21", "RSI_14"],
-        "version": "2026-02-monthly-v2",
+        "display_conditions": ["EMA_9", "EMA_21", "EMA_200", "RSI_14"],
+        "version": "2026-07-aligned-v1",
         "expected_freq": "High (Scalp)"
     },
     "elastic_reversion": {
@@ -32,16 +35,18 @@
         "params": {
             "ema_period": 20,
             "rsi_period": 14,
-            "extension_pct": 0.04,
-            "rsi_overbought": 76,
-            "rsi_oversold": 24,
+            "extension_pct": 0.035,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
             "sl_lookback": 5,
             "sl_buffer_pct": 0.005,
             "min_rr": 1.5,
-            "adx_max": 60
+            "adx_max": 60,
+            "allow_longs": true,
+            "allow_shorts": true
         },
         "display_conditions": ["EMA_20", "RSI_14"],
-        "version": "2026-04-refacto-v3",
+        "version": "2026-07-aligned-v1",
         "expected_freq": "Medium"
     },
     "supertrend": {
@@ -54,14 +59,19 @@
             "period": 10,
             "multiplier": 3.0,
             "ema_filter_period": 200,
-            "adx_threshold": 12,
+            "adx_threshold": 18,
             "min_rr": 2.0,
             "sl_atr_mult": 1.5,
-            "trigger_flip_lookback": 8,
-            "cooldown_minutes": 0
+            "trigger_flip_lookback": 4,
+            "cooldown_minutes": 15,
+            "min_volume_ratio_pct": 60,
+            "rsi_neutral_low": 46,
+            "rsi_neutral_high": 54,
+            "allow_longs": true,
+            "allow_shorts": true
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
-        "version": "2026-04-v3",
+        "version": "2026-07-aligned-v1",
         "expected_freq": "Medium"
     },
     "meme_hunter": {
@@ -78,13 +88,13 @@
             "rsi_sell_min": 28,
             "atr_multiplier": 2.2,
             "min_rr": 1.5,
-            "min_slope": 0.0007,
+            "min_slope": 0.05,
             "test_mode": false,
             "allow_longs": true,
             "allow_shorts": true
         },
         "display_conditions": ["EMA_20", "EMA_50", "EMA_200", "RSI_14"],
-        "version": "2026-04-alpha",
+        "version": "2026-07-aligned-v1",
         "expected_freq": "Medium (Opportunistic)"
     },
     "meme_breakout_retest": {
@@ -99,9 +109,9 @@
             "atr_period": 14,
             "breakout_lookback": 20,
             "max_breakout_age": 8,
-            "breakout_buffer": 0.0015,
-            "retest_tolerance": 0.003,
-            "volume_multiplier": 1.4,
+            "breakout_buffer": 0.002,
+            "retest_tolerance": 0.002,
+            "volume_multiplier": 1.6,
             "sl_atr_mult": 1.2,
             "min_rr": 1.7,
             "rsi_buy_min": 48,
@@ -112,7 +122,7 @@
             "allow_shorts": true
         },
         "display_conditions": ["EMA_200", "RSI_14", "ATRr_14", "Volume"],
-        "version": "2026-04-beta",
+        "version": "2026-07-aligned-v1",
         "expected_freq": "Low-Medium (Selective)"
     },
     "meme_range_funding_oi": {
@@ -139,13 +149,13 @@
             "rsi_buy_max": 44,
             "sl_atr_mult": 1.4,
             "min_rr": 1.6,
-            "allow_longs": false,
+            "allow_longs": true,
             "allow_shorts": true,
             "execution_type": "manual",
             "requires_confirmation": true
         },
         "display_conditions": ["RangeHigh/Low", "RSI_14", "OI_vs_MA", "Funding"],
-        "version": "2026-04-fartcoin-guards-v1",
+        "version": "2026-07-aligned-v1",
         "expected_freq": "Low (Selective contrarian)"
     }
 }
