@@ -40,8 +40,8 @@ orjson==3.10.12
 eth-account==0.13.4
 web3==7.6.0
 
-# Hyperliquid SDK
-hyperliquid-python-sdk==0.21.0
+# Hyperliquid SDK (0.24+ required: sparse spot token indices break <=0.21 Info init)
+hyperliquid-python-sdk==0.24.0
 
 # Date/Time
 python-dateutil==2.9.0.post0

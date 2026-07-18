@@ -16,6 +16,46 @@ from app.utils.rate_limiter import rate_limiter
 class HyperliquidService:
     # Market order slippage simulation (5%)
     MARKET_SLIPPAGE = 0.05
+
+    @staticmethod
+    def _sanitize_spot_meta(spot_meta: dict) -> dict:
+        """Drop spot pairs whose token indices are missing from the tokens map.
+
+        Hyperliquid spot token indices are sparse (not list positions). Older
+        SDKs crash with IndexError; even fixed SDKs KeyError if an index is
+        absent. Filtering keeps Info/Exchange init resilient.
+        """
+        tokens = spot_meta.get("tokens") or []
+        token_by_index = {
+            int(t["index"]): t for t in tokens if isinstance(t, dict) and "index" in t
+        }
+        universe = []
+        for spot_info in spot_meta.get("universe") or []:
+            pair = spot_info.get("tokens") or []
+            if len(pair) < 2:
+                continue
+            base, quote = int(pair[0]), int(pair[1])
+            if base in token_by_index and quote in token_by_index:
+                universe.append(spot_info)
+        return {"tokens": tokens, "universe": universe}
+
+    def _build_info_client(self) -> Info:
+        """Create Info with a sanitized spot_meta fallback for sparse indices."""
+        try:
+            return Info(base_url=MAINNET_API_URL, skip_ws=True)
+        except (IndexError, KeyError) as e:
+            print(
+                f"⚠️ [HyperliquidService] Info init hit spot meta index issue ({e}). "
+                "Retrying with sanitized spot_meta..."
+            )
+            from hyperliquid.api import API
+
+            raw_spot = API(MAINNET_API_URL).post("/info", {"type": "spotMeta"})
+            clean_spot = self._sanitize_spot_meta(raw_spot)
+            dropped = len(raw_spot.get("universe") or []) - len(clean_spot["universe"])
+            if dropped:
+                print(f"⚠️ [HyperliquidService] Dropped {dropped} malformed spot pairs from meta")
+            return Info(base_url=MAINNET_API_URL, skip_ws=True, spot_meta=clean_spot)
     
     def __init__(self):
         # Initialize Info API (WebSocket will be managed separately)
@@ -25,7 +65,7 @@ class HyperliquidService:
         
         for attempt in range(max_retries):
             try:
-                self.info = Info(base_url=MAINNET_API_URL, skip_ws=True)
+                self.info = self._build_info_client()
                 break
             except Exception as e:
                 # Check for Rate Limit (429)
