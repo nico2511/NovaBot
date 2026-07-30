@@ -194,8 +194,11 @@ def get_all_settings(bot=Depends(get_bot_context_optional)):
                 "conf_threshold_medium": glob_sets.get("ai_thresholds", {}).get("medium"),
                 "conf_threshold_low": glob_sets.get("ai_thresholds", {}).get("low")
             },
-            # Scanner settings are no longer exposed over REST.
-            "scanner": {}
+            "scanner": (
+                getattr(bot, "scanner_settings", None)
+                if bot is not None and getattr(bot, "scanner_settings", None)
+                else storage.storage_service.load_settings().get("scanner", {})
+            ),
         }
     except Exception as e:
         logger.error(f"Error aggregating settings: {e}")
@@ -220,11 +223,17 @@ def update_legacy_settings(
         logger.info(f"📝 Legacy Update: Section={section}")
         
         if section == "scanner":
-            # Scanner is no longer configurable over REST.
-            raise HTTPException(
-                status_code=410,
-                detail="Scanner settings API is deprecated and no longer supported",
-            )
+            full_settings = storage.storage_service.load_settings()
+            current_scanner = full_settings.get("scanner", {}) or {}
+            if bot and getattr(bot, "scanner_settings", None):
+                current_scanner = {**current_scanner, **bot.scanner_settings}
+            merged = {**current_scanner, **(data or {})}
+            full_settings["scanner"] = merged
+            storage.storage_service.save_settings(full_settings)
+            if bot is not None:
+                bot.scanner_settings = merged
+                bot.add_log("🕵️ Scanner settings updated via API")
+            return {"status": "success", "scanner": merged}
             
         elif section in ["risk_defaults", "operations", "ai_config", "notifications"]:
             # These map to GlobalSettings

@@ -1,15 +1,7 @@
 
 from app.services.indicators import ta
 import pandas as pd
-from app.core.config import config
-from app.core.risk_manager import RiskManager
-from strategies.base import BaseStrategy
-from strategies.elastic_reversion import ElasticReversionStrategy
-from strategies.scalp_ema_rsi import ScalpEmaRsi
 from strategies.supertrend import StrategySupertrend
-from strategies.meme_hunter import StrategyMemeHunter
-from strategies.meme_breakout_retest import StrategyMemeBreakoutRetest
-from strategies.meme_range_funding_oi import StrategyMemeRangeFundingOi
 
 # Import robuste pour Panic Close
 try:
@@ -27,22 +19,13 @@ class StrategyEngine:
             self.config = config
         else:
             self.load_config()
-        
-        
-        # Initialize strategies with their specific config
+
+        # Single strategy: SuperTrend
         strats_config = self.config
-        
         self.strategies = {
-            "scalp_ema_rsi": ScalpEmaRsi(strats_config.get("scalp_ema_rsi")),
-            "elastic_reversion": ElasticReversionStrategy(strats_config.get("elastic_reversion")),
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
-            "meme_hunter": StrategyMemeHunter(strats_config.get("meme_hunter")),
-            "meme_breakout_retest": StrategyMemeBreakoutRetest(strats_config.get("meme_breakout_retest")),
-            "meme_range_funding_oi": StrategyMemeRangeFundingOi(strats_config.get("meme_range_funding_oi")),
         }
 
-        # 🔧 FIX: Enforce strategy names to match config keys (snake_case)
-        # This prevents mismatches between "ScalpEmaRsi" (Class) and "scalp_ema_rsi" (Config)
         for key, strategy in self.strategies.items():
             if strategy:
                 strategy.name = key
@@ -144,23 +127,21 @@ class StrategyEngine:
             if name not in self.strategies:
                 continue
 
-            # ALWAYS ACTIVE strategies (Sniper, MemeHunter, etc.)
-            if strat_type in ["sniper", "scalp_choc", "always_active"]: 
+            # SuperTrend is type=trend — active in TREND / TREND_BEAR_STRONG only.
+            # always_active kept for tests / future hooks (no such live strategies today).
+            if strat_type in ("always_active", "sniper"):
                 active_strategies.append(self.strategies[name])
-                continue # Already added
+                continue
 
-            # REGIME-BASED strategies
             if (regime == "TREND" or regime == "TREND_BEAR_STRONG") and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
-                
-            elif regime == "RANGE":
-                if strat_type == "range" or strat_type == "reversion":
-                    active_strategies.append(self.strategies[name])
 
         # Log active strategies
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])
             print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+        elif regime == "RANGE":
+            print("[BOT] ⏸️ Regime RANGE — SuperTrend idle")
 
         # 4. Generate Signals
         signals = []

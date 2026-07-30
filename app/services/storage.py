@@ -145,8 +145,13 @@ class StorageService:
             "scanner": {
                 "enabled": False,
                 "interval": 15,
-                "min_score": 50,
-                "auto_switch": False
+                "min_score": 60,
+                "auto_switch": False,
+                "min_volume_24h": 2000000,
+                "min_open_interest": 1000000,
+                "max_tokens": 40,
+                "funding_filter_enabled": False,
+                "scan_while_in_trade": False
             },
             "notifications": {}
         })
@@ -200,6 +205,14 @@ class StorageService:
 
             old_top = set(runtime_cfg.keys())
             merged_cfg = self._merge_missing(runtime_cfg, default_cfg)
+
+            # Drop obsolete strategy blocks no longer present in defaults
+            # (keeps market_regime + currently shipped strategies only).
+            allowed_top = set(default_cfg.keys())
+            pruned_keys = sorted(k for k in list(merged_cfg.keys()) if k not in allowed_top)
+            for k in pruned_keys:
+                merged_cfg.pop(k, None)
+
             new_top = set(merged_cfg.keys())
             added_top_level = sorted(list(new_top - old_top))
 
@@ -228,11 +241,15 @@ class StorageService:
                 logger.info("✅ Strategy config synced from defaults (non-destructive merge)")
                 if added_top_level:
                     logger.info(f"   + Added strategies: {', '.join(added_top_level)}")
+                if pruned_keys:
+                    logger.info(f"   - Removed obsolete strategies: {', '.join(pruned_keys)}")
                 logger.info(f"   + Added missing keys: {added_keys_count}")
                 result["status"] = "updated"
+                result["removed_top_level"] = pruned_keys
             else:
                 logger.info("ℹ️ Strategy config already up to date with defaults")
                 result["status"] = "noop"
+                result["removed_top_level"] = pruned_keys
 
             result["added_top_level"] = added_top_level
             result["added_keys_count"] = added_keys_count

@@ -77,6 +77,12 @@ def get_status(bot=Depends(get_bot_context)):
             logger.error(f"Error fetching balance: {e}")
         
         # Build status response
+        risk_status = {}
+        try:
+            risk_status = bot.risk_manager.get_status() if getattr(bot, "risk_manager", None) else {}
+        except Exception:
+            risk_status = {}
+
         return {
             "is_running": bot.is_running,
             "loop_responsive": bot.is_loop_responsive() if hasattr(bot, 'is_loop_responsive') else bot.is_running,
@@ -86,7 +92,9 @@ def get_status(bot=Depends(get_bot_context)):
             "balance": balance,
             "open_positions": positions,
             "active_positions": len(positions),
-            "daily_pnl": getattr(bot, 'daily_pnl', 0.0),
+            "daily_pnl": risk_status.get("daily_pnl", 0.0),
+            "is_stop_mode": risk_status.get("is_stop_mode", False),
+            "stop_reason": risk_status.get("stop_reason", ""),
             "total_trades": getattr(bot, 'total_trades', 0),
             "win_rate": getattr(bot, 'win_rate', 0.0),
             "last_updated": getattr(bot, 'last_update_time', None),
@@ -99,6 +107,7 @@ def get_status(bot=Depends(get_bot_context)):
                 "bot_persona": getattr(bot, 'bot_persona', 'Unknown'),
                 "risk_profile": getattr(bot, 'risk_profile', 'Unknown')
             },
+            "scanner": getattr(bot, "scanner_settings", {}),
             "market_analysis": getattr(bot, 'ai_cache', {}).get('last_position_analysis'),
             "logs": list(getattr(bot, 'logs', []))[-50:]
         }

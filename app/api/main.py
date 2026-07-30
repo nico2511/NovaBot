@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MainApp")
 
 # Import routers
-from app.api.routers import engine, trading, market, settings, history
+from app.api.routers import engine, trading, market, settings, history, scanner
 
 # Settings Watcher
 from app.services.settings_watcher import SettingsWatcher
@@ -102,7 +102,8 @@ async def lifespan(app: FastAPI):
 
                     # Update Scanner Settings
                     if "scanner" in new_settings:
-                        bot.scanner_settings = new_settings["scanner"]
+                        current = getattr(bot, "scanner_settings", {}) or {}
+                        bot.scanner_settings = {**current, **(new_settings.get("scanner") or {})}
                         bot.add_log("🕵️ HOT-RELOAD: Scanner Settings updated from file")
                     
                     # Save state
@@ -179,6 +180,7 @@ app.include_router(market.router)
 app.include_router(settings.router)
 app.include_router(history.router)
 app.include_router(history.logs_router)  # Logs at /api/logs
+app.include_router(scanner.router)
 
 logger.info("✅ Routers registered: engine, trading, market, settings, history, logs")
 

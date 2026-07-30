@@ -94,19 +94,28 @@ class PositionReconciler:
             if symbol not in exchange_symbols:
                 logger.warning(
                     f"👻 Ghost trade detected: bot tracks {symbol} but exchange shows no position. "
-                    f"Cleaning up..."
+                    f"Cleaning up via external-closure path..."
                 )
-                try:
-                    from app.services.discord_service import discord_service
-                    discord_service.send_log(
-                        f"🧹 Ghost trade cleaned: **{symbol}**\n"
-                        f"Position was closed externally (manual close or TP/SL hit)."
-                    )
-                except Exception:
-                    pass  # Discord failure must never block reconciliation
-
                 with self.bot_context.trade_lock:
-                    self.bot_context.active_trades.pop(symbol, None)
+                    trade = self.bot_context.active_trades.get(symbol)
+
+                # Prefer full closure path (history + daily risk + state save).
+                # Fallback to pop-only if handler is unavailable.
+                try:
+                    if trade and hasattr(self.bot_context, "_handle_external_closure"):
+                        self.bot_context._handle_external_closure(symbol, trade, silent=True)
+                    else:
+                        with self.bot_context.trade_lock:
+                            self.bot_context.active_trades.pop(symbol, None)
+                        try:
+                            from app.core.state_manager import StateManager
+                            StateManager.save_state(self.bot_context)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error(f"❌ Ghost cleanup failed for {symbol}: {e}")
+                    with self.bot_context.trade_lock:
+                        self.bot_context.active_trades.pop(symbol, None)
                 logger.info(f"✅ Ghost trade removed: {symbol}")
 
     # ------------------------------------------------------------------

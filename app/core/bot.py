@@ -77,7 +77,7 @@ class BotContext:
         
         self.trading_enabled = config.AUTO_START_TRADING  # Respect "Auto-start Trading on Bot Launch"
         self.is_running = False      # Loop Switch
-        self.active_strategy_name = "SmartTrend"
+        self.active_strategy_name = "supertrend"
         self.active_strategies = []
 
         # Scanner Settings defaults
@@ -86,8 +86,16 @@ class BotContext:
             "enabled": config.SCANNER_ENABLED,
             "interval": config.SCANNER_INTERVAL,
             "min_score": config.SCANNER_MIN_SCORE,
-            "auto_switch": config.SCANNER_AUTO_SWITCH
+            "auto_switch": config.SCANNER_AUTO_SWITCH,
+            "min_volume_24h": 2_000_000,
+            "min_open_interest": 1_000_000,
+            "max_tokens": 40,
+            "funding_filter_enabled": False,
+            "scan_while_in_trade": False,
         }
+        # Lazy-init after StrategyEngine exists (constructed just above)
+        from app.core.scanner_job import ScannerJob
+        self.scanner_job = ScannerJob(self)
         # Global Settings Defaults (Seeded from user_settings API via config)
         self.global_settings = {
             "operations": {
@@ -194,6 +202,19 @@ class BotContext:
             
             self.max_positions = requested_max
             self.add_log(f"⚙️ Max positions: {self.max_positions}")
+
+            # Merge scanner knobs from user_settings.json (SoT for scanner)
+            try:
+                from app.services.storage import storage_service
+                disk_scanner = (storage_service.load_settings() or {}).get("scanner") or {}
+                if disk_scanner:
+                    self.scanner_settings = {**self.scanner_settings, **disk_scanner}
+                    self.add_log(
+                        f"🕵️ Scanner settings loaded (enabled={self.scanner_settings.get('enabled')}, "
+                        f"auto_switch={self.scanner_settings.get('auto_switch')})"
+                    )
+            except Exception as scan_load_err:
+                logger.warning("Could not load scanner settings from disk: %s", scan_load_err)
                     
         except Exception as e:
             logger.error("Error loading state: %s", e)
@@ -961,6 +982,16 @@ class BotContext:
                 self.add_log(f"⚠️ Signal ignored ({reason}): {side} {symbol}")
                 self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
+
+            can_trade, risk_reason = self.risk_manager.check_can_trade()
+            if not can_trade:
+                self.add_log(f"⛔ ENTRY BLOCKED by risk: {risk_reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=risk_reason,
+                    **ctx,
+                )
+                return {"status": "ignored", "reason": risk_reason}
             
             current_price = price if price else hyperliquid_service.get_current_price(symbol)
             ctx["price"] = current_price
@@ -1468,6 +1499,15 @@ class BotContext:
 
     def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
         """Logic to record and clean up a trade closed externally"""
+        # Claim ownership under lock first so reconciler + sync cannot double-count PnL.
+        with self.trade_lock:
+            current = self.active_trades.get(symbol)
+            if not current:
+                return
+            # Prefer freshest dict if caller passed a stale copy
+            trade = current
+            self.active_trades.pop(symbol, None)
+
         tid = trade.get("trade_id") if isinstance(trade, dict) else None
         self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing..." + (f" | id={tid}" if tid else ""))
         pnl_usdc = 0
@@ -1538,7 +1578,7 @@ class BotContext:
                      (f" | id={tid}" if tid else "")
                  )
 
-            # Record
+            # Record history + daily risk accounting (daily stop depends on this)
             self.trade_recorder.add_trade({
                   "trade_id": tid,
                   "symbol": symbol,
@@ -1553,6 +1593,10 @@ class BotContext:
                   "exit_time": pd.Timestamp.now().isoformat(),
                   "entry_indicators": trade.get("entry_indicators", {})
             })
+            try:
+                self.risk_manager.record_trade_close(float(pnl_usdc))
+            except Exception as risk_err:
+                self.add_log(f"⚠️ Failed to update daily risk after external close: {risk_err}")
             
             discord_service.send_alert(
                 f"🏁 TRADE CLOSED (Exchange): {symbol}",
@@ -1568,12 +1612,11 @@ class BotContext:
             self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
         
         finally:
-            # CLEAN UP MEMORY NO MATTER WHAT (Avoid Ghost Trades)
-            with self.trade_lock:
-                if symbol in self.active_trades:
-                    self.active_trades.pop(symbol, None)
-                    StateManager.save_state(self)
-                    self.add_log(f"✅ Ghost trade {symbol} cleaned from state")
+            try:
+                StateManager.save_state(self)
+                self.add_log(f"✅ Ghost trade {symbol} cleaned from state")
+            except Exception as save_err:
+                self.add_log(f"⚠️ Failed to save state after external close {symbol}: {save_err}")
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
@@ -1674,6 +1717,10 @@ class BotContext:
             
             # Initial Synchro
             self._sync_state(silent=False)
+            try:
+                self.risk_manager.sync_with_hyperliquid(hyperliquid_service)
+            except Exception as risk_sync_err:
+                self.add_log(f"⚠️ Risk position sync failed: {risk_sync_err}")
             self.startup_sync_done = True
             self.add_log("✅ STARTUP SYNC: Complete")
             self.add_log("🕵️ Starting Position Reconciler...")
@@ -1934,7 +1981,7 @@ class BotContext:
                     if sig.get("signal") and sig.get("price"):
                         # --- P2 FIX: ANTI-DOUBLON GUARD ---
                         # Si un trade actif existe déjà sur ce symbole dans la même direction,
-                        # ignorer le signal pour éviter les doublons (ex: 2x SELL meme_breakout_retest).
+                        # ignorer le signal pour éviter les doublons.
                         existing_trade = self.active_trades.get(self.active_symbol)
                         if existing_trade and existing_trade.get("side") == sig.get("signal"):
                             self.add_log(f"⛔ ANTI-DOUBLON: {sig.get('signal')} {self.active_symbol} ignoré (trade {existing_trade.get('side')} déjà actif via {existing_trade.get('strategy', '?')})")
@@ -2609,6 +2656,12 @@ class BotContext:
             self.add_log("🚀 Starting trading thread...")
             self.thread.start()
             self.add_log(f"✅ Thread started. Thread alive={self.thread.is_alive()}")
+
+            try:
+                if getattr(self, "scanner_job", None):
+                    self.scanner_job.start()
+            except Exception as scan_err:
+                self.add_log(f"⚠️ Failed to start ScannerJob: {scan_err}")
             
             StateManager.save_state(self)
         else:
@@ -2644,6 +2697,12 @@ class BotContext:
                 except Exception as e:
                     self.add_log(f"⚠️ Failed to cancel orders for {symbol}: {e}")
             
+            try:
+                if getattr(self, "scanner_job", None):
+                    self.scanner_job.stop()
+            except Exception as scan_err:
+                self.add_log(f"⚠️ Failed to stop ScannerJob: {scan_err}")
+
             try:
                 self.add_log("🔌 Stopping WebSocket...")
                 hyperliquid_service.stop_websocket()

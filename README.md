@@ -19,7 +19,7 @@ Bot de trading automatisé sur **Hyperliquid** avec validation IA (OpenRouter) e
 ## Ce que fait le bot
 
 - Tourne en boucle 24/7 sur un symbole Hyperliquid (par défaut `HYPE`).
-- Applique une ou plusieurs stratégies techniques (`strategies/`).
+- Applique la stratégie SuperTrend (`strategies/supertrend.py`).
 - Chaque signal est validé par une IA (OpenRouter) avec une contrainte **R:R minimum** mécanique.
 - Entrées / sorties atomiques, SL/TP placés sur l'exchange, trailing stops automatiques.
 - Reconciliation toutes les 30s : détecte les positions manuelles, nettoie les "ghost trades".
@@ -170,6 +170,26 @@ Ajuste dans `data/config/user_settings.json` (volume persistant) — les changem
 - `risk_defaults.risk_profile` : `"Capital Preservation First"` (conservateur) / `"Balanced Growth"` / `"High Volatility Hunter"` (agressif).
 - `risk_defaults.max_positions` : nombre max de positions simultanées.
 - `scanner.leverage` : levier utilisé par défaut.
+- `scanner.enabled` / `auto_switch` / `min_score` : scanner SuperTrend (rotation de symbole quand flat).
+
+### Scanner SuperTrend
+
+Le bot peut scorer l'universe Hyperliquid avec les **mêmes params** que la stratégie `supertrend` (period, multiplier, EMA filter, ADX, volume/RSI), puis basculer `active_symbol` si `auto_switch=true` et qu'aucune position n'est ouverte.
+
+```bash
+# Activer (persisté dans data/config/user_settings.json)
+curl -X POST -H "X-API-Key: ..." -H "Content-Type: application/json" \
+  https://.../api/settings/update \
+  -d '{"section":"scanner","data":{"enabled":true,"auto_switch":true,"interval":15,"min_score":60}}'
+
+# Scan manuel
+curl -X POST -H "X-API-Key: ..." https://.../api/scanner/scan
+
+# Derniers résultats
+curl -H "X-API-Key: ..." https://.../api/scanner/opportunities
+```
+
+Par défaut le scanner est **désactivé** (`enabled=false`). L'hystérésis de switch est de 10 points pour éviter de tourner en rond.
 
 ---
 
@@ -230,7 +250,7 @@ app/
 │   ├── discord_service.py        Notifications Discord
 │   └── storage.py                Storage paths centralisés
 └── utils/             Helpers market data, websocket
-strategies/            Stratégies techniques (pluggable)
+strategies/            SuperTrend (+ base/engine)
 tests/                 Unit + integration (73 tests)
 data/                  Persistance (bot_state, trade_history.csv, user_settings.json)
 logs/                  novabot.log (rotation 5MB x3)
