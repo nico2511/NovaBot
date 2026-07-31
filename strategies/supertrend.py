@@ -134,6 +134,8 @@ class StrategySupertrend(BaseStrategy):
         # across Supertrend implementations (some invert +1/-1 labels).
         df['ST_Direction'] = np.where(df['close'] >= df['Supertrend'], 1, -1)
         df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        # Alias for bot AI/SL-floor paths that historically looked for pandas_ta's ATRr_14
+        df['ATRr_14'] = df['ATR_14']
         # RSI used as a lightweight momentum sanity check (anti stop-hunt in ranges)
         df['RSI_14'] = ta.rsi(df['close'], length=14)
         return df

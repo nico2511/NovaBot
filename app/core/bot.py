@@ -560,7 +560,8 @@ class BotContext:
         
         # Technical Indicators
         rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else 0.0
-        atr = float(df['ATRr_14'].iloc[-1]) if 'ATRr_14' in df.columns else 0.0
+        atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in df.columns), None)
+        atr = float(df[atr_col].iloc[-1]) if atr_col else 0.0
         
         # EMAs
         ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
@@ -578,8 +579,8 @@ class BotContext:
         
         # Volatility percentile
         volatility_percentile = None
-        if atr and 'ATRr_14' in df.columns:
-            atr_series = df['ATRr_14'].dropna()
+        if atr and atr_col:
+            atr_series = df[atr_col].dropna()
             if len(atr_series) > 0:
                 volatility_percentile = int((atr_series < atr).sum() / len(atr_series) * 100)
         
@@ -1855,9 +1856,18 @@ class BotContext:
                 self.add_log("🔄 Entering strategy analysis...")
                 df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)  # 300 bars for EMA_200 warm-up
                 df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
+
+                # One immediate refetch of whichever TF is still empty (transient API gaps)
+                if df_15m.empty:
+                    df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)
+                if df_1m.empty:
+                    df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
                 
                 if df_15m.empty or df_1m.empty:
-                    self.add_log("⚠️ No data received")
+                    self.add_log(
+                        f"⚠️ No data received for {self.active_symbol}: "
+                        f"15m={len(df_15m)} bars, 1m={len(df_1m)} bars"
+                    )
                     time.sleep(10)
                     continue
 
@@ -2275,11 +2285,11 @@ class BotContext:
                             # --- ATR-BASED SL FLOOR (Prevent unrealistically tight SL) ---
                             try:
                                 if sl_price and entry_price and not df_15m.empty:
-                                    # Get ATR from the data (already computed by strategy engine)
-                                    if 'ATRr_14' in df_15m.columns:
-                                        current_atr = float(df_15m['ATRr_14'].iloc[-1])
+                                    # Prefer strategy ATR (Wilder); fall back to SMA-TR if missing
+                                    atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in df_15m.columns), None)
+                                    if atr_col:
+                                        current_atr = float(df_15m[atr_col].iloc[-1])
                                     else:
-                                        # Fallback: manual ATR calc
                                         tr = pd.concat([
                                             df_15m['high'] - df_15m['low'],
                                             (df_15m['high'] - df_15m['close'].shift(1)).abs(),
@@ -2802,27 +2812,28 @@ class BotContext:
             if df is None or df.empty:
                 self.add_log("📡 Recalibrate: Cache empty, fetching fresh 15m data...")
                 try:
-                    from app.utils.market_data import get_hyperliquid_candles
-                    df = await get_hyperliquid_candles(symbol, "15m", 100)
+                    df = hyperliquid_service.get_candles(symbol, "15m", 100)
                 except Exception as fetch_err:
                     self.add_log(f"⚠️ Fresh fetch failed: {fetch_err}")
             
             atr = 0.0
             try:
                 if df is not None and not df.empty:
-                    if 'ATRr_14' not in df.columns:
+                    atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in df.columns), None)
+                    if atr_col:
+                         atr = float(df[atr_col].iloc[-1])
+                    else:
                          high = df['high']; low = df['low']; close = df['close']
                          tr1 = high - low; tr2 = (high - close.shift()).abs(); tr3 = (low - close.shift()).abs()
                          tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-                         atr = tr.rolling(14).mean().iloc[-1]
-                    else:
-                         atr = df['ATRr_14'].iloc[-1]
-            except: pass
+                         atr = float(tr.rolling(14).mean().iloc[-1])
+            except Exception:
+                pass
             
             # Use REAL-TIME price for validation, not candle close
             current_price = hyperliquid_service.get_current_price(symbol)
-            if current_price == 0:
-                 current_price = df['close'].iloc[-1]
+            if (not current_price or current_price <= 0) and df is not None and not df.empty:
+                 current_price = float(df['close'].iloc[-1])
             
             self.add_log(f"🔍 Recalibrate: Current Price for validation: {current_price}")
 

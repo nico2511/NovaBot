@@ -9,7 +9,12 @@ import time
 from hyperliquid.utils.constants import MAINNET_API_URL
 
 # Import retry decorators and WebSocket manager
-from app.utils.retry_decorator import critical_operation, standard_operation, lightweight_operation
+from app.utils.retry_decorator import (
+    critical_operation,
+    standard_operation,
+    lightweight_operation,
+    _is_rate_limit_error,
+)
 from app.utils.websocket_manager import WebSocketPriceManager
 from app.utils.rate_limiter import rate_limiter
 
@@ -216,12 +221,10 @@ class HyperliquidService:
         """
         Fetch OHLCV candles from Hyperliquid with robust data handling.
         
-        Improvements:
-        - 1.5x time buffer to handle gaps (maintenance/low liquidity)
-        - Explicit chronological sorting
-        - Type coercion for OHLCV columns
-        - Duplicate removal
-        - UTC timezone enforcement
+        - Canonicalizes aliases (PEPE → kPEPE)
+        - Retries empty snapshots and 429s with backoff
+        - Widens the time window on later attempts
+        - Explicit chronological sorting / UTC / OHLCV coercion
         
         Args:
             symbol: Trading pair (e.g., "BTC")
@@ -231,44 +234,43 @@ class HyperliquidService:
         Returns:
             DataFrame with OHLCV data, chronologically sorted
         """
+        symbol = self.get_canonical_symbol(symbol)
         try:
-            # Calculate end time (UTC)
-            end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
-            
-            # Parse interval and calculate start time with 1.5x buffer
             interval_seconds = self._parse_interval_to_seconds(interval)
             time_range = limit * interval_seconds * 1000
-            start_time = end_time - int(time_range * 1.5)  # 1.5x buffer for gaps
-            
-            # RETRY LOGIC for Rate Limits (429)
             max_retries = 3
-            retry_delay = 1  # Start with 1 second
+            retry_delay = 1
             raw_candles = None
             
             for attempt in range(max_retries):
+                end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
+                # Widen window on retries (1.5x → 2.5x → 3.5x) for sparse/gap responses
+                buffer = 1.5 + attempt
+                start_time = end_time - int(time_range * buffer)
+
                 try:
-                    # Fetch candles from Hyperliquid
                     raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
-                    break  # Success, exit retry loop
-                    
                 except Exception as e:
-                    # Check if it's a rate limit error (429)
-                    error_code = None
-                    if hasattr(e, 'args') and len(e.args) > 0:
-                        error_code = e.args[0]
-                    
-                    if error_code == 429:
-                        if attempt < max_retries - 1:
-                            wait_time = retry_delay * (2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
-                            self.log(f"⚠️ Rate limit hit (429), retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            self.log(f"❌ Rate limit exceeded after {max_retries} attempts")
-                            raise
-                    else:
-                        # Not a rate limit error, re-raise immediately
-                        raise
+                    if _is_rate_limit_error(e) and attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)
+                        self.log(
+                            f"Rate limit (429) on candles {symbol} {interval}; "
+                            f"retry in {wait_time}s ({attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    raise
+
+                if raw_candles:
+                    break
+
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)
+                    self.log(
+                        f"Empty candles for {symbol} {interval}; "
+                        f"retry in {wait_time}s ({attempt + 1}/{max_retries}, window×{buffer})"
+                    )
+                    time.sleep(wait_time)
             
             if not raw_candles:
                 self.log(f"⚠️ No candles returned for {symbol} {interval}")
