@@ -43,6 +43,14 @@ def compute_trailing_decision(trade: dict, current_price: float) -> Optional[Tra
     if not (entry_price and tp_price and sl_price) or side not in ("BUY", "SELL"):
         return None
 
+    # Stale/missing quotes must never drive trailing (price=0 on a SHORT
+    # looks like 100%+ progress toward TP and falsely tightens SL).
+    try:
+        if float(current_price) <= 0:
+            return None
+    except (TypeError, ValueError):
+        return None
+
     entry_price = float(entry_price)
     tp_price = float(tp_price)
     sl_price = float(sl_price)

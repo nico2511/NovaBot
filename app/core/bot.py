@@ -1270,8 +1270,8 @@ class BotContext:
                 return  # Too soon, wait for cooldown
 
         try:
-            open_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
-            symbol_orders = [o for o in open_orders if o["coin"] == symbol]
+            # Must use frontend_open_orders (via get_open_orders) — open_orders omits triggers
+            symbol_orders = hyperliquid_service.get_open_orders(symbol)
             
             desired_sl = float(trade_data.get("sl", 0))
             desired_tp = float(trade_data.get("tp", 0))
@@ -1368,6 +1368,10 @@ class BotContext:
 
     def _check_local_exits(self, trade: dict, symbol: str, current_price: float):
         """Check for local SL/TP triggers"""
+        # Never exit on a missing/stale quote — price=0 on a SHORT always hits TP.
+        if current_price is None or float(current_price) <= 0:
+            return
+
         side = trade.get("side")
         sl_val = float(trade.get("sl") or 0)
         tp_val = float(trade.get("tp") or 0)
@@ -1407,6 +1411,9 @@ class BotContext:
                 
                 # Use current price for specific symbol
                 current_price = hyperliquid_service.get_current_price(symbol)
+                if current_price is None or float(current_price) <= 0:
+                    self.add_log(f"⚠️ No valid price for {symbol}; skipping manage/exit this tick")
+                    continue
                 
                 # --- STRATEGY DELEGATION ---
                 handled_by_strategy = False
@@ -1712,6 +1719,16 @@ class BotContext:
         # STARTUP SYNC
         if not self.startup_sync_done:
             self.add_log("🔄 STARTUP SYNC: Checking Hyperliquid positions...")
+            # Real-time mids for manage/exit — without this, prices fall back to candles
+            try:
+                symbols = list({self.active_symbol} | set(self.active_trades.keys()))
+                symbols = [s for s in symbols if s]
+                if symbols:
+                    hyperliquid_service.start_websocket(symbols)
+                    self.add_log(f"📡 WebSocket price feed started for: {', '.join(symbols)}")
+            except Exception as ws_err:
+                self.add_log(f"⚠️ WebSocket price feed failed to start: {ws_err}")
+
             if self.trading_enabled:
                  self._enforce_leverage()
             
@@ -2474,6 +2491,11 @@ class BotContext:
                 StateManager.save_state(self)
             
             self.add_log(f"🕵️ ADOPTED {symbol}: Size {size} | Entry {entry_price}")
+            try:
+                if hyperliquid_service.ws_manager:
+                    hyperliquid_service.ws_manager.add_symbol(symbol)
+            except Exception as ws_add_err:
+                self.add_log(f"⚠️ Failed to subscribe WS price for adopted {symbol}: {ws_add_err}")
             
             # --- GLOBAL ADOPTION NOTIFICATION ---
             direction_label = "LONG 🟢" if side == "BUY" else "SHORT 🔴"
@@ -2495,8 +2517,8 @@ class BotContext:
                 current_price = df_15m['close'].iloc[-1] if not df_15m.empty else entry_price
                 
                 self.add_log(f"🔎 Checking existing orders for {symbol}...")
-                existing_orders = hyperliquid_service.info.open_orders(config.HL_ACCOUNT_ADDRESS)
-                symbol_orders = [o for o in existing_orders if o.get("coin") == symbol]
+                # frontend_open_orders includes SL/TP triggers (open_orders does not)
+                symbol_orders = hyperliquid_service.get_open_orders(symbol)
                 
                 existing_sl = None
                 existing_tp = None

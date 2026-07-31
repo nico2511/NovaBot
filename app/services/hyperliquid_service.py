@@ -365,60 +365,43 @@ class HyperliquidService:
         
         return self._meta_cache
 
-    def _infer_price_decimals(self, current_price: float) -> int:
+    @staticmethod
+    def _round_price(price: float, sz_decimals: int, max_decimals: int = 6) -> float:
+        """Round price to Hyperliquid tick rules (perps by default).
+
+        Rules (https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size):
+        - At most 5 significant figures
+        - At most ``max_decimals - szDecimals`` decimal places (6 for perps, 8 for spot)
+        - Integer prices are always valid regardless of significant figures
         """
-        Intelligently infer price decimals based on current price magnitude.
-        Maintains ~4-5 significant figures for precision across all price ranges.
-        
-        Examples:
-            BTC (95000) -> 0 decimals (95000)
-            ETH (3500) -> 1 decimal (3500.5)
-            SOL (150) -> 2 decimals (150.25)
-            HYPE (25) -> 3 decimals (25.123)
-            WIF (0.5) -> 4 decimals (0.5123)
-            FARTCOIN (0.30) -> 5 decimals (0.30591)
-        """
-        if current_price >= 1000:
-            return 0
-        elif current_price >= 100:
-            return 1
-        elif current_price >= 10:
-            return 2
-        elif current_price >= 1:
-            return 3
-        elif current_price >= 0.1:
-            return 4
-        elif current_price >= 0.01:
-            return 5
-        else:
-            return 6  # Micro-caps
+        if price is None or price <= 0:
+            return 0.0
+        px = float(price)
+        if px > 100_000:
+            return float(round(px))
+        return float(round(float(f"{px:.5g}"), max(0, max_decimals - int(sz_decimals))))
 
     def _get_precision(self, symbol: str):
-        """Get precision for size and price from metadata + dynamic inference"""
+        """Get (sz_decimals, max_price_decimals) from Hyperliquid metadata.
+
+        ``max_price_decimals`` is ``6 - szDecimals`` for perps. Actual order
+        prices must still go through ``_round_price`` (5 sig figs + this cap).
+        """
         meta = self._fetch_metadata()
         
         # 1. Try to find in Universe for szDecimals
         if meta and "universe" in meta:
             for asset in meta["universe"]:
                 if asset["name"] == symbol:
-                    sz_decimals = asset["szDecimals"]
-                    
-                    # Get current price for dynamic precision inference
-                    try:
-                        current_price = self.get_current_price(symbol)
-                        if current_price > 0:
-                            price_decimals = self._infer_price_decimals(current_price)
-                        else:
-                            price_decimals = 4  # Safe fallback
-                    except:
-                        price_decimals = 4  # Safe fallback if price fetch fails
-                    
+                    sz_decimals = int(asset["szDecimals"])
+                    price_decimals = max(0, 6 - sz_decimals)
                     return sz_decimals, price_decimals
         
         # 2. Fallback Map for Size Decimals (if metadata lookup fails)
-        FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1, "FARTCOIN": 1}
+        FALLBACK_SZ = {"BTC": 5, "ETH": 4, "SOL": 2, "DOGE": 0, "PEPE": 0, "WIF": 0, "HYPE": 1, "FARTCOIN": 1, "BCH": 2}
         self.log(f"⚠️ Metadata lookup failed for {symbol}. Using fallback precision.")
-        return FALLBACK_SZ.get(symbol, 2), 4  # Conservative default 
+        sz_decimals = FALLBACK_SZ.get(symbol, 2)
+        return sz_decimals, max(0, 6 - sz_decimals)
 
     @standard_operation
     def _update_market_context_cache(self):
@@ -511,7 +494,7 @@ class HyperliquidService:
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
         """Place Stop Loss and Take Profit orders on exchange (Hard Stops)"""
         try:
-            sz_decimals, price_decimals = self._get_precision(symbol)
+            sz_decimals, _ = self._get_precision(symbol)
             
             # SL/TP logic: 
             # If opened LONG (is_buy=True) -> SL/TP are SELL orders (is_buy=False)
@@ -524,10 +507,12 @@ class HyperliquidService:
             orders = []
             
             if sl_price:
-                sl_price = float(f"{sl_price:.{price_decimals}f}")
+                sl_price = self._round_price(sl_price, sz_decimals)
                 # For Market Trigger, limit_px must be aggressive to ensure fill
-                sl_limit_px = sl_price * 1.05 if close_is_buy else sl_price * 0.95
-                sl_limit_px = float(f"{sl_limit_px:.{price_decimals}f}")
+                sl_limit_px = self._round_price(
+                    sl_price * 1.05 if close_is_buy else sl_price * 0.95,
+                    sz_decimals,
+                )
                 
                 self.log(f"🛡️ PLACING HARD STOP LOSS for {symbol} @ {sl_price} (sz={quantity}, lim={sl_limit_px})")
                 orders.append({
@@ -540,10 +525,12 @@ class HyperliquidService:
                 })
                 
             if tp_price:
-                tp_price = float(f"{tp_price:.{price_decimals}f}")
+                tp_price = self._round_price(tp_price, sz_decimals)
                 # For TP, logic is same (Market Trigger needs fill)
-                tp_limit_px = tp_price * 1.05 if close_is_buy else tp_price * 0.95
-                tp_limit_px = float(f"{tp_limit_px:.{price_decimals}f}")
+                tp_limit_px = self._round_price(
+                    tp_price * 1.05 if close_is_buy else tp_price * 0.95,
+                    sz_decimals,
+                )
                 
                 self.log(f"🎯 PLACING HARD TAKE PROFIT for {symbol} @ {tp_price} (sz={quantity}, lim={tp_limit_px})")
                 orders.append({
@@ -644,8 +631,8 @@ class HyperliquidService:
         # NORMALIZATION
         symbol = self.get_canonical_symbol(symbol)
         
-        # PRECISION & ROUNDING (Use dynamic metadata)
-        sz_decimals, price_decimals = self._get_precision(symbol)
+        # PRECISION & ROUNDING (Use dynamic metadata + HL tick rules)
+        sz_decimals, _ = self._get_precision(symbol)
         
         # Round quantity strictly
         if sz_decimals == 0:
@@ -676,8 +663,10 @@ class HyperliquidService:
                     # we simulate market behavior with an aggressive crossing limit + IOC,
                     # so we don't miss fast moves while still keeping SL/TP atomic grouping.
                     current_px = self.get_current_price(symbol)
+                    if current_px <= 0:
+                        return {"status": "error", "message": f"No valid market price for {symbol}"}
                     simulated_limit_px = current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE)
-                    entry_limit_px = float(f"{simulated_limit_px:.{price_decimals}f}")
+                    entry_limit_px = self._round_price(simulated_limit_px, sz_decimals)
                     signal_px = float(price) if price else None
                     self.log(
                         f"🎯 Atomic entry pricing: signal_px={signal_px}, current_px={current_px}, "
@@ -706,10 +695,12 @@ class HyperliquidService:
                     close_is_buy = not is_buy
                     
                     if sl_price:
-                        sl_px_fmt = float(f"{sl_price:.{price_decimals}f}")
+                        sl_px_fmt = self._round_price(sl_price, sz_decimals)
                         # For Market Trigger, limit_px should be aggressive to ensure fill when triggered.
-                        sl_limit_px = sl_px_fmt * 1.05 if close_is_buy else sl_px_fmt * 0.95
-                        sl_limit_px = float(f"{sl_limit_px:.{price_decimals}f}")
+                        sl_limit_px = self._round_price(
+                            sl_px_fmt * 1.05 if close_is_buy else sl_px_fmt * 0.95,
+                            sz_decimals,
+                        )
                         orders.append({
                             "coin": symbol,
                             "is_buy": close_is_buy,
@@ -720,10 +711,12 @@ class HyperliquidService:
                         })
                         
                     if tp_price:
-                        tp_px_fmt = float(f"{tp_price:.{price_decimals}f}")
+                        tp_px_fmt = self._round_price(tp_price, sz_decimals)
                         # Same aggressive limit behavior for market-trigger TP.
-                        tp_limit_px = tp_px_fmt * 1.05 if close_is_buy else tp_px_fmt * 0.95
-                        tp_limit_px = float(f"{tp_limit_px:.{price_decimals}f}")
+                        tp_limit_px = self._round_price(
+                            tp_px_fmt * 1.05 if close_is_buy else tp_px_fmt * 0.95,
+                            sz_decimals,
+                        )
                         orders.append({
                             "coin": symbol,
                             "is_buy": close_is_buy,
@@ -740,7 +733,7 @@ class HyperliquidService:
                 else:
                     if price:
                          # LIMIT
-                         limit_px = float(f"{price:.{price_decimals}f}")
+                         limit_px = self._round_price(price, sz_decimals)
                          self.log(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {limit_px}")
                          result = self.exchange.order(symbol, is_buy, quantity, limit_px, {"limit": {"tif": "Gtc"}})
                     else:
@@ -1119,13 +1112,13 @@ class HyperliquidService:
 
     @lightweight_operation
     def cancel_all_orders(self, symbol: str):
-        """Cancel all open orders for a symbol"""
+        """Cancel all open orders for a symbol (including SL/TP triggers)."""
         if not self.exchange or not config.HL_ACCOUNT_ADDRESS:
             return
             
         try:
-            open_orders = self.info.open_orders(config.HL_ACCOUNT_ADDRESS)
-            orders_to_cancel = [o for o in open_orders if o["coin"] == symbol]
+            # frontend_open_orders via get_open_orders — standard open_orders omits triggers
+            orders_to_cancel = self.get_open_orders(symbol)
             
             if not orders_to_cancel:
                 return
@@ -1213,9 +1206,9 @@ class HyperliquidService:
         """
         Get current market price from WebSocket cache.
         
-        This method prioritizes WebSocket price feeds to minimize REST API calls
-        and reduce rate limit exposure. Falls back to REST API if WebSocket is
-        unavailable or price is stale.
+        Priority: WebSocket cache → REST allMids → 1m candle close.
+        Returns 0.0 only when every source fails (callers must treat that as
+        "no price" and skip manage/exit logic).
         
         Args:
             symbol: Trading pair symbol (e.g., "BTC")
@@ -1228,21 +1221,35 @@ class HyperliquidService:
             >>> if price > 0:
             ...     self.log(f"BTC: ${price}")
         """
+        symbol = self.get_canonical_symbol(symbol)
+
         # Try WebSocket cache first (preferred method)
         if self.ws_manager is not None:
             price = self.ws_manager.get_price(symbol)
-            if price is not None:
-                return price
-            else:
-                self.log(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
+            if price is not None and price > 0:
+                return float(price)
+            self.log(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
         
-        # Fallback to REST API (with warning)
+        # Prefer allMids over candles — cheap, reliable mid; candles can be empty
+        try:
+            mids = self.info.all_mids()
+            mid = mids.get(symbol) if isinstance(mids, dict) else None
+            if mid is not None:
+                px = float(mid)
+                if px > 0:
+                    return px
+        except Exception as e:
+            self.log(f"⚠️ allMids price failed for {symbol}: {e}")
+
+        # Last resort: latest 1m candle close
         try:
             df = self.get_candles(symbol, "1m", 1)
             if not df.empty:
-                return float(df['close'].iloc[-1])
+                px = float(df['close'].iloc[-1])
+                if px > 0:
+                    return px
         except Exception as e:
-            self.log(f"❌ Error getting price via REST: {e}")
+            self.log(f"❌ Error getting price via candles: {e}")
         
         return 0.0
 

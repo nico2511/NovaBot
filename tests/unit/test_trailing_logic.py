@@ -43,6 +43,13 @@ def test_returns_none_when_tp_equals_entry():
     assert compute_trailing_decision(trade, 100.5) is None
 
 
+def test_returns_none_when_price_missing_or_zero():
+    """Stale quote (0) must not look like a huge SHORT win toward TP."""
+    assert compute_trailing_decision(_short_trade(), 0.0) is None
+    assert compute_trailing_decision(_long_trade(), 0.0) is None
+    assert compute_trailing_decision(_short_trade(), -1.0) is None
+
+
 def test_returns_none_before_be_threshold():
     """Progress below 60% AND PnL below 1.2% → nothing to do."""
     # entry=100, sl=95, tp=110 → progress at price=101 is 10%, pnl is 1.0%
