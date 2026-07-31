@@ -8,12 +8,13 @@ You are an elite Crypto Quantitative Analyst acting as a **{persona}**.
 
 === HARD CONSTRAINTS – VIOLATE THESE AND APPROVED MUST BE FALSE ===
 - Risk:Reward ratio MUST be >= {min_rr_ratio} for this risk profile
-- Maximum stop-loss distance: {max_sl_distance_pct:.1%} from entry price
-- Never approve if confidence < {min_confidence_threshold} (unless volume > 2.5x avg AND biased aligned)
+- Maximum stop-loss distance: {max_sl_distance_pct:.1%} from entry price (ATR/SuperTrend stops within this bound are OK)
+- Never approve if confidence < {min_confidence_threshold} (unless volume > 2.5x avg AND bias aligned)
 - If RSI > 82 or < 18 AND no clear breakout → reject (allow extreme RSI in strong trends)
-- If ADX < 15 in trend-following persona → reject (allow weak trend if momentum verified)
+- If ADX < 15 in trend-following setups → reject (allow weak trend if momentum verified)
 - Leverage suggestion MUST respect risk profile max
 - Output MUST be valid JSON only
+- Do NOT default to reject: when R:R and trend alignment are sound, approve
 
 Primary Timeframe: {timeframe}
 Risk Profile: {risk_profile}
@@ -64,8 +65,8 @@ PERSONA_INSTRUCTIONS_V2 = {
     - Criteria:
       1. Confirm with at least 2 indicators (e.g. EMA + RSI).
       2. Avoid trading into major S/R walls.
-      3. Stop Loss: 0.5% - 1.2%.
-      4. Target: 1.2% - 2.5%.
+      3. Stop Loss: prefer tight risk, but accept ATR/SuperTrend stops up to the profile max SL.
+      4. Target: maintain profile min R:R (do not force scalp-sized targets on trend entries).
       5. Accept ADX > 20 as valid trend.
     """,
     "Aggressive Day Trader": """
@@ -118,17 +119,18 @@ RISK_PROFILE_INSTRUCTIONS_V2 = {
 
 # Helper for Dynamic Constraint Injection
 RISK_PARAMS_MAP = {
-    # Refactored 2026-02: Lowered thresholds to increase frequency
-    "Capital Preservation First": {"min_rr": 1.5, "max_sl": 0.03, "min_conf": 68},
-    "Balanced Growth": {"min_rr": 1.3, "max_sl": 0.06, "min_conf": 58},
+    # Tuned for SuperTrend ATR stops on volatile HL perps (not pure scalps).
+    "Capital Preservation First": {"min_rr": 1.5, "max_sl": 0.06, "min_conf": 62},
+    "Balanced Growth": {"min_rr": 1.3, "max_sl": 0.08, "min_conf": 55},
     "High Volatility Hunter": {"min_rr": 1.0, "max_sl": 0.12, "min_conf": 48}
 }
 
 SIGNAL_VALIDATION_JSON_SCHEMA = """
 Respond ONLY with valid JSON (no markdown, no placeholders, no type names like integer/boolean).
-Example:
+Set approved to true OR false based on your analysis — do not default to false.
+Schema:
 {
-  "approved": false,
+  "approved": true,
   "confidence": 72,
   "risk_score": 4,
   "reasoning": "brief 2-3 sentence explanation in ENGLISH",
@@ -140,6 +142,7 @@ Example:
     "tp": null
   }
 }
+If rejecting, set approved=false and fill rejection_reason_category.
 """
 
 

@@ -480,7 +480,48 @@ Example:
             return cached
         
         ctx = market_context or {}
-        
+        strategy_id = str(signal_data.get("strategy") or "")
+
+        # Pre-compute R:R / SL width so the model doesn't invent geometry errors.
+        rr_line = "N/A"
+        sl_pct_line = "N/A"
+        try:
+            entry = float(signal_data.get("price") or 0)
+            sl = float(signal_data.get("sl") or 0)
+            tp = float(signal_data.get("tp") or 0)
+            if entry > 0 and sl > 0 and tp > 0:
+                risk = abs(entry - sl)
+                reward = abs(tp - entry)
+                if risk > 0:
+                    rr_line = f"{(reward / risk):.2f}"
+                sl_pct_line = f"{(risk / entry) * 100:.2f}%"
+        except Exception:
+            pass
+
+        is_supertrend = strategy_id == "supertrend"
+        if is_supertrend:
+            criteria = """=== VALIDATION CRITERIA (SUPERTREND) ===
+The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX filter, and a recent 1m SuperTrend flip.
+Your job is a sanity check, NOT a second full strategy rewrite.
+
+APPROVE when:
+1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
+2. Computed R:R meets the risk-profile minimum
+3. No major red flag (dead volume, clearly fighting higher-TF structure)
+
+Do NOT reject solely because:
+- SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
+- RSI is moderately extended in a trending regime
+- Price is not sitting exactly on a Fib level
+
+Prefer approved=true with risk_level MEDIUM when structure is coherent.
+Reject only on clear BAD_RR, WEAK_VOLUME, or COUNTER_TREND."""
+        else:
+            criteria = """=== VALIDATION CRITERIA ===
+Approve when direction, structure, volume and R:R are coherent.
+Reject on major red flags (counter-trend, dead volume, bad R:R, extreme chase).
+Prefer execution when R:R is good and momentum exists — do not over-filter."""
+
         # Prompt simplifié : Instruction directe de validation.
         prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
 
@@ -491,6 +532,8 @@ Strategy: {signal_data.get('strategy', 'N/A')}
 Entry Price: ${signal_data.get('price', 'N/A')}
 Proposed SL: ${signal_data.get('sl', 'N/A')}
 Proposed TP: ${signal_data.get('tp', 'N/A')}
+Computed R:R: {rr_line}
+SL Distance: {sl_pct_line}
 
 === CURRENT MARKET CONDITIONS ===
 Current Price: ${ctx.get('current_price', 'N/A')}
@@ -527,7 +570,6 @@ Fibonacci Levels (from Swing):
 
 Key Levels:
 - Swing High: ${ctx.get('swing_high', 'N/A')}
-- Swing High: ${ctx.get('swing_high', 'N/A')}
 - Swing Low: ${ctx.get('swing_low', 'N/A')}
 
 === COPILOT SENTIMENT (MTF) ===
@@ -537,42 +579,26 @@ Volume:
 - Current: {ctx.get('current_volume', 'N/A')}
 - Ratio vs Avg: {ctx.get('volume_ratio', 'N/A')}%
 
-=== VALIDATION CRITERIA ===
-Approve the signal ONLY if:
-1. Signal direction aligns with market bias and technical indicators
-2. Entry price is at a logical technical level (support/resistance, EMA, etc.)
-3. SL/TP placement is reasonable based on market structure
-4. Volume supports the move
-5. Hard Constraints (e.g. Min R:R) are respected
-
-Reject if any major red flags exist (e.g., buying into overbought RSI, selling at support, low volume, bad R:R, etc.)
+{criteria}
 
 === REQUIRED OUTPUT ===
-Respond ONLY with valid JSON (no markdown, no placeholders, no comments). The 'reasoning' field must be in ENGLISH:
-{{
-  "approved": false,
-  "confidence": 72,
-  "risk_score": 4,
-  "reasoning": "brief 2-3 sentence explanation in ENGLISH",
-  "decisive_factors": ["factor 1", "factor 2"],
-  "rejection_reason_category": null,
-  "risk_level": "MEDIUM",
-  "suggested_adjustments": {{
-    "sl": null,
-    "tp": null
-  }}
-}}
+{SIGNAL_VALIDATION_JSON_SCHEMA}
 """
+        # Always keep the full dynamic system prompt (risk profile + execution bias).
+        # Strategy persona is an ADD-ON, never a replacement — replacing it caused
+        # systematic rejects (example JSON approved:false + missing "take the trade" guidance).
+        system_prompt = self.get_dynamic_system_prompt()
         if strategy_persona:
-            system_prompt_override = (
-                strategy_persona
-                + "\n\nIMPORTANT: RESPOND ONLY WITH VALID JSON.\n"
-                + SIGNAL_VALIDATION_JSON_SCHEMA
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                f"=== STRATEGY PERSONA (PRIMARY FOR THIS SIGNAL) ===\n"
+                f"{strategy_persona}\n\n"
+                f"If STRATEGY PERSONA conflicts with generic scalp SL/TP width rules, "
+                f"follow STRATEGY PERSONA. ATR/trend stops are valid.\n\n"
+                f"IMPORTANT: RESPOND ONLY WITH VALID JSON.\n"
+                f"{SIGNAL_VALIDATION_JSON_SCHEMA}"
             )
-            result = self._call_openrouter_api(prompt, system_prompt=system_prompt_override)
-        else:
-            # Fallback to Generic Bot Persona
-            result = self._call_ai_generic(prompt)
+        result = self._call_openrouter_api(prompt, system_prompt=system_prompt)
 
         result = self._parse_validation_payload(result or {})
 

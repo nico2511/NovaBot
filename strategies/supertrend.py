@@ -29,11 +29,15 @@ class StrategySupertrend(BaseStrategy):
 
     PRIME DIRECTIVE:
     Ride the wave. Protect capital by trailing stops precisely at the trend line.
+    Prefer APPROVE when the strategy already confirmed a 15m bias + recent 1m SuperTrend flip
+    with healthy ADX and acceptable R:R. Do not apply scalping SL width rules (0.5%-1.2%).
 
     RULES OF ENGAGEMENT:
-    1. TREND IS KING: Only trade in the direction of the 15m trend (EMA 200).
-    2. VOLATILITY PROTECTION: Ensure ATR is healthy. If the market is dead (low volatility), avoid entry.
-    3. MOMENTUM CONFIRMATION: Enter when the 1m chart aligns with the 15m tide.
+    1. TREND IS KING: Only trade in the direction of the 15m trend (EMA filter).
+    2. ATR STOPS ARE NORMAL: SuperTrend SL may be 1.5%-6% on volatile perps — that is expected, not a reject reason.
+    3. MOMENTUM: A recent 1m SuperTrend flip into the 15m bias is sufficient trigger confirmation.
+    4. REJECT mainly for: clear counter-trend vs higher structure, dead volume, or broken R:R (< strategy min).
+    5. When in doubt but structure aligns, APPROVE with MEDIUM risk rather than over-filtering.
     """
 
     def __init__(self, config=None):
