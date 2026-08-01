@@ -166,8 +166,14 @@ class WebSocketPriceManager:
                 self._log_info("🔌 Connecting to Hyperliquid WebSocket (allMids)...")
                 loop.run_until_complete(self._subscribe_and_listen())
                 
-                # If returns normally, reset delay
-                self._reconnect_delay = 1.0
+                if not self._running:
+                    break
+
+                # Clean server close (~hours) is normal — backoff before reconnect
+                # so we don't hammer CloudFront and spam Discord.
+                self._log_info(f"🔄 WS reconnecting in {self._reconnect_delay:.1f}s...")
+                time.sleep(self._reconnect_delay)
+                self._reconnect_delay = min(self._reconnect_delay * 2.0, self._max_reconnect_delay)
                 
             except Exception as e:
                 if not self._running:
@@ -189,8 +195,15 @@ class WebSocketPriceManager:
 
     async def _subscribe_and_listen(self) -> None:
         """Coroutine: Connects, Subscribes, and Listens."""
-        async with websockets.connect(self._ws_url) as websocket:
+        async with websockets.connect(
+            self._ws_url,
+            ping_interval=20,
+            ping_timeout=20,
+            close_timeout=5,
+        ) as websocket:
             self._log_info("✅ WebSocket Connected.")
+            # Fresh connection — reset backoff so routine closes don't grow forever
+            self._reconnect_delay = 1.0
             
             # Subscribe to allMids
             sub_msg = {
@@ -208,8 +221,9 @@ class WebSocketPriceManager:
                 except asyncio.TimeoutError:
                     # Ping to check aliveness
                     await websocket.ping()
-                except websockets.exceptions.ConnectionClosed:
-                    self._log_warning("⚠️ Connection closed by server.")
+                except websockets.exceptions.ConnectionClosed as e:
+                    # INFO only — Discord forwards WARNING/ERROR and this is routine (~3h LB)
+                    self._log_info(f"🔌 WS closed by server ({getattr(e, 'code', '?')}); will reconnect.")
                     break
                 except Exception as e:
                     self._log_error(f"⚠️ Error receiving message: {e}")

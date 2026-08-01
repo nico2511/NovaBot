@@ -115,8 +115,12 @@ class HyperliquidService:
         # Positions cache to keep bot state coherent under rate limiting.
         # If get_positions() is rate-limited, returning [] can make the bot think
         # positions vanished (or that none exist) and cause "ghost" state issues.
-        self._positions_cache = {"time": 0, "data": []}
+        # data=None until the first successful user_state fetch (empty list = flat book)
+        self._positions_cache = {"time": 0, "data": None}
         self._positions_cache_ttl = 10  # seconds TTL for cached positions
+        # True when last positions read failed (rate-limit/error) with no usable cache.
+        # Callers MUST NOT treat an empty list as "flat book" while this is set.
+        self._positions_fetch_failed = False
     
         # Log callback for UI integration
         self.log_callback = None
@@ -1026,36 +1030,52 @@ class HyperliquidService:
         balance = self.get_account_balance()
         return balance.get("total_equity", 0)
 
+    def _stale_positions_fallback(self, reason: str):
+        """Return last-known positions on API failure — never invent a flat book."""
+        cache_time = float(self._positions_cache.get("time", 0) or 0)
+        cached = self._positions_cache.get("data")
+        # time==0 means never successfully fetched (initial state is data=None)
+        if cache_time > 0 and cached is not None:
+            age = time.time() - cache_time
+            self._positions_fetch_failed = False  # stale list is still usable for sync
+            self.log(
+                f"⚠️ Returning stale positions ({age:.0f}s old) due to {reason}",
+                "WARNING",
+            )
+            return list(cached)
+        self._positions_fetch_failed = True
+        self.log(
+            f"⚠️ Positions unavailable ({reason}) and no cache — sync must skip closures",
+            "WARNING",
+        )
+        return []
+
     def get_positions(self):
-        """Fetch open positions from Hyperliquid"""
+        """Fetch open positions from Hyperliquid.
+
+        On rate-limit / API errors, returns the last successful snapshot (even if
+        older than TTL) instead of ``[]``. An empty list after a *successful*
+        fetch means the book is truly flat. If there is no cache at all,
+        ``_positions_fetch_failed`` is set so callers skip ghost-close logic.
+        """
         if not config.HL_ACCOUNT_ADDRESS:
+            self._positions_fetch_failed = False
             return []
         
         # Rate limiting protection
         if not rate_limiter.can_call("user_state"):
             self.log("⚠️ Rate limit protection: skipping get_positions", "WARNING")
-            cached = self._positions_cache.get("data") or []
-            cache_time = float(self._positions_cache.get("time", 0) or 0)
-            if cached and (time.time() - cache_time) <= float(self._positions_cache_ttl or 0):
-                self.log("ℹ️ Returning cached positions due to rate limit", "INFO")
-                return cached
-            return []
+            return self._stale_positions_fallback("rate limit")
         rate_limiter.record_call("user_state")
         
         try:
             user_state = self.info.user_state(config.HL_ACCOUNT_ADDRESS)
             if not user_state:
-                return []
+                return self._stale_positions_fallback("empty user_state")
             
             # assetPositions contains list of { position: {...}, type: 'oneWay' }
             raw_positions = user_state.get("assetPositions", [])
             positions = []
-            
-            # Get user fills to find entry times
-            try:
-                user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
-            except:
-                user_fills = []
             
             for item in raw_positions:
                 pos = item.get("position", {})
@@ -1067,20 +1087,6 @@ class HyperliquidService:
                 
                 symbol = pos.get("coin", "UNKNOWN")
                 is_long = size > 0
-                
-                # Find entry time from fills (most recent fill that OPENED this position)
-                entry_time = None
-                if user_fills:
-                    # Look for the opening fill that matches current position direction
-                    target_dir = "Open Long" if is_long else "Open Short"
-                    for fill in user_fills:
-                        if fill.get("coin") == symbol and fill.get("dir") == target_dir:
-                            # Found the opening fill for this position
-                            timestamp_ms = fill.get("time", 0)
-                            if timestamp_ms:
-                                import pandas as pd
-                                entry_time = pd.Timestamp(timestamp_ms, unit='ms').isoformat()
-                                break  # Use the most recent opening fill
                 
                 # Robust leverage parsing
                 lev_data = pos.get("leverage", {})
@@ -1097,20 +1103,18 @@ class HyperliquidService:
                     "pnl": float(pos.get("unrealizedPnl", 0.0)),
                     "leverage": leverage,
                     "liquidation_price": float(pos.get("liquidationPx", 0.0)) if pos.get("liquidationPx") else None,
-                    "entry_time": entry_time
+                    # entry_time comes from bot state / history — do not call user_fills
+                    # here (extra CloudFront load caused 504s and false sync closes).
+                    "entry_time": None,
                 })
             
             # Update cache (even if empty, it reflects truth at this time)
             self._positions_cache = {"time": time.time(), "data": positions}
+            self._positions_fetch_failed = False
             return positions
         except Exception as e:
             self.log(f"Error fetching positions: {e}")
-            cached = self._positions_cache.get("data") or []
-            cache_time = float(self._positions_cache.get("time", 0) or 0)
-            if cached and (time.time() - cache_time) <= float(self._positions_cache_ttl or 0):
-                self.log("⚠️ Returning cached positions due to get_positions error", "WARNING")
-                return cached
-            return []
+            return self._stale_positions_fallback(f"error: {e}")
 
     @lightweight_operation
     def cancel_all_orders(self, symbol: str):
@@ -1257,88 +1261,98 @@ class HyperliquidService:
 
     def get_trade_history(self, limit: int = 100):
         """
-        Récupère l'historique des trades depuis Hyperliquid
+        Récupère l'historique des trades depuis Hyperliquid.
         
         Returns:
-            List of trades with: symbol, side, entry, exit, pnl, timestamp
+            List of trades on success (possibly empty).
+            ``None`` when the API fails after retries (504/5xx/network) so callers
+            can distinguish "no fills" from "history unavailable".
         """
         if not config.HL_ACCOUNT_ADDRESS:
             return []
-        
-        try:
-            # Utiliser l'API Hyperliquid pour récupérer les fills (trades exécutés)
-            user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
-            
-            if not user_fills:
-                return []
-            
-            # DEBUG: See raw data in console
-            print(f"🔎 [HyperliquidService] Raw Fills (first 2): {user_fills[:2]}")
-            
-            # Parser et formater les trades
-            trades = []
-            
-            # Grouper les fills par position (entry + exit)
-            # Pour simplifier, on prend chaque fill comme un trade individuel
-            for fill in user_fills[:limit]:
-                try:
-                    coin = fill.get("coin", "")
-                    side = "BUY" if fill.get("side") == "B" else "SELL"
-                    price = float(fill.get("px", 0))
-                    size = float(fill.get("sz", 0))
-                    timestamp = fill.get("time", 0)
-                    oid = str(fill.get("oid", ""))
-                    
-                    # Robust PnL Mapping
-                    # Hyperliquid sometimes returns 'closedPnl', sometimes it's implied in other structures
-                    closed_pnl = fill.get("closedPnl")
-                    if closed_pnl is None:
-                        closed_pnl = 0.0
-                    else:
-                        closed_pnl = float(closed_pnl)
-                    
-                    # Formater timestamp
-                    if timestamp:
-                        timestamp_str = pd.Timestamp(timestamp, unit='ms').isoformat()
-                    else:
-                        timestamp_str = pd.Timestamp.now().isoformat()
-                    
-                    # Unique ID generation: Symbol + Timestamp + OID (to be sure)
-                    unique_id = f"{coin}_{timestamp}_{oid}"
-                    
-                    trade_data = {
-                        "id": unique_id,
-                        "oid": oid,
-                        "symbol": coin,
-                        "side": side,
-                        "entry_price": price,
-                        "exit_price": price,
-                        "size": size,
-                        "pnl": closed_pnl,
-                        "pnl_percent": (closed_pnl / (price * size) * 100) if (price * size) > 0 else 0,
-                        "entry_time": timestamp_str,
-                        "exit_time": timestamp_str,
-                        "timestamp": timestamp_str,
-                        "fee": float(fill.get("fee", 0)),
-                        "strategy": "Unknown",
-                        "exit_reason": "Hyperliquid",
-                        "source": "hyperliquid",
-                        "leverage": 1
-                    }
-                    
-                    trades.append(trade_data)
-                    
-                except Exception as e:
-                    self.log(f"Error parsing fill: {e}")
+
+        max_retries = 3
+        retry_delay = 1.0
+        user_fills = None
+        last_err = None
+
+        for attempt in range(max_retries):
+            try:
+                user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                err_str = str(e).lower()
+                retriable = (
+                    _is_rate_limit_error(e)
+                    or "504" in err_str
+                    or "502" in err_str
+                    or "503" in err_str
+                    or "timeout" in err_str
+                    or "gateway" in err_str
+                )
+                if retriable and attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)
+                    self.log(
+                        f"Trade history fetch failed ({e}); retry in {wait_time:.0f}s "
+                        f"({attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
                     continue
-            
-            return trades
-            
-        except Exception as e:
-            self.log(f"Error fetching trade history from Hyperliquid: {e}")
-            import traceback
-            traceback.print_exc()
+                break
+
+        if last_err is not None:
+            self.log(f"Error fetching trade history from Hyperliquid: {last_err}")
+            return None
+
+        if not user_fills:
             return []
+
+        trades = []
+        for fill in user_fills[:limit]:
+            try:
+                coin = fill.get("coin", "")
+                side = "BUY" if fill.get("side") == "B" else "SELL"
+                price = float(fill.get("px", 0))
+                size = float(fill.get("sz", 0))
+                timestamp = fill.get("time", 0)
+                oid = str(fill.get("oid", ""))
+
+                closed_pnl = fill.get("closedPnl")
+                closed_pnl = 0.0 if closed_pnl is None else float(closed_pnl)
+
+                if timestamp:
+                    timestamp_str = pd.Timestamp(timestamp, unit='ms').isoformat()
+                else:
+                    timestamp_str = pd.Timestamp.now().isoformat()
+
+                unique_id = f"{coin}_{timestamp}_{oid}"
+                trades.append({
+                    "id": unique_id,
+                    "oid": oid,
+                    "symbol": coin,
+                    "side": side,
+                    "entry_price": price,
+                    "exit_price": price,
+                    "size": size,
+                    "pnl": closed_pnl,
+                    "pnl_percent": (closed_pnl / (price * size) * 100) if (price * size) > 0 else 0,
+                    "entry_time": timestamp_str,
+                    "exit_time": timestamp_str,
+                    "timestamp": timestamp_str,
+                    "fee": float(fill.get("fee", 0)),
+                    "strategy": "Unknown",
+                    "exit_reason": "Hyperliquid",
+                    "source": "hyperliquid",
+                    "dir": fill.get("dir", ""),
+                    "leverage": 1,
+                })
+            except Exception as e:
+                self.log(f"Error parsing fill: {e}")
+                continue
+
+        return trades
 
     def get_market_data(self, symbol: str):
         """

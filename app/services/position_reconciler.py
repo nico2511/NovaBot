@@ -44,6 +44,10 @@ class PositionReconciler:
         """Single reconciliation pass — the source of truth is always the exchange."""
         try:
             exchange_positions = self.hl.get_positions()
+            if getattr(self.hl, "_positions_fetch_failed", False) is True:
+                logger.warning("⚠️ Reconciler: positions unavailable — skipping this pass")
+                return
+
             # Only positions with a non-zero size are truly open
             active_positions = [
                 p for p in exchange_positions
@@ -99,24 +103,25 @@ class PositionReconciler:
                 with self.bot_context.trade_lock:
                     trade = self.bot_context.active_trades.get(symbol)
 
-                # Prefer full closure path (history + daily risk + state save).
-                # Fallback to pop-only if handler is unavailable.
+                # Only drop memory when a Close fill is confirmed — never on API gaps.
                 try:
                     if trade and hasattr(self.bot_context, "_handle_external_closure"):
-                        self.bot_context._handle_external_closure(symbol, trade, silent=True)
+                        closed = self.bot_context._handle_external_closure(
+                            symbol, trade, silent=True
+                        )
+                        if closed:
+                            logger.info(f"✅ Ghost trade removed after confirmed fill: {symbol}")
+                        else:
+                            logger.info(
+                                f"ℹ️ {symbol} still tracked — waiting for exchange Close fill "
+                                f"(SL/TP remain authoritative)"
+                            )
                     else:
-                        with self.bot_context.trade_lock:
-                            self.bot_context.active_trades.pop(symbol, None)
-                        try:
-                            from app.core.state_manager import StateManager
-                            StateManager.save_state(self.bot_context)
-                        except Exception:
-                            pass
+                        logger.warning(
+                            f"⚠️ No external-closure handler for {symbol} — leaving trade tracked"
+                        )
                 except Exception as e:
-                    logger.error(f"❌ Ghost cleanup failed for {symbol}: {e}")
-                    with self.bot_context.trade_lock:
-                        self.bot_context.active_trades.pop(symbol, None)
-                logger.info(f"✅ Ghost trade removed: {symbol}")
+                    logger.error(f"❌ Ghost cleanup failed for {symbol}: {e} — leaving trade tracked")
 
     # ------------------------------------------------------------------
     # Step 2 — Orphan adoption

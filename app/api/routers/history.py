@@ -47,6 +47,16 @@ def get_exchange_fills(limit: int = 100):
         
         logger.info(f"📊 Fetching fills from Hyperliquid API (limit={limit})...")
         trades = hyperliquid_service.get_trade_history(limit=limit)
+        if trades is None:
+            if _exchange_fills_cache["data"]:
+                return {
+                    "source": "hyperliquid",
+                    "trades": _exchange_fills_cache["data"],
+                    "cached": True,
+                    "stale": True,
+                    "error": "history fetch failed",
+                }
+            return {"source": "hyperliquid", "trades": [], "error": "history fetch failed"}
         
         if trades:
             _exchange_fills_cache["data"] = trades

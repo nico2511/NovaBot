@@ -20,10 +20,11 @@ from app.services.position_reconciler import PositionReconciler
 class _BotStub:
     """Minimal BotContext replacement for reconciler tests."""
 
-    def __init__(self, active_trades: dict | None = None):
+    def __init__(self, active_trades: dict | None = None, confirm_close: bool = True):
         self.active_trades = active_trades or {}
         self.trade_lock = threading.RLock()
         self.adopt_calls: list[tuple[dict, float, float]] = []
+        self.confirm_close = confirm_close
 
     def _adopt_existing_position(self, pos: dict, sl: float = 0, tp: float = 0):
         self.adopt_calls.append((pos, sl, tp))
@@ -35,6 +36,14 @@ class _BotStub:
             "sl": sl,
             "tp": tp,
         }
+
+    def _handle_external_closure(self, symbol, trade, silent=True, position_confirmed_flat=False):
+        """Simulate bot policy: only drop memory when a Close fill is confirmed."""
+        if not self.confirm_close:
+            return False
+        with self.trade_lock:
+            self.active_trades.pop(symbol, None)
+        return True
 
 
 @pytest.fixture
@@ -88,6 +97,19 @@ def test_zero_size_position_is_treated_as_ghost(mocks):
 
     reconciler.reconcile()
     assert "BTC" not in bot.active_trades
+
+
+def test_ghost_kept_when_close_fill_not_confirmed(mocks):
+    """API/history gaps must not erase tracking while exchange SL/TP are live."""
+    reconciler, hl, _ = mocks
+    bot = _BotStub(active_trades={"ETH": {"side": "SELL"}}, confirm_close=False)
+    reconciler.bot_context = bot
+
+    hl.get_positions.return_value = []
+    hl.get_open_orders.return_value = []
+
+    reconciler.reconcile()
+    assert "ETH" in bot.active_trades
 
 
 # ----------------------------------------------------------------------

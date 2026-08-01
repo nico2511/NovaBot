@@ -1138,20 +1138,29 @@ class BotContext:
         # Verify position exists before attempting to close
         try:
             positions = hyperliquid_service.get_positions()
+            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+                self.add_log(
+                    f"⛔ Cannot close {symbol}: positions API unavailable — "
+                    f"aborting market close (exchange SL/TP stay in place)"
+                )
+                return False
             position_exists = any(p.get("symbol") == symbol and float(p.get("size", 0)) > 0 for p in positions)
             
             if not position_exists:
                 self.add_log(f"⚠️ Cannot close {symbol}: No open position found on exchange.")
-                # CRITICAL: If the bot thinks we have a trade but exchange says no, CLEAN UP LOCAL MEMORY
+                # Only drop memory after a confirmed Close fill — never on a bare empty book
+                trade = None
                 with self.trade_lock:
-                    if symbol in self.active_trades:
-                        self.add_log(f"🧹 Local memory sync: Removing 'ghost' trade for {symbol}")
-                        self.active_trades.pop(symbol, None)
-                        StateManager.save_state(self)
+                    trade = self.active_trades.get(symbol)
+                if trade:
+                    self._handle_external_closure(symbol, trade, silent=True)
                 return False
         except Exception as e:
-            self.add_log(f"⚠️ Failed to verify position for {symbol}: {e}")
-            # Continue anyway - let Hyperliquid API handle the error
+            self.add_log(
+                f"⛔ Failed to verify position for {symbol}: {e} — "
+                f"aborting market close (exchange SL/TP stay in place)"
+            )
+            return False
             
         tid = None
         try:
@@ -1164,10 +1173,27 @@ class BotContext:
         
         # Get position data BEFORE closing for accurate PnL calculation
         positions_before = hyperliquid_service.get_positions()
+        if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+            self.add_log(
+                f"⛔ ATOMIC EXIT aborted for {symbol}: positions API unavailable — "
+                f"will not market-close (exchange SL/TP remain in place)"
+                + (f" | id={tid}" if tid else "")
+            )
+            return False
         position_data = next((p for p in positions_before if p["symbol"] == symbol), None)
         
         if not position_data:
-            self.add_log(f"⚠️ No position data found for {symbol}, PnL calculation may be inaccurate")
+            # Flat book from a *successful* fetch — nothing to market-close
+            self.add_log(
+                f"⚠️ No open position for {symbol} on exchange — skip market close"
+                + (f" | id={tid}" if tid else "")
+            )
+            trade = None
+            with self.trade_lock:
+                trade = self.active_trades.get(symbol)
+            if trade:
+                self._handle_external_closure(symbol, trade, silent=True)
+            return False
         
         try:
             result = hyperliquid_service.close_position(symbol)
@@ -1368,7 +1394,12 @@ class BotContext:
         return True
 
     def _check_local_exits(self, trade: dict, symbol: str, current_price: float):
-        """Check for local SL/TP triggers"""
+        """Backup local SL/TP check — exchange trigger orders remain primary.
+
+        Only market-closes when we have a valid live price AND the position is
+        still open on a successful positions fetch. API errors must never force
+        a close while exchange SL/TP are working.
+        """
         # Never exit on a missing/stale quote — price=0 on a SHORT always hits TP.
         if current_price is None or float(current_price) <= 0:
             return
@@ -1393,6 +1424,25 @@ class BotContext:
                 exit_triggered = True; reason = "TAKE_PROFIT"
                 
         if exit_triggered:
+            # Prefer letting exchange SL/TP fill; only backstop if position still open
+            positions = hyperliquid_service.get_positions()
+            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+                self.add_log(
+                    f"⚠️ Local {reason} for {symbol} ignored — positions API down; "
+                    f"exchange SL/TP remain in charge" + (f" | id={tid}" if tid else "")
+                )
+                return
+            still_open = any(
+                p.get("symbol") == symbol and float(p.get("size", 0) or 0) != 0
+                for p in (positions or [])
+            )
+            if not still_open:
+                self.add_log(
+                    f"ℹ️ Local {reason} for {symbol} but exchange already flat — syncing memory"
+                    + (f" | id={tid}" if tid else "")
+                )
+                self._handle_external_closure(symbol, trade, silent=True)
+                return
             self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}" + (f" | id={tid}" if tid else ""))
             self.execute_exit_atomically(symbol, reason)
 
@@ -1468,6 +1518,10 @@ class BotContext:
         """Unified State Synchronization (Stateless Truth) - Multi-Position aware"""
         try:
             positions = hyperliquid_service.get_positions()
+            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+                self.add_log("⚠️ SYNC: positions unavailable — skipping adopt/close this tick")
+                return
+
             # Map of symbols currently on exchange
             active_exchange_positions = {p["symbol"]: p for p in positions if float(p.get("size", 0)) != 0}
             
@@ -1496,6 +1550,19 @@ class BotContext:
                 if symbol not in active_exchange_positions:
                     trade = self.active_trades.get(symbol)
                     if not trade: continue
+
+                    # Confirm once more before treating as closed (transient API gaps)
+                    time.sleep(0.5)
+                    confirm = hyperliquid_service.get_positions()
+                    if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+                        self.add_log(f"⚠️ SYNC: skip closure for {symbol} (confirm fetch failed)")
+                        continue
+                    if any(
+                        p.get("symbol") == symbol and float(p.get("size", 0) or 0) != 0
+                        for p in (confirm or [])
+                    ):
+                        self.add_log(f"⚠️ SYNC: {symbol} still open on confirm — not closing")
+                        continue
                     
                     # ALWAYS log closure detections (critical state transition)
                     tid = trade.get("trade_id") if isinstance(trade, dict) else None
@@ -1505,126 +1572,155 @@ class BotContext:
             # ALWAYS log sync errors (was silent=True before, hiding ghost trade bugs)
             self.add_log(f"⚠️ Sync Error: {e}")
 
-    def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True):
-        """Logic to record and clean up a trade closed externally"""
-        # Claim ownership under lock first so reconciler + sync cannot double-count PnL.
+    def _handle_external_closure(self, symbol: str, trade: dict, silent: bool = True, position_confirmed_flat: bool = False):
+        """Record a trade only after Hyperliquid confirms a closing fill.
+
+        Never market-closes on the exchange. Never drops local tracking / records
+        estimated PnL on API gaps (504, empty history, WS blips) — exchange SL/TP
+        remain the source of truth until a real Close fill appears.
+        """
+        tid = (trade or {}).get("trade_id") if isinstance(trade, dict) else None
+        _ = position_confirmed_flat  # kept for call-site compatibility
+
+        try:
+            recent_trades = hyperliquid_service.get_trade_history(limit=50)
+        except Exception as hist_err:
+            self.add_log(
+                f"⚠️ SYNC: history error for {symbol} — keeping trade active (SL/TP stay on exchange): {hist_err}"
+                + (f" | id={tid}" if tid else "")
+            )
+            return False
+
+        if recent_trades is None:
+            self.add_log(
+                f"⚠️ SYNC: history unavailable for {symbol} — keeping trade active "
+                f"(no estimated close; exchange SL/TP remain authoritative)"
+                + (f" | id={tid}" if tid else "")
+            )
+            return False
+
+        def _trade_ts(t):
+            ts = t.get("timestamp", t.get("time", 0))
+            try:
+                return int(ts)
+            except (TypeError, ValueError):
+                try:
+                    dt = pd.to_datetime(ts, utc=True, errors="coerce")
+                    if pd.isna(dt):
+                        return 0
+                    return int(dt.value // 1_000_000)
+                except Exception:
+                    return 0
+
+        # Hard requirement: a real closing fill (not "latest fill" / estimated mid)
+        symbol_trades = [t for t in recent_trades if t.get("symbol") == symbol]
+        symbol_trades.sort(key=_trade_ts, reverse=True)
+        closing_trade = next(
+            (
+                t for t in symbol_trades
+                if float(t.get("pnl") or 0) != 0
+                or "Close" in str(t.get("dir", ""))
+            ),
+            None,
+        )
+
+        if not closing_trade:
+            self.add_log(
+                f"⚠️ SYNC: {symbol} missing from book but no Close fill yet — "
+                f"keeping trade active (waiting for exchange SL/TP fill)"
+                + (f" | id={tid}" if tid else "")
+            )
+            return False
+
+        # Confirmed close fill → safe to release local tracking
         with self.trade_lock:
             current = self.active_trades.get(symbol)
             if not current:
-                return
-            # Prefer freshest dict if caller passed a stale copy
+                return False
             trade = current
             self.active_trades.pop(symbol, None)
+            tid = trade.get("trade_id") if isinstance(trade, dict) else None
 
-        tid = trade.get("trade_id") if isinstance(trade, dict) else None
-        self.add_log(f"🔄 EXTERNAL CLOSURE DETECTED: {symbol} — Processing..." + (f" | id={tid}" if tid else ""))
-        pnl_usdc = 0
+        self.add_log(
+            f"🔄 EXTERNAL CLOSURE CONFIRMED: {symbol} — Close fill found"
+            + (f" | id={tid}" if tid else "")
+        )
         try:
-            # 1. Fetch recent history from Exchange to find REAL exit price
-            recent_trades = hyperliquid_service.get_trade_history(limit=50)
-            # FIX: get_trade_history returns 'symbol', NOT 'coin'
-            symbol_trades = [t for t in recent_trades if t.get('symbol') == symbol]
-            # Prefer latest trade by timestamp if available.
-            def _trade_ts(t):
-                ts = t.get("timestamp", t.get("time", 0))
-                try:
-                    return int(ts)
-                except (TypeError, ValueError):
-                    try:
-                        # Our trade_history uses ISO timestamps like "2026-04-23T15:24:47..."
-                        dt = pd.to_datetime(ts, utc=True, errors="coerce")
-                        if pd.isna(dt):
-                            return 0
-                        return int(dt.value // 1_000_000)  # ms
-                    except Exception:
-                        return 0
-            symbol_trades.sort(key=_trade_ts, reverse=True)
-            closing_trade = symbol_trades[0] if symbol_trades else None
-            
             entry_price = float(trade.get("entry", 0))
             size = float(trade.get("size", 0))
             side = trade.get("side")
-            
+            exit_price = float(closing_trade.get("entry_price", 0))
+            pnl_usdc = float(closing_trade.get("pnl", 0))
             exchange_close_time = None
-            if closing_trade:
-                exit_price = float(closing_trade.get("entry_price", 0)) # in trade history, entry_price is the fill price
-                pnl_usdc = float(closing_trade.get("pnl", 0))
-                raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
-                try:
-                    if raw_ts is not None:
-                        # raw_ts may be ms int OR ISO string depending on parser
-                        try:
-                            ts_val = int(raw_ts)
-                            exchange_close_time = pd.to_datetime(ts_val, unit="ms", utc=True).isoformat()
-                        except Exception:
-                            dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
-                            if not pd.isna(dt):
-                                exchange_close_time = dt.isoformat()
-                except Exception:
-                    exchange_close_time = None
-                
-                if pnl_usdc == 0 and entry_price > 0:
-                    pnl_usdc = (float(exit_price) - float(entry_price)) * float(size) if side == "BUY" else (float(entry_price) - float(exit_price)) * float(size)
-                
-                # ALWAYS log closure details (critical for debugging)
-                if exchange_close_time:
-                    self.add_log(
-                        f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}, ExchangeTime: {exchange_close_time})" +
-                        (f" | id={tid}" if tid else "")
-                    )
-                else:
-                    self.add_log(
-                        f"📝 SYNC: Found closure details for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f})" +
-                        (f" | id={tid}" if tid else "")
-                    )
-            else:
-                 # Fallback recording based on current market price
-                 exit_price = hyperliquid_service.get_current_price(symbol)
-                 pnl_usdc = (exit_price - entry_price) * size if side == "BUY" else (entry_price - exit_price) * size
-                 self.add_log(
-                     f"⚠️ SYNC: Could not find exact closure in history for {symbol}. Recording estimated PnL: ${pnl_usdc:.2f}" +
-                     (f" | id={tid}" if tid else "")
-                 )
+            raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
+            try:
+                if raw_ts is not None:
+                    try:
+                        ts_val = int(raw_ts)
+                        exchange_close_time = pd.to_datetime(ts_val, unit="ms", utc=True).isoformat()
+                    except Exception:
+                        dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
+                        if not pd.isna(dt):
+                            exchange_close_time = dt.isoformat()
+            except Exception:
+                exchange_close_time = None
 
-            # Record history + daily risk accounting (daily stop depends on this)
+            if pnl_usdc == 0 and entry_price > 0 and exit_price > 0:
+                pnl_usdc = (
+                    (exit_price - entry_price) * size
+                    if side == "BUY"
+                    else (entry_price - exit_price) * size
+                )
+
+            self.add_log(
+                f"📝 SYNC: Confirmed close for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}"
+                + (f", ExchangeTime: {exchange_close_time}" if exchange_close_time else "")
+                + ")"
+                + (f" | id={tid}" if tid else "")
+            )
+
             self.trade_recorder.add_trade({
-                  "trade_id": tid,
-                  "symbol": symbol,
-                  "strategy": trade.get("strategy", "Unknown"),
-                  "side": side,
-                  "entry_price": entry_price,
-                  "exit_price": exit_price,
-                  "size": size,
-                  "pnl": pnl_usdc,
-                  "pnl_usdc": pnl_usdc,
-                  "exit_reason": "External/Sync Close",
-                  "exit_time": pd.Timestamp.now().isoformat(),
-                  "entry_indicators": trade.get("entry_indicators", {})
+                "trade_id": tid,
+                "symbol": symbol,
+                "strategy": trade.get("strategy", "Unknown"),
+                "side": side,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "size": size,
+                "pnl": pnl_usdc,
+                "pnl_usdc": pnl_usdc,
+                "exit_reason": "External/Sync Close",
+                "exit_time": pd.Timestamp.now().isoformat(),
+                "entry_indicators": trade.get("entry_indicators", {}),
             })
             try:
                 self.risk_manager.record_trade_close(float(pnl_usdc))
             except Exception as risk_err:
                 self.add_log(f"⚠️ Failed to update daily risk after external close: {risk_err}")
-            
+
             discord_service.send_alert(
                 f"🏁 TRADE CLOSED (Exchange): {symbol}",
-                f"Reason: External Close (SL/TP?)\n"
+                f"Reason: Confirmed exchange fill (SL/TP/manual)\n"
                 f"PnL: ${pnl_usdc:.2f}\n"
                 f"Exchange close time (if available): {exchange_close_time or 'N/A'}\n"
                 f"Detected by bot at: {pd.Timestamp.now(tz='UTC').isoformat()}",
-                color="00FF00" if pnl_usdc >= 0 else "FF0000"
+                color="00FF00" if pnl_usdc >= 0 else "FF0000",
             )
 
-        except Exception as e:
-            # ALWAYS log errors (was silent before, causing ghost trades)
-            self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e}")
-        
-        finally:
             try:
                 StateManager.save_state(self)
-                self.add_log(f"✅ Ghost trade {symbol} cleaned from state")
+                self.add_log(f"✅ Trade {symbol} cleaned from state after confirmed close")
             except Exception as save_err:
                 self.add_log(f"⚠️ Failed to save state after external close {symbol}: {save_err}")
+            return True
+
+        except Exception as e:
+            # Restore tracking if we popped but failed mid-record
+            with self.trade_lock:
+                if symbol not in self.active_trades and trade:
+                    self.active_trades[symbol] = trade
+            self.add_log(f"⚠️ Error in _handle_external_closure for {symbol}: {e} — trade restored")
+            return False
 
     def force_sync(self):
         """Manually trigger synchronization with Exchange."""
