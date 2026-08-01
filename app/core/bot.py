@@ -2816,14 +2816,13 @@ class BotContext:
             except Exception as e:
                 self.add_log(f"⚠️ Final sync failed: {e}")
             
-            # Cancel orders for ALL active trades, not just the current symbol
-            for symbol in list(self.active_trades.keys()):
-                try:
-                    self.add_log(f"🧹 Cancelling pending orders for {symbol}...")
-                    hyperliquid_service.cancel_all_orders(symbol)
-                    self.add_log(f"✅ Orders cancelled for {symbol}")
-                except Exception as e:
-                    self.add_log(f"⚠️ Failed to cancel orders for {symbol}: {e}")
+            # Do NOT cancel exchange orders on shutdown — SL/TP must stay live
+            # across redeploys/restarts. Leaving reduce-only triggers in place.
+            if self.active_trades:
+                self.add_log(
+                    f"🛡️ Leaving exchange SL/TP in place for: "
+                    f"{', '.join(self.active_trades.keys())}"
+                )
             
             try:
                 if getattr(self, "scanner_job", None):

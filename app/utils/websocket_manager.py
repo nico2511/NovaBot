@@ -58,6 +58,8 @@ class WebSocketPriceManager:
         self._running = False
         self._reconnect_delay = 1.0
         self._max_reconnect_delay = 60.0
+        self._websocket = None  # active connection; closed from stop() to unblock recv
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Hyperliquid WebSocket endpoint
         self._ws_url = "wss://api.hyperliquid.xyz/ws"
@@ -107,11 +109,23 @@ class WebSocketPriceManager:
         
         self._log_info("🛑 Stopping WebSocket Manager...")
         self._running = False
+
+        # Unblock recv() on the WS thread's loop (cross-thread safe)
+        ws = self._websocket
+        loop = self._loop
+        if ws is not None and loop is not None and loop.is_running():
+            try:
+                fut = asyncio.run_coroutine_threadsafe(ws.close(), loop)
+                fut.result(timeout=2.0)
+            except Exception:
+                pass
+        self._websocket = None
         
         if self._ws_thread:
-            self._ws_thread.join(timeout=3.0)
+            self._ws_thread.join(timeout=5.0)
             if self._ws_thread.is_alive():
-                self._log_warning("⚠️ WebSocket thread did not terminate immediately.")
+                # Daemon thread — harmless; do not WARNING (Discord spam on redeploy)
+                self._log_info("ℹ️ WebSocket thread still winding down (daemon; safe to ignore).")
             else:
                 self._log_info("✅ WebSocket Manager stopped.")
 
@@ -160,6 +174,7 @@ class WebSocketPriceManager:
         """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self._loop = loop
         
         while self._running:
             try:
@@ -189,8 +204,9 @@ class WebSocketPriceManager:
         
         try:
             loop.close()
-        except:
+        except Exception:
             pass
+        self._loop = None
         self._log_info("🔌 WebSocket event loop terminated.")
 
     async def _subscribe_and_listen(self) -> None:
@@ -201,33 +217,38 @@ class WebSocketPriceManager:
             ping_timeout=20,
             close_timeout=5,
         ) as websocket:
-            self._log_info("✅ WebSocket Connected.")
-            # Fresh connection — reset backoff so routine closes don't grow forever
-            self._reconnect_delay = 1.0
-            
-            # Subscribe to allMids
-            sub_msg = {
-                "method": "subscribe",
-                "subscription": {"type": "allMids"}
-            }
-            await websocket.send(json.dumps(sub_msg))
-            self._log_info("📡 Subscribed to 'allMids'.")
-            
-            while self._running:
-                try:
-                    # 20s timeout for heartbeats
-                    message = await asyncio.wait_for(websocket.recv(), timeout=20.0)
-                    self._process_message(message)
-                except asyncio.TimeoutError:
-                    # Ping to check aliveness
-                    await websocket.ping()
-                except websockets.exceptions.ConnectionClosed as e:
-                    # INFO only — Discord forwards WARNING/ERROR and this is routine (~3h LB)
-                    self._log_info(f"🔌 WS closed by server ({getattr(e, 'code', '?')}); will reconnect.")
-                    break
-                except Exception as e:
-                    self._log_error(f"⚠️ Error receiving message: {e}")
-                    break
+            self._websocket = websocket
+            try:
+                self._log_info("✅ WebSocket Connected.")
+                # Fresh connection — reset backoff so routine closes don't grow forever
+                self._reconnect_delay = 1.0
+                
+                # Subscribe to allMids
+                sub_msg = {
+                    "method": "subscribe",
+                    "subscription": {"type": "allMids"}
+                }
+                await websocket.send(json.dumps(sub_msg))
+                self._log_info("📡 Subscribed to 'allMids'.")
+                
+                while self._running:
+                    try:
+                        # 20s timeout for heartbeats
+                        message = await asyncio.wait_for(websocket.recv(), timeout=20.0)
+                        self._process_message(message)
+                    except asyncio.TimeoutError:
+                        # Ping to check aliveness
+                        await websocket.ping()
+                    except websockets.exceptions.ConnectionClosed as e:
+                        # INFO only — Discord forwards WARNING/ERROR and this is routine (~3h LB)
+                        self._log_info(f"🔌 WS closed by server ({getattr(e, 'code', '?')}); will reconnect.")
+                        break
+                    except Exception as e:
+                        self._log_error(f"⚠️ Error receiving message: {e}")
+                        break
+            finally:
+                if self._websocket is websocket:
+                    self._websocket = None
 
     def _process_message(self, message: str) -> None:
         """Parses JSON message and updates price cache safely."""
