@@ -99,3 +99,29 @@ def test_unknown_risk_profile_falls_back_to_default(ia):
 
     out = ia._enforce_hard_constraints(signal, ai_result, "NonexistentProfile")
     assert out["approved"] is False  # 1.0 < 1.5 default
+
+
+def test_weak_volume_is_overridden_to_rejected(ia):
+    """Approved trade with volume_ratio < 50% is flipped to WEAK_VOLUME."""
+    signal = {"price": 100.0, "sl": 98.0, "tp": 104.0}  # good R:R
+    ai_result = {"approved": True, "confidence": 80, "reasoning": "AI ignored thin volume"}
+    ctx = {"volume_ratio": 12.9}
+
+    out = ia._enforce_hard_constraints(
+        signal, ai_result, "Capital Preservation First", market_context=ctx
+    )
+    assert out["approved"] is False
+    assert out["rejection_reason_category"] == "WEAK_VOLUME"
+    assert "Volume" in out["reasoning"]
+
+
+def test_healthy_volume_preserves_approval(ia):
+    signal = {"price": 100.0, "sl": 98.0, "tp": 104.0}
+    ai_result = {"approved": True, "confidence": 80, "reasoning": "ok"}
+    ctx = {"volume_ratio": 110.0}
+
+    out = ia._enforce_hard_constraints(
+        signal, ai_result, "Capital Preservation First", market_context=ctx
+    )
+    assert out["approved"] is True
+    assert out.get("rejection_reason_category") is None

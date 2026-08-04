@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 RSI_OVERBOUGHT = 80.0
 RSI_OVERSOLD = 30.0
 ADX_RUNAWAY = 55.0
-LOW_VOLUME_RATIO_PCT = 20.0
+LOW_VOLUME_RATIO_PCT = 50.0
 
 
 def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:

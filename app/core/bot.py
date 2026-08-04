@@ -92,6 +92,11 @@ class BotContext:
             "max_tokens": 40,
             "funding_filter_enabled": False,
             "scan_while_in_trade": False,
+            "whitelist": [
+                "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
+                "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
+                "DOT", "ATOM", "LTC", "BCH", "XRP"
+            ],
         }
         # Lazy-init after StrategyEngine exists (constructed just above)
         from app.core.scanner_job import ScannerJob
@@ -845,8 +850,59 @@ class BotContext:
         pass
 
     def _fetch_mtf_sentiment(self, symbol: str) -> str:
-        """Disabled"""
-        return "Multi-Timeframe Data Unavailable"
+        """Build a compact 1h/4h text summary (EMA bias + SuperTrend + ADX)."""
+        try:
+            from app.services.indicators import Indicators
+
+            lines = []
+            for tf in ("1h", "4h"):
+                try:
+                    df = hyperliquid_service.get_candles(symbol, interval=tf, limit=80)
+                except Exception as e:
+                    lines.append(f"{tf}: fetch error ({e})")
+                    continue
+                if df is None or df.empty or len(df) < 30:
+                    lines.append(f"{tf}: insufficient data")
+                    continue
+
+                idx = -2 if len(df) >= 2 else -1
+                close = df["close"]
+                ema50 = close.ewm(span=50, adjust=False).mean()
+                price = float(close.iloc[idx])
+                ema_val = float(ema50.iloc[idx])
+                bias = "BULLISH" if price >= ema_val else "BEARISH"
+                dist_pct = ((price - ema_val) / ema_val) * 100 if ema_val else 0.0
+
+                st_dir = "N/A"
+                try:
+                    st = Indicators.supertrend(df["high"], df["low"], df["close"], period=10, multiplier=3.0)
+                    direction = int(st["Direction"].iloc[idx])
+                    st_dir = "BULLISH" if direction > 0 else "BEARISH"
+                except Exception:
+                    pass
+
+                adx_val = 0.0
+                try:
+                    adx_df = Indicators.adx(df["high"], df["low"], df["close"], 14)
+                    adx_val = float(adx_df["ADX"].iloc[idx])
+                except Exception:
+                    pass
+
+                aligned = "ALIGNED" if (
+                    (bias == "BULLISH" and st_dir == "BULLISH")
+                    or (bias == "BEARISH" and st_dir == "BEARISH")
+                ) else "MIXED"
+                lines.append(
+                    f"{tf}: bias={bias} ST={st_dir} ({aligned}) "
+                    f"ADX={adx_val:.1f} close_vs_ema50={dist_pct:+.2f}%"
+                )
+
+            if not lines:
+                return "Multi-Timeframe Data Unavailable"
+            return " | ".join(lines)
+        except Exception as e:
+            logger.warning("MTF sentiment failed for %s: %s", symbol, e)
+            return "Multi-Timeframe Data Unavailable"
 
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
@@ -1280,6 +1336,24 @@ class BotContext:
     def _check_hard_veto(self, signal: str, market_context: dict):
         """HARD VETO: thin shell around app.core.veto_checker.check_hard_veto."""
         return check_hard_veto(signal, market_context)
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        s = str(symbol or "").upper().replace("-USD", "").replace("-USDC", "").strip()
+        # Hyperliquid k-prefix (e.g. kPEPE) → bare ticker for whitelist match
+        if s.startswith("K") and len(s) > 2 and s[1:].isalpha():
+            return s[1:]
+        return s
+
+    def _is_symbol_whitelisted(self, symbol: str) -> bool:
+        """Empty whitelist = allow all. Non-empty = only listed coins."""
+        settings = getattr(self, "scanner_settings", {}) or {}
+        wl = settings.get("whitelist") or []
+        if not isinstance(wl, list) or not wl:
+            return True
+        allowed = {self._normalize_symbol(x) for x in wl if str(x).strip()}
+        return self._normalize_symbol(symbol) in allowed
+
     def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict, bypass_cooldown: bool = False):
         """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
         # GUARD: Only enforce if trading is ENABLED (Real Trading)
@@ -2113,6 +2187,24 @@ class BotContext:
 
                         # Trace id to correlate Pre-AI + AI verdict + (optional) payload logs.
                         ai_trace_id = uuid.uuid4().hex[:10]
+
+                        # --- WHITELIST GATE (before AI to skip memes / explosive alts) ---
+                        sig_symbol = sig.get("symbol", self.active_symbol)
+                        if not self._is_symbol_whitelisted(sig_symbol):
+                            self.add_log(
+                                f"⛔ WHITELIST BLOCK: {sig.get('signal')} {sig_symbol} "
+                                f"(not in scanner whitelist)"
+                            )
+                            try:
+                                discord_service.send_alert(
+                                    f"⛔ WHITELIST BLOCK: {sig.get('signal')} {sig_symbol}",
+                                    "Symbol not in majors/L2 whitelist — signal skipped before AI.",
+                                    color="FF9900",
+                                )
+                            except Exception:
+                                pass
+                            time.sleep(10)
+                            continue
                         
                         # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
                         cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
@@ -2132,6 +2224,24 @@ class BotContext:
                         market_context = self._prepare_ai_context()
                         # Inject Copilot MTF Sentiment
                         market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
+
+                        # --- HARD VETO (volume / RSI / ADX) before spending AI tokens ---
+                        veto_reason = self._check_hard_veto(
+                            sig.get("signal", "BUY"),
+                            market_context,
+                        )
+                        if veto_reason:
+                            self.add_log(f"⛔ {veto_reason}")
+                            try:
+                                discord_service.send_alert(
+                                    f"⛔ HARD VETO (trace={ai_trace_id}): {sig.get('signal')} {sig_symbol}",
+                                    veto_reason,
+                                    color="FF0000",
+                                )
+                            except Exception:
+                                pass
+                            time.sleep(10)
+                            continue
                         
                         # Discord debug notification at strategy-detection stage (before AI gate).
                         # Include a compact preview of the *actual* data that will be sent to IA.

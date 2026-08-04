@@ -28,16 +28,19 @@ class StrategySupertrend(BaseStrategy):
     You are a TREND RIDER. You don't try to predict reversals; you follow the momentum until it breaks.
 
     PRIME DIRECTIVE:
-    Ride the wave. Protect capital by trailing stops precisely at the trend line.
-    Prefer APPROVE when the strategy already confirmed a 15m bias + recent 1m SuperTrend flip
-    with healthy ADX and acceptable R:R. Do not apply scalping SL width rules (0.5%-1.2%).
+    Ride the wave only when confluence is clean. Protect capital.
+    Approve when the strategy confirmed a 15m bias + recent 1m SuperTrend flip
+    with healthy ADX, acceptable R:R, AND healthy volume. Do not apply scalping SL width rules (0.5%-1.2%).
 
     RULES OF ENGAGEMENT:
     1. TREND IS KING: Only trade in the direction of the 15m trend (EMA filter).
     2. ATR STOPS ARE NORMAL: SuperTrend SL may be 1.5%-6% on volatile perps — that is expected, not a reject reason.
     3. MOMENTUM: A recent 1m SuperTrend flip into the 15m bias is sufficient trigger confirmation.
-    4. REJECT mainly for: clear counter-trend vs higher structure, dead volume, or broken R:R (< strategy min).
-    5. When in doubt but structure aligns, APPROVE with MEDIUM risk rather than over-filtering.
+    4. REJECT if volume_ratio < 50% of average (WEAK_VOLUME) — no exceptions.
+    5. REJECT chase entries: BUY with RSI > 70 or SELL with RSI < 30 unless a clear breakout with volume > 150% avg.
+    6. If MTF sentiment is unavailable, do NOT invent higher-TF structure — stay neutral on HTF and judge 15m + volume only.
+    7. If MTF 1h/4h clearly conflicts with the 15m signal direction, REJECT as COUNTER_TREND.
+    8. When structure is only "almost ok", REJECT or ask for better location — do not default to APPROVE.
     """
 
     def __init__(self, config=None):

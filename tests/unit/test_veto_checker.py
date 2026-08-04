@@ -66,7 +66,7 @@ def test_adx_runaway_vetoes_any_side():
 
 
 def test_low_volume_vetoes_trade():
-    # current = 10% of avg → below LOW_VOLUME_RATIO_PCT (20%)
+    # current = 10% of avg → below LOW_VOLUME_RATIO_PCT (50%)
     ctx = _base_context(current_volume=100.0, avg_volume=1000.0)
     reason = check_hard_veto("BUY", ctx)
     assert reason is not None
@@ -74,12 +74,20 @@ def test_low_volume_vetoes_trade():
 
 
 def test_volume_ratio_at_threshold_passes():
-    # exactly at threshold (20%) → not vetoed (strict <)
+    # exactly at threshold (50%) → not vetoed (strict <)
     ctx = _base_context(
         current_volume=LOW_VOLUME_RATIO_PCT * 10,
         avg_volume=1000.0,
     )
     assert check_hard_veto("BUY", ctx) is None
+
+
+def test_volume_below_new_50_threshold_vetoes():
+    # 40% of avg must veto with LOW_VOLUME_RATIO_PCT=50
+    ctx = _base_context(current_volume=400.0, avg_volume=1000.0)
+    reason = check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "Low Volume" in reason
 
 
 def test_missing_indicators_do_not_crash():

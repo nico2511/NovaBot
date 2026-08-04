@@ -125,11 +125,19 @@ class ScannerJob:
         self.bot.add_log("🕵️ Manual SuperTrend scan started")
         return self._execute_scan(min_score=min_score, auto_switch=do_switch, alert=True)
 
+    def _whitelist(self) -> Optional[List[str]]:
+        settings = getattr(self.bot, "scanner_settings", {}) or {}
+        wl = settings.get("whitelist") or []
+        if not isinstance(wl, list) or not wl:
+            return None
+        return [str(s).strip().upper() for s in wl if str(s).strip()]
+
     def _execute_scan(self, min_score: float, auto_switch: bool, alert: bool) -> Dict[str, Any]:
         self.is_scanning = True
         try:
             self._refresh_scanner_config()
-            opportunities = self.scanner.scan(top_n=10, force=True)
+            whitelist = self._whitelist()
+            opportunities = self.scanner.scan(top_n=10, whitelist=whitelist, force=True)
             with self.results_lock:
                 self.last_results = opportunities
 

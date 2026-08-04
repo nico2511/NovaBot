@@ -502,24 +502,30 @@ Example:
         if is_supertrend:
             criteria = """=== VALIDATION CRITERIA (SUPERTREND) ===
 The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX filter, and a recent 1m SuperTrend flip.
-Your job is a sanity check, NOT a second full strategy rewrite.
+Your job is a sanity check with hard reject rules — not a rubber stamp.
 
-APPROVE when:
+APPROVE when ALL of:
 1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
 2. Computed R:R meets the risk-profile minimum
-3. No major red flag (dead volume, clearly fighting higher-TF structure)
+3. Volume ratio >= 50% of average
+4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
+
+REJECT when ANY of:
+- volume_ratio < 50% (WEAK_VOLUME)
+- BUY with RSI > 70 or SELL with RSI < 30 without volume > 150% (OVEREXTENDED chase)
+- 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
+- Computed R:R below profile minimum (BAD_RR)
 
 Do NOT reject solely because:
 - SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
-- RSI is moderately extended in a trending regime
+- RSI is moderately extended (50-70 long / 30-50 short) in a trending regime
 - Price is not sitting exactly on a Fib level
 
-Prefer approved=true with risk_level MEDIUM when structure is coherent.
-Reject only on clear BAD_RR, WEAK_VOLUME, or COUNTER_TREND."""
+If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         else:
             criteria = """=== VALIDATION CRITERIA ===
 Approve when direction, structure, volume and R:R are coherent.
-Reject on major red flags (counter-trend, dead volume, bad R:R, extreme chase).
+Reject on major red flags (counter-trend, dead volume < 50% avg, bad R:R, extreme chase).
 Prefer execution when R:R is good and momentum exists — do not over-filter."""
 
         # Prompt simplifié : Instruction directe de validation.
@@ -604,7 +610,9 @@ Volume:
 
         if result.get("raw_output") and result.get("rejection_reason_category") != "AI_PARSE_ERROR":
             # === CODE-LEVEL HARD CONSTRAINTS (Double-Check) ===
-            result = self._enforce_hard_constraints(signal_data, result, config.RISK_PROFILE)
+            result = self._enforce_hard_constraints(
+                signal_data, result, config.RISK_PROFILE, market_context=ctx
+            )
 
             # --- LOGGING V2 IMPROVEMENTS ---
             is_approved = result.get("approved", False)
@@ -631,9 +639,15 @@ Volume:
 
         return result
 
-    def _enforce_hard_constraints(self, signal: Dict[str, Any], ai_result: Dict[str, Any], risk_profile: str) -> Dict[str, Any]:
+    def _enforce_hard_constraints(
+        self,
+        signal: Dict[str, Any],
+        ai_result: Dict[str, Any],
+        risk_profile: str,
+        market_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
-        Mechanically enforce hard constraints (like R:R) to prevent AI hallucinations.
+        Mechanically enforce hard constraints (R:R, weak volume) to prevent AI hallucinations.
         """
         # Only check if AI approved the trade
         if not ai_result.get("approved"):
@@ -641,6 +655,7 @@ Volume:
             
         try:
             from app.core.prompts import RISK_PARAMS_MAP
+            from app.core.veto_checker import LOW_VOLUME_RATIO_PCT
             
             # 1. Check Risk:Reward
             entry = float(signal.get("price", 0))
@@ -667,6 +682,34 @@ Volume:
                             f"({min_rr}) for {risk_profile}. Trade Rejected."
                         )
                         ai_result["risk_score"] = 9
+                        return ai_result
+
+            # 2. Weak volume (code-enforced — model often notes then still approves)
+            ctx = market_context or {}
+            vol_ratio = ctx.get("volume_ratio")
+            if vol_ratio is None:
+                cur = ctx.get("current_volume")
+                avg = ctx.get("avg_volume")
+                try:
+                    if cur is not None and avg and float(avg) > 0:
+                        vol_ratio = (float(cur) / float(avg)) * 100.0
+                except (TypeError, ValueError):
+                    vol_ratio = None
+            try:
+                if vol_ratio is not None and float(vol_ratio) < float(LOW_VOLUME_RATIO_PCT):
+                    logger.warning(
+                        "[HARD CONSTRAINT] Weak volume %.1f%% < %.0f%%",
+                        float(vol_ratio), float(LOW_VOLUME_RATIO_PCT),
+                    )
+                    ai_result["approved"] = False
+                    ai_result["rejection_reason_category"] = "WEAK_VOLUME"
+                    ai_result["reasoning"] = (
+                        f"CRITICAL: Volume ratio ({float(vol_ratio):.1f}% of average) is below "
+                        f"minimum {LOW_VOLUME_RATIO_PCT:.0f}%. Trade Rejected."
+                    )
+                    ai_result["risk_score"] = 8
+            except (TypeError, ValueError):
+                pass
 
         except Exception as e:
             logger.warning("Failed to verify hard constraints: %s", e)

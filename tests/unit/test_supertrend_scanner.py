@@ -91,3 +91,43 @@ def test_filter_candidates_volume_and_oi():
     out = scanner.filter_candidates(data)
     assert len(out) == 1
     assert out[0]["symbol"] == "GOOD"
+
+
+def test_scan_whitelist_filters_candidates(monkeypatch):
+    scanner = SupertrendScanner(min_volume_24h=1_000_000, min_open_interest=500_000)
+    market = {
+        "BTC": {
+            "symbol": "BTC",
+            "volume_24h": 50_000_000,
+            "open_interest": 10_000_000,
+            "mark_price": 60000,
+            "prev_day_px": 59000,
+            "funding": 0.0,
+        },
+        "PUMP": {
+            "symbol": "PUMP",
+            "volume_24h": 40_000_000,
+            "open_interest": 8_000_000,
+            "mark_price": 0.002,
+            "prev_day_px": 0.0019,
+            "funding": 0.0,
+        },
+    }
+    monkeypatch.setattr(scanner, "get_market_data", lambda: market)
+    monkeypatch.setattr(
+        scanner,
+        "analyze_token",
+        lambda symbol, market=None: {
+            "symbol": symbol,
+            "score": 80,
+            "bias": "LONG",
+            "adx": 30,
+            "rsi": 55,
+            "current_price": 1.0,
+            "volume_24h": 10_000_000,
+            "reasons": ["test"],
+        },
+    )
+    results = scanner.scan(top_n=10, whitelist=["BTC", "ETH"], force=True)
+    assert len(results) == 1
+    assert results[0]["symbol"] == "BTC"

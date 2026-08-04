@@ -26,6 +26,11 @@
         "auto_switch": false,
         "max_funding_long": 0.0011,
         "min_funding_short": -0.0045,
-        "funding_filter_enabled": true
+        "funding_filter_enabled": true,
+        "whitelist": [
+            "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
+            "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
+            "DOT", "ATOM", "LTC", "BCH", "XRP"
+        ]
     }
 }

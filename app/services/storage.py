@@ -151,7 +151,12 @@ class StorageService:
                 "min_open_interest": 1000000,
                 "max_tokens": 40,
                 "funding_filter_enabled": False,
-                "scan_while_in_trade": False
+                "scan_while_in_trade": False,
+                "whitelist": [
+                    "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
+                    "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
+                    "DOT", "ATOM", "LTC", "BCH", "XRP"
+                ]
             },
             "notifications": {}
         })
