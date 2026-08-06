@@ -17,7 +17,7 @@ class StrategySupertrend(BaseStrategy):
     - Supertrend Flip: Enter when 1m Supertrend flips to match 15m bias.
 
     Risk:
-    - SL: Fixed at Supertrend line or ATR swing.
+    - SL: 15m SuperTrend line, widened by ATR floor / min_sl_pct (not noisy 1m ST).
     - TP: Risk-Reward from min_rr.
     """
 
@@ -57,16 +57,58 @@ class StrategySupertrend(BaseStrategy):
             "st_period":             int(self.get_param("period", 10)),
             "st_multiplier":         float(self.get_param("multiplier", 3.0)),
             "ema_filter":            int(self.get_param("ema_filter_period", 200)),
-            "adx_threshold":         float(self.get_param("adx_threshold", 15)),
-            "rr_ratio":              float(self.get_param("min_rr", 1.5)),
-            "sl_atr_mult":           float(self.get_param("sl_atr_mult", 1.0)),
-            "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 3)),
-            "cooldown_minutes":      int(self.get_param("cooldown_minutes", 0)),
+            "adx_threshold":         float(self.get_param("adx_threshold", 22)),
+            "rr_ratio":              float(self.get_param("min_rr", 2.0)),
+            "sl_atr_mult":           float(self.get_param("sl_atr_mult", 2.0)),
+            "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 4)),
+            "cooldown_minutes":      int(self.get_param("cooldown_minutes", 15)),
             # Anti stop-hunt guard: skip signals in thin liquidity + neutral momentum
             "min_volume_ratio_pct":  float(self.get_param("min_volume_ratio_pct", 50.0)),
             "rsi_neutral_low":       float(self.get_param("rsi_neutral_low", 45.0)),
             "rsi_neutral_high":      float(self.get_param("rsi_neutral_high", 55.0)),
+            # Quality filters (reduce mid-trend chase / dying ADX / tiny SL noise)
+            "min_adx_slope":         float(self.get_param("min_adx_slope", -0.35)),
+            "max_rsi_long":          float(self.get_param("max_rsi_long", 65.0)),
+            "min_rsi_short":         float(self.get_param("min_rsi_short", 35.0)),
+            "max_extension_atr":     float(self.get_param("max_extension_atr", 2.2)),
+            "min_sl_pct":            float(self.get_param("min_sl_pct", 0.8)),
         }
+
+    def _build_sl_tp(self, side: str, entry: float, st_15m: float, atr_val: float, p: dict):
+        """
+        Anchor SL on 15m SuperTrend (stable), widen with ATR and min_sl_pct.
+        Previously SL used 1m ST which hugs price and gets noise-stopped (ETH ~0.6%).
+        """
+        atr_val = float(atr_val or 0)
+        st_15m = float(st_15m or 0)
+        entry = float(entry)
+        if entry <= 0 or atr_val <= 0 or np.isnan(atr_val) or np.isnan(st_15m):
+            return None, None
+
+        min_dist = entry * (float(p["min_sl_pct"]) / 100.0)
+        atr_dist = float(p["sl_atr_mult"]) * atr_val
+
+        if side == "LONG":
+            # Wider stop = lower price among candidates that are below entry
+            atr_sl = entry - atr_dist
+            st_sl = st_15m if st_15m < entry else atr_sl
+            sl = min(st_sl, atr_sl, entry - min_dist)
+            if sl >= entry:
+                sl = entry - max(atr_dist, min_dist)
+            risk = entry - sl
+            tp = entry + (float(p["rr_ratio"]) * risk)
+        else:
+            atr_sl = entry + atr_dist
+            st_sl = st_15m if st_15m > entry else atr_sl
+            sl = max(st_sl, atr_sl, entry + min_dist)
+            if sl <= entry:
+                sl = entry + max(atr_dist, min_dist)
+            risk = sl - entry
+            tp = entry - (float(p["rr_ratio"]) * risk)
+
+        if risk <= 0 or np.isnan(sl) or np.isnan(tp):
+            return None, None
+        return float(sl), float(tp)
 
     def _get_timestamp(self, df, iloc_idx: int):
         """Best-effort timestamp extraction for cooldown logic."""
@@ -201,6 +243,21 @@ class StrategySupertrend(BaseStrategy):
             self.looking_for_entry = False
             return self._reject(f"ADX below threshold ({adx_15m:.1f} < {p['adx_threshold']})")
 
+        # Reject dying trends (AAVE/UNI style: ADX still high but slope negative)
+        try:
+            adx_prev = float(df["ADX_14"].iloc[-3])
+            adx_slope = float(adx_15m) - adx_prev
+            if adx_slope < float(p["min_adx_slope"]):
+                self.looking_for_entry = False
+                return self._reject(
+                    f"ADX slope dying ({adx_slope:+.2f} < {p['min_adx_slope']:+.2f}) — skip late trend entry"
+                )
+        except Exception:
+            adx_slope = 0.0
+
+        atr_15m = float(last_15m.get("ATR_14", 0) or 0)
+        st_15m = float(last_15m.get("Supertrend", 0) or 0)
+
         if close_15m > ema_filter_15m and st_dir_15m == 1:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
@@ -213,6 +270,27 @@ class StrategySupertrend(BaseStrategy):
                 f"15m trend filter not aligned (EMA{p['ema_filter']}/Supertrend)"
             )
 
+        # Chase / extension filters on 15m context (before spending 1m trigger work)
+        if not np.isnan(rsi_15m):
+            if self.entry_direction == "LONG" and rsi_15m > float(p["max_rsi_long"]):
+                self.looking_for_entry = False
+                return self._reject(
+                    f"Chase filter: 15m RSI {rsi_15m:.1f} > {p['max_rsi_long']:.0f} — wait pullback"
+                )
+            if self.entry_direction == "SHORT" and rsi_15m < float(p["min_rsi_short"]):
+                self.looking_for_entry = False
+                return self._reject(
+                    f"Chase filter: 15m RSI {rsi_15m:.1f} < {p['min_rsi_short']:.0f} — wait bounce"
+                )
+
+        if atr_15m > 0 and st_15m > 0:
+            extension = abs(close_15m - st_15m) / atr_15m
+            if extension > float(p["max_extension_atr"]):
+                self.looking_for_entry = False
+                return self._reject(
+                    f"Extended from 15m ST ({extension:.2f}x ATR > {p['max_extension_atr']:.1f}x) — late entry"
+                )
+
         # --- 1m TRIGGER ---
         if self.looking_for_entry:
             st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=p["st_period"], multiplier=p["st_multiplier"])
@@ -222,58 +300,35 @@ class StrategySupertrend(BaseStrategy):
             df_1m['ST_Direction'] = np.where(df_1m['close'] >= df_1m['Supertrend'], 1, -1)
 
             last_1m = df_1m.iloc[-2]
+            entry = float(last_1m["close"])
 
-            # TRIGGER: require a RECENT 1m flip into the 15m direction (prevents spam on mere alignment)
-            if self.entry_direction == "LONG":
-                if self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=1, lookback=p["trigger_flip_lookback"]):
-                    atr_val = last_15m.get('ATR_14', 0)
-                    st_val = last_1m.get('Supertrend', 0)
+            desired = 1 if self.entry_direction == "LONG" else -1
+            if not self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=desired, lookback=p["trigger_flip_lookback"]):
+                return self._reject(
+                    f"1m supertrend flip not detected within lookback={p['trigger_flip_lookback']} "
+                    f"for 15m {self.entry_direction} bias"
+                )
 
-                    if np.isnan(atr_val) or np.isnan(st_val):
-                        return self._reject(f"NaN indicators detected (ATR: {atr_val}, ST: {st_val})")
+            sl, tp = self._build_sl_tp(self.entry_direction, entry, st_15m, atr_15m, p)
+            if sl is None or tp is None:
+                return self._reject("Failed to calculate valid SL/TP (15m ST / ATR)")
 
-                    sl = min(st_val, last_1m['close'] - (p["sl_atr_mult"] * atr_val))
-                    risk = last_1m['close'] - sl
-                    tp = last_1m['close'] + (p["rr_ratio"] * risk)
+            self.looking_for_entry = False
+            if now_ts is not None and not pd.isna(now_ts):
+                self._last_entry_time = now_ts
 
-                    if np.isnan(sl) or np.isnan(tp):
-                        return self._reject("Failed to calculate valid SL/TP (NaN result)")
+            side = "BUY" if self.entry_direction == "LONG" else "SELL"
+            sl_pct = abs(entry - sl) / entry * 100.0
+            return {
+                "signal": side,
+                "sl": float(sl),
+                "tp": float(tp),
+                "price": float(entry),
+                "comment": (
+                    f"Supertrend: 15m {self.entry_direction} + 1m Flip "
+                    f"(lookback={p['trigger_flip_lookback']}). "
+                    f"ADX: {adx_15m:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 15m ST/ATR"
+                ),
+            }
 
-                    self.looking_for_entry = False
-                    if now_ts is not None and not pd.isna(now_ts):
-                        self._last_entry_time = now_ts
-                    return {
-                        "signal": "BUY",
-                        "sl": float(sl),
-                        "tp": float(tp),
-                        "price": float(last_1m['close']),
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip (lookback={p['trigger_flip_lookback']}). ADX: {adx_15m:.1f}"
-                    }
-
-            elif self.entry_direction == "SHORT":
-                if self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=-1, lookback=p["trigger_flip_lookback"]):
-                    atr_val = last_15m.get('ATR_14', 0)
-                    st_val = last_1m.get('Supertrend', 0)
-
-                    if np.isnan(atr_val) or np.isnan(st_val):
-                        return self._reject(f"NaN indicators detected (ATR: {atr_val}, ST: {st_val})")
-
-                    sl = max(st_val, last_1m['close'] + (p["sl_atr_mult"] * atr_val))
-                    risk = sl - last_1m['close']
-                    tp = last_1m['close'] - (p["rr_ratio"] * risk)
-
-                    if np.isnan(sl) or np.isnan(tp):
-                        return self._reject("Failed to calculate valid SL/TP (NaN result)")
-
-                    self.looking_for_entry = False
-                    if now_ts is not None and not pd.isna(now_ts):
-                        self._last_entry_time = now_ts
-                    return {
-                        "signal": "SELL",
-                        "sl": float(sl),
-                        "tp": float(tp),
-                        "price": float(last_1m['close']),
-                        "comment": f"Supertrend: 15m {self.entry_direction} + 1m Flip (lookback={p['trigger_flip_lookback']}). ADX: {adx_15m:.1f}"
-                    }
-
-        return self._reject(f"1m supertrend flip not detected within lookback={p['trigger_flip_lookback']} for 15m {self.entry_direction} bias")
+        return self._reject("No entry setup")

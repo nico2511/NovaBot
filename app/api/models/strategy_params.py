@@ -28,6 +28,12 @@ class SupertrendParams(_StrictParams):
     min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
     rsi_neutral_low: Optional[float] = Field(None, ge=0, le=100)
     rsi_neutral_high: Optional[float] = Field(None, ge=0, le=100)
+    # Quality filters
+    min_adx_slope: Optional[float] = Field(None, ge=-20, le=20)
+    max_rsi_long: Optional[float] = Field(None, ge=50, le=100)
+    min_rsi_short: Optional[float] = Field(None, ge=0, le=50)
+    max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
 
