@@ -33,6 +33,8 @@ def test_score_dataframe_finds_aligned_uptrend():
             "min_volume_ratio_pct": 50,
             "rsi_neutral_low": 45,
             "rsi_neutral_high": 55,
+            # Synthetic linspace trend is intentionally steep vs ST — allow for unit test
+            "max_extension_atr": 50,
         }
     )
     df = _trending_df(direction="up")
@@ -41,6 +43,21 @@ def test_score_dataframe_finds_aligned_uptrend():
     assert result["bias"] == "LONG"
     assert result["score"] >= 50
     assert result["symbol"] == "TEST"
+
+
+def test_score_dataframe_rejects_extended_from_st():
+    scanner = SupertrendScanner(
+        st_params={
+            "period": 10,
+            "multiplier": 3.0,
+            "ema_filter_period": 50,
+            "adx_threshold": 10,
+            "min_volume_ratio_pct": 50,
+            "max_extension_atr": 0.3,  # very strict
+        }
+    )
+    df = _trending_df(direction="up")
+    assert scanner.score_dataframe(df, market={"symbol": "FAR"}) is None
 
 
 def test_score_dataframe_rejects_chop_below_adx():

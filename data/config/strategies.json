@@ -21,15 +21,18 @@
             "rsi_neutral_low": 46,
             "rsi_neutral_high": 54,
             "min_adx_slope": -0.35,
-            "max_rsi_long": 65,
-            "min_rsi_short": 35,
-            "max_extension_atr": 2.2,
+            "max_rsi_long": 60,
+            "min_rsi_short": 40,
+            "max_extension_atr": 1.4,
             "min_sl_pct": 0.8,
+            "require_pullback": true,
+            "pullback_lookback_1m": 30,
+            "pullback_touch_atr": 1.0,
             "allow_longs": true,
             "allow_shorts": true
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
-        "version": "2026-08-quality-v1",
-        "expected_freq": "Low-Medium (selective)"
+        "version": "2026-08-pullback-v1",
+        "expected_freq": "Low (pullback only)"
     }
 }

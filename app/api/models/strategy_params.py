@@ -34,6 +34,9 @@ class SupertrendParams(_StrictParams):
     min_rsi_short: Optional[float] = Field(None, ge=0, le=50)
     max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
     min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    require_pullback: Optional[bool] = None
+    pullback_lookback_1m: Optional[int] = Field(None, ge=5, le=240)
+    pullback_touch_atr: Optional[float] = Field(None, gt=0, le=10)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
 

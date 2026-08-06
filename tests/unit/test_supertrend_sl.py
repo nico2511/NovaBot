@@ -26,3 +26,24 @@ def test_build_sl_tp_short_widens_with_atr():
     assert sl is not None
     assert sl >= 102.0  # at least 2x ATR above entry
     assert tp < 100.0
+
+
+def test_pullback_to_st_detects_tag():
+    import pandas as pd
+    import numpy as np
+
+    strat = StrategySupertrend({"params": {}})
+    n = 40
+    idx = pd.date_range("2026-01-01", periods=n, freq="1min", tz="UTC")
+    # Price dips to ST=100 then recovers; last bar is live (ignored)
+    close = np.full(n, 103.0)
+    low = np.full(n, 102.5)
+    high = np.full(n, 103.5)
+    low[20] = 100.2  # tag ST band
+    close[20] = 100.5
+    df = pd.DataFrame({"open": close, "high": high, "low": low, "close": close}, index=idx)
+    assert strat._pullback_to_st_ok(df, "LONG", st_15m=100.0, atr_15m=1.0, lookback=30, touch_atr=1.0) is True
+    # No tag if lows stay far above ST
+    low[:] = 104.0
+    df2 = pd.DataFrame({"open": close, "high": high, "low": low, "close": close}, index=idx)
+    assert strat._pullback_to_st_ok(df2, "LONG", st_15m=100.0, atr_15m=1.0, lookback=30, touch_atr=1.0) is False

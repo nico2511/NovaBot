@@ -158,6 +158,7 @@ class SupertrendScanner:
         work["Supertrend"] = st["Supertrend"]
         work["ST_Direction"] = np.where(work["close"] >= work["Supertrend"], 1, -1)
         work["RSI_14"] = ta.rsi(work["close"], length=14)
+        work["ATR_14"] = ta.atr(work["high"], work["low"], work["close"], length=14)
 
         last = work.iloc[-2]
         close = float(last["close"])
@@ -165,7 +166,9 @@ class SupertrendScanner:
         adx = float(last["ADX_14"])
         st_dir = int(last["ST_Direction"])
         st_line = float(last["Supertrend"])
+        atr = float(last["ATR_14"]) if not pd.isna(last["ATR_14"]) else 0.0
         rsi = float(last["RSI_14"]) if not pd.isna(last["RSI_14"]) else 50.0
+        max_ext = float(p.get("max_extension_atr", 1.4))
 
         if any(np.isnan(x) for x in (close, ema, adx, st_line)):
             return None
@@ -180,6 +183,14 @@ class SupertrendScanner:
             trend = "DOWN"
         else:
             return None
+
+        # Prefer pullback-ready locations: skip parabolic extensions for rotation
+        if atr > 0:
+            extension_atr = abs(close - st_line) / atr
+            if extension_atr > max_ext:
+                return None
+        else:
+            extension_atr = 99.0
 
         vol_ratio_pct = None
         if "volume" in work.columns:
@@ -230,16 +241,17 @@ class SupertrendScanner:
         else:
             score += 3.0
 
-        # Prefer setups still near the SuperTrend line (not parabolic) (max 10)
+        # Prefer setups still near the SuperTrend line (pullback-ready) (max 15)
         dist_pct = abs(close - st_line) / close * 100.0 if close else 99.0
-        if dist_pct <= 1.5:
+        if extension_atr <= 0.8:
+            score += 15.0
+            reasons.append(f"Pullback zone ({extension_atr:.2f}x ATR / {dist_pct:.2f}%)")
+        elif extension_atr <= 1.2:
             score += 10.0
-            reasons.append(f"Close to ST ({dist_pct:.2f}%)")
-        elif dist_pct <= 3.0:
-            score += 6.0
+            reasons.append(f"Near ST ({extension_atr:.2f}x ATR)")
         else:
-            score += 2.0
-            reasons.append(f"Extended from ST ({dist_pct:.2f}%)")
+            score += 4.0
+            reasons.append(f"Acceptable extension ({extension_atr:.2f}x ATR)")
 
         score = float(min(100.0, round(score, 1)))
         market = market or {}

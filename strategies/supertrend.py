@@ -10,11 +10,13 @@ class StrategySupertrend(BaseStrategy):
     Setup (15m):
     - Trend Filter: Price > EMA filter (Long) or Price < EMA filter (Short)
     - Supertrend Filter: Supertrend must be BULLISH for Long, BEARISH for Short.
-    - ADX Filter: ADX > threshold (Trend presence)
-    - Anti stop-hunt: reject thin volume + neutral RSI
+    - ADX Filter: ADX > threshold (Trend presence) and slope not dying
+    - Location: not already extended from 15m SuperTrend (avoid late chase)
 
-    Trigger (1m):
-    - Supertrend Flip: Enter when 1m Supertrend flips to match 15m bias.
+    Trigger (1m) — pullback then resume:
+    - Price must have tagged the 15m SuperTrend band recently (pullback)
+    - THEN a 1m SuperTrend flip resumes the 15m bias
+    - Pure mid-impulse 1m flips without a pullback are rejected
 
     Risk:
     - SL: 15m SuperTrend line, widened by ATR floor / min_sl_pct (not noisy 1m ST).
@@ -35,7 +37,7 @@ class StrategySupertrend(BaseStrategy):
     RULES OF ENGAGEMENT:
     1. TREND IS KING: Only trade in the direction of the 15m trend (EMA filter).
     2. ATR STOPS ARE NORMAL: SuperTrend SL may be 1.5%-6% on volatile perps — that is expected, not a reject reason.
-    3. MOMENTUM: A recent 1m SuperTrend flip into the 15m bias is sufficient trigger confirmation.
+    3. LOCATION FIRST: Prefer pullback-to-15m-ST then 1m resume. Reject mid-impulse chase flips.
     4. REJECT if volume_ratio < 50% of average (WEAK_VOLUME) — no exceptions.
     5. REJECT chase entries: BUY with RSI > 70 or SELL with RSI < 30 unless a clear breakout with volume > 150% avg.
     6. If MTF sentiment is unavailable, do NOT invent higher-TF structure — stay neutral on HTF and judge 15m + volume only.
@@ -68,10 +70,14 @@ class StrategySupertrend(BaseStrategy):
             "rsi_neutral_high":      float(self.get_param("rsi_neutral_high", 55.0)),
             # Quality filters (reduce mid-trend chase / dying ADX / tiny SL noise)
             "min_adx_slope":         float(self.get_param("min_adx_slope", -0.35)),
-            "max_rsi_long":          float(self.get_param("max_rsi_long", 65.0)),
-            "min_rsi_short":         float(self.get_param("min_rsi_short", 35.0)),
-            "max_extension_atr":     float(self.get_param("max_extension_atr", 2.2)),
+            "max_rsi_long":          float(self.get_param("max_rsi_long", 60.0)),
+            "min_rsi_short":         float(self.get_param("min_rsi_short", 40.0)),
+            "max_extension_atr":     float(self.get_param("max_extension_atr", 1.4)),
             "min_sl_pct":            float(self.get_param("min_sl_pct", 0.8)),
+            # Pullback-then-resume (fixes late 1m flip entries)
+            "require_pullback":      bool(self.get_param("require_pullback", True)),
+            "pullback_lookback_1m":  int(self.get_param("pullback_lookback_1m", 30)),
+            "pullback_touch_atr":    float(self.get_param("pullback_touch_atr", 1.0)),
         }
 
     def _build_sl_tp(self, side: str, entry: float, st_15m: float, atr_val: float, p: dict):
@@ -165,6 +171,35 @@ class StrategySupertrend(BaseStrategy):
         # Lookback window measured in confirmed candles from the end
         min_allowed_pos = max(0, len(confirmed) - 1 - lookback)
         return last_change_pos >= min_allowed_pos
+
+    def _pullback_to_st_ok(
+        self,
+        df_1m: pd.DataFrame,
+        side: str,
+        st_15m: float,
+        atr_15m: float,
+        lookback: int,
+        touch_atr: float,
+    ) -> bool:
+        """
+        True if, within recent confirmed 1m bars, price tagged the 15m ST band.
+        LONG: a low came down to ST + touch_atr*ATR
+        SHORT: a high came up to ST - touch_atr*ATR
+        """
+        if df_1m is None or df_1m.empty or atr_15m <= 0 or st_15m <= 0:
+            return False
+        lookback = max(3, int(lookback))
+        confirmed = df_1m.iloc[:-1]
+        if len(confirmed) < lookback:
+            return False
+        window = confirmed.iloc[-lookback:]
+        band = float(touch_atr) * float(atr_15m)
+        try:
+            if side == "LONG":
+                return float(window["low"].min()) <= (float(st_15m) + band)
+            return float(window["high"].max()) >= (float(st_15m) - band)
+        except Exception:
+            return False
 
     def add_indicators(self, df, p=None):
         """Add indicators to 15m dataframe"""
@@ -302,11 +337,33 @@ class StrategySupertrend(BaseStrategy):
             last_1m = df_1m.iloc[-2]
             entry = float(last_1m["close"])
 
+            # Entry must still be near 15m ST (1m impulse can extend past 15m close)
+            if atr_15m > 0 and st_15m > 0:
+                entry_ext = abs(entry - st_15m) / atr_15m
+                if entry_ext > float(p["max_extension_atr"]):
+                    return self._reject(
+                        f"1m entry already extended ({entry_ext:.2f}x ATR from 15m ST) — late"
+                    )
+
+            if p["require_pullback"]:
+                if not self._pullback_to_st_ok(
+                    df_1m,
+                    self.entry_direction,
+                    st_15m,
+                    atr_15m,
+                    p["pullback_lookback_1m"],
+                    p["pullback_touch_atr"],
+                ):
+                    return self._reject(
+                        f"No pullback to 15m ST within {p['pullback_lookback_1m']}m "
+                        f"(need tag within {p['pullback_touch_atr']:.1f}x ATR) — wait for retrace"
+                    )
+
             desired = 1 if self.entry_direction == "LONG" else -1
             if not self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=desired, lookback=p["trigger_flip_lookback"]):
                 return self._reject(
                     f"1m supertrend flip not detected within lookback={p['trigger_flip_lookback']} "
-                    f"for 15m {self.entry_direction} bias"
+                    f"for 15m {self.entry_direction} bias (after pullback)"
                 )
 
             sl, tp = self._build_sl_tp(self.entry_direction, entry, st_15m, atr_15m, p)
@@ -325,8 +382,8 @@ class StrategySupertrend(BaseStrategy):
                 "tp": float(tp),
                 "price": float(entry),
                 "comment": (
-                    f"Supertrend: 15m {self.entry_direction} + 1m Flip "
-                    f"(lookback={p['trigger_flip_lookback']}). "
+                    f"Supertrend: 15m {self.entry_direction} + pullback-to-ST + 1m flip "
+                    f"(lb={p['trigger_flip_lookback']}). "
                     f"ADX: {adx_15m:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 15m ST/ATR"
                 ),
             }
