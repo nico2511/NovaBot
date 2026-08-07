@@ -2155,6 +2155,12 @@ class BotContext:
                 live_ema50 = float(result.get("ema_50_live", ema_50))
                 live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
                 self.add_log(f"🟡 Live (forming): Price {live_price:.2f} | RSI {live_rsi:.1f} | EMA20/50 {live_ema_trend} | Vol(conf) {volume_ratio:.0f}%")
+
+                # Surface SuperTrend skip reasons into API/Discord-visible logs (once per candle/reason)
+                for rej in (result.get("rejections") or []):
+                    reason = rej.get("reason") or "no reason"
+                    strat_name = rej.get("strategy") or "strategy"
+                    self.add_log(f"⛔ No signal ({strat_name}): {reason}")
                 
                 # Capture full technical context for audit (Approved or Rejected)
                 technical_context = {

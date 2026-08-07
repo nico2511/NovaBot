@@ -145,6 +145,7 @@ class StrategyEngine:
 
         # 4. Generate Signals
         signals = []
+        rejections = []
         for strat in active_strategies:
             # Reset per-run strategy diagnostic reason
             if hasattr(strat, "last_rejection_reason"):
@@ -260,7 +261,7 @@ class StrategyEngine:
                     if self._last_rejection_log.get(strat.name) != sig_key:
                         self._last_rejection_log[strat.name] = sig_key
                         print(f"[BOT] ⛔ No signal ({strat.name}): {reason}")
-
+                        rejections.append({"strategy": strat.name, "reason": reason})
 
         # === CAPTURE FULL MARKET SNAPSHOT ===
         try:
@@ -308,5 +309,6 @@ class StrategyEngine:
             "ema_20_live": float(ema_20.iloc[-1]),
             "ema_50_live": float(ema_50.iloc[-1]),
             "strategies": [s.name for s in active_strategies],
-            "signals": signals
+            "signals": signals,
+            "rejections": rejections,
         }
