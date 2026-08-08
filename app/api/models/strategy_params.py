@@ -22,7 +22,7 @@ class SupertrendParams(_StrictParams):
     adx_threshold: Optional[float] = Field(None, ge=0, le=100)
     min_rr: Optional[float] = Field(None, gt=0, le=10)
     sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
-    trigger_flip_lookback: Optional[int] = Field(None, ge=1, le=100)
+    trigger_flip_lookback: Optional[int] = Field(None, ge=1, le=240)
     cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
     # Anti stop-hunt guard (thin liquidity + neutral RSI)
     min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
@@ -35,6 +35,7 @@ class SupertrendParams(_StrictParams):
     max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
     min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
     require_pullback: Optional[bool] = None
+    require_recent_flip: Optional[bool] = None
     pullback_lookback_1m: Optional[int] = Field(None, ge=5, le=240)
     pullback_touch_atr: Optional[float] = Field(None, gt=0, le=10)
     allow_longs: Optional[bool] = None

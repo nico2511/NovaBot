@@ -15,8 +15,8 @@ class StrategySupertrend(BaseStrategy):
 
     Trigger (1m) — pullback then resume:
     - Price must have tagged the 15m SuperTrend band recently (pullback)
-    - THEN a 1m SuperTrend flip resumes the 15m bias
-    - Pure mid-impulse 1m flips without a pullback are rejected
+    - THEN price must reclaim the 15m ST (resume). Optional: require a fresh 1m ST flip.
+    - Pure mid-impulse entries without a pullback are rejected
 
     Risk:
     - SL: 15m SuperTrend line, widened by ATR floor / min_sl_pct (not noisy 1m ST).
@@ -31,13 +31,13 @@ class StrategySupertrend(BaseStrategy):
 
     PRIME DIRECTIVE:
     Ride the wave only when confluence is clean. Protect capital.
-    Approve when the strategy confirmed a 15m bias + recent 1m SuperTrend flip
+    Approve when the strategy confirmed a 15m bias + pullback-to-ST resume
     with healthy ADX, acceptable R:R, AND healthy volume. Do not apply scalping SL width rules (0.5%-1.2%).
 
     RULES OF ENGAGEMENT:
     1. TREND IS KING: Only trade in the direction of the 15m trend (EMA filter).
     2. ATR STOPS ARE NORMAL: SuperTrend SL may be 1.5%-6% on volatile perps — that is expected, not a reject reason.
-    3. LOCATION FIRST: Prefer pullback-to-15m-ST then 1m resume. Reject mid-impulse chase flips.
+    3. LOCATION FIRST: Prefer pullback-to-15m-ST then reclaim/resume. Reject mid-impulse chase.
     4. REJECT if volume_ratio < 50% of average (WEAK_VOLUME) — no exceptions.
     5. REJECT chase entries: BUY with RSI > 70 or SELL with RSI < 30 unless a clear breakout with volume > 150% avg.
     6. If MTF sentiment is unavailable, do NOT invent higher-TF structure — stay neutral on HTF and judge 15m + volume only.
@@ -62,7 +62,7 @@ class StrategySupertrend(BaseStrategy):
             "adx_threshold":         float(self.get_param("adx_threshold", 22)),
             "rr_ratio":              float(self.get_param("min_rr", 2.0)),
             "sl_atr_mult":           float(self.get_param("sl_atr_mult", 2.0)),
-            "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 4)),
+            "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 30)),
             "cooldown_minutes":      int(self.get_param("cooldown_minutes", 15)),
             # Anti stop-hunt guard: skip signals in thin liquidity + neutral momentum
             "min_volume_ratio_pct":  float(self.get_param("min_volume_ratio_pct", 50.0)),
@@ -78,6 +78,8 @@ class StrategySupertrend(BaseStrategy):
             "require_pullback":      bool(self.get_param("require_pullback", True)),
             "pullback_lookback_1m":  int(self.get_param("pullback_lookback_1m", 30)),
             "pullback_touch_atr":    float(self.get_param("pullback_touch_atr", 1.0)),
+            # Fresh 1m ST flip is optional — reclaim of 15m ST is the default resume trigger
+            "require_recent_flip":   bool(self.get_param("require_recent_flip", False)),
         }
 
     def _build_sl_tp(self, side: str, entry: float, st_15m: float, atr_val: float, p: dict):
@@ -359,12 +361,27 @@ class StrategySupertrend(BaseStrategy):
                         f"(need tag within {p['pullback_touch_atr']:.1f}x ATR) — wait for retrace"
                     )
 
+            # Resume confirmation: price back on the trend side of 15m ST
+            if self.entry_direction == "LONG" and entry < st_15m:
+                return self._reject("Pullback not resumed — 1m still below 15m ST")
+            if self.entry_direction == "SHORT" and entry > st_15m:
+                return self._reject("Pullback not resumed — 1m still above 15m ST")
+
             desired = 1 if self.entry_direction == "LONG" else -1
-            if not self._recent_flip_ok(df_1m["ST_Direction"], desired_dir=desired, lookback=p["trigger_flip_lookback"]):
-                return self._reject(
-                    f"1m supertrend flip not detected within lookback={p['trigger_flip_lookback']} "
-                    f"for 15m {self.entry_direction} bias (after pullback)"
-                )
+            last_1m_dir = int(df_1m["ST_Direction"].iloc[-2])
+            # Optional lagging confirm: fresh 1m SuperTrend flip (often blocks near ST)
+            if p["require_recent_flip"]:
+                if last_1m_dir != desired:
+                    return self._reject(
+                        f"1m ST still against bias ({last_1m_dir:+d} vs {desired:+d}) — wait resume flip"
+                    )
+                if not self._recent_flip_ok(
+                    df_1m["ST_Direction"], desired_dir=desired, lookback=p["trigger_flip_lookback"]
+                ):
+                    return self._reject(
+                        f"1m supertrend flip not detected within lookback={p['trigger_flip_lookback']} "
+                        f"for 15m {self.entry_direction} bias (after pullback)"
+                    )
 
             sl, tp = self._build_sl_tp(self.entry_direction, entry, st_15m, atr_15m, p)
             if sl is None or tp is None:
@@ -376,14 +393,18 @@ class StrategySupertrend(BaseStrategy):
 
             side = "BUY" if self.entry_direction == "LONG" else "SELL"
             sl_pct = abs(entry - sl) / entry * 100.0
+            trigger_note = (
+                f"1m flip (lb={p['trigger_flip_lookback']})"
+                if p["require_recent_flip"]
+                else "15m ST reclaim"
+            )
             return {
                 "signal": side,
                 "sl": float(sl),
                 "tp": float(tp),
                 "price": float(entry),
                 "comment": (
-                    f"Supertrend: 15m {self.entry_direction} + pullback-to-ST + 1m flip "
-                    f"(lb={p['trigger_flip_lookback']}). "
+                    f"Supertrend: 15m {self.entry_direction} + pullback-to-ST + {trigger_note}. "
                     f"ADX: {adx_15m:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 15m ST/ATR"
                 ),
             }

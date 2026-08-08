@@ -15,7 +15,7 @@
             "adx_threshold": 22,
             "min_rr": 2.0,
             "sl_atr_mult": 2.0,
-            "trigger_flip_lookback": 4,
+            "trigger_flip_lookback": 30,
             "cooldown_minutes": 15,
             "min_volume_ratio_pct": 50,
             "rsi_neutral_low": 46,
@@ -26,13 +26,14 @@
             "max_extension_atr": 1.4,
             "min_sl_pct": 0.8,
             "require_pullback": true,
+            "require_recent_flip": false,
             "pullback_lookback_1m": 30,
             "pullback_touch_atr": 1.0,
             "allow_longs": true,
             "allow_shorts": true
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
-        "version": "2026-08-pullback-v1",
-        "expected_freq": "Low (pullback only)"
+        "version": "2026-08-reclaim-v1",
+        "expected_freq": "Medium (pullback + ST reclaim)"
     }
 }
