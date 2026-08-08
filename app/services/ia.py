@@ -501,25 +501,33 @@ Example:
         is_supertrend = strategy_id == "supertrend"
         if is_supertrend:
             criteria = """=== VALIDATION CRITERIA (SUPERTREND) ===
-The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX filter, and a recent 1m SuperTrend flip.
+The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX/quality filters, pullback-to-ST,
+and a 15m ST reclaim/resume trigger (1m flip is optional, not required).
 Your job is a sanity check with hard reject rules — not a rubber stamp.
 
 APPROVE when ALL of:
 1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
-2. Computed R:R meets the risk-profile minimum
+2. Computed R:R meets the risk-profile minimum (after any TP trim below)
 3. Volume ratio >= 50% of average
 4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
+5. TP is structurally realistic vs Key Levels:
+   - BUY: Proposed TP must be <= Swing High. If Proposed TP > Swing High, TRIM TP slightly below Swing High
+     via suggested_adjustments.tp (do not keep an optimistic breakout TP by default).
+   - SELL: Proposed TP must be >= Swing Low. If Proposed TP < Swing Low, TRIM TP slightly above Swing Low.
+   - If after a required trim the R:R falls below profile minimum, REJECT as BAD_RR (do not approve an undersized target).
 
 REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
 - BUY with RSI > 70 or SELL with RSI < 30 without volume > 150% (OVEREXTENDED chase)
 - 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
 - Computed R:R below profile minimum (BAD_RR)
+- TP requires a breakout beyond Swing High/Low and you did not trim (OPTIMISTIC_TP)
 
 Do NOT reject solely because:
 - SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
 - RSI is moderately extended (50-70 long / 30-50 short) in a trending regime
 - Price is not sitting exactly on a Fib level
+- Entry used ST reclaim instead of a fresh 1m SuperTrend flip
 
 If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         else:
@@ -527,6 +535,30 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
 Approve when direction, structure, volume and R:R are coherent.
 Reject on major red flags (counter-trend, dead volume < 50% avg, bad R:R, extreme chase).
 Prefer execution when R:R is good and momentum exists — do not over-filter."""
+
+        swing_high = ctx.get("swing_high", "N/A")
+        swing_low = ctx.get("swing_low", "N/A")
+        tp_structure_note = ""
+        try:
+            entry_f = float(signal_data.get("price") or 0)
+            tp_f = float(signal_data.get("tp") or 0)
+            sh_f = float(ctx.get("swing_high") or 0)
+            slw_f = float(ctx.get("swing_low") or 0)
+            side = str(signal_data.get("signal") or "").upper()
+            if side == "BUY" and entry_f > 0 and tp_f > 0 and sh_f > 0:
+                rel = ((tp_f - sh_f) / entry_f) * 100.0
+                tp_structure_note = (
+                    f"TP vs Swing High: {rel:+.2f}% of entry "
+                    f"({'TRIM REQUIRED' if tp_f > sh_f else 'OK — at/below swing'})"
+                )
+            elif side == "SELL" and entry_f > 0 and tp_f > 0 and slw_f > 0:
+                rel = ((slw_f - tp_f) / entry_f) * 100.0
+                tp_structure_note = (
+                    f"TP vs Swing Low: gap {rel:+.2f}% of entry "
+                    f"({'TRIM REQUIRED' if tp_f < slw_f else 'OK — at/above swing'})"
+                )
+        except Exception:
+            tp_structure_note = ""
 
         # Prompt simplifié : Instruction directe de validation.
         prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
@@ -540,6 +572,7 @@ Proposed SL: ${signal_data.get('sl', 'N/A')}
 Proposed TP: ${signal_data.get('tp', 'N/A')}
 Computed R:R: {rr_line}
 SL Distance: {sl_pct_line}
+{tp_structure_note}
 
 === CURRENT MARKET CONDITIONS ===
 Current Price: ${ctx.get('current_price', 'N/A')}
@@ -575,8 +608,8 @@ Fibonacci Levels (from Swing):
 - Current Zone: {ctx.get('fib_zone', 'N/A')}
 
 Key Levels:
-- Swing High: ${ctx.get('swing_high', 'N/A')}
-- Swing Low: ${ctx.get('swing_low', 'N/A')}
+- Swing High: ${swing_high}
+- Swing Low: ${swing_low}
 
 === COPILOT SENTIMENT (MTF) ===
 {ctx.get('mtf_sentiment', 'N/A')}
@@ -657,7 +690,43 @@ Volume:
             from app.core.prompts import RISK_PARAMS_MAP
             from app.core.veto_checker import LOW_VOLUME_RATIO_PCT
             
-            # 1. Check Risk:Reward
+            # 0. SuperTrend: mechanically trim optimistic TP beyond local swing
+            ctx = market_context or {}
+            strategy_id = str(signal.get("strategy") or "")
+            side = str(signal.get("signal") or "").upper()
+            if strategy_id == "supertrend":
+                try:
+                    entry = float(signal.get("price") or 0)
+                    swing_high = float(ctx.get("swing_high") or 0)
+                    swing_low = float(ctx.get("swing_low") or 0)
+                    adj = ai_result.get("suggested_adjustments") or {}
+                    if not isinstance(adj, dict):
+                        adj = {}
+                    tp = float(adj.get("tp") or signal.get("tp") or 0)
+                    trimmed = None
+                    # 0.05% buffer inside the swing so TP sits on structure, not through it
+                    if side == "BUY" and entry > 0 and tp > 0 and swing_high > entry and tp > swing_high:
+                        trimmed = swing_high * (1.0 - 0.0005)
+                    elif side == "SELL" and entry > 0 and tp > 0 and 0 < swing_low < entry and tp < swing_low:
+                        trimmed = swing_low * (1.0 + 0.0005)
+                    if trimmed is not None and trimmed > 0:
+                        adj = {**adj, "tp": float(trimmed)}
+                        ai_result["suggested_adjustments"] = adj
+                        prev = ai_result.get("reasoning") or ""
+                        note = (
+                            f" TP trimmed to structural swing ({trimmed:.6g}) "
+                            f"from mechanical target ({tp:.6g})."
+                        )
+                        if "trimmed to structural swing" not in prev:
+                            ai_result["reasoning"] = (prev + note).strip()
+                        logger.info(
+                            "[HARD CONSTRAINT] Trimmed SuperTrend TP %s -> %s (swing structure)",
+                            tp, trimmed,
+                        )
+                except (TypeError, ValueError) as trim_err:
+                    logger.debug("TP swing trim skipped: %s", trim_err)
+
+            # 1. Check Risk:Reward (after any structural TP trim)
             entry = float(signal.get("price", 0))
             sl = float(ai_result.get("suggested_adjustments", {}).get("sl") or signal.get("sl", 0))
             tp = float(ai_result.get("suggested_adjustments", {}).get("tp") or signal.get("tp", 0))
@@ -685,7 +754,6 @@ Volume:
                         return ai_result
 
             # 2. Weak volume (code-enforced — model often notes then still approves)
-            ctx = market_context or {}
             vol_ratio = ctx.get("volume_ratio")
             if vol_ratio is None:
                 cur = ctx.get("current_volume")

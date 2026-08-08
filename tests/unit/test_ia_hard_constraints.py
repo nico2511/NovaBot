@@ -125,3 +125,52 @@ def test_healthy_volume_preserves_approval(ia):
     )
     assert out["approved"] is True
     assert out.get("rejection_reason_category") is None
+
+
+def test_supertrend_trims_tp_above_swing_high(ia):
+    """BUY SuperTrend TP beyond swing high is trimmed before R:R check."""
+    # entry=100, sl=99 (risk=1), mechanical tp=104, swing=102 → trim ~101.949
+    # reward after trim ≈ 1.95 → R:R ≈ 1.95 >= 1.5 for Capital Preservation
+    signal = {
+        "strategy": "supertrend",
+        "signal": "BUY",
+        "price": 100.0,
+        "sl": 99.0,
+        "tp": 104.0,
+    }
+    ai_result = {
+        "approved": True,
+        "confidence": 70,
+        "reasoning": "good trend",
+        "suggested_adjustments": {"sl": None, "tp": None},
+    }
+    ctx = {"swing_high": 102.0, "swing_low": 95.0, "volume_ratio": 120.0}
+
+    out = ia._enforce_hard_constraints(
+        signal, ai_result, "Capital Preservation First", market_context=ctx
+    )
+    assert out["approved"] is True
+    trimmed = out["suggested_adjustments"]["tp"]
+    assert trimmed < 102.0
+    assert trimmed > 100.0
+    assert "trimmed to structural swing" in out["reasoning"]
+
+
+def test_supertrend_trim_that_breaks_min_rr_is_rejected(ia):
+    """If structural TP trim leaves R:R below profile min, reject BAD_RR."""
+    # entry=100, sl=98 (risk=2), tp=110, swing=100.5 → trim ~100.45, reward=0.45 → RR=0.225
+    signal = {
+        "strategy": "supertrend",
+        "signal": "BUY",
+        "price": 100.0,
+        "sl": 98.0,
+        "tp": 110.0,
+    }
+    ai_result = {"approved": True, "confidence": 70, "reasoning": "chase tp"}
+    ctx = {"swing_high": 100.5, "swing_low": 90.0, "volume_ratio": 120.0}
+
+    out = ia._enforce_hard_constraints(
+        signal, ai_result, "Capital Preservation First", market_context=ctx
+    )
+    assert out["approved"] is False
+    assert out["rejection_reason_category"] == "BAD_RR"

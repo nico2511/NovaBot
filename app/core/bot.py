@@ -573,9 +573,10 @@ class BotContext:
         ema_50 = float(df['close'].ewm(span=50).mean().iloc[-1])
         ema_200 = float(df['close'].ewm(span=200).mean().iloc[-1]) if len(df) >= 200 else None
         
-        # Price levels
-        swing_high = float(df['high'].rolling(20).max().iloc[-1])
-        swing_low = float(df['low'].rolling(20).min().iloc[-1])
+        # Price levels — confirmed candle (avoid live-bar wick noise for TP structure)
+        hi_idx = -2 if len(df) >= 2 else -1
+        swing_high = float(df["high"].iloc[: hi_idx + 1].rolling(20).max().iloc[-1])
+        swing_low = float(df["low"].iloc[: hi_idx + 1].rolling(20).min().iloc[-1])
         
         # Volume — confirmed candle only (live bar often starts at ~0 and false-vetoes)
         if "volume" in df.columns and len(df) >= 2:
