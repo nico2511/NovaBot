@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 # in the caller, so the behaviour stays centralized and test-covered.
 RSI_OVERBOUGHT = 80.0
 RSI_OVERSOLD = 30.0
-ADX_RUNAWAY = 55.0
+# Strong trends often sit 50–70 ADX on 15m perps; only veto true parabolic blow-offs.
+ADX_RUNAWAY = 75.0
 LOW_VOLUME_RATIO_PCT = 50.0
 
 
@@ -53,12 +54,20 @@ def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
             return f"HARD VETO: ADX Extreme ({adx:.1f} > {ADX_RUNAWAY:.0f}) - Trend runaway @ {price:.2f}"
 
         # 3. Dead-volume veto (no liquidity → slippage / fake signal risk)
-        current_vol = market_context.get("current_volume")
-        avg_vol = market_context.get("avg_volume")
-        if current_vol and avg_vol and avg_vol > 0:
-            vol_ratio_pct = (current_vol / avg_vol) * 100
-            if vol_ratio_pct < LOW_VOLUME_RATIO_PCT:
-                return f"HARD VETO: Low Volume ({vol_ratio_pct:.1f}% avg) @ {price:.2f}"
+        # Prefer precomputed confirmed-candle ratio. Skip if volume looks incomplete
+        # (live bar often reports ~0 at open — that is missing data, not dead market).
+        vol_ratio_pct = market_context.get("volume_ratio")
+        if vol_ratio_pct is None:
+            current_vol = market_context.get("current_volume")
+            avg_vol = market_context.get("avg_volume")
+            if current_vol and avg_vol and avg_vol > 0:
+                vol_ratio_pct = (current_vol / avg_vol) * 100
+        try:
+            vol_ratio_pct = float(vol_ratio_pct) if vol_ratio_pct is not None else None
+        except (TypeError, ValueError):
+            vol_ratio_pct = None
+        if vol_ratio_pct is not None and vol_ratio_pct > 0.5 and vol_ratio_pct < LOW_VOLUME_RATIO_PCT:
+            return f"HARD VETO: Low Volume ({vol_ratio_pct:.1f}% avg) @ {price:.2f}"
 
         return None
     except Exception as e:  # pragma: no cover — defensive only

@@ -98,3 +98,16 @@ def test_missing_indicators_do_not_crash():
 def test_zero_avg_volume_does_not_divide_by_zero():
     ctx = _base_context(current_volume=1000.0, avg_volume=0)
     assert check_hard_veto("BUY", ctx) is None
+
+
+def test_incomplete_zero_volume_does_not_veto():
+    """Live/forming bar with ~0 volume is missing data, not a dead market."""
+    assert check_hard_veto("BUY", _base_context(current_volume=0.0, avg_volume=1000.0)) is None
+    assert check_hard_veto("BUY", _base_context(volume_ratio=0.0)) is None
+
+
+def test_volume_ratio_key_is_honored():
+    ctx = _base_context(volume_ratio=20.0, current_volume=9999.0, avg_volume=1000.0)
+    reason = check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "Low Volume" in reason

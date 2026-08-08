@@ -577,9 +577,17 @@ class BotContext:
         swing_high = float(df['high'].rolling(20).max().iloc[-1])
         swing_low = float(df['low'].rolling(20).min().iloc[-1])
         
-        # Volume
-        avg_volume = float(df['volume'].rolling(50).mean().iloc[-1])
-        current_volume = float(df['volume'].iloc[-1])
+        # Volume — confirmed candle only (live bar often starts at ~0 and false-vetoes)
+        if "volume" in df.columns and len(df) >= 2:
+            vol_confirmed = df["volume"].iloc[:-1]
+            avg_volume = float(vol_confirmed.rolling(50).mean().iloc[-1])
+            current_volume = float(vol_confirmed.iloc[-1])
+        elif "volume" in df.columns and len(df) >= 1:
+            avg_volume = float(df["volume"].rolling(50).mean().iloc[-1])
+            current_volume = float(df["volume"].iloc[-1])
+        else:
+            avg_volume = 0.0
+            current_volume = 0.0
         volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
         
         # Volatility percentile
@@ -1336,6 +1344,14 @@ class BotContext:
     def _check_hard_veto(self, signal: str, market_context: dict):
         """HARD VETO: thin shell around app.core.veto_checker.check_hard_veto."""
         return check_hard_veto(signal, market_context)
+
+    def _clear_strategy_entry_cooldown(self, strategy_name: str | None) -> None:
+        """Undo strategy-side entry cooldown after veto/AI reject (no fill happened)."""
+        if not strategy_name or not hasattr(self, "strategy_engine"):
+            return
+        strat = self.strategy_engine.strategies.get(strategy_name)
+        if strat is not None and hasattr(strat, "_last_entry_time"):
+            strat._last_entry_time = None
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
@@ -2228,6 +2244,9 @@ class BotContext:
                                     continue
                         
                         market_context = self._prepare_ai_context()
+                        # Prefer engine confirmed-candle volume over any live-bar leftovers
+                        if isinstance(technical_context, dict) and technical_context.get("volume_ratio") is not None:
+                            market_context["volume_ratio"] = technical_context["volume_ratio"]
                         # Inject Copilot MTF Sentiment
                         market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
 
@@ -2238,6 +2257,8 @@ class BotContext:
                         )
                         if veto_reason:
                             self.add_log(f"⛔ {veto_reason}")
+                            # Signal armed strategy cooldown — clear so a false veto doesn't burn 15m
+                            self._clear_strategy_entry_cooldown(sig.get("strategy"))
                             try:
                                 discord_service.send_alert(
                                     f"⛔ HARD VETO (trace={ai_trace_id}): {sig.get('signal')} {sig_symbol}",
@@ -2579,6 +2600,7 @@ class BotContext:
                                     f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"))
                                 self._log_execution_error(
                                     f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
                                     reason=reason,
@@ -2656,6 +2678,9 @@ class BotContext:
                                     tp=sig.get("tp"),
                                     equity=equity,
                                 )
+                        else:
+                            # AI/gate rejected — do not burn the 15m strategy entry cooldown
+                            self._clear_strategy_entry_cooldown(sig.get("strategy"))
                 
                 # Optimized Sleep Loop + Anti-Signal Spam
                 has_active_trade = len(self.active_trades) > 0
