@@ -11,12 +11,14 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
+# Copy requirements (prod only — no mypy/pytest; saves RAM during Coolify builds)
+COPY requirements-prod.txt .
 
-# Install dependencies
+# Install dependencies (PIP_NO_CACHE already via --no-cache-dir)
+# Limit parallel builds a bit to reduce peak memory on small Coolify hosts.
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-prod.txt
 
 # Final stage
 FROM python:3.12-slim

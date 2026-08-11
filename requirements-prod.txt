@@ -1,0 +1,47 @@
+# NovaBot - Production runtime dependencies only
+# (dev/test tools stay in requirements.txt / requirements-dev.txt)
+
+# Core Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Data Processing
+pandas>=2.3.2
+numpy>=2.2.6
+
+# Technical Analysis
+pandas-ta==0.4.71b0
+
+# HTTP Client
+httpx==0.28.1
+requests==2.32.3
+
+# WebSocket
+websockets>=10.0,<14.0
+
+# AI/LLM
+openai==1.57.4
+
+# Discord Integration
+discord-webhook==1.3.1
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# JSON Handling
+orjson==3.10.12
+
+# Cryptography (for Hyperliquid)
+eth-account==0.13.4
+web3==7.6.0
+
+# Hyperliquid SDK (0.24+ required: sparse spot token indices break <=0.21 Info init)
+hyperliquid-python-sdk==0.24.0
+
+# Date/Time
+python-dateutil==2.9.0.post0
+
+# Logging
+colorlog==6.9.0
