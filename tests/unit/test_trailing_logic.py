@@ -51,88 +51,100 @@ def test_returns_none_when_price_missing_or_zero():
 
 
 def test_returns_none_before_be_threshold():
-    """Progress below 60% AND PnL below 1.2% → nothing to do."""
-    # entry=100, sl=95, tp=110 → progress at price=101 is 10%, pnl is 1.0%
-    assert compute_trailing_decision(_long_trade(), 101.0) is None
+    """Progress below 75% AND PnL below 2.0% → nothing to do."""
+    # entry=100, sl=95, tp=110 → progress at price=107 is 70%, pnl is 7%
+    # 70% used to trigger BE (old 60%); must stay quiet now until 75%.
+    assert compute_trailing_decision(_long_trade(), 107.0) is None
+    # Low progress + sub-2% PnL
+    assert compute_trailing_decision(_long_trade(tp=200.0), 101.5) is None
+
+
+def test_link_style_60pct_progress_does_not_arm_be():
+    """Regression: LINK was stopped after ~60% progress toward TP."""
+    # entry=8.377, risk≈0.64%, R:R2 → tp≈8.484; MFE≈8.442 → ~60% progress, pnl≈0.77%
+    trade = {
+        "symbol": "LINK",
+        "side": "BUY",
+        "entry": 8.377,
+        "sl": 8.323,
+        "tp": 8.4848,
+    }
+    assert compute_trailing_decision(trade, 8.4417) is None
 
 
 # ----------------------------------------------------------------------
 # Smart Break-Even
 # ----------------------------------------------------------------------
 
-def test_smart_be_triggers_on_long_at_60_pct_progress():
-    # entry=100, tp=110 → total_dist=10. Price=107 → progress 70%
+def test_smart_be_triggers_on_long_at_75_pct_progress():
+    # entry=100, tp=110 → total_dist=10. Price=107.6 → progress 76%
     trade = _long_trade()
-    decision = compute_trailing_decision(trade, 107.0)
+    decision = compute_trailing_decision(trade, 107.6)
     assert decision is not None
-    # At 70% progress we ALSO hit the 65% trailing rule, so the final
-    # decision is Trailing 65% (higher SL than BE). Smart BE alone is
-    # tested below with a PnL-only trigger.
-    assert decision.reason in ("Smart BE", "Trailing 65%", "Aggressive Lock 75%")
-    assert decision.new_sl > trade["sl"]
+    assert decision.reason == "Smart BE"
+    assert decision.new_sl == pytest.approx(100.2)
 
 
 def test_smart_be_triggers_on_long_via_pnl_shortcut():
-    """Even with low progress, a >1.2% unrealized PnL activates Smart BE."""
-    # Far TP so progress stays low, but large entry move triggers PnL branch.
+    """Even with low progress, a >2.0% unrealized PnL activates Smart BE."""
     trade = _long_trade(entry=100.0, sl=95.0, tp=200.0)
-    # Price 101.5 → pnl 1.5%, progress only 1.5%
-    decision = compute_trailing_decision(trade, 101.5)
+    # Price 102.1 → pnl 2.1%, progress only ~2.1%
+    decision = compute_trailing_decision(trade, 102.1)
     assert decision is not None
     assert decision.reason == "Smart BE"
-    # BE = entry * 1.002 = 100.2
     assert decision.new_sl == pytest.approx(100.2)
 
 
 def test_smart_be_triggers_on_short():
     trade = _short_trade(entry=100.0, sl=105.0, tp=90.0)
-    # Price=93 → current_dist=7, total_dist=10, progress=70%
-    decision = compute_trailing_decision(trade, 93.0)
+    # Price=92.4 → current_dist=7.6, total_dist=10, progress=76%
+    decision = compute_trailing_decision(trade, 92.4)
     assert decision is not None
-    assert decision.new_sl < trade["sl"]
+    assert decision.reason == "Smart BE"
+    assert decision.new_sl == pytest.approx(99.8)
 
 
 # ----------------------------------------------------------------------
-# Trailing 65% and Aggressive Lock 75%
+# Trailing 80% and Aggressive Lock 90%
 # ----------------------------------------------------------------------
 
-def test_trailing_65_on_long():
+def test_trailing_80_on_long():
     trade = _long_trade(entry=100.0, sl=95.0, tp=110.0)
-    # Price=107 → 70% progress. Expect secure_price = 100 + 10*0.20 = 102
-    decision = compute_trailing_decision(trade, 107.0)
+    # Price=108.5 → 85% progress. Expect secure_price = 100 + 10*0.20 = 102
+    decision = compute_trailing_decision(trade, 108.5)
     assert decision is not None
     assert decision.new_sl == pytest.approx(102.0)
-    assert decision.reason == "Trailing 65%"
+    assert decision.reason == "Trailing 80%"
 
 
-def test_aggressive_lock_75_overrides_on_long():
+def test_aggressive_lock_90_overrides_on_long():
     trade = _long_trade(entry=100.0, sl=95.0, tp=110.0)
-    # Price=108 → 80% progress. Lock = 100 + 10*0.40 = 104
-    decision = compute_trailing_decision(trade, 108.0)
+    # Price=109.5 → 95% progress. Lock = 100 + 10*0.40 = 104
+    decision = compute_trailing_decision(trade, 109.5)
     assert decision is not None
     assert decision.new_sl == pytest.approx(104.0)
-    assert decision.reason == "Aggressive Lock 75%"
+    assert decision.reason == "Aggressive Lock 90%"
 
 
-def test_aggressive_lock_75_on_short():
+def test_aggressive_lock_90_on_short():
     trade = _short_trade(entry=100.0, sl=105.0, tp=90.0)
-    # Price=92 → current_dist=8, progress=80%. Lock = 100 - 10*0.40 = 96
-    decision = compute_trailing_decision(trade, 92.0)
+    # Price=90.5 → current_dist=9.5, progress=95%. Lock = 100 - 10*0.40 = 96
+    decision = compute_trailing_decision(trade, 90.5)
     assert decision is not None
     assert decision.new_sl == pytest.approx(96.0)
+    assert decision.reason == "Aggressive Lock 90%"
 
 
 def test_no_upgrade_when_sl_already_tighter_than_computed():
     """If SL is already past the would-be new level, keep it."""
-    # Price at 108 (80% progress) would propose 104; but SL is already 105.
     trade = _long_trade(entry=100.0, sl=105.0, tp=110.0)
-    decision = compute_trailing_decision(trade, 108.0)
+    decision = compute_trailing_decision(trade, 109.5)
     assert decision is None
 
 
 def test_progress_and_pnl_are_reported():
     trade = _long_trade(entry=100.0, sl=95.0, tp=110.0)
-    decision = compute_trailing_decision(trade, 107.0)
+    decision = compute_trailing_decision(trade, 108.5)
     assert decision is not None
-    assert decision.progress_pct == pytest.approx(70.0)
-    assert decision.pnl_pct == pytest.approx(7.0)
+    assert decision.progress_pct == pytest.approx(85.0)
+    assert decision.pnl_pct == pytest.approx(8.5)

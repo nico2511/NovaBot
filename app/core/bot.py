@@ -1467,9 +1467,9 @@ class BotContext:
                 StateManager.save_state(self)
 
         threshold_hint = {
-            "Smart BE": "threshold 60% (or PnL > 1.2% on LONG)",
-            "Trailing 65%": "threshold 65%",
-            "Aggressive Lock 75%": "threshold 75%",
+            "Smart BE": "threshold 75% (or PnL > 2.0% on LONG)",
+            "Trailing 80%": "threshold 80%",
+            "Aggressive Lock 90%": "threshold 90%",
         }.get(decision.reason, decision.reason)
 
         discord_service.send_alert(
@@ -2795,8 +2795,8 @@ class BotContext:
                     sl_to_use = existing_sl if existing_sl else 0
                     tp_to_use = existing_tp if existing_tp else 0
 
-                    # Smart BE check for adopted trades
-                    if pnl_pct >= 1.2:
+                    # Smart BE check for adopted trades (aligned with trailing_logic)
+                    if pnl_pct >= 2.0:
                          sl_is_be = (sl_to_use >= entry_price * 1.001) if side == "BUY" else (sl_to_use <= entry_price * 0.999) if sl_to_use > 0 else False
                          if not sl_is_be:
                               sl_price = entry_price * 1.002 if side == "BUY" else entry_price * 0.998

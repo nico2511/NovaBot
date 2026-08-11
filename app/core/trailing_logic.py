@@ -8,22 +8,31 @@ responsible for applying the decision (persisting state, notifying Discord,
 updating the exchange…). Keeping this module pure makes the stop-management
 rules testable and explicit.
 
-Rules (identical to the legacy BotContext._update_trailing_stops):
-  - Smart Break-Even  at 60% progress (or >1.2% PnL on LONG) → lock 0.2% profit
-  - Trailing Profit   at 65% progress → secure 20% of gains
-  - Aggressive Lock   at 75% progress → secure 40% of gains
+Rules (calibrated for SuperTrend pullback-then-extend trades):
+  - Smart Break-Even  at 75% progress (or >2.0% PnL on LONG) → lock 0.2% profit
+  - Trailing Profit   at 80% progress → secure 20% of gains
+  - Aggressive Lock   at 90% progress → secure 40% of gains
+
+Previously BE fired at 60% / 1.2% PnL which stopped LINK-style winners on the
+first healthy retrace before TP.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
 
+# Thresholds (progress toward TP). Kept as named constants for tests/docs.
+SMART_BE_PROGRESS_PCT = 75.0
+SMART_BE_PNL_PCT = 2.0  # LONG shortcut only
+TRAIL_20_PROGRESS_PCT = 80.0
+TRAIL_40_PROGRESS_PCT = 90.0
+
 
 @dataclass(frozen=True)
 class TrailingDecision:
     """Outcome of a trailing evaluation."""
     new_sl: float
-    reason: str          # short human-readable label (e.g. "Smart BE", "Trailing 65%")
+    reason: str          # short human-readable label (e.g. "Smart BE", "Trailing 80%")
     progress_pct: float
     pnl_pct: float
 
@@ -77,48 +86,48 @@ def compute_trailing_decision(trade: dict, current_price: float) -> Optional[Tra
     reason = ""
 
     if side == "BUY":
-        # 1. Smart BE
-        if progress_pct > 60 or pnl_pct > 1.2:
+        # 1. Smart BE — late enough to survive a normal SuperTrend retrace
+        if progress_pct > SMART_BE_PROGRESS_PCT or pnl_pct > SMART_BE_PNL_PCT:
             be_price = entry_price * 1.002
             if sl_price < be_price and current_price > (be_price * 1.003):
                 new_sl = be_price
                 reason = "Smart BE"
 
         # 2. Trailing 20%
-        if progress_pct > 65:
+        if progress_pct > TRAIL_20_PROGRESS_PCT:
             secure_price = entry_price + (total_dist * 0.20)
             if sl_price < secure_price and (new_sl is None or secure_price > new_sl):
                 new_sl = secure_price
-                reason = "Trailing 65%"
+                reason = "Trailing 80%"
 
         # 3. Aggressive Lock 40%
-        if progress_pct > 75:
+        if progress_pct > TRAIL_40_PROGRESS_PCT:
             lock_price = entry_price + (total_dist * 0.40)
             if sl_price < lock_price and (new_sl is None or lock_price > new_sl):
                 new_sl = lock_price
-                reason = "Aggressive Lock 75%"
+                reason = "Aggressive Lock 90%"
 
     else:  # SELL — mirror logic
         # 1. Smart BE
-        if progress_pct > 60:
+        if progress_pct > SMART_BE_PROGRESS_PCT or pnl_pct > SMART_BE_PNL_PCT:
             be_price = entry_price * 0.998
             if sl_price > be_price and current_price < (be_price * 0.997):
                 new_sl = be_price
                 reason = "Smart BE"
 
         # 2. Trailing 20%
-        if progress_pct > 65:
+        if progress_pct > TRAIL_20_PROGRESS_PCT:
             secure_price = entry_price - (total_dist * 0.20)
             if sl_price > secure_price and (new_sl is None or secure_price < new_sl):
                 new_sl = secure_price
-                reason = "Trailing 65%"
+                reason = "Trailing 80%"
 
         # 3. Aggressive Lock 40%
-        if progress_pct > 75:
+        if progress_pct > TRAIL_40_PROGRESS_PCT:
             lock_price = entry_price - (total_dist * 0.40)
             if sl_price > lock_price and (new_sl is None or lock_price < new_sl):
                 new_sl = lock_price
-                reason = "Aggressive Lock 75%"
+                reason = "Aggressive Lock 90%"
 
     if new_sl is None:
         return None
