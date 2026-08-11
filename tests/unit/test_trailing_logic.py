@@ -52,11 +52,12 @@ def test_returns_none_when_price_missing_or_zero():
 
 def test_returns_none_before_be_threshold():
     """Progress below 75% AND PnL below 2.0% → nothing to do."""
-    # entry=100, sl=95, tp=110 → progress at price=107 is 70%, pnl is 7%
-    # 70% used to trigger BE (old 60%); must stay quiet now until 75%.
-    assert compute_trailing_decision(_long_trade(), 107.0) is None
     # Low progress + sub-2% PnL
     assert compute_trailing_decision(_long_trade(tp=200.0), 101.5) is None
+    # ~70% progress but PnL only 1.5% (old BE would have fired at 60%)
+    trade = _long_trade(entry=100.0, sl=98.0, tp=102.14)
+    assert compute_trailing_decision(trade, 101.5) is None
+
 
 
 def test_link_style_60pct_progress_does_not_arm_be():
