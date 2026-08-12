@@ -1,0 +1,6 @@
+# Optional local lint tools (not used by Docker or CI)
+-r requirements-prod.txt
+
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0

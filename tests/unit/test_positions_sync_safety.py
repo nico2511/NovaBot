@@ -27,18 +27,22 @@ def test_stale_positions_returned_on_error(service):
     }
     service.info.user_state.side_effect = Exception("504 Gateway Timeout")
 
-    with patch("app.services.hyperliquid_service.rate_limiter") as rl:
-        rl.can_call.return_value = True
-        positions = service.get_positions()
+    with patch("app.services.hyperliquid_service.config") as cfg:
+        cfg.HL_ACCOUNT_ADDRESS = "0xabc"
+        with patch("app.services.hyperliquid_service.rate_limiter") as rl:
+            rl.can_call.return_value = True
+            positions = service.get_positions()
 
     assert service._positions_fetch_failed is False
     assert positions[0]["symbol"] == "BTC"
 
 
 def test_no_cache_marks_fetch_failed(service):
-    with patch("app.services.hyperliquid_service.rate_limiter") as rl:
-        rl.can_call.return_value = False
-        positions = service.get_positions()
+    with patch("app.services.hyperliquid_service.config") as cfg:
+        cfg.HL_ACCOUNT_ADDRESS = "0xabc"
+        with patch("app.services.hyperliquid_service.rate_limiter") as rl:
+            rl.can_call.return_value = False
+            positions = service.get_positions()
 
     assert positions == []
     assert service._positions_fetch_failed is True

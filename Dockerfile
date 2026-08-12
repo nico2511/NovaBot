@@ -2,23 +2,24 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies needed to build some wheels on slim.
+# Prefer binary wheels; build-essential kept as fallback for eth-account/cffi.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     libssl-dev \
     libffi-dev \
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements (prod only — no mypy/pytest; saves RAM during Coolify builds)
+# Copy requirements (prod only — no pytest/mypy; saves RAM during Coolify builds)
 COPY requirements-prod.txt .
 
-# Install dependencies (PIP_NO_CACHE already via --no-cache-dir)
-# Limit parallel builds a bit to reduce peak memory on small Coolify hosts.
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements-prod.txt
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120
+# Sequential-ish install reduces peak RAM vs parallel wheel builds on 4GB LXC.
+RUN pip install --no-cache-dir --upgrade "pip<26" && \
+    pip install --no-cache-dir --no-compile -r requirements-prod.txt
+
 
 # Final stage
 FROM python:3.12-slim

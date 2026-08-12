@@ -1,7 +1,8 @@
 # NovaBot - Trading Bot Requirements
 # Python 3.10+
 #
-# Default install for local/dev: production + test/lint tools.
-# Docker production image uses requirements-prod.txt only (avoids OOM from mypy/llvmlite).
+# Local / CI: production runtime + pytest.
+# Docker image: requirements-prod.txt only.
+# Optional lint tools: pip install -r requirements-lint.txt
 
 -r requirements-dev.txt

@@ -9,7 +9,8 @@ Vérifiez que ces fichiers sont à la racine de votre dépôt :
 - `Dockerfile`
 - `docker-compose.yaml`
 - `.dockerignore`
-- `requirements.txt`
+- `requirements-prod.txt` (installé dans l'image Docker)
+- `requirements.txt` (local / CI = prod + pytest)
 - `main.py`
 
 ## 2. Configuration sur Coolify
