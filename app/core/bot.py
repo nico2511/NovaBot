@@ -25,6 +25,16 @@ from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.core.trailing_logic import compute_trailing_decision
 from app.core.veto_checker import check_hard_veto
+from app.core.trade_thesis import (
+    ACTION_CLOSE_IF_PROFIT,
+    ACTION_TIGHTEN_SL,
+    THESIS_VALID,
+    THESIS_WEAK,
+    break_even_sl,
+    decision_from_verdict,
+    evaluate_supertrend_thesis,
+    should_apply_be_tighten,
+)
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
 from app.core.trade_recorder import TradeRecorder
@@ -74,6 +84,9 @@ class BotContext:
         self.logs = deque(maxlen=1000)
         self.latest_strategy_result = {}
         self.last_candle_time = None
+        # In-trade thesis follow-up (per symbol cooldown)
+        self._last_thesis_check: dict = {}
+        self._thesis_check_interval_sec = 180  # every ~3 minutes while in a trade
         
         self.trading_enabled = config.AUTO_START_TRADING  # Respect "Auto-start Trading on Bot Launch"
         self.is_running = False      # Loop Switch
@@ -1599,11 +1612,128 @@ class BotContext:
                                 t_ref["initial_sl_tp_set"] = True
                                 self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
 
+                # 2b. SuperTrend thesis follow-up (soft exit if dead + green)
+                self._maybe_evaluate_trade_thesis(symbol, trade, current_price)
+
                 # 3. Local Exit Check (Safety)
                 self._check_local_exits(trade, symbol, current_price)
                 
             except Exception as manage_err:
                 self.add_log(f"⚠️ Management Error on {symbol}: {manage_err}")
+
+    def _maybe_evaluate_trade_thesis(self, symbol: str, trade: dict, current_price: float) -> None:
+        """Periodic in-trade SuperTrend thesis check → HOLD / tighten BE / soft close."""
+        if not self.trading_enabled:
+            return
+        strategy_name = str(trade.get("strategy") or "")
+        if strategy_name and strategy_name != "supertrend":
+            return
+
+        now = time.time()
+        last = float(self._last_thesis_check.get(symbol, 0) or 0)
+        if now - last < float(self._thesis_check_interval_sec):
+            return
+        self._last_thesis_check[symbol] = now
+
+        try:
+            df = hyperliquid_service.get_candles(symbol, interval="15m", limit=250)
+            if df is None or getattr(df, "empty", True) or len(df) < 50:
+                return
+
+            strat = self.strategy_engine.strategies.get("supertrend")
+            if strat is None:
+                return
+            p = strat._params_snapshot() if hasattr(strat, "_params_snapshot") else {}
+            strat.add_indicators(df, p)
+
+            last_15m = df.iloc[-2]
+            adx = float(last_15m.get("ADX_14", 0) or 0)
+            try:
+                adx_slope = adx - float(df["ADX_14"].iloc[-3])
+            except Exception:
+                adx_slope = 0.0
+
+            side = str(trade.get("side") or "BUY").upper()
+            entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+            verdict = evaluate_supertrend_thesis(
+                side=side,
+                entry=entry,
+                current_price=float(current_price),
+                close_15m=float(last_15m.get("close", 0) or 0),
+                ema_filter=float(last_15m.get("EMA_200", 0) or 0),
+                st_direction=int(last_15m.get("ST_Direction", 0) or 0),
+                supertrend=float(last_15m.get("Supertrend", 0) or 0),
+                adx=adx,
+                adx_slope=adx_slope,
+                adx_threshold=float(p.get("adx_threshold", 22) or 22),
+                min_adx_slope=float(p.get("min_adx_slope", -1.0) or -1.0),
+            )
+            payload = decision_from_verdict(verdict)
+            prev = trade.get("thesis_status")
+            if prev != verdict.status:
+                self.add_log(
+                    f"🧠 Thesis {symbol}: {verdict.status} → {verdict.action} "
+                    f"(PnL {verdict.pnl_pct:+.2f}%) | {'; '.join(verdict.reasons)}"
+                )
+                try:
+                    discord_service.send_alert(
+                        f"🧠 Thesis {verdict.status}: {side} {symbol}",
+                        (
+                            f"Action: {verdict.action}\n"
+                            f"PnL: {verdict.pnl_pct:+.2f}%\n"
+                            f"ADX {verdict.adx:.1f} (slope {verdict.adx_slope:+.2f})\n"
+                            + "\n".join(f"• {r}" for r in verdict.reasons)
+                        ),
+                        color="2ecc71" if verdict.status == THESIS_VALID else (
+                            "f39c12" if verdict.status == THESIS_WEAK else "e74c3c"
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            with self.trade_lock:
+                t_ref = self.active_trades.get(symbol)
+                if t_ref:
+                    t_ref["thesis_status"] = verdict.status
+                    t_ref["thesis_action"] = verdict.action
+                    t_ref["thesis_pnl_pct"] = verdict.pnl_pct
+
+            if verdict.action == ACTION_TIGHTEN_SL:
+                be = break_even_sl(side, entry)
+                cur_sl = float(trade.get("sl") or 0)
+                if be and should_apply_be_tighten(side, entry, cur_sl, be):
+                    self.add_log(
+                        f"🛡️ Thesis WEAK: tighten SL {symbol} {cur_sl:.6g}→{be:.6g} (BE lock)"
+                    )
+                    with self.trade_lock:
+                        t_ref = self.active_trades.get(symbol)
+                        if t_ref:
+                            t_ref["sl"] = float(be)
+                            t_ref["initial_sl_tp_set"] = True
+                            self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
+                            StateManager.save_state(self)
+
+            elif verdict.action == ACTION_CLOSE_IF_PROFIT:
+                if verdict.pnl_pct > 0:
+                    self.add_log(
+                        f"🚪 Thesis DEAD + green ({verdict.pnl_pct:+.2f}%) — closing {symbol}"
+                    )
+                    try:
+                        discord_service.send_alert(
+                            f"🚪 Soft close (thesis dead): {side} {symbol}",
+                            f"PnL {verdict.pnl_pct:+.2f}%\n" + "\n".join(verdict.reasons),
+                            color="e74c3c",
+                        )
+                    except Exception:
+                        pass
+                    self.execute_exit_atomically(symbol, reason="THESIS_DEAD")
+                else:
+                    self.add_log(
+                        f"🧠 Thesis DEAD but flat/red ({verdict.pnl_pct:+.2f}%) — leave SL on {symbol}"
+                    )
+
+        except Exception as e:
+            self.add_log(f"⚠️ Thesis check failed for {symbol}: {e}")
 
     def _sync_state(self, silent=True):
         """Unified State Synchronization (Stateless Truth) - Multi-Position aware"""
