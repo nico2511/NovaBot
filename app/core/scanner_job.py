@@ -20,6 +20,9 @@ class ScannerJob:
     """Parallel scanner thread — does not block the trading loop."""
 
     SWITCH_HYSTERESIS = 10.0  # require this many points above current symbol
+    # When SuperTrend is already armed (15m bias OK, waiting pullback/reclaim),
+    # demand a much larger score gap before abandoning the near-entry setup.
+    SWITCH_HYSTERESIS_ARMED = 25.0
 
     def __init__(self, bot_context):
         self.bot = bot_context
@@ -176,6 +179,16 @@ class ScannerJob:
                 return float(opp.get("score", 0) or 0)
         return 0.0
 
+    def _current_setup_armed(self) -> bool:
+        """True if SuperTrend is mid-setup on the active symbol (near entry)."""
+        try:
+            engine = getattr(self.bot, "strategy_engine", None)
+            strategies = getattr(engine, "strategies", None) or {}
+            st = strategies.get("supertrend")
+            return bool(getattr(st, "looking_for_entry", False))
+        except Exception:
+            return False
+
     def _maybe_auto_switch(self, best: Dict[str, Any], opportunities: List[Dict[str, Any]]) -> Optional[str]:
         if not self._has_capacity_for_switch():
             self.bot.add_log(
@@ -193,10 +206,25 @@ class ScannerJob:
             return None
 
         current_score = self._score_for_symbol(current, opportunities)
-        if current_score > 0 and best_score < current_score + self.SWITCH_HYSTERESIS:
+        hysteresis = self.SWITCH_HYSTERESIS
+        armed = self._current_setup_armed()
+        if armed:
+            hysteresis = self.SWITCH_HYSTERESIS_ARMED
+
+        if current_score > 0 and best_score < current_score + hysteresis:
+            why = "armed near-entry" if armed else f"hysteresis {hysteresis:.0f}"
             self.bot.add_log(
-                f"🕵️ Keep {current} (score {current_score:.0f}) — best {best_symbol} "
-                f"{best_score:.0f} within hysteresis {self.SWITCH_HYSTERESIS:.0f}"
+                f"🕵️ Keep {current} (score {current_score:.0f}, {why}) — best {best_symbol} "
+                f"{best_score:.0f} needs +{hysteresis:.0f}"
+            )
+            return None
+
+        if armed and current_score <= 0 and best_score < 90:
+            # Armed but current dropped out of the scan board: still sticky unless
+            # the challenger is clearly strong (avoid resetting a live reclaim wait).
+            self.bot.add_log(
+                f"🕵️ Keep {current} (setup armed, not on board) — best {best_symbol} "
+                f"{best_score:.0f} < sticky floor 90"
             )
             return None
 
