@@ -84,6 +84,39 @@ def test_long_weak_green_tightens():
     assert v.action == ACTION_TIGHTEN_SL
 
 
+def test_entry_min_adx_slope_maps_to_weak_not_dead():
+    """Strategy entry filter (-0.35) must be WEAK band, not DEAD floor."""
+    v = evaluate_supertrend_thesis(
+        side="BUY",
+        entry=100.0,
+        current_price=101.0,
+        close_15m=101.0,
+        ema_filter=99.0,
+        st_direction=1,
+        supertrend=100.0,
+        adx=30.0,
+        adx_slope=-0.5,
+        min_adx_slope=-1.0,
+        weak_adx_slope=-0.35,
+    )
+    assert v.status == THESIS_WEAK
+    # Mis-wiring entry min_adx_slope=-0.35 as DEAD floor would wrongly kill this.
+    v_miswired = evaluate_supertrend_thesis(
+        side="BUY",
+        entry=100.0,
+        current_price=101.0,
+        close_15m=101.0,
+        ema_filter=99.0,
+        st_direction=1,
+        supertrend=100.0,
+        adx=30.0,
+        adx_slope=-0.5,
+        min_adx_slope=-0.35,
+        weak_adx_slope=-0.35,
+    )
+    assert v_miswired.status == THESIS_DEAD
+
+
 def test_be_tighten_helpers():
     be = break_even_sl("BUY", 100.0)
     assert be == 100.2

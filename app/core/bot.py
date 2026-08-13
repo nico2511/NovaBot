@@ -29,7 +29,7 @@ from app.core.trade_thesis import (
     ACTION_CLOSE_IF_PROFIT,
     ACTION_TIGHTEN_SL,
     MIN_SOFT_CLOSE_PNL_PCT,
-    THESIS_VALID,
+    THESIS_DEAD,
     THESIS_WEAK,
     break_even_sl,
     evaluate_supertrend_thesis,
@@ -1316,10 +1316,15 @@ class BotContext:
                      
                      # Record trade
                      with self.trade_lock:
+                         closed_trade = self.active_trades.get(symbol)
                          self.trade_recorder.add_trade({
-                             "trade_id": (self.active_trades.get(symbol) or {}).get("trade_id") if isinstance(self.active_trades.get(symbol), dict) else None,
+                             "trade_id": closed_trade.get("trade_id") if isinstance(closed_trade, dict) else None,
                              "symbol": symbol,
-                             "strategy": self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual",
+                             "strategy": (
+                                 closed_trade.get("strategy")
+                                 if isinstance(closed_trade, dict) and closed_trade.get("strategy")
+                                 else (self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual")
+                             ),
                              "side": side,
                              "entry_price": entry_price,
                              "exit_price": exit_price,
@@ -1327,7 +1332,11 @@ class BotContext:
                              "pnl_usdc": pnl_usdc,
                              "exit_reason": reason,
                              "exit_time": pd.Timestamp.now().isoformat(),
-                             "entry_indicators": self.active_trade.get("entry_indicators", {}) if self.active_trade else {}
+                             "entry_indicators": (
+                                 closed_trade.get("entry_indicators", {})
+                                 if isinstance(closed_trade, dict)
+                                 else (self.active_trade.get("entry_indicators", {}) if self.active_trade else {})
+                             ),
                          })
                          
                          discord_service.send_alert(
@@ -1336,6 +1345,10 @@ class BotContext:
                              color="FFFF00"
                          )
                          self.risk_manager.record_trade_close(pnl_usdc)
+
+                         # Drop local tracking now — intentional close is already recorded.
+                         # Prevents _sync_state → _handle_external_closure from double-recording.
+                         self.active_trades.pop(symbol, None)
                          
                          # Clear active_trade only if this was the active trade
                          if self.active_trade and self.active_trade.get("symbol") == symbol:
@@ -1681,11 +1694,16 @@ class BotContext:
 
             side = str(trade.get("side") or "BUY").upper()
             entry = float(trade.get("entry") or trade.get("entry_price") or 0)
-            raw_min_slope = p.get("min_adx_slope", -1.0)
+            # Strategy min_adx_slope is an ENTRY soft filter (default -0.35).
+            # In-trade: that maps to WEAK; DEAD uses a harder floor (default -1.0).
+            raw_entry_slope = p.get("min_adx_slope", -0.35)
             try:
-                min_adx_slope = float(raw_min_slope) if raw_min_slope is not None else -1.0
+                weak_adx_slope = (
+                    float(raw_entry_slope) if raw_entry_slope is not None else -0.35
+                )
             except (TypeError, ValueError):
-                min_adx_slope = -1.0
+                weak_adx_slope = -0.35
+            dead_adx_slope = min(-1.0, weak_adx_slope - 0.65)
             verdict = evaluate_supertrend_thesis(
                 side=side,
                 entry=entry,
@@ -1697,7 +1715,8 @@ class BotContext:
                 adx=adx,
                 adx_slope=adx_slope,
                 adx_threshold=float(p.get("adx_threshold", 22) or 22),
-                min_adx_slope=min_adx_slope,
+                min_adx_slope=dead_adx_slope,
+                weak_adx_slope=weak_adx_slope,
             )
             prev = trade.get("thesis_status")
             if prev != verdict.status:
@@ -1705,21 +1724,31 @@ class BotContext:
                     f"🧠 Thesis {symbol}: {verdict.status} → {verdict.action} "
                     f"(PnL {verdict.pnl_pct:+.2f}%) | {'; '.join(verdict.reasons)}"
                 )
-                try:
-                    discord_service.send_alert(
-                        f"🧠 Thesis {verdict.status}: {side} {symbol}",
-                        (
-                            f"Action: {verdict.action}\n"
-                            f"PnL: {verdict.pnl_pct:+.2f}%\n"
-                            f"ADX {verdict.adx:.1f} (slope {verdict.adx_slope:+.2f})\n"
-                            + "\n".join(f"• {r}" for r in verdict.reasons)
-                        ),
-                        color="2ecc71" if verdict.status == THESIS_VALID else (
-                            "f39c12" if verdict.status == THESIS_WEAK else "e74c3c"
-                        ),
-                    )
-                except Exception:
-                    pass
+                # Discord only on WEAK/DEAD (skip VALID chatter + DEAD soft-close
+                # which has its own alert below).
+                will_soft_close = (
+                    verdict.status == THESIS_DEAD
+                    and verdict.action == ACTION_CLOSE_IF_PROFIT
+                    and verdict.pnl_pct >= MIN_SOFT_CLOSE_PNL_PCT
+                )
+                if verdict.status == THESIS_WEAK or (
+                    verdict.status == THESIS_DEAD and not will_soft_close
+                ):
+                    try:
+                        discord_service.send_alert(
+                            f"🧠 Thesis {verdict.status}: {side} {symbol}",
+                            (
+                                f"Action: {verdict.action}\n"
+                                f"PnL: {verdict.pnl_pct:+.2f}%\n"
+                                f"ADX {verdict.adx:.1f} (slope {verdict.adx_slope:+.2f})\n"
+                                + "\n".join(f"• {r}" for r in verdict.reasons)
+                            ),
+                            color=(
+                                "f39c12" if verdict.status == THESIS_WEAK else "e74c3c"
+                            ),
+                        )
+                    except Exception:
+                        pass
 
             with self.trade_lock:
                 t_ref = self.active_trades.get(symbol)
