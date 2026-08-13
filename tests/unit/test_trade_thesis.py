@@ -5,12 +5,14 @@ from app.core.trade_thesis import (
     ACTION_CLOSE_IF_PROFIT,
     ACTION_HOLD,
     ACTION_TIGHTEN_SL,
+    MIN_SOFT_CLOSE_PNL_PCT,
     THESIS_DEAD,
     THESIS_VALID,
     THESIS_WEAK,
     break_even_sl,
     evaluate_supertrend_thesis,
     should_apply_be_tighten,
+    thesis_indicators_ready,
 )
 
 
@@ -87,3 +89,31 @@ def test_be_tighten_helpers():
     assert be == 100.2
     assert should_apply_be_tighten("BUY", 100.0, current_sl=99.0, be_sl=be) is True
     assert should_apply_be_tighten("BUY", 100.0, current_sl=100.3, be_sl=be) is False
+
+
+def test_indicators_ready_rejects_nan():
+    assert (
+        thesis_indicators_ready(
+            close_15m=100.0,
+            ema_filter=99.0,
+            st_direction=1,
+            supertrend=98.0,
+            adx=25.0,
+        )
+        is True
+    )
+    assert (
+        thesis_indicators_ready(
+            close_15m=float("nan"),
+            ema_filter=99.0,
+            st_direction=1,
+            supertrend=98.0,
+            adx=25.0,
+        )
+        is False
+    )
+
+
+def test_soft_close_min_pnl_constant():
+    # Gate used by bot soft-close path — keep fee buffer explicit
+    assert MIN_SOFT_CLOSE_PNL_PCT >= 0.2

@@ -6,10 +6,11 @@ asks for a verdict + soft action:
 
   VALID  → leave trailing/BE alone
   WEAK   → thesis softening; tighten SL toward break-even if green
-  DEAD   → structure broken; close only if unrealized PnL > 0, else leave SL
+  DEAD   → structure broken; close only if unrealized PnL covers fees, else leave SL
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -21,6 +22,35 @@ THESIS_DEAD = "DEAD"
 ACTION_HOLD = "HOLD"
 ACTION_TIGHTEN_SL = "TIGHTEN_SL"
 ACTION_CLOSE_IF_PROFIT = "CLOSE_IF_PROFIT"
+
+# Soft-close only when green enough to survive round-trip fees (~HL taker).
+MIN_SOFT_CLOSE_PNL_PCT = 0.25
+
+
+def is_finite_number(value: Any) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def thesis_indicators_ready(
+    *,
+    close_15m: Any,
+    ema_filter: Any,
+    st_direction: Any,
+    supertrend: Any,
+    adx: Any,
+) -> bool:
+    """True when 15m inputs are usable (no NaN / missing)."""
+    if not all(
+        is_finite_number(v)
+        for v in (close_15m, ema_filter, supertrend, adx, st_direction)
+    ):
+        return False
+    if float(ema_filter) <= 0 or float(supertrend) <= 0 or float(close_15m) <= 0:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
