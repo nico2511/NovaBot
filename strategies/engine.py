@@ -41,6 +41,33 @@ class StrategyEngine:
             print(f"Error loading data/config/strategies.json: {e}")
             self.config = {}
 
+    def _regime_adx_threshold(self) -> float:
+        """
+        TREND regime ADX floor — owned by active trend strategies' adx_threshold.
+        Falls back to market_regime.adx_threshold, then 22.
+        """
+        thresholds = []
+        for name, strat in (self.strategies or {}).items():
+            cfg = (self.config or {}).get(name) or {}
+            if cfg.get("enabled") is False or cfg.get("active") is False:
+                continue
+            stype = str(cfg.get("type") or "").lower()
+            if stype and stype not in ("trend", "always_active"):
+                continue
+            try:
+                if strat is not None and hasattr(strat, "get_param"):
+                    thresholds.append(float(strat.get_param("adx_threshold", 22) or 22))
+            except (TypeError, ValueError):
+                continue
+        if thresholds:
+            return max(thresholds)
+        try:
+            return float(
+                (self.config or {}).get("market_regime", {}).get("adx_threshold", 22) or 22
+            )
+        except (TypeError, ValueError):
+            return 22.0
+
     def analyze(self, df: pd.DataFrame, extra_data=None):
         """
         Analyze market data and generate signals.
@@ -68,7 +95,7 @@ class StrategyEngine:
         prev_adx = adx_df['ADX'].iloc[-3]
         adx_slope = current_adx - prev_adx
         
-        threshold = self.config.get("market_regime", {}).get("adx_threshold", 25)
+        threshold = self._regime_adx_threshold()
         
         # DYNAMIC REGIME LOGIC
         # To be in TREND, we need ADX > Threshold AND Slope >= -3 (Not crashing hard)

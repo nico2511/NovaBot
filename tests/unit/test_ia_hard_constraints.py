@@ -129,6 +129,8 @@ def test_healthy_volume_preserves_approval(ia):
 
 def test_supertrend_trims_tp_above_swing_high(ia):
     """BUY SuperTrend TP beyond swing high is trimmed before R:R check."""
+    from strategies.supertrend import StrategySupertrend
+
     # entry=100, sl=99 (risk=1), mechanical tp=104, swing=102 → trim ~101.949
     # reward after trim ≈ 1.95 → R:R ≈ 1.95 >= 1.5 for Capital Preservation
     signal = {
@@ -147,7 +149,11 @@ def test_supertrend_trims_tp_above_swing_high(ia):
     ctx = {"swing_high": 102.0, "swing_low": 95.0, "volume_ratio": 120.0}
 
     out = ia._enforce_hard_constraints(
-        signal, ai_result, "Capital Preservation First", market_context=ctx
+        signal,
+        ai_result,
+        "Capital Preservation First",
+        market_context=ctx,
+        strategy=StrategySupertrend({"params": {}}),
     )
     assert out["approved"] is True
     trimmed = out["suggested_adjustments"]["tp"]
@@ -158,6 +164,8 @@ def test_supertrend_trims_tp_above_swing_high(ia):
 
 def test_supertrend_trim_that_breaks_min_rr_is_rejected(ia):
     """If structural TP trim leaves R:R below profile min, reject BAD_RR."""
+    from strategies.supertrend import StrategySupertrend
+
     # entry=100, sl=98 (risk=2), tp=110, swing=100.5 → trim ~100.45, reward=0.45 → RR=0.225
     signal = {
         "strategy": "supertrend",
@@ -170,7 +178,45 @@ def test_supertrend_trim_that_breaks_min_rr_is_rejected(ia):
     ctx = {"swing_high": 100.5, "swing_low": 90.0, "volume_ratio": 120.0}
 
     out = ia._enforce_hard_constraints(
-        signal, ai_result, "Capital Preservation First", market_context=ctx
+        signal,
+        ai_result,
+        "Capital Preservation First",
+        market_context=ctx,
+        strategy=StrategySupertrend({"params": {}}),
     )
     assert out["approved"] is False
     assert out["rejection_reason_category"] == "BAD_RR"
+
+
+def test_rr_epsilon_allows_near_miss_after_trim(ia):
+    """Post-trim R:R 1.49 passes Cap Pres 1.5 thanks to strategy rr epsilon."""
+    from strategies.supertrend import StrategySupertrend
+
+    # entry=75.995, sl=76.60296, tp≈75.089 → RR≈1.49 (SOL-style)
+    entry = 75.995
+    sl = 76.60296
+    risk = abs(entry - sl)
+    tp = entry - 1.49 * risk
+    signal = {
+        "strategy": "supertrend",
+        "signal": "SELL",
+        "price": entry,
+        "sl": sl,
+        "tp": tp,
+    }
+    ai_result = {
+        "approved": True,
+        "confidence": 67,
+        "reasoning": "ok",
+        "suggested_adjustments": {"sl": None, "tp": None},
+    }
+    ctx = {"volume_ratio": 72.7}
+
+    out = ia._enforce_hard_constraints(
+        signal,
+        ai_result,
+        "Capital Preservation First",
+        market_context=ctx,
+        strategy=StrategySupertrend({"params": {}}),
+    )
+    assert out["approved"] is True

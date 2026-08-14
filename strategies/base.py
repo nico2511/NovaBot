@@ -1,7 +1,27 @@
+"""
+Strategy contract — the strategy IS the trading plan.
+
+The bot is a generic machine (loop, orders, state, capital risk_profile).
+Everything market-specific lives here: params, AI persona, hard vetoes,
+post-AI geometry, signals, optional manage_trade.
+
+Subclass and override the hooks below. Defaults are intentionally neutral
+so a new strategy that only implements generate_signal still runs safely.
+"""
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+
 import pandas as pd
 
+
 class BaseStrategy(ABC):
+    """Base class for all NovaBot strategies (plan ownership)."""
+
+    # Optional class-level AI persona text. Prefer get_ai_persona() in subclasses.
+    AI_PERSONA: Optional[str] = None
+
     def __init__(self, config=None):
         self.name = self.__class__.__name__
         self.config = config or {}
@@ -42,11 +62,61 @@ class BaseStrategy(ABC):
         except Exception:
             self.params = {}
 
+    # ==========================
+    # PLAN CONTRACT (AI / VETO / GEOMETRY)
+    # ==========================
+
+    def get_ai_persona(self) -> Optional[str]:
+        """Return strategy-owned AI persona text (1 strategy = 1 persona)."""
+        return getattr(self, "AI_PERSONA", None) or None
+
+    def get_ai_validation_criteria(self) -> Optional[str]:
+        """
+        Optional extra validation criteria block injected into the AI prompt.
+        Return None to use the bot's generic criteria.
+        """
+        return None
+
+    def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
+        """
+        Pre-AI entry guards owned by this strategy.
+
+        Return a reason string to block the trade, or None to allow.
+        Default: no strategy-level veto (bot stays a dumb machine).
+        """
+        return None
+
+    def post_ai_adjust(
+        self,
+        signal: Dict[str, Any],
+        ai_result: Dict[str, Any],
+        market_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Strategy-owned post-AI geometry (e.g. trim TP to swing).
+
+        Called by the IA hard-constraint layer before R:R / volume checks.
+        Must return the (possibly mutated) ai_result dict.
+        Default: no-op.
+        """
+        return ai_result
+
+    def get_min_volume_ratio_pct(self) -> Optional[float]:
+        """
+        Optional volume floor (%) for post-AI WEAK_VOLUME hard gate.
+        None → IA uses its default helper constant.
+        """
+        return None
+
+    def get_rr_epsilon(self) -> float:
+        """Tolerance when comparing post-trim R:R to the capital risk_profile min."""
+        return 0.02
+
     @abstractmethod
     def generate_signal(self, df, extra_data=None):
         """
         Generate signal from dataframe.
-        
+
         Args:
             df: Primary dataframe (typically the strategy's main timeframe)
             extra_data: Optional dict with additional dataframes (e.g., {"1m": df_1m, "1h": df_1h})
@@ -60,21 +130,20 @@ class BaseStrategy(ABC):
     # ==========================
     # DYNAMIC ANALYSIS HELPERS
     # ==========================
-    
+
     def get_adx_slope(self, df, period=14):
         """
         Calculate ADX Slope (Current - Previous).
         Returns: float (Positive = Strengthening, Negative = Weakening)
         """
-        if 'ADX_14' not in df.columns:
-            # Try to calculate or return 0
+        if "ADX_14" not in df.columns:
             return 0
-            
+
         try:
-            current = df['ADX_14'].iloc[-1]
-            prev = df['ADX_14'].iloc[-2]
+            current = df["ADX_14"].iloc[-1]
+            prev = df["ADX_14"].iloc[-2]
             return current - prev
-        except:
+        except Exception:
             return 0
 
     def get_rsi_delta(self, df, period=14):
@@ -83,13 +152,14 @@ class BaseStrategy(ABC):
         Returns: float (>0 = Momentum increasing)
         """
         col = f"RSI_{period}"
-        if col not in df.columns: return 0
-        
+        if col not in df.columns:
+            return 0
+
         try:
             current = df[col].iloc[-1]
             prev = df[col].iloc[-2]
             return current - prev
-        except:
+        except Exception:
             return 0
 
     def detect_bearish_divergence(self, df, rsi_col="RSI_14", lookback=5):
@@ -97,48 +167,42 @@ class BaseStrategy(ABC):
         Detect Bearish Divergence: Price HH but RSI LH.
         Returns: bool
         """
-        if rsi_col not in df.columns or len(df) < lookback: return False
-        
-        try:
-            # Simple check: Price High is max of Lookback and matches Current
-            # RSI High is NOT max of Lookback
-            
-            recent = df.iloc[-lookback:]
-            
-            price_high_idx = recent['high'].idxmax()
-            rsi_high_idx = recent[rsi_col].idxmax()
-            
-            # If highest price is the current candle (or very recent)
-            # But highest RSI was older -> Divergence
-            
-            current_idx = df.index[-1]
-            
-            if price_high_idx == current_idx and rsi_high_idx != current_idx:
-                 return True
-                 
+        if rsi_col not in df.columns or len(df) < lookback:
             return False
-        except:
+
+        try:
+            recent = df.iloc[-lookback:]
+
+            price_high_idx = recent["high"].idxmax()
+            rsi_high_idx = recent[rsi_col].idxmax()
+
+            current_idx = df.index[-1]
+
+            if price_high_idx == current_idx and rsi_high_idx != current_idx:
+                return True
+
+            return False
+        except Exception:
             return False
 
     def manage_trade(self, trade, current_price, df=None, extra_data=None):
         """
         Optional: Override trade management logic (Trailing SL, TP, etc).
-        
+
         Args:
             trade (dict): Active trade data from bot context
             current_price (float): Current market price
             df (pd.DataFrame): Current market data
-            
+
         Returns:
-            dict or None: 
+            dict or None:
                 - If None: Use default bot management (fallback)
                 - If dict: Updates to apply (e.g., {"sl": 1234.5})
                     - Return empty dict {} to signal "I handled it, do nothing else"
         """
-        return None # Default: Fallback to bot logic
+        return None
 
     def _reject(self, reason: str):
         """Set a human-readable rejection reason for diagnostics and return None."""
         self.last_rejection_reason = reason
         return None
-

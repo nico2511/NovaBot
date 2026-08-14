@@ -19,7 +19,7 @@ class TestPromptsV2(unittest.TestCase):
     def test_system_prompt_generation(self):
         """Test that get_system_prompt inserts correct constraints"""
         persona = "Sniper"
-        risk = "Capital Preservation First" # Min R:R = 2.0
+        risk = "Capital Preservation First"  # Min R:R = 1.5
         
         prompt = get_system_prompt(persona, risk, "15m")
         
@@ -34,7 +34,7 @@ class TestPromptsV2(unittest.TestCase):
 
     def test_hard_constraint_enforcement_logic(self):
         """Test the _enforce_hard_constraints method in IAService"""
-        risk_profile = "Capital Preservation First" # Min R:R 2.0
+        risk_profile = "Capital Preservation First"  # Min R:R 1.5
         
         # Scenario 1: Good Trade (R:R = 3.0)
         signal_good = {"price": 100, "sl": 90, "tp": 130} # Risk 10, Reward 30
@@ -54,7 +54,7 @@ class TestPromptsV2(unittest.TestCase):
 
     def test_hard_constraint_with_ai_adjustments(self):
         """Test enforcement when AI suggests new SL/TP"""
-        risk_profile = "Capital Preservation First" # Min R:R 2.0
+        risk_profile = "Capital Preservation First"  # Min R:R 1.5
         
         # Signal is verified against AI's suggestions if present
         signal = {"price": 100, "sl": 90, "tp": 110} # Original R:R 1.0 (Bad)

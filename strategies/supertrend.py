@@ -48,6 +48,37 @@ class StrategySupertrend(BaseStrategy):
     9. When structure is only "almost ok", REJECT or ask for better location — do not default to APPROVE.
     """
 
+    AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (SUPERTREND) ===
+The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX/quality filters, pullback-to-ST,
+and a 15m ST reclaim/resume trigger (1m flip is optional, not required).
+Your job is a sanity check with hard reject rules — not a rubber stamp.
+
+APPROVE when ALL of:
+1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
+2. Computed R:R meets the risk-profile minimum (after any TP trim below)
+3. Volume ratio >= 50% of average
+4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
+5. TP is structurally realistic vs Key Levels:
+   - BUY: Proposed TP must be <= Swing High. If Proposed TP > Swing High, TRIM TP slightly below Swing High
+     via suggested_adjustments.tp (do not keep an optimistic breakout TP by default).
+   - SELL: Proposed TP must be >= Swing Low. If Proposed TP < Swing Low, TRIM TP slightly above Swing Low.
+   - If after a required trim the R:R falls below profile minimum, REJECT as BAD_RR (do not approve an undersized target).
+
+REJECT when ANY of:
+- volume_ratio < 50% (WEAK_VOLUME)
+- BUY with RSI > 70 or SELL with RSI < 30 without volume > 150% (OVEREXTENDED chase)
+- 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
+- Computed R:R below profile minimum (BAD_RR)
+- TP requires a breakout beyond Swing High/Low and you did not trim (OPTIMISTIC_TP)
+
+Do NOT reject solely because:
+- SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
+- RSI is moderately extended (50-70 long / 30-50 short) in a trending regime
+- Price is not sitting exactly on a Fib level
+- Entry used ST reclaim instead of a fresh 1m SuperTrend flip
+
+If confluence is weak or mixed, prefer approved=false over forcing a trade."""
+
     def __init__(self, config=None):
         super().__init__(config)
         # Stateful attributes (not tunable params — kept across ticks)
@@ -56,6 +87,62 @@ class StrategySupertrend(BaseStrategy):
         self._last_entry_time = None
         # NOTE: tunable params are read dynamically via self.get_param()
         # so that API edits take effect immediately without engine rebuild.
+
+    def get_ai_validation_criteria(self):
+        return self.AI_VALIDATION_CRITERIA
+
+    def get_min_volume_ratio_pct(self):
+        try:
+            return float(self.get_param("min_volume_ratio_pct", 50.0) or 50.0)
+        except (TypeError, ValueError):
+            return 50.0
+
+    def check_hard_veto(self, signal: str, market_context: dict):
+        """Strategy-owned hard veto — same thresholds as historical bot veto_checker."""
+        from app.core.veto_checker import check_hard_veto as _helper
+
+        return _helper(signal, market_context or {})
+
+    def post_ai_adjust(self, signal, ai_result, market_context=None):
+        """Trim optimistic SuperTrend TP to local swing before R:R hard gate."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        ctx = market_context or {}
+        side = str((signal or {}).get("signal") or "").upper()
+        try:
+            entry = float((signal or {}).get("price") or 0)
+            swing_high = float(ctx.get("swing_high") or 0)
+            swing_low = float(ctx.get("swing_low") or 0)
+            adj = (ai_result or {}).get("suggested_adjustments") or {}
+            if not isinstance(adj, dict):
+                adj = {}
+            tp = float(adj.get("tp") or (signal or {}).get("tp") or 0)
+            trimmed = None
+            # 0.05% buffer inside the swing so TP sits on structure, not through it
+            if side == "BUY" and entry > 0 and tp > 0 and swing_high > entry and tp > swing_high:
+                trimmed = swing_high * (1.0 - 0.0005)
+            elif side == "SELL" and entry > 0 and tp > 0 and 0 < swing_low < entry and tp < swing_low:
+                trimmed = swing_low * (1.0 + 0.0005)
+            if trimmed is not None and trimmed > 0:
+                adj = {**adj, "tp": float(trimmed)}
+                ai_result = dict(ai_result or {})
+                ai_result["suggested_adjustments"] = adj
+                prev = ai_result.get("reasoning") or ""
+                note = (
+                    f" TP trimmed to structural swing ({trimmed:.6g}) "
+                    f"from mechanical target ({tp:.6g})."
+                )
+                if "trimmed to structural swing" not in prev:
+                    ai_result["reasoning"] = (prev + note).strip()
+                logger.info(
+                    "[STRATEGY] Trimmed SuperTrend TP %s -> %s (swing structure)",
+                    tp,
+                    trimmed,
+                )
+        except (TypeError, ValueError) as trim_err:
+            logger.debug("TP swing trim skipped: %s", trim_err)
+        return ai_result
 
     def _params_snapshot(self):
         return {

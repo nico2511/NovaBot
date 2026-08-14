@@ -1,6 +1,6 @@
 {
     "market_regime": {
-        "adx_threshold": 25
+        "adx_threshold": 22
     },
     "supertrend": {
         "enabled": true,

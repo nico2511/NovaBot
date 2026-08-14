@@ -1,6 +1,6 @@
-# NovaBot - Déploiement Headless sur Coolify
+# NovaBot - Déploiement Coolify
 
-Ce document décrit la procédure simplifiée pour déployer NovaBot (Backend uniquement) sur Coolify.
+Procédure courte pour déployer le backend sur Coolify. Architecture : **bot = machine**, **stratégie = plan** (voir [`strategies/README.md`](./strategies/README.md) et le [`README.md`](./README.md)).
 
 ## 1. Prérequis GitHub
 

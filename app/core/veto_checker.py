@@ -1,14 +1,10 @@
 """
-Hard-Veto Checker.
+Reusable hard-veto helpers for strategy plans.
 
-Pure, stateless technical guardrails evaluated just before a trade would be
-submitted. If any rule triggers, entry is blocked regardless of what the AI
-or strategy proposed — the goal is to prevent objectively bad setups
-(extreme RSI, parabolic ADX, dead volume, …).
-
-Returning `None` means "no veto"; returning a string returns the reason to
-surface in logs / history. Keep this module free of side-effects and of any
-reference to BotContext — it is designed to be unit-testable in isolation.
+These are pure functions strategies may call from ``check_hard_veto``.
+They are NOT a global bot law — the bot delegates veto ownership to the
+active strategy. SuperTrend reuses the defaults below; a future strategy
+can use different thresholds or skip these helpers entirely.
 """
 from __future__ import annotations
 
@@ -18,8 +14,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# Thresholds tuned for 15m timeframe on perp markets. Bump them here, not
-# in the caller, so the behaviour stays centralized and test-covered.
+# Default thresholds (SuperTrend reference). Override inside a strategy if needed.
 RSI_OVERBOUGHT = 80.0
 RSI_OVERSOLD = 30.0
 # Strong trends often sit 50–70 ADX on 15m perps; only veto true parabolic blow-offs.

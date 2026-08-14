@@ -18,15 +18,16 @@ Bot de trading automatisé sur **Hyperliquid** avec validation IA (OpenRouter) e
 
 ## Ce que fait le bot
 
-- Tourne en boucle 24/7 sur un symbole Hyperliquid (par défaut `HYPE`).
-- Applique la stratégie SuperTrend (`strategies/supertrend.py`).
-- Chaque signal est validé par une IA (OpenRouter) avec une contrainte **R:R minimum** mécanique.
-- Entrées / sorties atomiques, SL/TP placés sur l'exchange, trailing stops automatiques.
-- Reconciliation toutes les 30s : détecte les positions manuelles, nettoie les "ghost trades".
-- Notifications Discord à chaque événement important (entrée, sortie, break-even, erreurs).
-- État persisté sur disque (`data/bot_state.json`) → survit aux redémarrages.
+- **Bot = machine** : boucle 24/7, ordres Hyperliquid, state, Discord, appétit capital (`risk_profile`).
+- **Stratégie = plan** : aujourd’hui SuperTrend (`strategies/supertrend.py`) — params, persona IA, hard veto, géométrie TP/SL.
+- Chaque signal passe : filtres strat → hard veto strat → validation IA (persona strat + plancher R:R du profil capital).
+- Entrées / sorties atomiques, SL/TP sur l’exchange, trailing / thesis follow-up.
+- Reconciliation périodique : positions manuelles, ghost trades.
+- État persisté (`data/bot_state.json`) → survit aux redémarrages.
 
-**Pas de frontend.** Toute l'interaction passe par Discord et éventuellement par l'API REST (sécurisée par clé en production).
+Pour **ajouter une stratégie** (framework) : voir [`strategies/README.md`](./strategies/README.md).
+
+**Pas de frontend.** Interaction via Discord et API REST (clé en production).
 
 ---
 
@@ -167,9 +168,10 @@ curl -X POST -H "X-API-Key: ..." https://.../api/force_sync
 
 Ajuste dans `data/config/user_settings.json` (volume persistant) — les changements sont rechargés à chaud sans redémarrer. Les clés importantes :
 
-- `risk_defaults.risk_profile` : `"Capital Preservation First"` (conservateur) / `"Balanced Growth"` / `"High Volatility Hunter"` (agressif).
+- `risk_defaults.risk_profile` : appétit **capital** seulement — `"Capital Preservation First"` / `"Balanced Growth"` / `"High Volatility Hunter"` (min R:R compte, levier, conf). La géométrie métier reste dans la stratégie.
+- `risk_defaults.bot_persona` : tempérament capital UI (ne remplace pas `AI_PERSONA` de la strat).
 - `risk_defaults.max_positions` : nombre max de positions simultanées.
-- `scanner.leverage` : levier utilisé par défaut.
+- `scanner.leverage` : levier demandé (borné par le profil).
 - `scanner.enabled` / `auto_switch` / `min_score` : scanner SuperTrend (rotation de symbole quand flat).
 
 ### Scanner SuperTrend
@@ -233,27 +235,22 @@ Copie `.env.example` en `.env` et remplis. **Obligatoires** :
 
 ```
 app/
-├── api/               FastAPI : routers (engine, trading, market, settings, history) + auth
-├── core/              Logique métier
-│   ├── bot.py         BotContext : orchestration boucle trading
-│   ├── risk_manager.py    Gestion du risque (stop-loss quotidien, max positions, sizing)
-│   ├── veto_checker.py    Gardes techniques (RSI/ADX/volume)
-│   ├── trailing_logic.py  Décisions trailing-stop (pure logic)
-│   ├── state_manager.py   Persistance atomique bot_state.json
-│   ├── trade_recorder.py  Journal CSV des trades clôturés
-│   └── config.py      Chargement env + user_settings.json
-├── services/          Services externes
-│   ├── hyperliquid_service.py    Wrapper Hyperliquid SDK
-│   ├── ia.py                     IAService : validation IA + circuit breaker
-│   ├── position_reconciler.py    Cleanup ghosts / adoption orphelins
-│   ├── safe_order_manager.py     Garantit SL/TP présents sur exchange
-│   ├── discord_service.py        Notifications Discord
-│   └── storage.py                Storage paths centralisés
-└── utils/             Helpers market data, websocket
-strategies/            SuperTrend (+ base/engine)
-tests/                 Unit + integration (73 tests)
-data/                  Persistance (bot_state, trade_history.csv, user_settings.json)
-logs/                  novabot.log (rotation 5MB x3)
+├── api/               FastAPI routers + auth
+├── core/              Machine bot (orchestration, risk capital, state)
+│   ├── bot.py         BotContext — loop / orders / délégation à la strat
+│   ├── veto_checker.py    Helpers veto réutilisables (appelés par les strats)
+│   ├── trailing_logic.py / trade_thesis.py / …
+│   └── prompts.py     Prompt global neutre + risk_profile capital
+├── services/          HL, IA, Discord, storage, …
+strategies/            Plans de trading (SuperTrend + base/engine + template)
+strategies/README.md   Comment écrire une nouvelle stratégie
+tests/
+data/                  bot_state, configs, history
+logs/
 ```
 
-Tests : `python -m pytest`. Les 73 tests doivent passer avant tout déploiement.
+Guide stratégie : [`strategies/README.md`](./strategies/README.md).  
+Déploiement Coolify : [`DEPLOYMENT_COOLIFY.md`](./DEPLOYMENT_COOLIFY.md).
+
+Tests : `python -m pytest`.
+

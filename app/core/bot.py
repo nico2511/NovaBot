@@ -24,7 +24,6 @@ from app.core.risk_manager import RiskManager
 from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.core.trailing_logic import compute_trailing_decision
-from app.core.veto_checker import check_hard_veto
 from app.core.trade_thesis import (
     ACTION_CLOSE_IF_PROFIT,
     ACTION_TIGHTEN_SL,
@@ -1369,9 +1368,16 @@ class BotContext:
             self.add_log(f"❌ ATOMIC EXIT ERROR: {e}")
             return False
 
-    def _check_hard_veto(self, signal: str, market_context: dict):
-        """HARD VETO: thin shell around app.core.veto_checker.check_hard_veto."""
-        return check_hard_veto(signal, market_context)
+    def _check_hard_veto(self, signal: str, market_context: dict, strategy=None):
+        """HARD VETO: delegate to the active strategy plan (bot stays a machine)."""
+        if strategy is not None and hasattr(strategy, "check_hard_veto"):
+            try:
+                return strategy.check_hard_veto(signal, market_context)
+            except Exception as e:
+                self.add_log(f"⚠️ Strategy hard veto error: {e}")
+                return None
+        # No strategy plan attached — do not apply orphan global métier vetoes
+        return None
 
     def _clear_strategy_entry_cooldown(self, strategy_name: str | None) -> None:
         """Undo strategy-side entry cooldown after veto/AI reject (no fill happened)."""
@@ -2444,10 +2450,14 @@ class BotContext:
                         # Inject Copilot MTF Sentiment
                         market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
 
-                        # --- HARD VETO (volume / RSI / ADX) before spending AI tokens ---
+                        strat_name = sig.get('strategy')
+                        strat_obj = self.strategy_engine.strategies.get(strat_name) if strat_name else None
+
+                        # --- HARD VETO (strategy-owned) before spending AI tokens ---
                         veto_reason = self._check_hard_veto(
                             sig.get("signal", "BUY"),
                             market_context,
+                            strategy=strat_obj,
                         )
                         if veto_reason:
                             self.add_log(f"⛔ {veto_reason}")
@@ -2495,9 +2505,12 @@ class BotContext:
                             ai_trace_id=ai_trace_id,
                             ai_payload_preview=ai_payload_preview,
                         )
-                        strat_name = sig.get('strategy')
-                        strat_obj = self.strategy_engine.strategies.get(strat_name)
-                        strategy_persona = getattr(strat_obj, 'AI_PERSONA', None)
+                        strategy_persona = None
+                        if strat_obj is not None:
+                            if hasattr(strat_obj, "get_ai_persona"):
+                                strategy_persona = strat_obj.get_ai_persona()
+                            else:
+                                strategy_persona = getattr(strat_obj, "AI_PERSONA", None)
                         
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
@@ -2536,7 +2549,12 @@ class BotContext:
                                     discord_service.send_log(f"AI PAYLOAD trace={ai_trace_id}: {preview}")
                                 except Exception as discord_err:
                                     self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
-                        val_res = ia_service.validate_signal(sig, market_context, strategy_persona=strategy_persona)
+                        val_res = ia_service.validate_signal(
+                            sig,
+                            market_context,
+                            strategy_persona=strategy_persona,
+                            strategy=strat_obj,
+                        )
 
 
                         self.last_ai_call = current_time
@@ -3006,11 +3024,19 @@ class BotContext:
                     self.add_log(f"⚠️ No protection orders for {symbol}. Calculating rational ATR-based stops.")
                     should_set_sl_tp = True
                     
-                    # 1. Determine ATR multiplier based on profile
-                    risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Balanced Growth")
-                    atr_mult = 1.5
-                    if risk_profile == "Capital Preservation First": atr_mult = 1.0
-                    elif risk_profile == "High Volatility Hunter": atr_mult = 2.5
+                    # Prefer active strategy plan SL mult (bot = machine)
+                    atr_mult = 2.0
+                    try:
+                        strat_for_adopt = None
+                        if self.strategy_engine and getattr(self.strategy_engine, "strategies", None):
+                            # Prefer supertrend when registered; else first strategy
+                            strat_for_adopt = self.strategy_engine.strategies.get("supertrend")
+                            if strat_for_adopt is None and self.strategy_engine.strategies:
+                                strat_for_adopt = next(iter(self.strategy_engine.strategies.values()))
+                        if strat_for_adopt is not None and hasattr(strat_for_adopt, "get_param"):
+                            atr_mult = float(strat_for_adopt.get_param("sl_atr_mult", 2.0) or 2.0)
+                    except (TypeError, ValueError):
+                        atr_mult = 2.0
                     
                     # 2. Get ATR from data
                     atr_val = 0
@@ -3274,46 +3300,44 @@ class BotContext:
             sl_mult = 2.0; tp_mult = 3.0
             
             try:
-                # 1. Strategy Intent
-                strategy_name = self.active_trade.get("strategy", "Unknown").lower()
+                # Prefer strategy plan multipliers when available
+                strategy_name = (self.active_trade.get("strategy", "Unknown") or "Unknown")
+                strat_obj = None
+                if self.strategy_engine and getattr(self.strategy_engine, "strategies", None):
+                    strat_obj = self.strategy_engine.strategies.get(strategy_name)
+                    if strat_obj is None and strategy_name == "Manual (Adopted)":
+                        strat_obj = self.strategy_engine.strategies.get("supertrend")
 
-                # Get Risk Profile Multiplier Defaults
-                if not hasattr(self, 'global_settings'): self.global_settings = {}
-                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                
-                if risk_profile == "Capital Preservation First":
-                    sl_mult = 1.0; tp_mult = 2.0
-                elif risk_profile == "High Volatility Hunter":
-                    sl_mult = 3.0; tp_mult = 4.0
-                else: # Balanced
-                    sl_mult = 2.0; tp_mult = 3.0
-
-                # 2. Market Context (RSI)
-                rsi = 50.0
-                if df is not None and not df.empty:
-                    rsi = Indicators.rsi(df['close'], 14).iloc[-1]
-                
-                if "scalp" in strategy_name:
-                    # Scalping: Tighter stops, quicker targets
-                    sl_mult *= 0.6  # Tighter relative to profile
-                    tp_mult *= 0.6
-                    
-                    # Dynamic Trailing based on RSI Extension
-                    # If we are winning and RSI is extended, tighten SL significantly
-                    if side == "BUY" and rsi > 65:
-                         sl_mult = 0.5 # Protect gains
-                         self.add_log(f"🧠 AI Context: RSI High ({rsi:.1f}), tightening Scalp SL to 0.5 ATR")
-                    elif side == "SELL" and rsi < 35:
-                         sl_mult = 0.5
-                         self.add_log(f"🧠 AI Context: RSI Low ({rsi:.1f}), tightening Scalp SL to 0.5 ATR")
-                         
-                elif "trend" in strategy_name:
-                     # Trend Following: Give room to breathe
-                     sl_mult *= 1.5
-                     tp_mult *= 1.6 # Reward risk
+                if strat_obj is not None and hasattr(strat_obj, "get_param"):
+                    try:
+                        sl_mult = float(strat_obj.get_param("sl_atr_mult", 2.0) or 2.0)
+                    except (TypeError, ValueError):
+                        sl_mult = 2.0
+                    try:
+                        min_rr = float(strat_obj.get_param("min_rr", 2.0) or 2.0)
+                    except (TypeError, ValueError):
+                        min_rr = 2.0
+                    tp_mult = max(sl_mult * min_rr, sl_mult)
+                else:
+                    # Capital appetite fallback only (no scalp legacy branch)
+                    if not hasattr(self, "global_settings"):
+                        self.global_settings = {}
+                    risk_profile = self.global_settings.get("risk_defaults", {}).get(
+                        "risk_profile", "Capital Preservation First"
+                    )
+                    if risk_profile == "Capital Preservation First":
+                        sl_mult = 2.0
+                        tp_mult = 3.0
+                    elif risk_profile == "High Volatility Hunter":
+                        sl_mult = 2.5
+                        tp_mult = 4.0
+                    else:
+                        sl_mult = 2.0
+                        tp_mult = 3.0
             except Exception as e:
                 self.add_log(f"⚠️ Context Logic Error: {e}")
-                sl_mult = 2.0; tp_mult = 3.0
+                sl_mult = 2.0
+                tp_mult = 3.0
             
             MIN_DIST_PCT = 0.001 # 0.1% minimal buffer
             

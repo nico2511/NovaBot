@@ -466,11 +466,12 @@ Example:
         self,
         signal_data: Dict[str, Any],
         market_context: Dict[str, Any],
-        strategy_persona: Optional[str] = None
+        strategy_persona: Optional[str] = None,
+        strategy: Any = None,
     ) -> Dict[str, Any]:
         """
         Validate a trading signal before execution (AI Gatekeeper).
-        Refactored to rely on System Prompt for persona.
+        Strategy owns persona / criteria / post-AI geometry; risk_profile is capital appetite.
         """
         symbol = signal_data.get('symbol', 'UNKNOWN')
         key = self._get_cache_key("signal_validation", f"{symbol}_{signal_data.get('signal')}")
@@ -480,7 +481,6 @@ Example:
             return cached
         
         ctx = market_context or {}
-        strategy_id = str(signal_data.get("strategy") or "")
 
         # Pre-compute R:R / SL width so the model doesn't invent geometry errors.
         rr_line = "N/A"
@@ -498,38 +498,20 @@ Example:
         except Exception:
             pass
 
-        is_supertrend = strategy_id == "supertrend"
-        if is_supertrend:
-            criteria = """=== VALIDATION CRITERIA (SUPERTREND) ===
-The strategy ALREADY confirmed: 15m EMA+SuperTrend bias, ADX/quality filters, pullback-to-ST,
-and a 15m ST reclaim/resume trigger (1m flip is optional, not required).
-Your job is a sanity check with hard reject rules — not a rubber stamp.
+        strat_criteria = None
+        if strategy is not None and hasattr(strategy, "get_ai_validation_criteria"):
+            try:
+                strat_criteria = strategy.get_ai_validation_criteria()
+            except Exception:
+                strat_criteria = None
+        if not strategy_persona and strategy is not None and hasattr(strategy, "get_ai_persona"):
+            try:
+                strategy_persona = strategy.get_ai_persona()
+            except Exception:
+                strategy_persona = None
 
-APPROVE when ALL of:
-1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
-2. Computed R:R meets the risk-profile minimum (after any TP trim below)
-3. Volume ratio >= 50% of average
-4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
-5. TP is structurally realistic vs Key Levels:
-   - BUY: Proposed TP must be <= Swing High. If Proposed TP > Swing High, TRIM TP slightly below Swing High
-     via suggested_adjustments.tp (do not keep an optimistic breakout TP by default).
-   - SELL: Proposed TP must be >= Swing Low. If Proposed TP < Swing Low, TRIM TP slightly above Swing Low.
-   - If after a required trim the R:R falls below profile minimum, REJECT as BAD_RR (do not approve an undersized target).
-
-REJECT when ANY of:
-- volume_ratio < 50% (WEAK_VOLUME)
-- BUY with RSI > 70 or SELL with RSI < 30 without volume > 150% (OVEREXTENDED chase)
-- 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
-- Computed R:R below profile minimum (BAD_RR)
-- TP requires a breakout beyond Swing High/Low and you did not trim (OPTIMISTIC_TP)
-
-Do NOT reject solely because:
-- SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
-- RSI is moderately extended (50-70 long / 30-50 short) in a trending regime
-- Price is not sitting exactly on a Fib level
-- Entry used ST reclaim instead of a fresh 1m SuperTrend flip
-
-If confluence is weak or mixed, prefer approved=false over forcing a trade."""
+        if strat_criteria:
+            criteria = strat_criteria
         else:
             criteria = """=== VALIDATION CRITERIA ===
 Approve when direction, structure, volume and R:R are coherent.
@@ -623,17 +605,16 @@ Volume:
 === REQUIRED OUTPUT ===
 {SIGNAL_VALIDATION_JSON_SCHEMA}
 """
-        # Always keep the full dynamic system prompt (risk profile + execution bias).
-        # Strategy persona is an ADD-ON, never a replacement — replacing it caused
-        # systematic rejects (example JSON approved:false + missing "take the trade" guidance).
+        # Always keep the full dynamic system prompt (risk profile = capital appetite).
+        # Strategy persona is PRIMARY for trading vocabulary / geometry.
         system_prompt = self.get_dynamic_system_prompt()
         if strategy_persona:
             system_prompt = (
                 f"{system_prompt}\n\n"
                 f"=== STRATEGY PERSONA (PRIMARY FOR THIS SIGNAL) ===\n"
                 f"{strategy_persona}\n\n"
-                f"If STRATEGY PERSONA conflicts with generic scalp SL/TP width rules, "
-                f"follow STRATEGY PERSONA. ATR/trend stops are valid.\n\n"
+                f"If STRATEGY PERSONA conflicts with generic global prompt wording, "
+                f"follow STRATEGY PERSONA. ATR/trend stops owned by the strategy are valid.\n\n"
                 f"IMPORTANT: RESPOND ONLY WITH VALID JSON.\n"
                 f"{SIGNAL_VALIDATION_JSON_SCHEMA}"
             )
@@ -644,7 +625,11 @@ Volume:
         if result.get("raw_output") and result.get("rejection_reason_category") != "AI_PARSE_ERROR":
             # === CODE-LEVEL HARD CONSTRAINTS (Double-Check) ===
             result = self._enforce_hard_constraints(
-                signal_data, result, config.RISK_PROFILE, market_context=ctx
+                signal_data,
+                result,
+                config.RISK_PROFILE,
+                market_context=ctx,
+                strategy=strategy,
             )
 
             # --- LOGGING V2 IMPROVEMENTS ---
@@ -678,9 +663,13 @@ Volume:
         ai_result: Dict[str, Any],
         risk_profile: str,
         market_context: Optional[Dict[str, Any]] = None,
+        strategy: Any = None,
     ) -> Dict[str, Any]:
         """
-        Mechanically enforce hard constraints (R:R, weak volume) to prevent AI hallucinations.
+        Mechanically enforce capital R:R + strategy-owned geometry/volume.
+
+        Strategy owns post_ai_adjust (e.g. swing trim) and optional volume floor.
+        risk_profile supplies the account min_rr floor (+ strategy rr epsilon).
         """
         # Only check if AI approved the trade
         if not ai_result.get("approved"):
@@ -690,41 +679,14 @@ Volume:
             from app.core.prompts import RISK_PARAMS_MAP
             from app.core.veto_checker import LOW_VOLUME_RATIO_PCT
             
-            # 0. SuperTrend: mechanically trim optimistic TP beyond local swing
             ctx = market_context or {}
-            strategy_id = str(signal.get("strategy") or "")
-            side = str(signal.get("signal") or "").upper()
-            if strategy_id == "supertrend":
+
+            # 0. Strategy-owned post-AI geometry (trim TP, etc.)
+            if strategy is not None and hasattr(strategy, "post_ai_adjust"):
                 try:
-                    entry = float(signal.get("price") or 0)
-                    swing_high = float(ctx.get("swing_high") or 0)
-                    swing_low = float(ctx.get("swing_low") or 0)
-                    adj = ai_result.get("suggested_adjustments") or {}
-                    if not isinstance(adj, dict):
-                        adj = {}
-                    tp = float(adj.get("tp") or signal.get("tp") or 0)
-                    trimmed = None
-                    # 0.05% buffer inside the swing so TP sits on structure, not through it
-                    if side == "BUY" and entry > 0 and tp > 0 and swing_high > entry and tp > swing_high:
-                        trimmed = swing_high * (1.0 - 0.0005)
-                    elif side == "SELL" and entry > 0 and tp > 0 and 0 < swing_low < entry and tp < swing_low:
-                        trimmed = swing_low * (1.0 + 0.0005)
-                    if trimmed is not None and trimmed > 0:
-                        adj = {**adj, "tp": float(trimmed)}
-                        ai_result["suggested_adjustments"] = adj
-                        prev = ai_result.get("reasoning") or ""
-                        note = (
-                            f" TP trimmed to structural swing ({trimmed:.6g}) "
-                            f"from mechanical target ({tp:.6g})."
-                        )
-                        if "trimmed to structural swing" not in prev:
-                            ai_result["reasoning"] = (prev + note).strip()
-                        logger.info(
-                            "[HARD CONSTRAINT] Trimmed SuperTrend TP %s -> %s (swing structure)",
-                            tp, trimmed,
-                        )
-                except (TypeError, ValueError) as trim_err:
-                    logger.debug("TP swing trim skipped: %s", trim_err)
+                    ai_result = strategy.post_ai_adjust(signal, ai_result, ctx) or ai_result
+                except Exception as strat_err:
+                    logger.debug("strategy.post_ai_adjust skipped: %s", strat_err)
 
             # 1. Check Risk:Reward (after any structural TP trim)
             entry = float(signal.get("price", 0))
@@ -738,11 +700,17 @@ Volume:
                 if risk > 0:
                     rr_ratio = reward / risk
                     min_rr = RISK_PARAMS_MAP.get(risk_profile, {}).get("min_rr", 1.5)
+                    rr_eps = 0.02
+                    if strategy is not None and hasattr(strategy, "get_rr_epsilon"):
+                        try:
+                            rr_eps = float(strategy.get_rr_epsilon() or 0.02)
+                        except (TypeError, ValueError):
+                            rr_eps = 0.02
                     
-                    if rr_ratio < min_rr:
+                    if rr_ratio + rr_eps < float(min_rr):
                         logger.warning(
-                            "[HARD CONSTRAINT] R:R Violation detected! Calculated: %.2f < Min: %s",
-                            rr_ratio, min_rr,
+                            "[HARD CONSTRAINT] R:R Violation detected! Calculated: %.2f < Min: %s (eps=%.2f)",
+                            rr_ratio, min_rr, rr_eps,
                         )
                         ai_result["approved"] = False
                         ai_result["rejection_reason_category"] = "BAD_RR"
@@ -753,7 +721,16 @@ Volume:
                         ai_result["risk_score"] = 9
                         return ai_result
 
-            # 2. Weak volume (code-enforced — model often notes then still approves)
+            # 2. Weak volume — prefer strategy floor, else shared helper default
+            vol_floor = float(LOW_VOLUME_RATIO_PCT)
+            if strategy is not None and hasattr(strategy, "get_min_volume_ratio_pct"):
+                try:
+                    strat_floor = strategy.get_min_volume_ratio_pct()
+                    if strat_floor is not None:
+                        vol_floor = float(strat_floor)
+                except (TypeError, ValueError):
+                    pass
+
             vol_ratio = ctx.get("volume_ratio")
             if vol_ratio is None:
                 cur = ctx.get("current_volume")
@@ -764,16 +741,16 @@ Volume:
                 except (TypeError, ValueError):
                     vol_ratio = None
             try:
-                if vol_ratio is not None and float(vol_ratio) < float(LOW_VOLUME_RATIO_PCT):
+                if vol_ratio is not None and float(vol_ratio) < vol_floor:
                     logger.warning(
                         "[HARD CONSTRAINT] Weak volume %.1f%% < %.0f%%",
-                        float(vol_ratio), float(LOW_VOLUME_RATIO_PCT),
+                        float(vol_ratio), vol_floor,
                     )
                     ai_result["approved"] = False
                     ai_result["rejection_reason_category"] = "WEAK_VOLUME"
                     ai_result["reasoning"] = (
                         f"CRITICAL: Volume ratio ({float(vol_ratio):.1f}% of average) is below "
-                        f"minimum {LOW_VOLUME_RATIO_PCT:.0f}%. Trade Rejected."
+                        f"minimum {vol_floor:.0f}%. Trade Rejected."
                     )
                     ai_result["risk_score"] = 8
             except (TypeError, ValueError):
