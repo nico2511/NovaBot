@@ -542,6 +542,8 @@ Prefer execution when R:R is good and momentum exists — do not over-filter."""
         except Exception:
             tp_structure_note = ""
 
+        strat_tf = str(ctx.get("strategy_timeframe") or config.TRADING_TIMEFRAME or "15m")
+
         # Prompt simplifié : Instruction directe de validation.
         prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
 
@@ -549,6 +551,7 @@ Prefer execution when R:R is good and momentum exists — do not over-filter."""
 Symbol: {symbol}
 Direction: {signal_data.get('signal', 'N/A')}
 Strategy: {signal_data.get('strategy', 'N/A')}
+Strategy Timeframe: {strat_tf}
 Entry Price: ${signal_data.get('price', 'N/A')}
 Proposed SL: ${signal_data.get('sl', 'N/A')}
 Proposed TP: ${signal_data.get('tp', 'N/A')}
@@ -556,19 +559,19 @@ Computed R:R: {rr_line}
 SL Distance: {sl_pct_line}
 {tp_structure_note}
 
-=== CURRENT MARKET CONDITIONS ===
+=== CURRENT MARKET CONDITIONS ({strat_tf}) ===
 Current Price: ${ctx.get('current_price', 'N/A')}
 Market Regime: {ctx.get('regime', 'UNKNOWN')}
 Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
 
-Technical Indicators (Dynamic):
-- RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] (15m Change: {ctx.get('rsi_slope', 0):+.1f})
-- Volume: {ctx.get('vol_current', 'N/A')} [{ctx.get('vol_trend', '')}] (15m Change: {ctx.get('vol_slope', 0):+.1f}%)
+Technical Indicators (Dynamic on {strat_tf}):
+- RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] ({strat_tf} Change: {ctx.get('rsi_slope', 0):+.1f})
+- Volume: {ctx.get('vol_current', 'N/A')} [{ctx.get('vol_trend', '')}] ({strat_tf} Change: {ctx.get('vol_slope', 0):+.1f}%)
 - ADX: {ctx.get('adx_val', 'N/A')} (Slope: {ctx.get('adx_slope', 0):+.1f})
 - MACD (12,26,9): Line {ctx.get('macd_line', 'N/A')} | Signal {ctx.get('macd_signal', 'N/A')} | Hist {ctx.get('macd_hist', 'N/A')}
 - Open Interest: ${int(ctx.get('open_interest', 0)):,}
 - Funding Rate: {ctx.get('funding_rate', 0):.4f}% ({"Longs pay Shorts" if ctx.get('funding_rate', 0) > 0 else "Shorts pay Longs" if ctx.get('funding_rate', 0) < 0 else "Neutral"})
-- Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}%)
+- Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}% on {strat_tf})
 
 Bollinger Bands (20, 2.0):
 - Upper: ${ctx.get('bb_upper', 'N/A')}
@@ -607,7 +610,12 @@ Volume:
 """
         # Always keep the full dynamic system prompt (risk profile = capital appetite).
         # Strategy persona is PRIMARY for trading vocabulary / geometry.
-        system_prompt = self.get_dynamic_system_prompt()
+        # Primary timeframe follows the strategy plan (e.g. 1h for trend_lt), not global 15m.
+        system_prompt = get_system_prompt(
+            persona=config.BOT_PERSONA,
+            risk_profile=config.RISK_PROFILE,
+            timeframe=strat_tf,
+        )
         if strategy_persona:
             system_prompt = (
                 f"{system_prompt}\n\n"

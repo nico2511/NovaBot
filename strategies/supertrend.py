@@ -85,6 +85,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         self.looking_for_entry = False
         self.entry_direction = None
         self._last_entry_time = None
+        self._last_signal_bar = None
         # NOTE: tunable params are read dynamically via self.get_param()
         # so that API edits take effect immediately without engine rebuild.
 
@@ -219,19 +220,6 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         except Exception:
             return None
 
-    def _cooldown_ok(self, now_ts, cooldown_minutes: int):
-        if cooldown_minutes <= 0:
-            return True
-        if now_ts is None or pd.isna(now_ts):
-            return True  # can't enforce without time
-        if self._last_entry_time is None or pd.isna(self._last_entry_time):
-            return True
-        try:
-            elapsed = now_ts - self._last_entry_time
-            return elapsed >= pd.Timedelta(minutes=cooldown_minutes)
-        except Exception:
-            return True
-
     def _recent_flip_ok(self, dir_series: pd.Series, desired_dir: int, lookback: int) -> bool:
         """
         Require last confirmed 1m direction == desired_dir AND
@@ -343,6 +331,9 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
 
         if not self._cooldown_ok(now_ts, p["cooldown_minutes"]):
             return self._reject(f"Cooldown active ({p['cooldown_minutes']}m) — skipping entry")
+
+        if self._same_bar_already_signaled(now_ts):
+            return self._reject("Already evaluated this bar — waiting for next close")
 
         # --- ANTI STOP-HUNT GUARD (Thin liquidity + neutral RSI) ---
         # In thin markets, stop-hunts are common; avoid taking trend entries with no momentum edge.
@@ -478,8 +469,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
                 return self._reject("Failed to calculate valid SL/TP (15m ST / ATR)")
 
             self.looking_for_entry = False
-            if now_ts is not None and not pd.isna(now_ts):
-                self._last_entry_time = now_ts
+            self._mark_signal_bar(now_ts)
 
             side = "BUY" if self.entry_direction == "LONG" else "SELL"
             sl_pct = abs(entry - sl) / entry * 100.0

@@ -112,6 +112,65 @@ class BaseStrategy(ABC):
         """Tolerance when comparing post-trim R:R to the capital risk_profile min."""
         return 0.02
 
+    # ==========================
+    # ENTRY COOLDOWN / SAME-BAR
+    # ==========================
+    # `_last_entry_time` is FILL-only (set by the bot after a confirmed entry).
+    # `_last_signal_bar` is the last closed candle we already emitted — prevents
+    # AI spam every loop tick after a reject. Do not start fill-cooldown on signal.
+
+    @staticmethod
+    def _naive_ts(ts):
+        """Best-effort timezone-stripped timestamp for comparisons."""
+        try:
+            t = pd.Timestamp(ts)
+            if t is None or pd.isna(t):
+                return None
+            if t.tzinfo is not None:
+                t = t.tz_convert("UTC").tz_localize(None)
+            return t
+        except Exception:
+            return None
+
+    def mark_entry_fill(self, ts=None) -> None:
+        """Arm fill-cooldown after a confirmed entry (bot machine calls this)."""
+        self._last_entry_time = ts if ts is not None else pd.Timestamp.now()
+
+    def _cooldown_ok(self, now_ts, cooldown_minutes: int):
+        """True if fill-cooldown has elapsed. Uses wall clock vs last FILL."""
+        del now_ts  # candle ts is for same-bar; fill cooldown is wall-clock
+        if cooldown_minutes <= 0:
+            return True
+        last = getattr(self, "_last_entry_time", None)
+        last_n = self._naive_ts(last)
+        if last_n is None:
+            return True
+        now_n = self._naive_ts(pd.Timestamp.now())
+        if now_n is None:
+            return True
+        try:
+            return (now_n - last_n) >= pd.Timedelta(minutes=int(cooldown_minutes))
+        except Exception:
+            return True
+
+    def _same_bar_already_signaled(self, now_ts) -> bool:
+        bar = getattr(self, "_last_signal_bar", None)
+        now_n = self._naive_ts(now_ts)
+        bar_n = self._naive_ts(bar)
+        if now_n is None or bar_n is None:
+            return False
+        return now_n == bar_n
+
+    def _mark_signal_bar(self, now_ts) -> None:
+        if now_ts is None:
+            return
+        try:
+            if pd.isna(now_ts):
+                return
+        except Exception:
+            return
+        self._last_signal_bar = now_ts
+
     @abstractmethod
     def generate_signal(self, df, extra_data=None):
         """

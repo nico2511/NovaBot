@@ -73,6 +73,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
         self.looking_for_entry = False
         self.entry_direction = None
         self._last_entry_time = None
+        self._last_signal_bar = None
 
     def get_ai_validation_criteria(self):
         return self.AI_VALIDATION_CRITERIA
@@ -176,18 +177,6 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
         except Exception:
             return None
 
-    def _cooldown_ok(self, now_ts, cooldown_minutes: int):
-        if cooldown_minutes <= 0:
-            return True
-        if now_ts is None or pd.isna(now_ts):
-            return True
-        if self._last_entry_time is None or pd.isna(self._last_entry_time):
-            return True
-        try:
-            return (now_ts - self._last_entry_time) >= pd.Timedelta(minutes=cooldown_minutes)
-        except Exception:
-            return True
-
     def _pullback_to_st_ok(
         self,
         df: pd.DataFrame,
@@ -249,6 +238,9 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
 
         if not self._cooldown_ok(now_ts, p["cooldown_minutes"]):
             return self._reject(f"Cooldown active ({p['cooldown_minutes']}m) — skipping LT entry")
+
+        if self._same_bar_already_signaled(now_ts):
+            return self._reject("Already evaluated this bar — waiting for next close")
 
         if adx < p["adx_threshold"]:
             self.looking_for_entry = False
@@ -319,8 +311,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             return self._reject("Failed to calculate valid LT SL/TP")
 
         self.looking_for_entry = False
-        if now_ts is not None and not pd.isna(now_ts):
-            self._last_entry_time = now_ts
+        self._mark_signal_bar(now_ts)
 
         side = "BUY" if self.entry_direction == "LONG" else "SELL"
         sl_pct = abs(entry - sl) / entry * 100.0

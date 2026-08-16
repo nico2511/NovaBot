@@ -68,7 +68,7 @@ class Config:
     AI_PAYLOAD_DEBUG_MAX_CHARS: int = int(os.getenv("AI_PAYLOAD_DEBUG_MAX_CHARS", "1800"))
 
     # Risk Defaults (from bot_state.json or .env fallback)
-    DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "1"))
+    DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "2"))
     DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
     DEFAULT_LEVERAGE: int = 1
     MAX_NOTIONAL_CAP_MULTIPLIER: float = float(

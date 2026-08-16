@@ -109,7 +109,7 @@ def test_sync_with_hyperliquid_handles_error():
 
 def test_calculate_position_size_fixed_margin():
     """size_type=margin (default): notional = margin * leverage."""
-    rm = RiskManager()
+    rm = RiskManager(max_positions=1)
     # $20 margin * 5 leverage = $100 notional; at $50/coin -> 2 coins
     size = rm.calculate_position_size(
         price=50.0, sl_price=49.0, equity=1000.0,
@@ -119,7 +119,7 @@ def test_calculate_position_size_fixed_margin():
 
 
 def test_calculate_position_size_notional():
-    rm = RiskManager()
+    rm = RiskManager(max_positions=1)
     # $1000 notional / $100 price = 10 coins
     size = rm.calculate_position_size(
         price=100.0, sl_price=99.0, equity=5000.0,
@@ -217,7 +217,7 @@ def test_calculate_position_size_returns_zero_when_equity_too_low_for_min():
 
 def test_calculate_position_size_100_target_with_2_dollar_equity():
     """Cap ×50: $2 equity allows $100 notional (default margin × leverage)."""
-    rm = RiskManager(max_notional_cap_multiplier=50.0)
+    rm = RiskManager(max_positions=1, max_notional_cap_multiplier=50.0)
     size = rm.calculate_position_size(
         price=0.5, sl_price=0.49, equity=2.0,
         size_type="margin", size_value=20.0, leverage=5,

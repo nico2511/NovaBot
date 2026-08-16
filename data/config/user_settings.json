@@ -5,7 +5,7 @@
         "trading_timeframe": "15m"
     },
     "risk_defaults": {
-        "max_positions": 1,
+        "max_positions": 2,
         "daily_stop_loss": 30.0,
         "bot_persona": "Conservative Scalper",
         "risk_profile": "Capital Preservation First",

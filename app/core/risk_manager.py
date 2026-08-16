@@ -17,7 +17,7 @@ class RiskState:
 class RiskManager:
     def __init__(
         self,
-        max_positions: int = 1,
+        max_positions: int = 2,
         daily_stop_loss: float = 50.0,
         max_notional_cap_multiplier: float = MAX_NOTIONAL_CAP_MULTIPLIER,
     ):

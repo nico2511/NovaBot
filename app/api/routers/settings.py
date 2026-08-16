@@ -32,7 +32,7 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
                  notifications = settings.get("notifications", {})
 
             return {
-                "max_positions": risk.get("max_positions", 1),
+                "max_positions": risk.get("max_positions", 2),
                 "daily_stop_loss": risk.get("daily_stop_loss", 50.0),
                 "trading_timeframe": ops.get("trading_timeframe", "15m"),
                 "bot_persona": risk.get("bot_persona", "Conservative Scalper"),
@@ -60,7 +60,7 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
         ai_config = settings.get("ai_config", {})
         
         return {
-            "max_positions": risk_defaults.get("max_positions", 1),
+            "max_positions": risk_defaults.get("max_positions", 2),
             "daily_stop_loss": risk_defaults.get("daily_stop_loss", 50.0),
             "trading_timeframe": operations.get("trading_timeframe", "15m"),
             "bot_persona": risk_defaults.get("bot_persona", "Conservative Scalper"),
@@ -81,7 +81,7 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
         logger.error(f"Error loading global settings: {e}")
         # Default Fallback
         return {
-            "max_positions": 1, 
+            "max_positions": 2, 
             "daily_stop_loss": 50.0,
             "trading_timeframe": "15m",
             "bot_persona": "Conservative Scalper",
@@ -110,7 +110,7 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
         
         # risk_defaults
         if "risk_defaults" not in full_settings: full_settings["risk_defaults"] = {}
-        full_settings["risk_defaults"]["max_positions"] = new_flat.get("max_positions", 1)
+        full_settings["risk_defaults"]["max_positions"] = new_flat.get("max_positions", 2)
         full_settings["risk_defaults"]["daily_stop_loss"] = new_flat.get("daily_stop_loss", 50.0)
         full_settings["risk_defaults"]["bot_persona"] = new_flat.get("bot_persona", "Conservative Scalper")
         full_settings["risk_defaults"]["risk_profile"] = new_flat.get("risk_profile", "Capital Preservation First")
@@ -136,7 +136,7 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
 
             # Keep runtime quota + money-management split in sync
             try:
-                mp = int(full_settings.get("risk_defaults", {}).get("max_positions", 1) or 1)
+                mp = int(full_settings.get("risk_defaults", {}).get("max_positions", 2) or 2)
                 dsl = float(full_settings.get("risk_defaults", {}).get("daily_stop_loss", 50.0) or 50.0)
                 bot.max_positions = mp
                 if getattr(bot, "risk_manager", None):
@@ -258,7 +258,7 @@ def update_legacy_settings(
             
             # Patching logic
             if section == "risk_defaults":
-                current["max_positions"] = data.get("max_positions", current.get("max_positions", 1))
+                current["max_positions"] = data.get("max_positions", current.get("max_positions", 2))
                 current["daily_stop_loss"] = data.get("daily_stop_loss", current.get("daily_stop_loss", 50.0))
                 current["bot_persona"] = data.get("bot_persona", current.get("bot_persona", "Conservative Scalper"))
                 current["risk_profile"] = data.get("risk_profile", current.get("risk_profile", "Capital Preservation First"))

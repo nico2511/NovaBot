@@ -14,6 +14,29 @@ logger = logging.getLogger(__name__)
 
 class StateManager:
     @staticmethod
+    def _parse_sticky_ts(value):
+        if not value:
+            return None
+        try:
+            import pandas as pd
+
+            parsed = pd.to_datetime(value, errors="coerce")
+            if parsed is not None and not pd.isna(parsed):
+                return parsed
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _dump_sticky_ts(value):
+        if value is None:
+            return None
+        try:
+            return str(value)
+        except Exception:
+            return None
+
+    @staticmethod
     def _serialize_sticky(sticky) -> list:
         """Persist per-(strategy, symbol) armed state across restarts."""
         if not isinstance(sticky, dict) or not sticky:
@@ -29,19 +52,18 @@ class StateManager:
                     continue
                 if not isinstance(state, dict):
                     continue
-                last_entry = state.get("_last_entry_time")
-                if last_entry is not None:
-                    try:
-                        last_entry = str(last_entry)
-                    except Exception:
-                        last_entry = None
                 out.append(
                     {
                         "strategy": sname,
                         "symbol": symbol,
                         "looking_for_entry": bool(state.get("looking_for_entry")),
                         "entry_direction": state.get("entry_direction"),
-                        "_last_entry_time": last_entry,
+                        "_last_entry_time": StateManager._dump_sticky_ts(
+                            state.get("_last_entry_time")
+                        ),
+                        "_last_signal_bar": StateManager._dump_sticky_ts(
+                            state.get("_last_signal_bar")
+                        ),
                     }
                 )
             except Exception:
@@ -60,21 +82,15 @@ class StateManager:
             symbol = row.get("symbol")
             if not sname or not symbol:
                 continue
-            last_entry = row.get("_last_entry_time")
-            # Best-effort restore Timestamp if ISO-like
-            if last_entry:
-                try:
-                    import pandas as pd
-
-                    parsed = pd.to_datetime(last_entry, errors="coerce")
-                    if parsed is not None and not pd.isna(parsed):
-                        last_entry = parsed
-                except Exception:
-                    pass
             sticky[(sname, symbol)] = {
                 "looking_for_entry": bool(row.get("looking_for_entry")),
                 "entry_direction": row.get("entry_direction"),
-                "_last_entry_time": last_entry,
+                "_last_entry_time": StateManager._parse_sticky_ts(
+                    row.get("_last_entry_time")
+                ),
+                "_last_signal_bar": StateManager._parse_sticky_ts(
+                    row.get("_last_signal_bar")
+                ),
             }
         return sticky
 

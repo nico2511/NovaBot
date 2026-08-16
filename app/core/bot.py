@@ -224,14 +224,13 @@ class BotContext:
             state = StateManager.load_state(self)
             
             # Load trading params from global_settings (centralized source)
-            requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
+            requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 2)
             
             self.max_positions = requested_max
             try:
-                self.risk_manager.update_settings(max_positions=int(requested_max or 1))
+                self.risk_manager.update_settings(max_positions=int(requested_max or 2))
             except Exception:
                 pass
-            self.add_log(f"⚙️ Max positions: {self.max_positions}")
             self.allow_same_symbol_concurrent = bool(
                 self.global_settings.get("risk_defaults", {}).get(
                     "allow_same_symbol_concurrent",
@@ -242,15 +241,33 @@ class BotContext:
             # Merge scanner knobs from user_settings.json (SoT for scanner)
             try:
                 from app.services.storage import storage_service
-                disk_scanner = (storage_service.load_settings() or {}).get("scanner") or {}
+                disk_settings = storage_service.load_settings() or {}
+                disk_scanner = disk_settings.get("scanner") or {}
                 if disk_scanner:
                     self.scanner_settings = {**self.scanner_settings, **disk_scanner}
                     self.add_log(
                         f"🕵️ Scanner settings loaded (enabled={self.scanner_settings.get('enabled')}, "
                         f"auto_switch={self.scanner_settings.get('auto_switch')})"
                     )
+                disk_risk = disk_settings.get("risk_defaults") or {}
+                if disk_risk:
+                    self.global_settings["risk_defaults"] = {
+                        **(self.global_settings.get("risk_defaults") or {}),
+                        **disk_risk,
+                    }
+                    requested_max = self.global_settings["risk_defaults"].get(
+                        "max_positions", requested_max
+                    )
+                    self.max_positions = requested_max
+                    try:
+                        self.risk_manager.update_settings(
+                            max_positions=int(requested_max or 2)
+                        )
+                    except Exception:
+                        pass
             except Exception as scan_load_err:
                 logger.warning("Could not load scanner settings from disk: %s", scan_load_err)
+            self.add_log(f"⚙️ Max positions: {self.max_positions}")
                     
         except Exception as e:
             logger.error("Error loading state: %s", e)
@@ -321,7 +338,12 @@ class BotContext:
 
         return ordered[:k] if ordered else ([active] if active else [])
 
-    _STICKY_FIELDS = ("looking_for_entry", "entry_direction", "_last_entry_time")
+    _STICKY_FIELDS = (
+        "looking_for_entry",
+        "entry_direction",
+        "_last_entry_time",
+        "_last_signal_bar",
+    )
 
     def _restore_strategy_sticky(self, symbol: str) -> None:
         engine = getattr(self, "strategy_engine", None)
@@ -333,15 +355,17 @@ class BotContext:
             sticky = self._strategy_sticky
         for name, strat in engine.strategies.items():
             state = sticky.get((name, symbol))
-            if not state:
-                if hasattr(strat, "looking_for_entry"):
-                    strat.looking_for_entry = False
-                if hasattr(strat, "entry_direction"):
-                    strat.entry_direction = None
-                continue
+            # Always reset fields missing from this symbol's snapshot so a shared
+            # strategy instance cannot leak last_entry / signal_bar / armed state.
             for field in self._STICKY_FIELDS:
-                if hasattr(strat, field) and field in state:
+                if not hasattr(strat, field):
+                    continue
+                if state and field in state:
                     setattr(strat, field, state[field])
+                elif field == "looking_for_entry":
+                    setattr(strat, field, False)
+                else:
+                    setattr(strat, field, None)
 
     def _save_strategy_sticky(self, symbol: str) -> None:
         engine = getattr(self, "strategy_engine", None)
@@ -432,6 +456,51 @@ class BotContext:
             return {"ok": False, "error": str(e)}
         finally:
             self._save_strategy_sticky(symbol)
+
+    @staticmethod
+    def _normalize_timeframe(tf) -> str:
+        t = str(tf or "15m").strip().lower()
+        aliases = {
+            "1h": "1h",
+            "60m": "1h",
+            "1hour": "1h",
+            "60": "1h",
+            "4h": "4h",
+            "240m": "4h",
+            "1m": "1m",
+            "1min": "1m",
+            "15m": "15m",
+            "15": "15m",
+        }
+        return aliases.get(t, t or "15m")
+
+    @staticmethod
+    def _strategy_timeframe(engine_config, strategy_name: str | None) -> str:
+        cfg = (engine_config or {}).get(str(strategy_name or "")) or {}
+        return BotContext._normalize_timeframe(cfg.get("timeframe") or "15m")
+
+    @staticmethod
+    def _ohlcv_for_timeframe(timeframe: str, df_15m, df_1h=None, df_1m=None):
+        """Pick the candle frame that matches a strategy's declared timeframe."""
+        tf = BotContext._normalize_timeframe(timeframe)
+        if tf == "1h" and df_1h is not None and not getattr(df_1h, "empty", True):
+            return df_1h
+        if tf == "1m" and df_1m is not None and not getattr(df_1m, "empty", True):
+            return df_1m
+        return df_15m
+
+    def _mark_strategy_fill(self, strategy_name: str | None, symbol: str | None = None) -> None:
+        """Arm fill-cooldown only after a confirmed entry, then persist sticky."""
+        if not strategy_name or not hasattr(self, "strategy_engine"):
+            return
+        strat = self.strategy_engine.strategies.get(strategy_name)
+        if strat is not None and hasattr(strat, "mark_entry_fill"):
+            strat.mark_entry_fill()
+        elif strat is not None:
+            strat._last_entry_time = pd.Timestamp.now()
+        sym = symbol or getattr(self, "active_symbol", None)
+        if sym:
+            self._save_strategy_sticky(sym)
 
     @staticmethod
     def _signal_priority(sig: dict, engine_config: dict = None) -> tuple:
@@ -767,18 +836,33 @@ class BotContext:
         
         return "N/A (Analysis pending)"
 
-    def _prepare_ai_context(self, position_data: dict = None) -> dict:
-        """Prepare comprehensive market context for professional AI analysis"""
-        if not hasattr(self, 'latest_data') or self.latest_data.empty:
+    def _prepare_ai_context(self, position_data: dict = None, df=None, timeframe: str = None) -> dict:
+        """Prepare market context for the AI gate on the strategy's declared timeframe."""
+        if df is None or getattr(df, "empty", True):
+            df = self.latest_data if hasattr(self, "latest_data") else None
+        if df is None or getattr(df, "empty", True):
             return {}
+
+        tf = self._normalize_timeframe(timeframe or "15m")
+        idx = -2 if len(df) >= 2 else -1
+        current_price = float(df['close'].iloc[idx])
         
-        df = self.latest_data
-        current_price = float(df['close'].iloc[-1])
-        
-        # Technical Indicators
-        rsi = float(df['RSI_14'].iloc[-1]) if 'RSI_14' in df.columns else 0.0
+        # Technical Indicators — confirmed candle (same bar the strategy signaled)
+        if 'RSI_14' in df.columns:
+            rsi = float(df['RSI_14'].iloc[idx])
+        else:
+            try:
+                rsi = float(Indicators.rsi(df['close'], 14).iloc[idx])
+            except Exception:
+                rsi = 0.0
         atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in df.columns), None)
-        atr = float(df[atr_col].iloc[-1]) if atr_col else 0.0
+        if atr_col:
+            atr = float(df[atr_col].iloc[idx])
+        else:
+            try:
+                atr = float(Indicators.atr(df['high'], df['low'], df['close'], 14).iloc[idx])
+            except Exception:
+                atr = 0.0
         
         # EMAs
         ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
@@ -832,7 +916,7 @@ class BotContext:
         except Exception: 
             pass
 
-        # Regime (15m): avoid binary ADX-only classification.
+        # Regime on the strategy timeframe (not hardcoded 15m).
         # Use ADX hysteresis + compression (BB width) + EMA slope as tiebreakers.
         # Goal: identify clean ranges earlier, while still recognizing real trends.
         adx_trend_on = 27.0
@@ -1036,6 +1120,7 @@ class BotContext:
         
         return {
             "symbol": self.active_symbol,
+            "strategy_timeframe": tf,
             "current_price": current_price,
             "regime": regime,
             "market_bias": market_bias,
@@ -2516,10 +2601,12 @@ class BotContext:
                     f"{', '.join(analysis_symbols)}"
                 )
 
-                best = None  # (priority_tuple, symbol, sig, result, technical_context, df_15m)
+                best = None  # (priority, symbol, sig, result, technical_context, df_15m, df_1h, df_1m)
                 result = {"signals": [], "rejections": []}
                 technical_context = {}
                 df_15m = pd.DataFrame()
+                df_1h = pd.DataFrame()
+                df_1m = pd.DataFrame()
                 signals = []
 
                 for analysis_symbol in analysis_symbols:
@@ -2541,6 +2628,8 @@ class BotContext:
                     sym_result = packed["result"]
                     sym_tech = packed["technical_context"]
                     sym_df = packed["df_15m"]
+                    sym_df_1h = packed.get("df_1h")
+                    sym_df_1m = packed.get("df_1m")
                     self.latest_strategy_result = sym_result
                     self.active_strategies = sym_result.get("strategies", [])
 
@@ -2592,12 +2681,21 @@ class BotContext:
                         pri = self._signal_priority(
                             cand, getattr(self.strategy_engine, "config", None)
                         )
-                        row = (pri, analysis_symbol, cand, sym_result, sym_tech, sym_df)
+                        row = (
+                            pri,
+                            analysis_symbol,
+                            cand,
+                            sym_result,
+                            sym_tech,
+                            sym_df,
+                            sym_df_1h,
+                            sym_df_1m,
+                        )
                         if best is None or row[0] > best[0]:
                             best = row
 
                 if best:
-                    _pri, focus_symbol, sig, result, technical_context, df_15m = best
+                    _pri, focus_symbol, sig, result, technical_context, df_15m, df_1h, df_1m = best
                     signals = result.get("signals", []) or [sig]
                     current_price = float(
                         technical_context.get("current_price")
@@ -2608,6 +2706,8 @@ class BotContext:
                     sig = None
                     signals = []
                     current_price = 0
+                    df_1h = pd.DataFrame()
+                    df_1m = pd.DataFrame()
 
                 ui_symbol = self.active_symbol
                 entry_committed = False
@@ -2665,15 +2765,25 @@ class BotContext:
                                     time.sleep(10)
                                     continue
                     
-                        market_context = self._prepare_ai_context()
-                        # Prefer engine confirmed-candle volume over any live-bar leftovers
-                        if isinstance(technical_context, dict) and technical_context.get("volume_ratio") is not None:
-                            market_context["volume_ratio"] = technical_context["volume_ratio"]
-                        # Inject Copilot MTF Sentiment
-                        market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
-
                         strat_name = sig.get('strategy')
                         strat_obj = self.strategy_engine.strategies.get(strat_name) if strat_name else None
+                        sig_tf = self._strategy_timeframe(
+                            getattr(self.strategy_engine, "config", None),
+                            strat_name,
+                        )
+                        ai_df = self._ohlcv_for_timeframe(
+                            sig_tf, df_15m, df_1h=df_1h, df_1m=df_1m
+                        )
+                        market_context = self._prepare_ai_context(df=ai_df, timeframe=sig_tf)
+                        # Engine snapshot volume is 15m — overlay only for 15m strategies
+                        if (
+                            self._normalize_timeframe(sig_tf) == "15m"
+                            and isinstance(technical_context, dict)
+                            and technical_context.get("volume_ratio") is not None
+                        ):
+                            market_context["volume_ratio"] = technical_context["volume_ratio"]
+                        market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
+                        market_context["strategy_timeframe"] = sig_tf
 
                         # --- HARD VETO (strategy-owned) before spending AI tokens ---
                         veto_reason = self._check_hard_veto(
@@ -2721,87 +2831,91 @@ class BotContext:
                                 "volume_ratio": market_context.get("volume_ratio") if isinstance(market_context, dict) else None,
                             },
                         }
-                        self._notify_signal_detected_discord(
-                            sig,
-                            technical_context,
-                            ai_trace_id=ai_trace_id,
-                            ai_payload_preview=ai_payload_preview,
-                        )
-                        strategy_persona = None
-                        if strat_obj is not None:
-                            if hasattr(strat_obj, "get_ai_persona"):
-                                strategy_persona = strat_obj.get_ai_persona()
-                            else:
-                                strategy_persona = getattr(strat_obj, "AI_PERSONA", None)
-                    
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
-                    
-                        # Score threshold removed - risk thresholds are already configured in settings
-                        # AI validation handles the filtering based on configured risk thresholds
-                    
-                        if time_since_last_call < 45:  # 45s cooldown to save credits
-                            self.add_log(f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)")
-                            continue
-                    
                         approved = False
-                        self.add_log(f"🤖 Validating signal (trace={ai_trace_id}): {sig.get('signal')} from {sig.get('strategy')}")
-                        if self._ai_payload_debug_enabled():
-                            payload_obj = {
-                                "ts": pd.Timestamp.now().isoformat(),
-                                "trace_id": ai_trace_id,
-                                "symbol": sig.get("symbol", self.active_symbol),
-                                "strategy": sig.get("strategy"),
-                                "signal_data": sig,
-                                "market_context": market_context,
-                            }
-                            self._write_ai_payload_log({"type": "ai_request", **payload_obj})
-                            # Short preview into regular bot logs (API/history), full stays in ai_payload.jsonl
-                            preview = self._safe_json_preview(
-                                {
-                                    "trace_id": ai_trace_id,
-                                    "signal_data": sig,
-                                    "market_context_keys": sorted(list((market_context or {}).keys())),
-                                },
-                                max_chars=900,
+                        val_res = None
+                        strategy_persona = None
+
+                        # 45s AI skip: do not Discord-notify, do not continue past loop sleep,
+                        # do not arm fill-cooldown (never set on signal). Clear same-bar so
+                        # the next loop can retry AI on this candle once the gate opens.
+                        if time_since_last_call < 45:
+                            self.add_log(
+                                f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)"
                             )
-                            self.add_log(f"🧠 AI PAYLOAD (trace={ai_trace_id})", metadata={"preview": preview})
-                            if self._ai_payload_debug_discord_enabled():
-                                try:
-                                    discord_service.send_log(f"AI PAYLOAD trace={ai_trace_id}: {preview}")
-                                except Exception as discord_err:
-                                    self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
-                        val_res = ia_service.validate_signal(
-                            sig,
-                            market_context,
-                            strategy_persona=strategy_persona,
-                            strategy=strat_obj,
-                        )
-
-
-                        self.last_ai_call = current_time
-                        if self._ai_payload_debug_enabled():
-                            try:
-                                raw = (val_res or {}).get("raw_output")
-                                resp_obj = {
+                            if strat_obj is not None and hasattr(strat_obj, "_last_signal_bar"):
+                                strat_obj._last_signal_bar = None
+                            if sig_symbol:
+                                self._save_strategy_sticky(sig_symbol)
+                        else:
+                            self._notify_signal_detected_discord(
+                                sig,
+                                technical_context,
+                                ai_trace_id=ai_trace_id,
+                                ai_payload_preview=ai_payload_preview,
+                            )
+                            if strat_obj is not None:
+                                if hasattr(strat_obj, "get_ai_persona"):
+                                    strategy_persona = strat_obj.get_ai_persona()
+                                else:
+                                    strategy_persona = getattr(strat_obj, "AI_PERSONA", None)
+                            self.add_log(f"🤖 Validating signal (trace={ai_trace_id}): {sig.get('signal')} from {sig.get('strategy')}")
+                            if self._ai_payload_debug_enabled():
+                                payload_obj = {
                                     "ts": pd.Timestamp.now().isoformat(),
                                     "trace_id": ai_trace_id,
                                     "symbol": sig.get("symbol", self.active_symbol),
                                     "strategy": sig.get("strategy"),
-                                    "raw_output": raw,
-                                    "model": (val_res or {}).get("model"),
+                                    "signal_data": sig,
+                                    "market_context": market_context,
                                 }
-                                self._write_ai_payload_log({"type": "ai_response", **resp_obj})
+                                self._write_ai_payload_log({"type": "ai_request", **payload_obj})
+                                preview = self._safe_json_preview(
+                                    {
+                                        "trace_id": ai_trace_id,
+                                        "signal_data": sig,
+                                        "market_context_keys": sorted(list((market_context or {}).keys())),
+                                    },
+                                    max_chars=900,
+                                )
+                                self.add_log(f"🧠 AI PAYLOAD (trace={ai_trace_id})", metadata={"preview": preview})
                                 if self._ai_payload_debug_discord_enabled():
-                                    preview = self._safe_json_preview(
-                                        {"trace_id": ai_trace_id, "raw_output": raw},
-                                        max_chars=config.AI_PAYLOAD_DEBUG_MAX_CHARS,
-                                    )
-                                    discord_service.send_log(f"AI RESPONSE trace={ai_trace_id}: {preview}")
-                            except Exception as e:
-                                self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
-                    
-                        if not val_res:
+                                    try:
+                                        discord_service.send_log(f"AI PAYLOAD trace={ai_trace_id}: {preview}")
+                                    except Exception as discord_err:
+                                        self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
+                            val_res = ia_service.validate_signal(
+                                sig,
+                                market_context,
+                                strategy_persona=strategy_persona,
+                                strategy=strat_obj,
+                            )
+                            self.last_ai_call = current_time
+                            if self._ai_payload_debug_enabled():
+                                try:
+                                    raw = (val_res or {}).get("raw_output")
+                                    resp_obj = {
+                                        "ts": pd.Timestamp.now().isoformat(),
+                                        "trace_id": ai_trace_id,
+                                        "symbol": sig.get("symbol", self.active_symbol),
+                                        "strategy": sig.get("strategy"),
+                                        "raw_output": raw,
+                                        "model": (val_res or {}).get("model"),
+                                    }
+                                    self._write_ai_payload_log({"type": "ai_response", **resp_obj})
+                                    if self._ai_payload_debug_discord_enabled():
+                                        preview = self._safe_json_preview(
+                                            {"trace_id": ai_trace_id, "raw_output": raw},
+                                            max_chars=config.AI_PAYLOAD_DEBUG_MAX_CHARS,
+                                        )
+                                        discord_service.send_log(f"AI RESPONSE trace={ai_trace_id}: {preview}")
+                                except Exception as e:
+                                    self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
+
+                        if time_since_last_call < 45:
+                            approved = False
+                        elif not val_res:
                             approved = False
                             self.add_log("⚠️ AI Validation: empty response. Defaulting to REJECT.")
                         elif val_res.get("rejection_reason_category") == "AI_PARSE_ERROR":
@@ -2957,16 +3071,17 @@ class BotContext:
                         
                             # --- ATR-BASED SL FLOOR (Prevent unrealistically tight SL) ---
                             try:
-                                if sl_price and entry_price and not df_15m.empty:
-                                    # Prefer strategy ATR (Wilder); fall back to SMA-TR if missing
-                                    atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in df_15m.columns), None)
+                                atr_df = ai_df if ai_df is not None and not getattr(ai_df, "empty", True) else df_15m
+                                if sl_price and entry_price and atr_df is not None and not atr_df.empty:
+                                    # Prefer strategy-TF ATR (Wilder); fall back to SMA-TR if missing
+                                    atr_col = next((c for c in ('ATR_14', 'ATRr_14') if c in atr_df.columns), None)
                                     if atr_col:
-                                        current_atr = float(df_15m[atr_col].iloc[-1])
+                                        current_atr = float(atr_df[atr_col].iloc[-1])
                                     else:
                                         tr = pd.concat([
-                                            df_15m['high'] - df_15m['low'],
-                                            (df_15m['high'] - df_15m['close'].shift(1)).abs(),
-                                            (df_15m['low'] - df_15m['close'].shift(1)).abs()
+                                            atr_df['high'] - atr_df['low'],
+                                            (atr_df['high'] - atr_df['close'].shift(1)).abs(),
+                                            (atr_df['low'] - atr_df['close'].shift(1)).abs()
                                         ], axis=1).max(axis=1)
                                         current_atr = float(tr.rolling(14).mean().iloc[-1])
                                 
@@ -3076,6 +3191,7 @@ class BotContext:
                             # ---------------------------------------------------
                             # 2. EXECUTION LOGIC (Live)
                             # ---------------------------------------------------
+                            entry_ok = False
                             if self.trading_enabled:
                                 if sig.get("manual_approval"):
                                     self.add_log(
@@ -3123,6 +3239,7 @@ class BotContext:
                             
                             if entry_ok:
                                 entry_committed = True
+                                self._mark_strategy_fill(sig.get("strategy"), sig_symbol)
                                 # Update last trade info for cooldown
                                 self._last_trade_info = {
                                     "symbol": self.active_symbol,
@@ -3139,10 +3256,18 @@ class BotContext:
                                         ai_trace_id, tid, symbol=self.active_symbol
                                     )
                             else:
-                                self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                if not self.trading_enabled:
+                                    reason = "trading_enabled=False (observation mode)"
+                                    self.add_log(
+                                        f"⚠️ TRADE NOT EXECUTED: {reason}"
+                                    )
+                                else:
+                                    reason = "Entry order was not confirmed"
+                                    self.add_log(f"⚠️ TRADE NOT EXECUTED: {reason}")
                                 self._log_execution_error(
                                     f"⛔ ENTRY BLOCKED: {sig.get('signal')} {self.active_symbol}",
-                                    reason="trading_enabled=False (observation mode)",
+                                    reason=reason,
                                     strategy=sig.get("strategy"),
                                     entry=entry_price,
                                     sl=sl_price,
@@ -3150,7 +3275,8 @@ class BotContext:
                                     equity=equity,
                                 )
                         else:
-                            # AI/gate rejected — do not burn the 15m strategy entry cooldown
+                            # AI/gate rejected — clear fill cooldown; keep same-bar lock
+                            # (45s skip already released same-bar above for retry).
                             self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
             
                     finally:

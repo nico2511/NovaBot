@@ -132,7 +132,7 @@ class StorageService:
                 "auto_start_trading": False
             },
             "risk_defaults": {
-                "max_positions": 1,
+                "max_positions": 2,
                 "allow_same_symbol_concurrent": False,
                 "daily_stop_loss": 50.0,
                 "bot_persona": "Conservative Scalper",

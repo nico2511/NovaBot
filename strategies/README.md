@@ -34,7 +34,7 @@ Do **not** soften ST filters to catch LT-style moves — use Trend LT instead.
 ## Multi-positions (HL-safe)
 
 - Bookkeeping: `TradeBook` keyed by `trade_id` + symbol index (`app/core/trade_book.py`).
-- `max_positions` configurable (live default often **1** until validated).
+- `max_positions` configurable (live default **2**). Same-symbol concurrent stays off (HL nets one position per coin).
 - `allow_same_symbol_concurrent=false` by default — Hyperliquid nets **one position per coin**.
 - Same symbol + ST/LT: first entry wins the symbol slot; the other waits for flat.
 - **Money management**: profile risk % / fixed margin / notional cap are **÷ `max_positions`**
