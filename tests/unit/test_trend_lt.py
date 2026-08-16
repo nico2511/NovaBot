@@ -43,3 +43,12 @@ def test_trend_lt_rejects_short_history():
     s = StrategyTrendLT({"params": {"ema_filter_period": 200}})
     df = _ohlcv(50)
     assert s.generate_signal(df, extra_data={"1h": df}) is None
+
+
+def test_trend_lt_post_ai_adjust_trims_buy_tp():
+    s = StrategyTrendLT({"params": {}})
+    signal = {"signal": "BUY", "price": 100.0, "tp": 110.0, "sl": 99.0}
+    ai = {"approved": True, "reasoning": "x", "suggested_adjustments": {}}
+    out = s.post_ai_adjust(signal, ai, {"swing_high": 105.0, "swing_low": 90.0})
+    assert out["suggested_adjustments"]["tp"] < 105.0
+    assert out["suggested_adjustments"]["tp"] > 100.0

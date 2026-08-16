@@ -434,15 +434,20 @@ class BotContext:
             self._save_strategy_sticky(symbol)
 
     @staticmethod
-    def _signal_priority(sig: dict) -> tuple:
-        """LT wins over ST on the same tick; then score."""
+    def _signal_priority(sig: dict, engine_config: dict = None) -> tuple:
+        """Higher config signal_score_bonus wins on the same tick; then score."""
         name = str((sig or {}).get("strategy") or "")
-        pri = 100 if name == "trend_lt" else 50
+        try:
+            bonus = int(
+                ((engine_config or {}).get(name) or {}).get("signal_score_bonus", 0) or 0
+            )
+        except (TypeError, ValueError):
+            bonus = 0
         try:
             score = float((sig or {}).get("score") or 0)
         except (TypeError, ValueError):
             score = 0.0
-        return (pri, score)
+        return (bonus, score)
 
     def add_log(self, message: str, metadata: dict = None):
         """Add log message with optional metadata"""
@@ -2584,7 +2589,9 @@ class BotContext:
                             continue
                         cand = dict(cand)
                         cand["symbol"] = cand.get("symbol") or analysis_symbol
-                        pri = self._signal_priority(cand)
+                        pri = self._signal_priority(
+                            cand, getattr(self.strategy_engine, "config", None)
+                        )
                         row = (pri, analysis_symbol, cand, sym_result, sym_tech, sym_df)
                         if best is None or row[0] > best[0]:
                             best = row

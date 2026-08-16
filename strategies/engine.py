@@ -254,9 +254,10 @@ class StrategyEngine:
                     is_test_mode = params.get("test_mode", False)
                     skip_bb = (
                         is_test_mode
-                        or strat.name == "trend_lt"
                         or bool(params.get("skip_bb_anti_chase"))
-                        or str((strat.config or {}).get("timeframe") or "").lower() == "1h"
+                        or bool((strat.config or {}).get("skip_bb_anti_chase"))
+                        or str((strat.config or {}).get("timeframe") or "").lower()
+                        in ("1h", "4h", "1d")
                     )
 
                     if not skip_bb:
@@ -316,13 +317,19 @@ class StrategyEngine:
         except:
             volume_ratio = 100
 
-        # Scoring Logic — Trend LT outranks SuperTrend on the same tick
+        # Scoring — optional per-strategy bonus from config (e.g. Trend LT priority)
         for signal in signals:
             score = 50
             if signal.get("confidence"):
                 score += int(signal.get("confidence", 0))
-            if signal.get("strategy") == "trend_lt":
-                score += 100
+            sname = signal.get("strategy")
+            try:
+                bonus = int(
+                    ((self.config or {}).get(sname) or {}).get("signal_score_bonus", 0) or 0
+                )
+            except (TypeError, ValueError):
+                bonus = 0
+            score += bonus
             signal["score"] = score
         signals.sort(key=lambda s: s.get("score", 0), reverse=True)
 

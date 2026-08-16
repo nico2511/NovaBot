@@ -74,8 +74,12 @@ Signal records include `trace_id` / `trade_id` when available.
 4. **Params JSON** in [`data/config/strategies.json`](../data/config/strategies.json) and [`app/core/defaults/strategies.default.json`](../app/core/defaults/strategies.default.json).
    - `type: "trend"` → ADX regime gate from 15m engine.
    - `type: "always_active"` → always evaluated (still apply your own filters).
+   - Non-15m: set `"timeframe": "1h"` (skips engine 15m BB anti-chase).
+   - Same-tick priority: `"signal_score_bonus": 100` (not hardcoded names in bot/engine).
 5. **Tests**: at least veto + signal reject/approve paths under `tests/unit/`.
 6. **Do not** put métier thresholds in `bot.py` or global scalp rules in `prompts.py`.
+
+Agent skill: [`.cursor/skills/create-novabot-strategy/SKILL.md`](../.cursor/skills/create-novabot-strategy/SKILL.md).
 
 ---
 

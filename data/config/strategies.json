@@ -42,6 +42,7 @@
         "description": "Longer-horizon 1h EMA200 + SuperTrend pullback/reclaim swings.",
         "active": true,
         "timeframe": "1h",
+        "signal_score_bonus": 100,
         "params": {
             "period": 10,
             "multiplier": 3.0,
