@@ -130,7 +130,7 @@ def test_calculate_position_size_notional():
 
 def test_calculate_position_size_risk_pct():
     """When size_value > 1 the code treats it as a percentage (size_value / 100)."""
-    rm = RiskManager()
+    rm = RiskManager(max_positions=1)
     # Risk 2% of $1000 = $20. price=100, sl=99, diff=1 -> 20 coins
     size = rm.calculate_position_size(
         price=100.0, sl_price=99.0, equity=1000.0,
@@ -139,15 +139,58 @@ def test_calculate_position_size_risk_pct():
     assert size == pytest.approx(20.0)
 
 
+def test_risk_pct_splits_across_max_positions():
+    """Portfolio risk budget is divided by max_positions (no N× stacking)."""
+    rm = RiskManager(max_positions=2)
+    # 2% of $1000 = $20 total → $10/slot → 10 coins at $1 risk/coin
+    size = rm.calculate_position_size(
+        price=100.0, sl_price=99.0, equity=1000.0,
+        method="risk_pct", size_value=2.0,
+    )
+    assert size == pytest.approx(10.0)
+
+
+def test_fixed_margin_splits_across_max_positions():
+    rm = RiskManager(max_positions=2)
+    # $20 margin / 2 = $10 × 5 lev = $50 notional / $50 = 1 coin
+    size = rm.calculate_position_size(
+        price=50.0, sl_price=49.0, equity=1000.0,
+        size_type="margin", size_value=20.0, leverage=5,
+    )
+    assert size == pytest.approx(1.0)
+
+
+def test_per_slot_notional_cap_splits():
+    """Account notional cap is shared across slots."""
+    rm = RiskManager(max_positions=2, max_notional_cap_multiplier=10.0)
+    # equity $100 → account cap $1000 → per-slot $500
+    size = rm.calculate_position_size(
+        price=1.0, sl_price=0.9, equity=100.0,
+        size_type="notional", size_value=5000.0,
+    )
+    assert size * 1.0 == pytest.approx(500.0)
+
+
 def test_calculate_position_size_clamps_to_min():
-    """Position below $12 minimum gets clamped up."""
-    rm = RiskManager()
+    """Position below $12 minimum gets clamped up when max_positions=1."""
+    rm = RiskManager(max_positions=1)
     # $1 margin * 1 leverage = $1 notional -> clamped to $12
     size = rm.calculate_position_size(
         price=100.0, sl_price=99.0, equity=1000.0,
         size_type="margin", size_value=1.0, leverage=1,
     )
     assert size * 100.0 == pytest.approx(12.0)
+
+
+def test_multi_pos_refuses_upsize_below_hl_min():
+    """With max_positions>1, do not clamp up below HL min (would defeat split)."""
+    rm = RiskManager(max_positions=3, max_notional_cap_multiplier=50.0)
+    # $1 margin / 3 slots * 1x lev ≈ $0.33 notional — refuse instead of upsizing to $12
+    size = rm.calculate_position_size(
+        price=100.0, sl_price=99.0, equity=1000.0,
+        size_type="margin", size_value=1.0, leverage=1,
+    )
+    assert size == 0.0
 
 
 def test_calculate_position_size_returns_zero_for_invalid_price():

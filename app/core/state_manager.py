@@ -14,24 +14,101 @@ logger = logging.getLogger(__name__)
 
 class StateManager:
     @staticmethod
+    def _serialize_sticky(sticky) -> list:
+        """Persist per-(strategy, symbol) armed state across restarts."""
+        if not isinstance(sticky, dict) or not sticky:
+            return []
+        out = []
+        for key, state in sticky.items():
+            try:
+                if isinstance(key, tuple) and len(key) >= 2:
+                    sname, symbol = key[0], key[1]
+                elif isinstance(key, str) and "|" in key:
+                    sname, symbol = key.split("|", 1)
+                else:
+                    continue
+                if not isinstance(state, dict):
+                    continue
+                last_entry = state.get("_last_entry_time")
+                if last_entry is not None:
+                    try:
+                        last_entry = str(last_entry)
+                    except Exception:
+                        last_entry = None
+                out.append(
+                    {
+                        "strategy": sname,
+                        "symbol": symbol,
+                        "looking_for_entry": bool(state.get("looking_for_entry")),
+                        "entry_direction": state.get("entry_direction"),
+                        "_last_entry_time": last_entry,
+                    }
+                )
+            except Exception:
+                continue
+        return out
+
+    @staticmethod
+    def _deserialize_sticky(raw) -> dict:
+        sticky = {}
+        if not isinstance(raw, list):
+            return sticky
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            sname = row.get("strategy")
+            symbol = row.get("symbol")
+            if not sname or not symbol:
+                continue
+            last_entry = row.get("_last_entry_time")
+            # Best-effort restore Timestamp if ISO-like
+            if last_entry:
+                try:
+                    import pandas as pd
+
+                    parsed = pd.to_datetime(last_entry, errors="coerce")
+                    if parsed is not None and not pd.isna(parsed):
+                        last_entry = parsed
+                except Exception:
+                    pass
+            sticky[(sname, symbol)] = {
+                "looking_for_entry": bool(row.get("looking_for_entry")),
+                "entry_direction": row.get("entry_direction"),
+                "_last_entry_time": last_entry,
+            }
+        return sticky
+
+    @staticmethod
     def save_state(context):
         """Saves critical bot state to JSON."""
-        # Snapshot active_trades under the trade_lock so we don't serialize a
-        # dict being mutated by the trading loop (RuntimeError: dict changed size).
+        # Snapshot under trade_lock (persist by trade_id)
         trade_lock = getattr(context, "trade_lock", None)
+        book = getattr(context, "trade_book", None)
         if trade_lock is not None:
             with trade_lock:
-                active_trades_snapshot = dict(context.active_trades)
+                if book is not None:
+                    active_trades_snapshot = book.to_persist_dict()
+                else:
+                    active_trades_snapshot = dict(context.active_trades)
         else:
-            active_trades_snapshot = dict(context.active_trades)
+            if book is not None:
+                active_trades_snapshot = book.to_persist_dict()
+            else:
+                active_trades_snapshot = dict(context.active_trades)
 
         state = {
-            "active_trades": active_trades_snapshot,  # Multi-position support
+            "active_trades": active_trades_snapshot,  # trade_id → trade (migrates from symbol keys on load)
             "trading_enabled": context.trading_enabled,
             # NOTE: is_running is intentionally NOT saved — it is a runtime-only flag.
             # Threads never survive a process restart; restoring is_running=True would
             # cause a misleading 'thread dead, restarting' message on every boot.
             "active_symbol": context.active_symbol,
+            "allow_same_symbol_concurrent": bool(
+                getattr(context, "allow_same_symbol_concurrent", False)
+            ),
+            "strategy_sticky": StateManager._serialize_sticky(
+                getattr(context, "_strategy_sticky", None)
+            ),
             "last_updated": str(datetime.now())
         }
 
@@ -95,6 +172,8 @@ class StateManager:
             state_modified = False # Track if we need to auto-save defaults
             
             # MIGRATION: Convert old active_trade (singleton) to active_trades (dict)
+            from app.core.trade_book import TradeBook
+
             if "active_trade" in state and "active_trades" not in state:
                 old_trade = state.get("active_trade")
                 if old_trade:
@@ -106,7 +185,6 @@ class StateManager:
                 else:
                     context.active_trades = {}
             else:
-                # Restore Context
                 active_trades = state.get("active_trades", {})
                 if not isinstance(active_trades, dict):
                     logger.warning(
@@ -114,7 +192,14 @@ class StateManager:
                         type(active_trades),
                     )
                     active_trades = {}
-                context.active_trades = active_trades  # Multi-position support
+                context.trade_book = TradeBook.from_persist(active_trades)
+
+            context.allow_same_symbol_concurrent = bool(
+                state.get("allow_same_symbol_concurrent", False)
+            )
+            context._strategy_sticky = StateManager._deserialize_sticky(
+                state.get("strategy_sticky")
+            )
             
             context.trading_enabled = state.get("trading_enabled", False)
             # is_running is always False at load time — threads do not survive restarts.

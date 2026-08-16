@@ -22,9 +22,11 @@ class TradeRecorder:
         self.headers = [
             "timestamp", "symbol", "side", "entry_price", "exit_price", 
             "size", "pnl", "strategy", "exit_reason", "leverage",
-            # NEW: Entry indicators for post-trade analysis
+            # Entry indicators for post-trade analysis
             "entry_regime", "entry_adx", "entry_rsi", "entry_ema20", "entry_ema50",
-            "entry_volume_ratio", "ai_confidence", "ai_reasoning"
+            "entry_volume_ratio", "ai_confidence", "ai_reasoning",
+            # Timeline / multi-trade ids
+            "entry_time", "trade_id", "trace_id",
         ]
         
         self._ensure_storage()
@@ -35,13 +37,16 @@ class TradeRecorder:
             return pd.DataFrame(columns=self.headers)
         
         try:
-            # Force using current headers, fill missing with NaN for old rows
-            # header=None + skiprows=1 avoids mismatch error between names and file header
-            return pd.read_csv(self.csv_file, names=self.headers, header=None, skiprows=1, engine='python')
+            df = pd.read_csv(self.csv_file, engine="python")
+            for h in self.headers:
+                if h not in df.columns:
+                    df[h] = None
+            # Prefer canonical column order; keep any unexpected extras out
+            return df.reindex(columns=self.headers)
         except Exception as e:
             logger.warning("CSV Read Error (attempting fallback): %s", e)
             try:
-                return pd.read_csv(self.csv_file)
+                return pd.read_csv(self.csv_file, names=self.headers, header=None, skiprows=1, engine="python")
             except Exception:
                 return pd.DataFrame(columns=self.headers)
         
@@ -96,7 +101,15 @@ class TradeRecorder:
                 entry_indicators.get("volume_ratio", ""),
                 entry_indicators.get("ai_confidence", ""),
                 # Truncate reasoning to avoid CSV issues
-                str(entry_indicators.get("ai_reasoning", ""))[:200]
+                str(entry_indicators.get("ai_reasoning", ""))[:200],
+                trade_data.get("entry_time")
+                or trade_data.get("entry_timestamp")
+                or (trade_data.get("metadata") or {}).get("entry_time")
+                or "",
+                trade_data.get("trade_id") or "",
+                trade_data.get("trace_id")
+                or (trade_data.get("metadata") or {}).get("trace_id")
+                or "",
             ]
             
             with self._lock:

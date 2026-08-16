@@ -153,6 +153,32 @@ def get_bot_trades(limit: int = 50, bot=Depends(get_bot_context)):
         return {"source": "bot_recorder", "trades": [], "error": str(e)}
 
 
+@router.get("/timeline")
+def get_history_timeline(
+    symbol: str = None,
+    trade_id: str = None,
+    trace_id: str = None,
+    limit: int = 200,
+    bot=Depends(get_bot_context),
+):
+    """
+    Read-only aggregated timeline for debugging a trade lifecycle.
+    Events: signal_detected | ai_decision | entry | thesis | trailing | exit | error
+    """
+    from app.core.timeline import build_timeline
+
+    sa_path = getattr(bot, "signal_analysis_file", None)
+    al_path = getattr(bot, "_ACTIVITY_LOG_PATH", None)
+    return build_timeline(
+        symbol=symbol,
+        trade_id=trade_id,
+        trace_id=trace_id,
+        limit=limit,
+        signal_analysis_path=sa_path,
+        activity_log_path=al_path,
+    )
+
+
 @router.get("/bot/trades/stats")
 def get_bot_trades_stats(bot=Depends(get_bot_context)):
     """

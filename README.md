@@ -193,6 +193,15 @@ curl -H "X-API-Key: ..." https://.../api/scanner/opportunities
 
 Par défaut le scanner est **désactivé** (`enabled=false`). L'hystérésis de switch est de 10 points pour éviter de tourner en rond.
 
+Timeline debug (signal / AI / entry / exit filtrable) :
+
+```bash
+curl -H "X-API-Key: ..." "https://.../api/history/timeline?symbol=ETH&limit=100"
+# aussi: trade_id=...  trace_id=...
+```
+
+Stratégies : SuperTrend 15m + Trend LT 1h — voir [`strategies/README.md`](strategies/README.md).
+
 ---
 
 ## Variables d'environnement

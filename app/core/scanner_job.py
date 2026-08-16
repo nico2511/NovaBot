@@ -55,14 +55,13 @@ class ScannerJob:
         )
 
     def _has_capacity_for_switch(self) -> bool:
-        """Never rotate while any trade is open (safe default for max_positions=1)."""
-        trades = getattr(self.bot, "active_trades", {}) or {}
-        if trades:
-            return False
+        """True when at least one free slot remains (multi-pos aware)."""
         max_pos = int(getattr(self.bot, "max_positions", 1) or 1)
-        if len(trades) >= max_pos:
-            return False
-        return True
+        book = getattr(self.bot, "trade_book", None)
+        if book is not None:
+            return len(book) < max_pos
+        trades = getattr(self.bot, "active_trades", {}) or {}
+        return len(trades) < max_pos
 
     def start(self):
         if self.is_running:
@@ -181,6 +180,13 @@ class ScannerJob:
 
     def _current_setup_armed(self) -> bool:
         """True if SuperTrend is mid-setup on the active symbol (near entry)."""
+        # Sticky: prefer armed state for the *current* UI symbol when available
+        sticky = getattr(self.bot, "_strategy_sticky", None) or {}
+        current = getattr(self.bot, "active_symbol", None)
+        if current:
+            st_state = sticky.get(("supertrend", current))
+            if isinstance(st_state, dict) and "looking_for_entry" in st_state:
+                return bool(st_state.get("looking_for_entry"))
         try:
             engine = getattr(self.bot, "strategy_engine", None)
             strategies = getattr(engine, "strategies", None) or {}
@@ -192,7 +198,7 @@ class ScannerJob:
     def _maybe_auto_switch(self, best: Dict[str, Any], opportunities: List[Dict[str, Any]]) -> Optional[str]:
         if not self._has_capacity_for_switch():
             self.bot.add_log(
-                f"⚠️ Scanner best={best.get('symbol')} ({best.get('score')}) — skip switch (trade active)"
+                f"⚠️ Scanner best={best.get('symbol')} ({best.get('score')}) — skip switch (no free slots)"
             )
             return None
 

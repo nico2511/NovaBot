@@ -23,6 +23,7 @@ from app.core.config import config
 from app.core.risk_manager import RiskManager
 from app.core.constants import *
 from app.core.state_manager import StateManager
+from app.core.trade_book import TradeBook
 from app.core.trailing_logic import compute_trailing_decision
 from app.core.trade_thesis import (
     ACTION_CLOSE_IF_PROFIT,
@@ -72,11 +73,13 @@ class BotContext:
         self.thread = None
         self.account_value = 0.0
         
-        # Multi-Position Support: Dictionary indexed by symbol
+        # Multi-Position Support: trade_id keyed book (+ symbol index)
         # MUST be initialized BEFORE any property access (like self.latest_data)
         self.active_symbol = config.TRADING_SYMBOL  # Must be set before latest_data
-        self.active_trades = {}  # { "HYPE": {...trade_data...}, "ETH": {...} }
+        self.trade_book = TradeBook()
         self.latest_data_map = {}  # { "HYPE": DataFrame, "ETH": DataFrame }
+        # HL-safe default: one bot trade per symbol (exchange nets per coin)
+        self.allow_same_symbol_concurrent = False
         
         self.latest_data = pd.DataFrame()
         self.latest_analysis = {}
@@ -105,12 +108,15 @@ class BotContext:
             "max_tokens": 40,
             "funding_filter_enabled": False,
             "scan_while_in_trade": False,
+            "analyze_top_k": 3,
             "whitelist": [
                 "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
                 "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
                 "DOT", "ATOM", "LTC", "BCH", "XRP"
             ],
         }
+        # Per (strategy, symbol) sticky armed state for multi-symbol analysis
+        self._strategy_sticky: dict = {}
         # Lazy-init after StrategyEngine exists (constructed just above)
         from app.core.scanner_job import ScannerJob
         self.scanner_job = ScannerJob(self)
@@ -128,6 +134,8 @@ class BotContext:
                 "risk_profile": config.RISK_PROFILE,
                 "default_leverage": config.DEFAULT_LEVERAGE,
                 "default_margin_type": "ISOLATED",
+                # HL nets one position per coin — keep False until scale-in is implemented
+                "allow_same_symbol_concurrent": False,
                 "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
                 "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]
             },
@@ -219,7 +227,17 @@ class BotContext:
             requested_max = self.global_settings.get("risk_defaults", {}).get("max_positions", 1)
             
             self.max_positions = requested_max
+            try:
+                self.risk_manager.update_settings(max_positions=int(requested_max or 1))
+            except Exception:
+                pass
             self.add_log(f"⚙️ Max positions: {self.max_positions}")
+            self.allow_same_symbol_concurrent = bool(
+                self.global_settings.get("risk_defaults", {}).get(
+                    "allow_same_symbol_concurrent",
+                    getattr(self, "allow_same_symbol_concurrent", False),
+                )
+            )
 
             # Merge scanner knobs from user_settings.json (SoT for scanner)
             try:
@@ -243,12 +261,188 @@ class BotContext:
 
     def _new_trade_id(self, symbol: str) -> str:
         """Create a stable internal identifier for a trade lifecycle."""
+        return TradeBook.new_trade_id(symbol or "UNKNOWN")
+
+    @property
+    def active_trades(self):
+        """Symbol-keyed view over trade_book (legacy call sites / reconciler)."""
+        return self.trade_book.as_symbol_mapping()
+
+    @active_trades.setter
+    def active_trades(self, value):
+        """Accept dict (legacy symbol map or trade_id map) or TradeBook."""
+        if isinstance(value, TradeBook):
+            self.trade_book = value
+            return
+        if isinstance(value, dict):
+            self.trade_book = TradeBook.from_persist(value)
+            return
+        self.trade_book = TradeBook()
+
+    def can_open_trade(self, symbol: str) -> tuple:
+        """Return (ok, reason) for a new entry on symbol."""
+        return self.trade_book.can_open(
+            symbol,
+            max_positions=int(self.max_positions or 1),
+            allow_same_symbol_concurrent=bool(
+                getattr(self, "allow_same_symbol_concurrent", False)
+            ),
+        )
+
+    def _get_analysis_symbols(self) -> list:
+        """Sticky armed symbols ∪ scanner top-K (active_symbol always included)."""
         try:
-            sym = (symbol or "UNKNOWN").upper()
-        except Exception:
-            sym = "UNKNOWN"
-        # Keep it short and log-friendly while still unique.
-        return f"{sym}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            k = int((self.scanner_settings or {}).get("analyze_top_k", 3) or 3)
+        except (TypeError, ValueError):
+            k = 3
+        k = max(1, min(k, 10))
+
+        ordered: list = []
+        sticky = getattr(self, "_strategy_sticky", {}) or {}
+        for (_sname, sym), state in sticky.items():
+            if state and state.get("looking_for_entry") and sym and sym not in ordered:
+                ordered.append(sym)
+
+        job = getattr(self, "scanner_job", None)
+        results = list(getattr(job, "last_results", []) or []) if job else []
+        for row in results:
+            sym = row.get("symbol") if isinstance(row, dict) else None
+            if sym and sym not in ordered:
+                ordered.append(sym)
+            if len(ordered) >= k:
+                break
+
+        active = getattr(self, "active_symbol", None)
+        if active and active not in ordered:
+            ordered.insert(0, active)
+        elif active and ordered and ordered[0] != active:
+            # Keep UI focus first among analyzed set when present
+            ordered = [active] + [s for s in ordered if s != active]
+
+        return ordered[:k] if ordered else ([active] if active else [])
+
+    _STICKY_FIELDS = ("looking_for_entry", "entry_direction", "_last_entry_time")
+
+    def _restore_strategy_sticky(self, symbol: str) -> None:
+        engine = getattr(self, "strategy_engine", None)
+        if not engine or not getattr(engine, "strategies", None):
+            return
+        sticky = getattr(self, "_strategy_sticky", None)
+        if sticky is None:
+            self._strategy_sticky = {}
+            sticky = self._strategy_sticky
+        for name, strat in engine.strategies.items():
+            state = sticky.get((name, symbol))
+            if not state:
+                if hasattr(strat, "looking_for_entry"):
+                    strat.looking_for_entry = False
+                if hasattr(strat, "entry_direction"):
+                    strat.entry_direction = None
+                continue
+            for field in self._STICKY_FIELDS:
+                if hasattr(strat, field) and field in state:
+                    setattr(strat, field, state[field])
+
+    def _save_strategy_sticky(self, symbol: str) -> None:
+        engine = getattr(self, "strategy_engine", None)
+        if not engine or not getattr(engine, "strategies", None):
+            return
+        if not hasattr(self, "_strategy_sticky") or self._strategy_sticky is None:
+            self._strategy_sticky = {}
+        for name, strat in engine.strategies.items():
+            self._strategy_sticky[(name, symbol)] = {
+                field: getattr(strat, field, None) for field in self._STICKY_FIELDS
+            }
+
+    def _analyze_symbol_market(self, symbol: str) -> dict:
+        """
+        Fetch candles + run strategy engine for one symbol.
+        Returns dict with keys: ok, result, technical_context, df_15m, df_1m, error
+        Restores/saves sticky around the call.
+        """
+        self._restore_strategy_sticky(symbol)
+        try:
+            df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
+            df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
+            df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
+
+            if df_15m.empty:
+                df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
+            if df_1m.empty:
+                df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
+            if df_1h.empty:
+                df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
+
+            if df_15m.empty or df_1m.empty:
+                return {
+                    "ok": False,
+                    "error": f"No data for {symbol}: 15m={len(df_15m)} 1m={len(df_1m)}",
+                }
+
+            numeric_cols = ["open", "high", "low", "close", "volume"]
+            for df_target in [df_15m, df_1m, df_1h]:
+                if df_target is None or getattr(df_target, "empty", True):
+                    continue
+                for col in numeric_cols:
+                    if col in df_target.columns:
+                        df_target[col] = df_target[col].astype(float)
+
+            self.latest_data_map[symbol] = df_15m
+
+            funding_rate_live = 0.0
+            try:
+                funding_rate_live = float(hyperliquid_service.get_funding_rate(symbol) or 0.0)
+            except Exception:
+                funding_rate_live = 0.0
+
+            result = self.strategy_engine.analyze(
+                df_15m,
+                extra_data={
+                    "1m": df_1m,
+                    "1h": df_1h,
+                    "symbol": symbol,
+                    "funding_rate": funding_rate_live,
+                },
+            )
+
+            technical_context = {
+                "regime": result.get("regime"),
+                "adx": round(result.get("adx", 0), 2),
+                "adx_slope": round(result.get("adx_slope", 0), 2),
+                "rsi": round(result.get("rsi", 0), 2),
+                "ema_9": round(result.get("ema_9", 0), 4),
+                "ema_20": round(result.get("ema_20", 0), 4),
+                "ema_50": round(result.get("ema_50", 0), 4),
+                "bb_upper": round(result.get("bb_upper", 0), 4),
+                "bb_lower": round(result.get("bb_lower", 0), 4),
+                "bb_width": round(result.get("bb_width", 0), 2),
+                "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                "current_price": result.get("current_price"),
+            }
+
+            return {
+                "ok": True,
+                "result": result,
+                "technical_context": technical_context,
+                "df_15m": df_15m,
+                "df_1m": df_1m,
+                "df_1h": df_1h,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            self._save_strategy_sticky(symbol)
+
+    @staticmethod
+    def _signal_priority(sig: dict) -> tuple:
+        """LT wins over ST on the same tick; then score."""
+        name = str((sig or {}).get("strategy") or "")
+        pri = 100 if name == "trend_lt" else 50
+        try:
+            score = float((sig or {}).get("score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        return (pri, score)
 
     def add_log(self, message: str, metadata: dict = None):
         """Add log message with optional metadata"""
@@ -932,13 +1126,21 @@ class BotContext:
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
 
-    def _record_signal_analysis(self, sig: dict, ai_data: dict, approved: bool, indicators: dict = None):
+    def _record_signal_analysis(
+        self,
+        sig: dict,
+        ai_data: dict,
+        approved: bool,
+        indicators: dict = None,
+        trace_id: str = None,
+        trade_id: str = None,
+    ):
         """Record AI signal analysis to a persistent JSON file for audit trail."""
         try:
             # Base entry
             entry = {
                 "timestamp": pd.Timestamp.now().isoformat(),
-                "symbol": self.active_symbol,
+                "symbol": sig.get("symbol") or self.active_symbol,
                 "direction": sig.get("signal"),
                 "strategy": sig.get("strategy"),
                 "approved": approved,
@@ -950,7 +1152,9 @@ class BotContext:
                 "rejection_reason_category": ai_data.get("rejection_reason_category"),
                 "market_price": sig.get("price"),
                 "suggested_sl": ai_data.get("suggested_adjustments", {}).get("sl") or sig.get("sl"),
-                "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp") or sig.get("tp")
+                "suggested_tp": ai_data.get("suggested_adjustments", {}).get("tp") or sig.get("tp"),
+                "trace_id": trace_id or sig.get("trace_id") or ai_data.get("trace_id"),
+                "trade_id": trade_id or sig.get("trade_id"),
             }
             
             # Enrich with market context for retrospective analysis
@@ -1100,6 +1304,18 @@ class BotContext:
             if active_count >= self.max_positions:
                 reason = f"Max positions reached ({active_count}/{self.max_positions})"
                 self.add_log(f"⛔ QUOTA EXCEEDED ({active_count}/{self.max_positions}). Entry aborted.")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
+
+            ok_book, book_reason = self.can_open_trade(symbol)
+            if not ok_book:
+                reason = book_reason
+                self.add_log(f"⛔ ENTRY BLOCKED (book): {reason}")
                 self._log_execution_error(
                     f"⛔ ENTRY BLOCKED: {side} {symbol}",
                     reason=reason,
@@ -1318,6 +1534,11 @@ class BotContext:
                          closed_trade = self.active_trades.get(symbol)
                          self.trade_recorder.add_trade({
                              "trade_id": closed_trade.get("trade_id") if isinstance(closed_trade, dict) else None,
+                             "trace_id": (
+                                 (closed_trade.get("metadata") or {}).get("trace_id")
+                                 if isinstance(closed_trade, dict)
+                                 else None
+                             ),
                              "symbol": symbol,
                              "strategy": (
                                  closed_trade.get("strategy")
@@ -1331,6 +1552,11 @@ class BotContext:
                              "pnl_usdc": pnl_usdc,
                              "exit_reason": reason,
                              "exit_time": pd.Timestamp.now().isoformat(),
+                             "entry_time": (
+                                 closed_trade.get("timestamp")
+                                 if isinstance(closed_trade, dict)
+                                 else None
+                             ),
                              "entry_indicators": (
                                  closed_trade.get("entry_indicators", {})
                                  if isinstance(closed_trade, dict)
@@ -1379,13 +1605,51 @@ class BotContext:
         # No strategy plan attached — do not apply orphan global métier vetoes
         return None
 
-    def _clear_strategy_entry_cooldown(self, strategy_name: str | None) -> None:
+    def _clear_strategy_entry_cooldown(self, strategy_name: str | None, symbol: str | None = None) -> None:
         """Undo strategy-side entry cooldown after veto/AI reject (no fill happened)."""
         if not strategy_name or not hasattr(self, "strategy_engine"):
             return
         strat = self.strategy_engine.strategies.get(strategy_name)
         if strat is not None and hasattr(strat, "_last_entry_time"):
             strat._last_entry_time = None
+        # Sticky map survives across top-K symbol swaps — clear it too
+        sym = symbol or getattr(self, "active_symbol", None)
+        sticky = getattr(self, "_strategy_sticky", None)
+        if sticky is not None and sym:
+            key = (strategy_name, sym)
+            state = sticky.get(key)
+            if isinstance(state, dict):
+                state = dict(state)
+                state["_last_entry_time"] = None
+                sticky[key] = state
+
+    def _attach_trade_id_to_signal_analysis(self, trace_id: str, trade_id: str, symbol: str = None) -> None:
+        """Patch the latest matching AI decision with trade_id (no duplicate row)."""
+        if not trace_id or not trade_id:
+            return
+        try:
+            path = self.signal_analysis_file
+            if not os.path.exists(path):
+                return
+            with open(path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+            if not isinstance(history, list) or not history:
+                return
+            for row in reversed(history):
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("trace_id") or "") != str(trace_id):
+                    continue
+                if symbol and str(row.get("symbol") or "").upper() != str(symbol).upper():
+                    continue
+                row["trade_id"] = trade_id
+                break
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(history, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to attach trade_id to signal analysis: {e}")
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
@@ -1971,6 +2235,7 @@ class BotContext:
 
             self.trade_recorder.add_trade({
                 "trade_id": tid,
+                "trace_id": (trade.get("metadata") or {}).get("trace_id"),
                 "symbol": symbol,
                 "strategy": trade.get("strategy", "Unknown"),
                 "side": side,
@@ -1981,6 +2246,7 @@ class BotContext:
                 "pnl_usdc": pnl_usdc,
                 "exit_reason": "External/Sync Close",
                 "exit_time": pd.Timestamp.now().isoformat(),
+                "entry_time": trade.get("timestamp"),
                 "entry_indicators": trade.get("entry_indicators", {}),
             })
             try:
@@ -2232,178 +2498,128 @@ class BotContext:
             try:
                 # Skip NEW ENTRY analysis only if we are at max positions
                 # Trade management and close detection always run (see above)
-                if len(self.active_trades) >= self.max_positions:
+                if len(self.trade_book) >= self.max_positions:
                      # Log désactivé pour éviter le spam dans Coolify
                      time.sleep(10)
                      continue
-                if self.active_trades.get(self.active_symbol):
+                if self.trade_book.has_symbol(self.active_symbol):
                      self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
 
-                self.add_log("🔄 Entering strategy analysis...")
-                df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)  # 300 bars for EMA_200 warm-up
-                df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
-
-                # One immediate refetch of whichever TF is still empty (transient API gaps)
-                if df_15m.empty:
-                    df_15m = hyperliquid_service.get_candles(self.active_symbol, interval="15m", limit=300)
-                if df_1m.empty:
-                    df_1m = hyperliquid_service.get_candles(self.active_symbol, interval="1m", limit=100)
-                
-                if df_15m.empty or df_1m.empty:
-                    self.add_log(
-                        f"⚠️ No data received for {self.active_symbol}: "
-                        f"15m={len(df_15m)} bars, 1m={len(df_1m)} bars"
-                    )
-                    time.sleep(10)
-                    continue
-
-                numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-                try:
-                    for df_target in [df_15m, df_1m]:
-                        for col in numeric_cols:
-                            if col in df_target.columns:
-                                df_target[col] = df_target[col].astype(float)
-                except Exception as e:
-                    self.add_log(f"⚠️ Error casting data: {e}")
-                    continue
-                
-                self.latest_data = df_15m
-                
-                # --- OPEN INTEREST INTEGRATION (Historical Accumulation) ---
-                try:
-                    current_oi = hyperliquid_service.get_open_interest(self.active_symbol)
-                    # FIX: Use UTC timestamp to match candle data
-                    current_time = pd.Timestamp.now(tz='UTC')
-                    
-                    # Store in history
-                    self.oi_history.append({"time": current_time, "oi": current_oi})
-                    
-                    # Create OI DataFrame from history
-                    oi_df = pd.DataFrame(list(self.oi_history))
-                    oi_df.set_index('time', inplace=True)
-                    
-                    # Resample to align with 15m candles
-                    if not oi_df.empty:
-                         # Normalize timezones for reindex stability
-                         if df_15m.index.tz is None:
-                             # If candles are naive, make OI naive (strip UTC)
-                             oi_df.index = oi_df.index.tz_convert(None)
-                         else:
-                             # If candles are aware, ensure OI is aware (already is UTC)
-                             # Convert to target tz just in case
-                             oi_df.index = oi_df.index.tz_convert(df_15m.index.tz)
-
-                         # Forward fill to map our sparse observations to the candles
-                         oi_aligned = oi_df.reindex(df_15m.index, method='ffill')
-                         
-                         df_15m['open_interest'] = oi_aligned['oi']
-                         
-                         # Fill initial NaNs with current if needed (fast start)
-                         if df_15m['open_interest'].isnull().all():
-                             df_15m['open_interest'] = current_oi
-                         else:
-                             # FIX: Pandas 3.0+ deprecation of fillna(method=...)
-                             df_15m['open_interest'] = df_15m['open_interest'].ffill()
-                             df_15m['open_interest'] = df_15m['open_interest'].fillna(current_oi) # Fallback
-                         
-                         # --- CALCULATE OI INDICATORS (User Requested) ---
-                         # 1. % Variation OI
-                         df_15m['OI_Change_Pct'] = df_15m['open_interest'].pct_change() * 100
-                         
-                         # 2. Moyenne Mobile OI (MA20)
-                         df_15m['OI_MA20'] = df_15m['open_interest'].rolling(window=20).mean()
-                         
-                         # 3. Ratio OI actuel / MA (safe division — MA can be 0 on thin history)
-                         df_15m['OI_vs_MA'] = df_15m['open_interest'].div(df_15m['OI_MA20']).replace([float('inf'), float('-inf')], float('nan'))
-                         
-                         # 4. Divergence Prix vs OI
-                         # (Price Chg Prev Candle - OI Chg Current Candle)? 
-                         # User formula: (df['close'].pct_change() * 100).shift(1) - df['OI_Change_Pct']
-                         # This implies: If price went UP yesterday but OI drops today -> Divergence?
-                         # Let's stick to the requested formula strictly.
-                         df_15m['OI_Divergence'] = (df_15m['close'].pct_change() * 100).shift(1) - df_15m['OI_Change_Pct']
-                         
-                except Exception as e:
-                    self.add_log(f"⚠️ OI Processing Error: {e}")
-                
-                funding_rate_live = 0.0
-                try:
-                    funding_rate_live = float(hyperliquid_service.get_funding_rate(self.active_symbol) or 0.0)
-                except Exception:
-                    funding_rate_live = 0.0
-
-                result = self.strategy_engine.analyze(
-                    df_15m,
-                    extra_data={
-                        "1m": df_1m,
-                        "symbol": self.active_symbol,
-                        "funding_rate": funding_rate_live
-                    }
+                analysis_symbols = self._get_analysis_symbols()
+                self.add_log(
+                    f"🔄 Entering strategy analysis for {len(analysis_symbols)} symbol(s): "
+                    f"{', '.join(analysis_symbols)}"
                 )
-                self.active_strategies = result.get('strategies', [])
-                self.latest_strategy_result = result
-                
-                regime = result.get('regime', 'UNKNOWN')
-                adx = result.get('adx', 0)
-                rsi = result.get('rsi', 0)
-                ema_20 = result.get('ema_20', 0)
-                ema_50 = result.get('ema_50', 0)
-                volume_ratio = result.get('volume_ratio', 100)
-                
-                # Enhanced regime log with calculations context
-                ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
-                adx_note = ">25=TREND" if adx < 25 else "TRENDING"
-                current_price = float(result.get('current_price', df_15m['close'].iloc[-2]))
-                
-                analysis_metrics = {
-                    "regime": regime,
-                    "adx": round(adx, 1),
-                    "rsi": round(rsi, 1),
-                    "volume_ratio": round(volume_ratio, 0),
-                    "current_price": current_price
-                }
-                self.add_log(f"📊 Regime: {regime} | Price: {current_price:.2f} | ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | Vol: {volume_ratio:.0f}%", metadata=analysis_metrics)
-                
-                # Optional live view (forming candle) to avoid "stuck" feeling between 15m closes.
-                live_price = float(result.get("current_price_live", df_15m['close'].iloc[-1]))
-                live_rsi = float(result.get("rsi_live", rsi))
-                live_ema20 = float(result.get("ema_20_live", ema_20))
-                live_ema50 = float(result.get("ema_50_live", ema_50))
-                live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
-                self.add_log(f"🟡 Live (forming): Price {live_price:.2f} | RSI {live_rsi:.1f} | EMA20/50 {live_ema_trend} | Vol(conf) {volume_ratio:.0f}%")
 
-                # Surface SuperTrend skip reasons into API/Discord-visible logs (once per candle/reason)
-                for rej in (result.get("rejections") or []):
-                    reason = rej.get("reason") or "no reason"
-                    strat_name = rej.get("strategy") or "strategy"
-                    self.add_log(f"⛔ No signal ({strat_name}): {reason}")
-                
-                # Capture full technical context for audit (Approved or Rejected)
-                technical_context = {
-                    "regime": result.get("regime"),
-                    "adx": round(result.get("adx", 0), 2),
-                    "adx_slope": round(result.get("adx_slope", 0), 2),
-                    "rsi": round(result.get("rsi", 0), 2),
-                    "ema_9": round(result.get("ema_9", 0), 4),
-                    "ema_20": round(result.get("ema_20", 0), 4),
-                    "ema_50": round(result.get("ema_50", 0), 4),
-                    "bb_upper": round(result.get("bb_upper", 0), 4),
-                    "bb_lower": round(result.get("bb_lower", 0), 4),
-                    "bb_width": round(result.get("bb_width", 0), 2),
-                    "volume_ratio": round(result.get("volume_ratio", 100), 1),
-                    "current_price": result.get("current_price") or current_price
-                }
-                
-                signals = result.get("signals", [])
-                if signals:
-                    sig = signals[0]
-                    if sig.get("signal") and sig.get("price"):
-                        # --- P2 FIX: ANTI-DOUBLON GUARD ---
-                        # Si un trade actif existe déjà sur ce symbole dans la même direction,
-                        # ignorer le signal pour éviter les doublons.
-                        existing_trade = self.active_trades.get(self.active_symbol)
-                        if existing_trade and existing_trade.get("side") == sig.get("signal"):
-                            self.add_log(f"⛔ ANTI-DOUBLON: {sig.get('signal')} {self.active_symbol} ignoré (trade {existing_trade.get('side')} déjà actif via {existing_trade.get('strategy', '?')})")
+                best = None  # (priority_tuple, symbol, sig, result, technical_context, df_15m)
+                result = {"signals": [], "rejections": []}
+                technical_context = {}
+                df_15m = pd.DataFrame()
+                signals = []
+
+                for analysis_symbol in analysis_symbols:
+                    if len(self.trade_book) >= self.max_positions:
+                        break
+                    ok_open, open_reason = self.can_open_trade(analysis_symbol)
+                    if not ok_open:
+                        self.add_log(
+                            f"⏭️ Skip {analysis_symbol}: {open_reason}",
+                            metadata={"quiet": True},
+                        )
+                        continue
+
+                    packed = self._analyze_symbol_market(analysis_symbol)
+                    if not packed.get("ok"):
+                        self.add_log(f"⚠️ {packed.get('error') or 'analyze failed'}")
+                        continue
+
+                    sym_result = packed["result"]
+                    sym_tech = packed["technical_context"]
+                    sym_df = packed["df_15m"]
+                    self.latest_strategy_result = sym_result
+                    self.active_strategies = sym_result.get("strategies", [])
+
+                    regime = sym_result.get("regime", "UNKNOWN")
+                    adx = sym_result.get("adx", 0)
+                    rsi = sym_result.get("rsi", 0)
+                    ema_20 = sym_result.get("ema_20", 0)
+                    ema_50 = sym_result.get("ema_50", 0)
+                    volume_ratio = sym_result.get("volume_ratio", 100)
+                    ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
+                    adx_note = ">25=TREND" if adx < 25 else "TRENDING"
+                    current_price = float(sym_result.get("current_price", sym_df["close"].iloc[-2]))
+                    analysis_metrics = {
+                        "regime": regime,
+                        "adx": round(adx, 1),
+                        "rsi": round(rsi, 1),
+                        "volume_ratio": round(volume_ratio, 0),
+                        "current_price": current_price,
+                        "symbol": analysis_symbol,
+                    }
+                    self.add_log(
+                        f"📊 {analysis_symbol} Regime: {regime} | Price: {current_price:.4f} | "
+                        f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | "
+                        f"Vol: {volume_ratio:.0f}%",
+                        metadata=analysis_metrics,
+                    )
+                    live_price = float(sym_result.get("current_price_live", sym_df["close"].iloc[-1]))
+                    live_rsi = float(sym_result.get("rsi_live", rsi))
+                    live_ema20 = float(sym_result.get("ema_20_live", ema_20))
+                    live_ema50 = float(sym_result.get("ema_50_live", ema_50))
+                    live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
+                    self.add_log(
+                        f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
+                        f"EMA20/50 {live_ema_trend} | Vol(conf) {volume_ratio:.0f}%"
+                    )
+                    for rej in (sym_result.get("rejections") or []):
+                        reason = rej.get("reason") or "no reason"
+                        strat_name = rej.get("strategy") or "strategy"
+                        self.add_log(f"⛔ No signal ({analysis_symbol}/{strat_name}): {reason}")
+
+                    sym_tech = dict(sym_tech)
+                    sym_tech["current_price"] = sym_tech.get("current_price") or current_price
+
+                    for cand in (sym_result.get("signals") or []):
+                        if not cand.get("signal") or not cand.get("price"):
+                            continue
+                        cand = dict(cand)
+                        cand["symbol"] = cand.get("symbol") or analysis_symbol
+                        pri = self._signal_priority(cand)
+                        row = (pri, analysis_symbol, cand, sym_result, sym_tech, sym_df)
+                        if best is None or row[0] > best[0]:
+                            best = row
+
+                if best:
+                    _pri, focus_symbol, sig, result, technical_context, df_15m = best
+                    signals = result.get("signals", []) or [sig]
+                    current_price = float(
+                        technical_context.get("current_price")
+                        or (df_15m["close"].iloc[-2] if not df_15m.empty else 0)
+                    )
+                else:
+                    focus_symbol = None
+                    sig = None
+                    signals = []
+                    current_price = 0
+
+                ui_symbol = self.active_symbol
+                entry_committed = False
+                if sig and sig.get("signal") and sig.get("price"):
+                    # Temp focus for helpers that read active_symbol; restore unless we fill
+                    if focus_symbol and self.active_symbol != focus_symbol:
+                        self.add_log(
+                            f"🎯 Evaluating entry candidate {focus_symbol} "
+                            f"(UI focus stays {ui_symbol} unless filled)"
+                        )
+                        self.active_symbol = focus_symbol
+                    try:
+                        # --- BOOK GATE (max_positions + same-symbol policy) ---
+                        sig_symbol = sig.get("symbol", self.active_symbol)
+                        ok_open, open_reason = self.can_open_trade(sig_symbol)
+                        if not ok_open:
+                            self.add_log(
+                                f"⛔ SLOT/POLICY: {sig.get('signal')} {sig_symbol} skipped ({open_reason})"
+                            )
                             time.sleep(10)
                             continue
 
@@ -2411,7 +2627,6 @@ class BotContext:
                         ai_trace_id = uuid.uuid4().hex[:10]
 
                         # --- WHITELIST GATE (before AI to skip memes / explosive alts) ---
-                        sig_symbol = sig.get("symbol", self.active_symbol)
                         if not self._is_symbol_whitelisted(sig_symbol):
                             self.add_log(
                                 f"⛔ WHITELIST BLOCK: {sig.get('signal')} {sig_symbol} "
@@ -2427,14 +2642,14 @@ class BotContext:
                                 pass
                             time.sleep(10)
                             continue
-                        
+                    
                         # --- COOLDOWN CHECK (BEFORE AI to save tokens) ---
                         cooldown_minutes = self.global_settings.get("risk_defaults", {}).get("cooldown_minutes", 0)
                         if cooldown_minutes > 0 and self._last_trade_info.get("time"):
                             last_symbol = self._last_trade_info.get("symbol")
                             last_direction = self._last_trade_info.get("direction")
                             last_time = self._last_trade_info.get("time")
-                            
+                        
                             if last_symbol == self.active_symbol and last_direction == sig.get("signal"):
                                 elapsed_minutes = (pd.Timestamp.now() - pd.Timestamp(last_time)).total_seconds() / 60
                                 if elapsed_minutes < max(1, cooldown_minutes):  # min 1 minute
@@ -2442,7 +2657,7 @@ class BotContext:
                                     self.add_log(f"⏳ COOLDOWN: {self.active_symbol} {sig.get('signal')} - Skip (wait {remaining:.1f}min)")
                                     time.sleep(10)
                                     continue
-                        
+                    
                         market_context = self._prepare_ai_context()
                         # Prefer engine confirmed-candle volume over any live-bar leftovers
                         if isinstance(technical_context, dict) and technical_context.get("volume_ratio") is not None:
@@ -2462,7 +2677,7 @@ class BotContext:
                         if veto_reason:
                             self.add_log(f"⛔ {veto_reason}")
                             # Signal armed strategy cooldown — clear so a false veto doesn't burn 15m
-                            self._clear_strategy_entry_cooldown(sig.get("strategy"))
+                            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
                             try:
                                 discord_service.send_alert(
                                     f"⛔ HARD VETO (trace={ai_trace_id}): {sig.get('signal')} {sig_symbol}",
@@ -2473,7 +2688,7 @@ class BotContext:
                                 pass
                             time.sleep(10)
                             continue
-                        
+                    
                         # Discord debug notification at strategy-detection stage (before AI gate).
                         # Include a compact preview of the *actual* data that will be sent to IA.
                         ai_payload_preview = {
@@ -2511,17 +2726,17 @@ class BotContext:
                                 strategy_persona = strat_obj.get_ai_persona()
                             else:
                                 strategy_persona = getattr(strat_obj, "AI_PERSONA", None)
-                        
+                    
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
-                        
+                    
                         # Score threshold removed - risk thresholds are already configured in settings
                         # AI validation handles the filtering based on configured risk thresholds
-                        
+                    
                         if time_since_last_call < 45:  # 45s cooldown to save credits
                             self.add_log(f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)")
                             continue
-                        
+                    
                         approved = False
                         self.add_log(f"🤖 Validating signal (trace={ai_trace_id}): {sig.get('signal')} from {sig.get('strategy')}")
                         if self._ai_payload_debug_enabled():
@@ -2578,7 +2793,7 @@ class BotContext:
                                     discord_service.send_log(f"AI RESPONSE trace={ai_trace_id}: {preview}")
                             except Exception as e:
                                 self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
-                        
+                    
                         if not val_res:
                             approved = False
                             self.add_log("⚠️ AI Validation: empty response. Defaulting to REJECT.")
@@ -2604,7 +2819,7 @@ class BotContext:
                             confidence = ai_data.get("confidence", 0)
                             risk_level_raw = ai_data.get("risk_level")
                             risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
-                            
+                        
                             if approved:
                                 # HYBRID CONFIDENCE THRESHOLD CHECK
                                 required_conf = config.AI_CONF_THRESHOLD_MEDIUM  # Default
@@ -2612,22 +2827,24 @@ class BotContext:
                                     required_conf = config.AI_CONF_THRESHOLD_HIGH
                                 elif risk_level == "LOW":
                                     required_conf = config.AI_CONF_THRESHOLD_LOW
-                                
+                            
                                 if confidence >= required_conf:
                                     reason = ai_data.get('reasoning', 'No reason')
                                     self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
-                                    self._record_signal_analysis(sig, ai_data, True, indicators=technical_context)
-                                    
+                                    self._record_signal_analysis(
+                                        sig, ai_data, True, indicators=technical_context, trace_id=ai_trace_id
+                                    )
+                                
                                     # Discord Notification for AI Approval
                                     discord_service.send_alert(
                                         f"✅ AI APPROVED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
                                         f"Strategy: {sig.get('strategy')}\nConfidence: {confidence}%\nRisk: {risk_level}\n\n{reason}",
                                         color="00FF00"
                                     )
-                                    
+                                
                                     if ai_data.get("suggested_adjustments"):
                                         adj = ai_data["suggested_adjustments"]
-                                        
+                                    
                                         # Robust parsing for AI suggestions (handle "$0.50" strings)
                                         if adj.get("sl"): 
                                             try:
@@ -2637,7 +2854,7 @@ class BotContext:
                                                 sig["sl"] = float(val)
                                             except Exception as e:
                                                 self.add_log(f"⚠️ Failed to parse AI SL adjustment: {adj['sl']} ({e})")
-                                                
+                                            
                                         if adj.get("tp"): 
                                             try:
                                                 val = adj["tp"]
@@ -2648,7 +2865,9 @@ class BotContext:
                                                 self.add_log(f"⚠️ Failed to parse AI TP adjustment: {adj['tp']} ({e})")
                                 else:
                                     self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
-                                    self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                    self._record_signal_analysis(
+                                        sig, ai_data, False, indicators=technical_context, trace_id=ai_trace_id
+                                    )
                                     try:
                                         reason = ai_data.get('reasoning', 'No reason')
                                         discord_service.send_alert(
@@ -2665,7 +2884,9 @@ class BotContext:
                             else:
                                 reason = ai_data.get('reasoning', 'No reason')
                                 self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
-                                self._record_signal_analysis(sig, ai_data, False, indicators=technical_context)
+                                self._record_signal_analysis(
+                                    sig, ai_data, False, indicators=technical_context, trace_id=ai_trace_id
+                                )
                                 try:
                                     discord_service.send_alert(
                                         f"❌ AI REJECTED (trace={ai_trace_id}): {sig.get('signal')} {sig.get('symbol')}",
@@ -2679,7 +2900,7 @@ class BotContext:
                                     self.add_log(f"⚠️ Discord notification failed (AI rejected): {discord_err}")
                         else:
                             approved = True
-                            
+                        
                         if approved:
                             acc = hyperliquid_service.get_account_balance(force_refresh=True)
                             if acc.get("status") == "success":
@@ -2723,10 +2944,10 @@ class BotContext:
                                     side=sig.get("signal"),
                                     strategy=sig.get("strategy"),
                                 )
-                            
+                        
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
-                            
+                        
                             # --- ATR-BASED SL FLOOR (Prevent unrealistically tight SL) ---
                             try:
                                 if sl_price and entry_price and not df_15m.empty:
@@ -2741,33 +2962,45 @@ class BotContext:
                                             (df_15m['low'] - df_15m['close'].shift(1)).abs()
                                         ], axis=1).max(axis=1)
                                         current_atr = float(tr.rolling(14).mean().iloc[-1])
-                                    
+                                
                                     min_sl_distance = current_atr * 1.0  # Minimum 1x ATR
                                     actual_sl_distance = abs(entry_price - sl_price)
-                                    
+                                
                                     if actual_sl_distance < min_sl_distance:
                                         direction = sig.get("signal", "BUY")
                                         if direction == "BUY":
                                             adjusted_sl = entry_price - min_sl_distance
                                         else:
                                             adjusted_sl = entry_price + min_sl_distance
-                                        
+                                    
                                         self.add_log(f"⚠️ SL FLOOR: AI SL too tight ({actual_sl_distance:.4f} < 1x ATR {current_atr:.4f}). Adjusted: {sl_price:.4f} → {adjusted_sl:.4f}")
                                         sl_price = adjusted_sl
                                         sig["sl"] = adjusted_sl  # Update signal too
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
-                            
+                        
                             # DYNAMIC POSITION SIZING based on RISK PROFILE
+                            # Keep RiskManager.split in sync with runtime max_positions
+                            try:
+                                self.risk_manager.update_settings(
+                                    max_positions=int(self.max_positions or 1)
+                                )
+                            except Exception:
+                                pass
                             if not self.scanner_settings.get("gamification_enabled", True):
                                 risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                                
+                            
                                 # Assign risk % constants based on profile
                                 risk_pct = 1.5 # Default (Conservative)
                                 if risk_profile == "Balanced Growth": risk_pct = 3.5
                                 elif risk_profile == "High Volatility Hunter": risk_pct = 7.0
-                                
-                                self.add_log(f"📏 SIZING: Using dynamic risk mode ({risk_profile}): {risk_pct}% risk")
+                                split = max(1, int(self.max_positions or 1))
+                                per_trade_pct = risk_pct / split
+                            
+                                self.add_log(
+                                    f"📏 SIZING: {risk_profile} budget {risk_pct:.1f}% equity "
+                                    f"→ {per_trade_pct:.2f}%/trade (÷{split} max_positions)"
+                                )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
                                     sl_price=sl_price,
@@ -2776,8 +3009,14 @@ class BotContext:
                                     size_value=risk_pct
                                 )
                             else:
-                                # Standard sizing (Fixed $20 Margin @ Target Leverage)
+                                # Standard sizing (Fixed $20 Margin @ Target Leverage),
+                                # split across max_positions inside RiskManager
                                 current_leverage = self._resolve_trade_leverage()
+                                split = max(1, int(self.max_positions or 1))
+                                self.add_log(
+                                    f"📏 SIZING: fixed margin ${DEFAULT_SIZE_USDC:.0f} "
+                                    f"→ ${DEFAULT_SIZE_USDC / split:.1f}/slot (÷{split} max_positions)"
+                                )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price, 
                                     sl_price=sl_price, 
@@ -2788,17 +3027,18 @@ class BotContext:
                                 )
 
                             current_leverage = self._resolve_trade_leverage()
-                            target_notional = DEFAULT_SIZE_USDC * current_leverage
+                            split = max(1, int(self.max_positions or 1))
+                            target_notional = (DEFAULT_SIZE_USDC / split) * current_leverage
                             self.add_log(
-                                f"📏 Sizing: equity=${equity:.2f}, target notional=${target_notional:.0f}, "
+                                f"📏 Sizing: equity=${equity:.2f}, target notional/slot≈${target_notional:.0f}, "
                                 f"size={size:.4f} {self.active_symbol}"
                             )
                             try:
                                 discord_service.send_log(
                                     f"📏 SIZING {sig.get('signal')} {self.active_symbol} | "
-                                    f"equity=${equity:.2f} | target=${target_notional:.0f} | "
+                                    f"equity=${equity:.2f} | target/slot≈${target_notional:.0f} | "
                                     f"size={size:.4f} | lev={current_leverage}x | "
-                                    f"strat={sig.get('strategy')}"
+                                    f"max_pos={split} | strat={sig.get('strategy')}"
                                 )
                             except Exception:
                                 pass
@@ -2812,7 +3052,7 @@ class BotContext:
                                     f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
-                                self._clear_strategy_entry_cooldown(sig.get("strategy"))
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
                                 self._log_execution_error(
                                     f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
                                     reason=reason,
@@ -2846,11 +3086,11 @@ class BotContext:
                                     except Exception as manual_alert_err:
                                         self.add_log(f"⚠️ Manual alert notification failed: {manual_alert_err}")
                                     continue
-                                
+                            
                                 # Sync Positions periodically
                                 if int(time.time()) % 60 == 0:
                                      self.force_sync()
-                                
+                            
                                 # Capture full market snapshot for trade analysis
                                 # Use pre-calculated technical_context mixed with AI data
                                 entry_indicators = technical_context.copy()
@@ -2858,7 +3098,9 @@ class BotContext:
                                     "ai_confidence": confidence if 'confidence' in locals() else 0,
                                     "ai_reasoning": (ai_data.get("reasoning", "") if 'ai_data' in locals() else sig.get("reason", "Strategy Signal"))[:200]
                                 })
-                                
+                            
+                                meta = dict(sig.get("metadata") or {})
+                                meta["trace_id"] = ai_trace_id
                                 entry_ok = self.execute_entry_atomically(
                                     self.active_symbol,
                                     sig.get("signal"),
@@ -2867,18 +3109,28 @@ class BotContext:
                                     sl_price,
                                     sig.get("tp"),
                                     sig.get("strategy"),
-                                    sig.get("metadata"),
+                                    meta,
                                     entry_indicators,
                                     equity=equity,
                                 )
-                                
-                                if entry_ok:
-                                    # Update last trade info for cooldown
-                                    self._last_trade_info = {
-                                        "symbol": self.active_symbol,
-                                        "direction": sig.get("signal"),
-                                        "time": pd.Timestamp.now().isoformat()
-                                    }
+                            
+                            if entry_ok:
+                                entry_committed = True
+                                # Update last trade info for cooldown
+                                self._last_trade_info = {
+                                    "symbol": self.active_symbol,
+                                    "direction": sig.get("signal"),
+                                    "time": pd.Timestamp.now().isoformat()
+                                }
+                                trade = self.active_trades.get(self.active_symbol) or {}
+                                tid = trade.get("trade_id")
+                                if tid:
+                                    self.add_log(
+                                        f"🧾 Timeline ids: trade_id={tid} trace_id={ai_trace_id}"
+                                    )
+                                    self._attach_trade_id_to_signal_analysis(
+                                        ai_trace_id, tid, symbol=self.active_symbol
+                                    )
                             else:
                                 self.add_log(f"⚠️ TRADE NOT EXECUTED: trading_enabled=False (Signal approved but bot in observation mode)")
                                 self._log_execution_error(
@@ -2892,8 +3144,24 @@ class BotContext:
                                 )
                         else:
                             # AI/gate rejected — do not burn the 15m strategy entry cooldown
-                            self._clear_strategy_entry_cooldown(sig.get("strategy"))
-                
+                            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+            
+                    finally:
+                        if not entry_committed:
+                            if ui_symbol and self.active_symbol != ui_symbol:
+                                self.active_symbol = ui_symbol
+                        elif focus_symbol and focus_symbol != ui_symbol:
+                            # Persist focus + ensure WS for the filled symbol
+                            try:
+                                if hyperliquid_service.ws_manager:
+                                    hyperliquid_service.ws_manager.add_symbol(focus_symbol)
+                            except Exception:
+                                pass
+                            try:
+                                StateManager.save_state(self)
+                            except Exception:
+                                pass
+
                 # Optimized Sleep Loop + Anti-Signal Spam
                 has_active_trade = len(self.active_trades) > 0
                 sleep_duration = 10 if has_active_trade else (15 if signals else 10)

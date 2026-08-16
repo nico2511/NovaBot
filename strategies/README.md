@@ -9,11 +9,52 @@ Everything that decides *whether / how* to trade a setup belongs in the **strate
 | `AI_PERSONA` / `get_ai_persona()` | `risk_profile` capital appetite (min R:R floor, lev, min conf) |
 | `get_ai_validation_criteria()` | Discord, storage, scanner job |
 | `check_hard_veto()` | Trailing default if `manage_trade` returns `None` |
-| `post_ai_adjust()` | |
-| `generate_signal` / `add_indicators` | |
+| `post_ai_adjust()` | Multi-position book (`trade_id`), top-K analysis |
+| `generate_signal` / `add_indicators` | Timeline API (`GET /api/history/timeline`) |
 | optional `manage_trade` | |
 
-Reference implementation: [`supertrend.py`](./supertrend.py).
+Reference: [`supertrend.py`](./supertrend.py) (15m) and [`trend_lt.py`](./trend_lt.py) (1h).
+
+---
+
+## SuperTrend (ST) vs Trend LT
+
+| | **SuperTrend** | **Trend LT** |
+|--|----------------|--------------|
+| Key | `supertrend` | `trend_lt` |
+| TF | 15m context + 1m trigger | 1h context + 1h reclaim |
+| Setup | EMA200 + ST, pullback → reclaim | Same idea on 1h (progressive swings) |
+| Engine `type` | `trend` (needs 15m TREND regime) | `always_active` (own 1h ADX filters) |
+| Priority | Lower if both fire same tick | **Wins** over ST on same symbol/tick |
+
+Do **not** soften ST filters to catch LT-style moves — use Trend LT instead.
+
+---
+
+## Multi-positions (HL-safe)
+
+- Bookkeeping: `TradeBook` keyed by `trade_id` + symbol index (`app/core/trade_book.py`).
+- `max_positions` configurable (live default often **1** until validated).
+- `allow_same_symbol_concurrent=false` by default — Hyperliquid nets **one position per coin**.
+- Same symbol + ST/LT: first entry wins the symbol slot; the other waits for flat.
+- **Money management**: profile risk % / fixed margin / notional cap are **÷ `max_positions`**
+  so N concurrent slots ≈ 1× the intended portfolio budget (not N×).
+
+---
+
+## Top-K analysis
+
+Scanner sticky ∪ top-K (`scanner_settings.analyze_top_k`, default **3**).  
+`active_symbol` is UI/scanner focus, not the only analyzed market.  
+Sticky `looking_for_entry` is stored per `(strategy, symbol)` and persisted in `bot_state.json`.
+
+---
+
+## Timeline debug
+
+`GET /api/history/timeline?symbol=&trade_id=&trace_id=&limit=`  
+Aggregates signal analysis + trade history + activity log.  
+Signal records include `trace_id` / `trade_id` when available.
 
 ---
 
@@ -26,20 +67,13 @@ Reference implementation: [`supertrend.py`](./supertrend.py).
    from strategies.ma_strategie import StrategyMaStrategie
    self.strategies = {
        "supertrend": StrategySupertrend(...),
+       "trend_lt": StrategyTrendLT(...),
        "ma_strategie": StrategyMaStrategie(strats_config.get("ma_strategie")),
    }
    ```
-4. **Params JSON** in [`data/config/strategies.json`](../data/config/strategies.json) and [`app/core/defaults/strategies.default.json`](../app/core/defaults/strategies.default.json):
-   ```json
-   "ma_strategie": {
-     "enabled": true,
-     "type": "trend",
-     "active": true,
-     "timeframe": "15m",
-     "params": { "...": "..." }
-   }
-   ```
-   - `type: "trend"` participates in ADX regime (threshold = max of active trend strats’ `adx_threshold`).
+4. **Params JSON** in [`data/config/strategies.json`](../data/config/strategies.json) and [`app/core/defaults/strategies.default.json`](../app/core/defaults/strategies.default.json).
+   - `type: "trend"` → ADX regime gate from 15m engine.
+   - `type: "always_active"` → always evaluated (still apply your own filters).
 5. **Tests**: at least veto + signal reject/approve paths under `tests/unit/`.
 6. **Do not** put métier thresholds in `bot.py` or global scalp rules in `prompts.py`.
 
@@ -66,6 +100,7 @@ Shared veto helpers (optional import): [`app/core/veto_checker.py`](../app/core/
 - Hardcoding scalp SL bands (0.8%–2.5%) in the global system prompt
 - Softening SuperTrend (or any strat) vetoes “to get more trades” without changing that strat’s plan on purpose
 - Scattering the same threshold in scanner + strat + IA without a single `get_param` source
+- Assuming `active_trades[symbol]` is the only open trade — use `trade_book` / `can_open_trade`
 
 ---
 

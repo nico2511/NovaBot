@@ -133,6 +133,22 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
         if bot:
             # Assign the NESTED structure (not the flat model dump)
             bot.global_settings = full_settings
+
+            # Keep runtime quota + money-management split in sync
+            try:
+                mp = int(full_settings.get("risk_defaults", {}).get("max_positions", 1) or 1)
+                dsl = float(full_settings.get("risk_defaults", {}).get("daily_stop_loss", 50.0) or 50.0)
+                bot.max_positions = mp
+                if getattr(bot, "risk_manager", None):
+                    bot.risk_manager.update_settings(max_positions=mp, daily_stop_loss=dsl)
+                bot.allow_same_symbol_concurrent = bool(
+                    full_settings.get("risk_defaults", {}).get(
+                        "allow_same_symbol_concurrent",
+                        getattr(bot, "allow_same_symbol_concurrent", False),
+                    )
+                )
+            except Exception as sync_err:
+                logger.warning(f"Failed to sync runtime risk limits: {sync_err}")
             
             bot.add_log(f"⚙️ Global Settings Updated: Persona={settings.bot_persona}, Risk={settings.risk_profile}")
 

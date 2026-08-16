@@ -2,6 +2,7 @@
 from app.services.indicators import ta
 import pandas as pd
 from strategies.supertrend import StrategySupertrend
+from strategies.trend_lt import StrategyTrendLT
 
 # Import robuste pour Panic Close
 try:
@@ -20,10 +21,11 @@ class StrategyEngine:
         else:
             self.load_config()
 
-        # Single strategy: SuperTrend
+        # SuperTrend 15m + Trend LT 1h (independent plans)
         strats_config = self.config
         self.strategies = {
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
+            "trend_lt": StrategyTrendLT(strats_config.get("trend_lt")),
         }
 
         for key, strategy in self.strategies.items():
@@ -155,7 +157,8 @@ class StrategyEngine:
                 continue
 
             # SuperTrend is type=trend — active in TREND / TREND_BEAR_STRONG only.
-            # always_active kept for tests / future hooks (no such live strategies today).
+            # trend_lt is always_active so progressive 1h swings are not gated by 15m ADX regime.
+            # always_active / sniper kept for tests / future hooks.
             if strat_type in ("always_active", "sniper"):
                 active_strategies.append(self.strategies[name])
                 continue
@@ -168,7 +171,7 @@ class StrategyEngine:
             strat_names = ", ".join([s.name for s in active_strategies])
             print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
         elif regime == "RANGE":
-            print("[BOT] ⏸️ Regime RANGE — SuperTrend idle")
+            print("[BOT] ⏸️ Regime RANGE — SuperTrend idle (Trend LT may still run)")
 
         # 4. Generate Signals
         signals = []
@@ -245,12 +248,18 @@ class StrategyEngine:
                         direction_allowed = False
                         rejection_reason = "Shorts disabled"
                 
-                # --- NEW: ANTI-CHASING FILTER (Bollinger Bands) ---
+                # --- ANTI-CHASING FILTER (Bollinger on engine primary TF = 15m) ---
+                # Skip for Trend LT (1h setup) — 15m BB would false-reject progressive swings.
                 if direction_allowed:
-                    # 🔧 TEST MODE BYPASS: If strategy has test_mode=True, skip BB anti-chasing
                     is_test_mode = params.get("test_mode", False)
-                    
-                    if not is_test_mode:
+                    skip_bb = (
+                        is_test_mode
+                        or strat.name == "trend_lt"
+                        or bool(params.get("skip_bb_anti_chase"))
+                        or str((strat.config or {}).get("timeframe") or "").lower() == "1h"
+                    )
+
+                    if not skip_bb:
                         try:
                             sma_20_val = float(df['close'].rolling(window=20).mean().iloc[-1])
                             std_20_val = float(df['close'].rolling(window=20).std().iloc[-1])
@@ -268,7 +277,7 @@ class StrategyEngine:
                                 if curr_close >= (bb_upper_val * 0.99):
                                     direction_allowed = False
                                     rejection_reason = "Price too close to upper Bollinger band (resistance)"
-                        except Exception as e:
+                        except Exception:
                             pass
 
                 if direction_allowed:
@@ -307,10 +316,13 @@ class StrategyEngine:
         except:
             volume_ratio = 100
 
-        # Scoring Logic (Basic)
+        # Scoring Logic — Trend LT outranks SuperTrend on the same tick
         for signal in signals:
             score = 50
-            if signal.get("confidence"): score += int(signal.get("confidence", 0))
+            if signal.get("confidence"):
+                score += int(signal.get("confidence", 0))
+            if signal.get("strategy") == "trend_lt":
+                score += 100
             signal["score"] = score
         signals.sort(key=lambda s: s.get("score", 0), reverse=True)
 

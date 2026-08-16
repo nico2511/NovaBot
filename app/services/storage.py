@@ -133,6 +133,7 @@ class StorageService:
             },
             "risk_defaults": {
                 "max_positions": 1,
+                "allow_same_symbol_concurrent": False,
                 "daily_stop_loss": 50.0,
                 "bot_persona": "Conservative Scalper",
                 "risk_profile": "Capital Preservation First"
@@ -152,6 +153,7 @@ class StorageService:
                 "max_tokens": 40,
                 "funding_filter_enabled": False,
                 "scan_while_in_trade": False,
+                "analyze_top_k": 3,
                 "whitelist": [
                     "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
                     "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
