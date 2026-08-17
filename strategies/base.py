@@ -113,6 +113,54 @@ class BaseStrategy(ABC):
         return 0.02
 
     # ==========================
+    # SCAN (strategy-owned universe ranking)
+    # ==========================
+    # The bot ScannerJob fetches OHLCV + merges boards; each strategy scores
+    # candidates on its own timeframe. Default: no scan participation.
+
+    def get_scan_timeframe(self) -> str:
+        """OHLCV interval for ranking (from config timeframe, default 15m)."""
+        try:
+            tf = str((self.config or {}).get("timeframe") or "15m").strip().lower()
+            return tf or "15m"
+        except Exception:
+            return "15m"
+
+    def get_scan_interval_minutes(self) -> float:
+        """
+        How often this strategy's scan lane should refresh.
+        Prefer params.scan_interval_minutes; else derive from timeframe (1h→60).
+        """
+        try:
+            raw = self.get_param("scan_interval_minutes", None)
+            if raw is not None:
+                return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+        tf = self.get_scan_timeframe()
+        if tf in ("1h", "60m", "60"):
+            return 60.0
+        if tf in ("4h", "240m"):
+            return 240.0
+        return 15.0
+
+    def score_scan_candidate(
+        self,
+        df: pd.DataFrame,
+        *,
+        symbol: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Rank one symbol for this strategy's plan.
+
+        Return None to skip, or a dict with at least:
+          score (float), bias (LONG|SHORT), symbol, and optional adx/rsi/reasons/armed.
+        Default: not scannable (None).
+        """
+        return None
+
+    # ==========================
     # ENTRY COOLDOWN / SAME-BAR
     # ==========================
     # `_last_entry_time` is FILL-only (set by the bot after a confirmed entry).

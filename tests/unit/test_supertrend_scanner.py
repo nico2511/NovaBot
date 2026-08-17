@@ -131,10 +131,16 @@ def test_scan_whitelist_filters_candidates(monkeypatch):
         },
     }
     monkeypatch.setattr(scanner, "get_market_data", lambda: market)
-    monkeypatch.setattr(
-        scanner,
-        "analyze_token",
-        lambda symbol, market=None: {
+
+    def fake_candles(symbol, interval="15m", limit=260, force=False):
+        return _trending_df(direction="up")
+
+    monkeypatch.setattr(scanner, "get_candles", fake_candles)
+
+    from strategies.supertrend import StrategySupertrend
+
+    def fake_score(self, df, *, symbol, meta=None):
+        return {
             "symbol": symbol,
             "score": 80,
             "bias": "LONG",
@@ -143,8 +149,9 @@ def test_scan_whitelist_filters_candidates(monkeypatch):
             "current_price": 1.0,
             "volume_24h": 10_000_000,
             "reasons": ["test"],
-        },
-    )
+        }
+
+    monkeypatch.setattr(StrategySupertrend, "score_scan_candidate", fake_score)
     results = scanner.scan(top_n=10, whitelist=["BTC", "ETH"], force=True)
     assert len(results) == 1
     assert results[0]["symbol"] == "BTC"

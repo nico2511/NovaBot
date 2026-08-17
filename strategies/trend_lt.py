@@ -85,9 +85,193 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             return 50.0
 
     def check_hard_veto(self, signal: str, market_context: dict):
-        from app.core.veto_checker import check_hard_veto as _helper
+        """
+        Trend LT 1h hard veto — swing-calibrated (not a blind copy of ST 15m helpers).
+        """
+        ctx = market_context or {}
+        try:
+            price = float(ctx.get("current_price") or 0)
+            side = str(signal or "").upper()
+            rsi = ctx.get("rsi_val", ctx.get("rsi"))
+            adx = ctx.get("adx_val", ctx.get("adx"))
+            # Wider RSI extremes on 1h swings vs scalp
+            rsi_ob = float(self.get_param("veto_rsi_overbought", 85.0) or 85.0)
+            rsi_os = float(self.get_param("veto_rsi_oversold", 20.0) or 20.0)
+            adx_runaway = float(self.get_param("veto_adx_runaway", 85.0) or 85.0)
+            vol_floor = float(self.get_min_volume_ratio_pct() or 50.0)
 
-        return _helper(signal, market_context or {})
+            if rsi is not None:
+                rsi_f = float(rsi)
+                if side in ("BUY", "LONG") and rsi_f > rsi_ob:
+                    return f"HARD VETO (LT): RSI Overbought ({rsi_f:.1f} > {rsi_ob:.0f}) @ {price:.4f}"
+                if side in ("SELL", "SHORT") and rsi_f < rsi_os:
+                    return f"HARD VETO (LT): RSI Oversold ({rsi_f:.1f} < {rsi_os:.0f}) @ {price:.4f}"
+
+            if adx is not None and float(adx) > adx_runaway:
+                return (
+                    f"HARD VETO (LT): ADX Extreme ({float(adx):.1f} > {adx_runaway:.0f}) "
+                    f"- 1h runaway @ {price:.4f}"
+                )
+
+            vol_ratio = ctx.get("volume_ratio")
+            if vol_ratio is None:
+                cur = ctx.get("current_volume")
+                avg = ctx.get("avg_volume")
+                if cur and avg and float(avg) > 0:
+                    vol_ratio = (float(cur) / float(avg)) * 100.0
+            try:
+                vol_f = float(vol_ratio) if vol_ratio is not None else None
+            except (TypeError, ValueError):
+                vol_f = None
+            if vol_f is not None and vol_f > 0.5 and vol_f < vol_floor:
+                return f"HARD VETO (LT): Low Volume ({vol_f:.1f}% < {vol_floor:.0f}%) @ {price:.4f}"
+            return None
+        except Exception as e:
+            logger.warning("Trend LT veto error: %s", e)
+            return None
+
+    def get_scan_timeframe(self) -> str:
+        return "1h"
+
+    def get_scan_interval_minutes(self) -> float:
+        try:
+            raw = self.get_param("scan_interval_minutes", None)
+            if raw is not None:
+                return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+        return 60.0
+
+    def score_scan_candidate(self, df, *, symbol: str, meta=None):
+        """
+        Rank a 1h OHLCV frame for Trend LT context quality (no full entry trigger).
+        """
+        p = self._params_snapshot()
+        period = int(p["st_period"])
+        multiplier = float(p["st_multiplier"])
+        ema_len = int(p["ema_filter"])
+        adx_threshold = float(p["adx_threshold"])
+        min_vol_pct = float(p["min_volume_ratio_pct"])
+        max_ext = float(p["max_extension_atr"])
+        min_slope = float(p["min_adx_slope"])
+
+        min_bars = max(ema_len + 10, period + 30, 60)
+        if df is None or getattr(df, "empty", True) or len(df) < min_bars:
+            return None
+
+        work = self.add_indicators(df, p)
+        last = work.iloc[-2]
+        close = float(last["close"])
+        ema = float(last["EMA_200"])
+        adx = float(last["ADX_14"])
+        st_dir = int(last["ST_Direction"])
+        st_line = float(last["Supertrend"])
+        atr = float(last["ATR_14"]) if not np.isnan(last["ATR_14"]) else 0.0
+        rsi = float(last["RSI_14"]) if not np.isnan(float(last["RSI_14"])) else 50.0
+
+        if any(np.isnan(x) for x in (close, ema, adx, st_line)):
+            return None
+        if adx < adx_threshold:
+            return None
+
+        try:
+            adx_prev = float(work["ADX_14"].iloc[-3])
+            adx_slope = adx - adx_prev
+        except Exception:
+            adx_slope = 0.0
+        if adx_slope < min_slope:
+            return None
+
+        if close > ema and st_dir == 1:
+            bias = "LONG"
+            trend = "UP"
+        elif close < ema and st_dir == -1:
+            bias = "SHORT"
+            trend = "DOWN"
+        else:
+            return None
+
+        if atr > 0:
+            extension_atr = abs(close - st_line) / atr
+            if extension_atr > max_ext:
+                return None
+        else:
+            extension_atr = 99.0
+
+        vol_ratio_pct = None
+        if "volume" in work.columns:
+            try:
+                vol_now = float(work["volume"].iloc[-2])
+                vol_ma = float(work["volume"].iloc[:-1].rolling(50).mean().iloc[-2])
+                if vol_ma > 0:
+                    vol_ratio_pct = (vol_now / vol_ma) * 100.0
+            except Exception:
+                vol_ratio_pct = None
+
+        if vol_ratio_pct is not None and vol_ratio_pct < min_vol_pct:
+            return None
+
+        reasons = []
+        score = 0.0
+        adx_edge = max(0.0, adx - adx_threshold)
+        score += min(40.0, 20.0 + adx_edge * 2.0)
+        reasons.append(f"1h ADX {adx:.1f} (slope {adx_slope:+.2f})")
+        score += 30.0
+        reasons.append(f"1h {bias}: EMA{ema_len} + ST")
+
+        if vol_ratio_pct is None:
+            score += 5.0
+        else:
+            score += min(15.0, 8.0 + (vol_ratio_pct - min_vol_pct) * 0.05)
+            reasons.append(f"Vol {vol_ratio_pct:.0f}% of MA50")
+
+        # Prefer progressive RSI (not chase extremes on 1h scan)
+        max_rsi_long = float(p["max_rsi_long"])
+        min_rsi_short = float(p["min_rsi_short"])
+        if bias == "LONG" and rsi <= max_rsi_long:
+            score += 10.0
+            reasons.append(f"RSI {rsi:.0f} ≤ chase cap {max_rsi_long:.0f}")
+        elif bias == "SHORT" and rsi >= min_rsi_short:
+            score += 10.0
+            reasons.append(f"RSI {rsi:.0f} ≥ chase floor {min_rsi_short:.0f}")
+        else:
+            score += 2.0
+            reasons.append(f"RSI {rsi:.0f} near chase edge")
+
+        if extension_atr <= 1.0:
+            score += 15.0
+            reasons.append(f"Pullback zone ({extension_atr:.2f}x ATR)")
+        elif extension_atr <= 1.5:
+            score += 10.0
+            reasons.append(f"Near 1h ST ({extension_atr:.2f}x ATR)")
+        else:
+            score += 4.0
+            reasons.append(f"Acceptable extension ({extension_atr:.2f}x ATR)")
+
+        score = float(min(100.0, round(score, 1)))
+        market = meta or {}
+        return {
+            "symbol": symbol or market.get("symbol"),
+            "strategy": getattr(self, "name", "trend_lt"),
+            "score": score,
+            "bias": bias,
+            "trend": trend,
+            "adx": round(adx, 2),
+            "adx_slope": round(adx_slope, 2),
+            "rsi": round(rsi, 2),
+            "st_direction": st_dir,
+            "ema_filter": round(ema, 8),
+            "supertrend": round(st_line, 8),
+            "current_price": round(close, 8),
+            "volume_ratio_pct": round(vol_ratio_pct, 1) if vol_ratio_pct is not None else None,
+            "volume_24h": market.get("volume_24h", 0),
+            "open_interest": market.get("open_interest", 0),
+            "funding": market.get("funding", 0),
+            "momentum_24h": market.get("momentum_24h", 0),
+            "reasons": reasons,
+            "armed": bool(getattr(self, "looking_for_entry", False)),
+            "timeframe": "1h",
+        }
 
     def post_ai_adjust(self, signal, ai_result, market_context=None):
         ctx = market_context or {}

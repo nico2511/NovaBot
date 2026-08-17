@@ -30,7 +30,8 @@
             "pullback_lookback_1m": 30,
             "pullback_touch_atr": 1.0,
             "allow_longs": true,
-            "allow_shorts": true
+            "allow_shorts": true,
+            "scan_interval_minutes": 15
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-08-reclaim-v1",
@@ -61,7 +62,8 @@
             "pullback_lookback": 12,
             "pullback_touch_atr": 1.2,
             "allow_longs": true,
-            "allow_shorts": true
+            "allow_shorts": true,
+            "scan_interval_minutes": 60
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
         "version": "2026-08-lt-v1",

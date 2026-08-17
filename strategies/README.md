@@ -7,8 +7,9 @@ Everything that decides *whether / how* to trade a setup belongs in the **strate
 |-----------------|----------------------|
 | `params` / `get_param` | Loop, HL entry/exit, state |
 | `AI_PERSONA` / `get_ai_persona()` | `risk_profile` capital appetite (min R:R floor, lev, min conf) |
-| `get_ai_validation_criteria()` | Discord, storage, scanner job |
+| `get_ai_validation_criteria()` | Discord, storage |
 | `check_hard_veto()` | Trailing default if `manage_trade` returns `None` |
+| `score_scan_candidate()` / scan TF | ScannerJob orchestrator (universe, merge, top-K) |
 | `post_ai_adjust()` | Multi-position book (`trade_id`), top-K analysis |
 | `generate_signal` / `add_indicators` | Timeline API (`GET /api/history/timeline`) |
 | optional `manage_trade` | |
@@ -42,11 +43,16 @@ Do **not** soften ST filters to catch LT-style moves — use Trend LT instead.
 
 ---
 
-## Top-K analysis
+## Top-K analysis / strategy-owned scan
 
-Scanner sticky ∪ top-K (`scanner_settings.analyze_top_k`, default **3**).  
-`active_symbol` is UI/scanner focus, not the only analyzed market.  
-Sticky `looking_for_entry` is stored per `(strategy, symbol)` and persisted in `bot_state.json`.
+`ScannerJob` builds a liquid universe once, then each **enabled** strategy scores
+candidates via `score_scan_candidate` on its `get_scan_timeframe()` (15m ST, 1h LT).
+Boards are merged (union by symbol, max score). Sticky ∪ top-K
+(`scanner_settings.analyze_top_k`, default **3**) feeds the trading loop.
+
+- Scan = context TF only. SuperTrend **1m trigger** stays in `generate_signal` after focus.
+- `active_symbol` is UI/scanner focus, not the only analyzed market.
+- Sticky `looking_for_entry` is per `(strategy, symbol)` in `bot_state.json`.
 
 ---
 
@@ -61,7 +67,7 @@ Signal records include `trace_id` / `trade_id` when available.
 ## Checklist — add a new strategy
 
 1. **Copy** [`_template_strategy.py`](./_template_strategy.py) → `ma_strategie.py`.
-2. **Implement** the contract methods (persona, veto, optional `post_ai_adjust`, `generate_signal`).
+2. **Implement** the contract (persona, **TF-appropriate** `check_hard_veto`, optional `post_ai_adjust`, `generate_signal`, and `score_scan_candidate` if the strat should appear in the scanner).
 3. **Register** in [`engine.py`](./engine.py):
    ```python
    from strategies.ma_strategie import StrategyMaStrategie
@@ -74,9 +80,10 @@ Signal records include `trace_id` / `trade_id` when available.
 4. **Params JSON** in [`data/config/strategies.json`](../data/config/strategies.json) and [`app/core/defaults/strategies.default.json`](../app/core/defaults/strategies.default.json).
    - `type: "trend"` → ADX regime gate from 15m engine.
    - `type: "always_active"` → always evaluated (still apply your own filters).
-   - Non-15m: set `"timeframe": "1h"` (skips engine 15m BB anti-chase).
+   - Non-15m: set `"timeframe": "1h"` (skips engine 15m BB anti-chase; drives scan TF).
+   - Optional `"scan_interval_minutes"` in params (else derived from timeframe).
    - Same-tick priority: `"signal_score_bonus": 100` (not hardcoded names in bot/engine).
-5. **Tests**: at least veto + signal reject/approve paths under `tests/unit/`.
+5. **Tests**: veto + signal reject + scan score path (if scannable) under `tests/unit/`.
 6. **Do not** put métier thresholds in `bot.py` or global scalp rules in `prompts.py`.
 
 Agent skill: [`.cursor/skills/create-novabot-strategy/SKILL.md`](../.cursor/skills/create-novabot-strategy/SKILL.md).
@@ -89,7 +96,8 @@ See [`base.py`](./base.py).
 
 - `get_ai_persona()` → string merged as **STRATEGY PERSONA (PRIMARY)** in AI validation.
 - `get_ai_validation_criteria()` → criteria block in the user prompt (or `None` for generic).
-- `check_hard_veto(side, ctx)` → reason string or `None`. Called **before** AI spend.
+- `check_hard_veto(side, ctx)` → reason string or `None`. Called **before** AI spend. **1 strategy = 1 veto plan** (do not blindly reuse ST 15m helpers for a 1h swing).
+- `get_scan_timeframe()` / `get_scan_interval_minutes()` / `score_scan_candidate(df, symbol=, meta=)` → strategy-owned universe ranking (default: no scan).
 - `post_ai_adjust(signal, ai_result, ctx)` → mutate AI result (e.g. trim TP) **before** R:R / volume hard gates.
 - `get_min_volume_ratio_pct()` → post-AI WEAK_VOLUME floor (optional).
 - `get_rr_epsilon()` → default `0.02` when comparing post-trim R:R to capital profile min.
@@ -100,9 +108,10 @@ Shared veto helpers (optional import): [`app/core/veto_checker.py`](../app/core/
 
 ## Anti-patterns
 
-- `if strategy_id == "supertrend":` métier logic inside `ia.py` / `bot.py`
+- `if strategy_id == "supertrend":` métier logic inside `ia.py` / `bot.py` / `scanner_job.py`
 - Hardcoding scalp SL bands (0.8%–2.5%) in the global system prompt
 - Softening SuperTrend (or any strat) vetoes “to get more trades” without changing that strat’s plan on purpose
+- A single generic scanner score for all strategies
 - Scattering the same threshold in scanner + strat + IA without a single `get_param` source
 - Assuming `active_trades[symbol]` is the only open trade — use `trade_book` / `can_open_trade`
 

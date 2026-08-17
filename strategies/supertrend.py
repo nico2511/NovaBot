@@ -99,10 +99,167 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             return 50.0
 
     def check_hard_veto(self, signal: str, market_context: dict):
-        """Strategy-owned hard veto — same thresholds as historical bot veto_checker."""
+        """Strategy-owned hard veto — SuperTrend 15m thresholds via shared helper."""
         from app.core.veto_checker import check_hard_veto as _helper
 
         return _helper(signal, market_context or {})
+
+    def get_scan_timeframe(self) -> str:
+        return "15m"
+
+    def get_scan_interval_minutes(self) -> float:
+        try:
+            raw = self.get_param("scan_interval_minutes", None)
+            if raw is not None:
+                return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+        return 15.0
+
+    def score_scan_candidate(self, df, *, symbol: str, meta=None):
+        """
+        Rank a 15m OHLCV frame for SuperTrend context quality (no 1m trigger).
+        """
+        import numpy as np
+        import pandas as pd
+        from app.services.indicators import ta
+
+        p = self._params_snapshot()
+        period = int(p["st_period"])
+        multiplier = float(p["st_multiplier"])
+        ema_len = int(p["ema_filter"])
+        adx_threshold = float(p["adx_threshold"])
+        min_vol_pct = float(p["min_volume_ratio_pct"])
+        rsi_lo = float(p["rsi_neutral_low"])
+        rsi_hi = float(p["rsi_neutral_high"])
+        max_ext = float(p["max_extension_atr"])
+
+        min_bars = max(ema_len + 10, period + 30, 60)
+        if df is None or getattr(df, "empty", True) or len(df) < min_bars:
+            return None
+
+        work = df.copy()
+        work["EMA_FILTER"] = ta.ema(work["close"], length=ema_len)
+        work["ADX_14"] = ta.adx(work["high"], work["low"], work["close"])["ADX"]
+        st = ta.supertrend(
+            work["high"], work["low"], work["close"], period=period, multiplier=multiplier
+        )
+        work["Supertrend"] = st["Supertrend"]
+        work["ST_Direction"] = np.where(work["close"] >= work["Supertrend"], 1, -1)
+        work["RSI_14"] = ta.rsi(work["close"], length=14)
+        work["ATR_14"] = ta.atr(work["high"], work["low"], work["close"], length=14)
+
+        last = work.iloc[-2]
+        close = float(last["close"])
+        ema = float(last["EMA_FILTER"])
+        adx = float(last["ADX_14"])
+        st_dir = int(last["ST_Direction"])
+        st_line = float(last["Supertrend"])
+        atr = float(last["ATR_14"]) if not pd.isna(last["ATR_14"]) else 0.0
+        rsi = float(last["RSI_14"]) if not pd.isna(last["RSI_14"]) else 50.0
+
+        if any(np.isnan(x) for x in (close, ema, adx, st_line)):
+            return None
+        if adx < adx_threshold:
+            return None
+
+        if close > ema and st_dir == 1:
+            bias = "LONG"
+            trend = "UP"
+        elif close < ema and st_dir == -1:
+            bias = "SHORT"
+            trend = "DOWN"
+        else:
+            return None
+
+        if atr > 0:
+            extension_atr = abs(close - st_line) / atr
+            if extension_atr > max_ext:
+                return None
+        else:
+            extension_atr = 99.0
+
+        vol_ratio_pct = None
+        if "volume" in work.columns:
+            try:
+                vol_now = float(work["volume"].iloc[-2])
+                vol_ma = float(work["volume"].iloc[:-1].rolling(50).mean().iloc[-2])
+                if vol_ma > 0:
+                    vol_ratio_pct = (vol_now / vol_ma) * 100.0
+            except Exception:
+                vol_ratio_pct = None
+
+        if (
+            vol_ratio_pct is not None
+            and vol_ratio_pct < min_vol_pct
+            and rsi_lo <= rsi <= rsi_hi
+        ):
+            return None
+
+        reasons = []
+        score = 0.0
+        adx_edge = max(0.0, adx - adx_threshold)
+        score += min(40.0, 20.0 + adx_edge * 2.0)
+        reasons.append(f"ADX {adx:.1f} (≥{adx_threshold:.0f})")
+        score += 30.0
+        reasons.append(f"15m {bias}: price vs EMA{ema_len} + ST")
+
+        if vol_ratio_pct is None:
+            score += 5.0
+        elif vol_ratio_pct >= min_vol_pct:
+            score += min(15.0, 8.0 + (vol_ratio_pct - min_vol_pct) * 0.05)
+            reasons.append(f"Vol {vol_ratio_pct:.0f}% of MA50")
+        else:
+            score += 3.0
+            reasons.append(f"Vol thin ({vol_ratio_pct:.0f}%) but RSI not neutral")
+
+        if rsi < rsi_lo or rsi > rsi_hi:
+            score += 10.0
+            reasons.append(f"RSI {rsi:.0f} outside neutral band")
+        else:
+            score += 3.0
+
+        dist_pct = abs(close - st_line) / close * 100.0 if close else 99.0
+        if extension_atr <= 0.8:
+            score += 15.0
+            reasons.append(f"Pullback zone ({extension_atr:.2f}x ATR / {dist_pct:.2f}%)")
+        elif extension_atr <= 1.2:
+            score += 10.0
+            reasons.append(f"Near ST ({extension_atr:.2f}x ATR)")
+        else:
+            score += 4.0
+            reasons.append(f"Acceptable extension ({extension_atr:.2f}x ATR)")
+
+        score = float(min(100.0, round(score, 1)))
+        market = meta or {}
+        armed = bool(getattr(self, "looking_for_entry", False))
+        return {
+            "symbol": symbol or market.get("symbol"),
+            "strategy": getattr(self, "name", "supertrend"),
+            "score": score,
+            "bias": bias,
+            "trend": trend,
+            "adx": round(adx, 2),
+            "rsi": round(rsi, 2),
+            "st_direction": st_dir,
+            "ema_filter": round(ema, 8),
+            "supertrend": round(st_line, 8),
+            "current_price": round(close, 8),
+            "volume_ratio_pct": round(vol_ratio_pct, 1) if vol_ratio_pct is not None else None,
+            "volume_24h": market.get("volume_24h", 0),
+            "open_interest": market.get("open_interest", 0),
+            "funding": market.get("funding", 0),
+            "momentum_24h": market.get("momentum_24h", 0),
+            "reasons": reasons,
+            "armed": armed,
+            "timeframe": "15m",
+            "st_params": {
+                "period": period,
+                "multiplier": multiplier,
+                "ema_filter_period": ema_len,
+                "adx_threshold": adx_threshold,
+            },
+        }
 
     def post_ai_adjust(self, signal, ai_result, market_context=None):
         """Trim optimistic SuperTrend TP to local swing before R:R hard gate."""

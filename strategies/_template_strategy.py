@@ -32,11 +32,22 @@ Reject on weak volume / bad R:R / clear counter-trend as you define them.
 """
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
-        # Option A: reuse shared helpers with your thresholds
+        # Own your TF — do not blindly reuse SuperTrend 15m helper thresholds for a 1h plan.
+        # Option A: shared helpers with YOUR thresholds (subclass or wrap)
         # from app.core import veto_checker
         # return veto_checker.check_hard_veto(signal, market_context)
         #
         # Option B: custom rules — return a reason string or None
+        return None
+
+    def get_scan_timeframe(self) -> str:
+        return super().get_scan_timeframe()
+
+    def get_scan_interval_minutes(self) -> float:
+        return super().get_scan_interval_minutes()
+
+    def score_scan_candidate(self, df, *, symbol: str, meta=None):
+        # Return None to skip the scanner, or {"score": float, "bias": "LONG"|"SHORT", ...}
         return None
 
     def post_ai_adjust(
