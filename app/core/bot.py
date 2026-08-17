@@ -930,7 +930,24 @@ class BotContext:
         
         # Add ADX and MACD to dynamic context
         dynamic_ctx = get_dynamic_context(df)
-        dynamic_ctx['adx'] = round(float(adx_value or 0), 2)
+        # IA prompt (ia.py) reads rsi_val/adx_val — always set from confirmed-bar calc
+        # so raw TF OHLCV without indicator columns never sends N/A to the model.
+        rsi_out = round(float(rsi or 0), 1)
+        adx_out = round(float(adx_value or 0), 2)
+        dynamic_ctx["rsi_val"] = rsi_out
+        dynamic_ctx["adx_val"] = adx_out
+        dynamic_ctx["adx"] = adx_out
+        if dynamic_ctx.get("rsi_slope") is None:
+            dynamic_ctx["rsi_slope"] = 0.0
+        if dynamic_ctx.get("adx_slope") is None:
+            try:
+                adx_series = Indicators.adx(df["high"], df["low"], df["close"], 14)["ADX"]
+                prev_i = idx - 1 if len(adx_series) >= abs(idx) + 1 else idx
+                dynamic_ctx["adx_slope"] = round(
+                    float(adx_series.iloc[idx]) - float(adx_series.iloc[prev_i]), 1
+                )
+            except Exception:
+                dynamic_ctx["adx_slope"] = 0.0
         dynamic_ctx['macd_line'] = round(float(macd_line or 0), 4)
         dynamic_ctx['macd_signal'] = round(float(macd_signal or 0), 4)
         dynamic_ctx['macd_hist'] = round(float(macd_hist or 0), 4)
@@ -2821,14 +2838,33 @@ class BotContext:
                             },
                             "market_context_keys": sorted(list((market_context or {}).keys())),
                             "market_context_focus": {
-                                # Helpful coherence checks (values may be absent depending on context builder)
+                                # Keys the IA prompt actually reads (rsi_val/adx_val aliases)
                                 "current_price": market_context.get("current_price") if isinstance(market_context, dict) else None,
                                 "regime": market_context.get("regime") if isinstance(market_context, dict) else None,
                                 "market_bias": market_context.get("market_bias") if isinstance(market_context, dict) else None,
-                                "rsi_val": market_context.get("rsi_val") if isinstance(market_context, dict) else None,
-                                "adx_val": market_context.get("adx_val") if isinstance(market_context, dict) else None,
+                                "rsi_val": (
+                                    market_context.get("rsi_val")
+                                    if isinstance(market_context, dict)
+                                    else None
+                                )
+                                or (
+                                    market_context.get("rsi")
+                                    if isinstance(market_context, dict)
+                                    else None
+                                ),
+                                "adx_val": (
+                                    market_context.get("adx_val")
+                                    if isinstance(market_context, dict)
+                                    else None
+                                )
+                                or (
+                                    market_context.get("adx")
+                                    if isinstance(market_context, dict)
+                                    else None
+                                ),
                                 "bb_position": market_context.get("bb_position") if isinstance(market_context, dict) else None,
                                 "volume_ratio": market_context.get("volume_ratio") if isinstance(market_context, dict) else None,
+                                "strategy_timeframe": market_context.get("strategy_timeframe") if isinstance(market_context, dict) else None,
                             },
                         }
                         current_time = time.time()
@@ -2849,9 +2885,31 @@ class BotContext:
                             if sig_symbol:
                                 self._save_strategy_sticky(sig_symbol)
                         else:
+                            # Discord Pre-AI card: for non-15m strategies show TF metrics AI sees
+                            # (engine technical_context is always 15m — caused Vol 16% vs AI 95% confusion)
+                            tech_discord = dict(technical_context or {})
+                            if (
+                                self._normalize_timeframe(sig_tf) != "15m"
+                                and isinstance(market_context, dict)
+                            ):
+                                if market_context.get("rsi_val") is not None:
+                                    tech_discord["rsi"] = market_context["rsi_val"]
+                                elif market_context.get("rsi") is not None:
+                                    tech_discord["rsi"] = market_context["rsi"]
+                                if market_context.get("adx_val") is not None:
+                                    tech_discord["adx"] = market_context["adx_val"]
+                                elif market_context.get("adx") is not None:
+                                    tech_discord["adx"] = market_context["adx"]
+                                if market_context.get("adx_slope") is not None:
+                                    tech_discord["adx_slope"] = market_context["adx_slope"]
+                                if market_context.get("volume_ratio") is not None:
+                                    tech_discord["volume_ratio"] = market_context["volume_ratio"]
+                                if market_context.get("regime") is not None:
+                                    tech_discord["regime"] = market_context["regime"]
+                                tech_discord["strategy_timeframe"] = sig_tf
                             self._notify_signal_detected_discord(
                                 sig,
-                                technical_context,
+                                tech_discord,
                                 ai_trace_id=ai_trace_id,
                                 ai_payload_preview=ai_payload_preview,
                             )
