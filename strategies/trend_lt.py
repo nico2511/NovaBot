@@ -449,7 +449,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             self.looking_for_entry = True
         else:
             self.looking_for_entry = False
-            return self._reject("1h trend filter not aligned (EMA/Supertrend)")
+            return self._reject("1h trend filter not aligned (EMA200 vs 1h SuperTrend line)")
 
         if not np.isnan(rsi):
             if self.entry_direction == "LONG" and rsi > float(p["max_rsi_long"]):
