@@ -200,6 +200,8 @@ class BotContext:
         
         # Discord signal detection anti-spam (same signal repeating every loop)
         self._last_signal_discord = {"signature": None, "time": 0}
+        # Armed-setup digest dedup (notify when composition changes)
+        self._last_armed_discord_sig = None
         
         # Open Interest History (InMemory)
         self.oi_history = deque(maxlen=2000) 
@@ -432,9 +434,78 @@ class BotContext:
         if not hasattr(self, "_strategy_sticky") or self._strategy_sticky is None:
             self._strategy_sticky = {}
         for name, strat in engine.strategies.items():
-            self._strategy_sticky[(name, symbol)] = {
-                field: getattr(strat, field, None) for field in self._STICKY_FIELDS
-            }
+            entry = {field: getattr(strat, field, None) for field in self._STICKY_FIELDS}
+            if entry.get("looking_for_entry"):
+                reason = getattr(strat, "last_rejection_reason", None)
+                if reason:
+                    entry["wait_reason"] = str(reason)
+            self._strategy_sticky[(name, symbol)] = entry
+        self._maybe_notify_armed_discord()
+
+    @staticmethod
+    def _armed_setups_signature(setups: list) -> tuple:
+        return tuple(
+            (s.get("strategy"), s.get("symbol"), s.get("direction"))
+            for s in setups
+        )
+
+    def _collect_armed_setups(self) -> list:
+        """All (strategy, symbol) pairs currently armed for entry."""
+        sticky = getattr(self, "_strategy_sticky", {}) or {}
+        out = []
+        for (sname, sym), state in sticky.items():
+            if not sym or not isinstance(state, dict) or not state.get("looking_for_entry"):
+                continue
+            direction = str(state.get("entry_direction") or "?").upper()
+            out.append(
+                {
+                    "strategy": str(sname),
+                    "symbol": str(sym),
+                    "direction": direction,
+                    "wait_reason": state.get("wait_reason"),
+                }
+            )
+        out.sort(key=lambda row: (row["symbol"], row["strategy"]))
+        return out
+
+    def _maybe_notify_armed_discord(self) -> None:
+        """Dedicated Discord alert listing all armed setups (on composition change)."""
+        setups = self._collect_armed_setups()
+        sig = self._armed_setups_signature(setups)
+        prev = getattr(self, "_last_armed_discord_sig", None)
+        if sig == prev:
+            return
+        self._last_armed_discord_sig = sig
+        if not setups:
+            return
+
+        engine_cfg = getattr(getattr(self, "strategy_engine", None), "config", None)
+        lines = []
+        for i, row in enumerate(setups, start=1):
+            direction = row.get("direction") or "?"
+            icon = "📈" if direction == "LONG" else "📉" if direction == "SHORT" else "➡️"
+            tf = self._strategy_timeframe(engine_cfg, row.get("strategy"))
+            line = (
+                f"**{i}. {row.get('symbol')}** {icon} `{direction}` "
+                f"[{row.get('strategy')} / {tf}]"
+            )
+            wait = row.get("wait_reason")
+            if wait:
+                line += f"\n> {wait}"
+            lines.append(line)
+
+        title = f"🎯 ARMED: {len(setups)} setup{'s' if len(setups) != 1 else ''}"
+        description = (
+            "Setups prêts — en attente du trigger d'entrée:\n\n" + "\n\n".join(lines)
+        )
+        try:
+            discord_service.send_alert(title, description, color="3498DB")
+            self.add_log(
+                f"📨 Discord armed notification ({len(setups)} setup(s))",
+                metadata={"armed": setups, "discord_sent": True},
+            )
+        except Exception as e:
+            self.add_log(f"⚠️ Failed to send Discord armed notification: {e}")
 
     def _analyze_symbol_market(self, symbol: str) -> dict:
         """
