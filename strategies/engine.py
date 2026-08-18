@@ -166,6 +166,13 @@ class StrategyEngine:
             if (regime == "TREND" or regime == "TREND_BEAR_STRONG") and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
 
+        only = None
+        if extra_data and extra_data.get("only_strategies") is not None:
+            only = {str(n) for n in extra_data.get("only_strategies") or []}
+            active_strategies = [
+                s for s in active_strategies if getattr(s, "name", None) in only
+            ]
+
         # Log active strategies
         if active_strategies:
             strat_names = ", ".join([s.name for s in active_strategies])

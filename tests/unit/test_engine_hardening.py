@@ -80,6 +80,42 @@ def test_engine_isolates_crashing_strategy():
     assert results["regime"] is not None
     print("✅ Engine correctly isolated the crashing strategy")
 
+
+def _engine_df():
+    dates = pd.date_range(start="2023-01-01", periods=100, freq="15min")
+    close_prices = [100.0] * 80 + list(np.linspace(100, 90, 20))
+    return pd.DataFrame(
+        {
+            "close": close_prices,
+            "high": [p + 0.5 for p in close_prices],
+            "low": [p - 0.5 for p in close_prices],
+            "open": close_prices,
+            "volume": [1000] * 100,
+        },
+        index=dates,
+    )
+
+
+def test_engine_only_strategies_skips_other_lanes():
+    engine = StrategyEngine()
+    ok = HealthyStrategy()
+    skipped = HealthyStrategy()
+    skipped.name = "SkipMe"
+    engine.strategies = {"HealthyStrategy": ok, "SkipMe": skipped}
+    engine.config = {
+        "market_regime": {"adx_threshold": 25},
+        "HealthyStrategy": {"enabled": True, "type": "always_active"},
+        "SkipMe": {"enabled": True, "type": "always_active"},
+    }
+    results = engine.analyze(
+        _engine_df(),
+        extra_data={"symbol": "XRP", "only_strategies": ["HealthyStrategy"]},
+    )
+    names = [s["strategy"] for s in results.get("signals", [])]
+    assert "HealthyStrategy" in names
+    assert "SkipMe" not in names
+    assert all(r.get("strategy") != "SkipMe" for r in results.get("rejections") or [])
+
 if __name__ == "__main__":
     try:
         test_engine_isolates_crashing_strategy()

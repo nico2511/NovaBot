@@ -173,3 +173,56 @@ def test_armed_hysteresis_any_strategy(monkeypatch):
     # gap 10 < armed hysteresis 25 → keep
     assert job._maybe_auto_switch(best, opps) is None
     job.bot.switch_active_symbol.assert_not_called()
+
+
+def test_lane_counts_above_min_score():
+    boards = {
+        "supertrend": [{"symbol": "XRP", "score": 92}, {"symbol": "ADA", "score": 40}],
+        "trend_lt": [],
+    }
+    counts = ScannerJob.lane_counts_above(boards, 65)
+    assert counts == {"supertrend": 1, "trend_lt": 0}
+
+
+def test_strategies_for_analysis_respects_scan_lanes():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65}
+    bot._strategy_sticky = {}
+    bot.scanner_job = SimpleNamespace(
+        last_results_by_strategy={
+            "supertrend": [{"symbol": "XRP", "score": 92}],
+            "trend_lt": [],
+        }
+    )
+    assert bot._strategies_for_analysis("XRP") == {"supertrend"}
+    assert bot._strategies_for_analysis("BTC") == set()
+
+
+def test_strategies_for_analysis_keeps_sticky_armed_off_board():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65}
+    bot._strategy_sticky = {
+        ("trend_lt", "ETH"): {"looking_for_entry": True},
+    }
+    bot.scanner_job = SimpleNamespace(
+        last_results_by_strategy={
+            "supertrend": [{"symbol": "SOL", "score": 80}],
+            "trend_lt": [],
+        }
+    )
+    assert bot._strategies_for_analysis("ETH") == {"trend_lt"}
+    assert bot._strategies_for_analysis("SOL") == {"supertrend"}
+
+
+def test_strategies_for_analysis_all_when_no_scan_snapshot():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65}
+    bot._strategy_sticky = {}
+    bot.scanner_job = None
+    assert bot._strategies_for_analysis("ETH") is None

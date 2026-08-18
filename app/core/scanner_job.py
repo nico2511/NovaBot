@@ -190,6 +190,27 @@ class ScannerJob:
         results.sort(key=lambda o: float(o.get("score") or 0), reverse=True)
         return results
 
+    @staticmethod
+    def lane_counts_above(
+        boards: Dict[str, List[Dict[str, Any]]],
+        min_score: float,
+    ) -> Dict[str, int]:
+        """How many candidates per lane scored ≥ min_score."""
+        out: Dict[str, int] = {}
+        for name, rows in (boards or {}).items():
+            n = 0
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    score = float(row.get("score") or 0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                if score >= min_score:
+                    n += 1
+            out[str(name)] = n
+        return out
+
     def _lane_due(self, name: str, strat, now: float, force: bool) -> bool:
         if force:
             return True
@@ -409,9 +430,8 @@ class ScannerJob:
     ):
         if not opps:
             return
-        lane_bits = []
-        for name, rows in (boards or {}).items():
-            lane_bits.append(f"{name}:{len(rows or [])}")
+        counts = self.lane_counts_above(boards, min_score)
+        lane_bits = [f"{name}:{n}" for name, n in counts.items()]
         lane_summary = " | ".join(lane_bits) if lane_bits else "n/a"
 
         if warning:

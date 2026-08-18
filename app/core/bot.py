@@ -338,6 +338,51 @@ class BotContext:
 
         return ordered[:k] if ordered else ([active] if active else [])
 
+    def _strategies_for_analysis(self, symbol: str):
+        """Strategies to evaluate on this symbol.
+
+        None = no scan snapshot yet (run every enabled strategy).
+        set  = scanner lanes that qualified this symbol (≥ min_score)
+               union sticky ``looking_for_entry`` for this symbol.
+
+        Prevents Trend LT generate_signal / veto noise on a SuperTrend-only
+        scan hit (and the reverse).
+        """
+        if not symbol:
+            return None
+
+        allowed = set()
+        sticky = getattr(self, "_strategy_sticky", {}) or {}
+        for (sname, sym), state in sticky.items():
+            if sym == symbol and isinstance(state, dict) and state.get("looking_for_entry"):
+                allowed.add(sname)
+
+        job = getattr(self, "scanner_job", None)
+        boards = getattr(job, "last_results_by_strategy", None) if job else None
+        if not boards:
+            return allowed or None
+
+        try:
+            min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
+        except (TypeError, ValueError):
+            min_score = 65.0
+
+        for sname, rows in boards.items():
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("symbol") != symbol:
+                    continue
+                try:
+                    score = float(row.get("score") or 0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                if score >= min_score:
+                    allowed.add(sname)
+                    break
+
+        return allowed
+
     _STICKY_FIELDS = (
         "looking_for_entry",
         "entry_direction",
@@ -419,14 +464,19 @@ class BotContext:
             except Exception:
                 funding_rate_live = 0.0
 
+            extra_data = {
+                "1m": df_1m,
+                "1h": df_1h,
+                "symbol": symbol,
+                "funding_rate": funding_rate_live,
+            }
+            only = self._strategies_for_analysis(symbol)
+            if only is not None:
+                extra_data["only_strategies"] = list(only)
+
             result = self.strategy_engine.analyze(
                 df_15m,
-                extra_data={
-                    "1m": df_1m,
-                    "1h": df_1h,
-                    "symbol": symbol,
-                    "funding_rate": funding_rate_live,
-                },
+                extra_data=extra_data,
             )
 
             technical_context = {
@@ -571,9 +621,16 @@ class BotContext:
         if message.startswith(quiet_prefixes):
             return
 
+        # Routine filters stay in Coolify / bot_activity.log — not Discord.
+        # Keep dedicated send_alert for signals, AI verdicts, thesis, trades.
+        if message.startswith("⛔"):
+            return
+        if message.startswith("❌ AI REJECTED"):
+            return
+
         level = None
         upper = message.upper()
-        if any(marker in message for marker in ("❌", "⛔", "🔥")) or any(
+        if any(marker in message for marker in ("❌", "🔥")) or any(
             token in upper for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
         ):
             level = "ERROR"
@@ -2685,7 +2742,10 @@ class BotContext:
                     for rej in (sym_result.get("rejections") or []):
                         reason = rej.get("reason") or "no reason"
                         strat_name = rej.get("strategy") or "strategy"
-                        self.add_log(f"⛔ No signal ({analysis_symbol}/{strat_name}): {reason}")
+                        self.add_log(
+                            f"⛔ No signal ({analysis_symbol}/{strat_name}): {reason}",
+                            metadata={"quiet": True},
+                        )
 
                     sym_tech = dict(sym_tech)
                     sym_tech["current_price"] = sym_tech.get("current_price") or current_price
@@ -2809,17 +2869,13 @@ class BotContext:
                             strategy=strat_obj,
                         )
                         if veto_reason:
-                            self.add_log(f"⛔ {veto_reason}")
+                            self.add_log(
+                                f"⛔ HARD VETO {sig.get('signal')} {sig_symbol} "
+                                f"({strat_name}): {veto_reason}",
+                                metadata={"quiet": True},
+                            )
                             # Signal armed strategy cooldown — clear so a false veto doesn't burn 15m
                             self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
-                            try:
-                                discord_service.send_alert(
-                                    f"⛔ HARD VETO (trace={ai_trace_id}): {sig.get('signal')} {sig_symbol}",
-                                    veto_reason,
-                                    color="FF0000",
-                                )
-                            except Exception:
-                                pass
                             time.sleep(10)
                             continue
                     
@@ -3062,7 +3118,10 @@ class BotContext:
                                     approved = False
                             else:
                                 reason = ai_data.get('reasoning', 'No reason')
-                                self.add_log(f"❌ AI REJECTED: {reason}", metadata=ai_data)
+                                log_meta = {"discord_sent": True}
+                                if isinstance(ai_data, dict):
+                                    log_meta.update(ai_data)
+                                self.add_log(f"❌ AI REJECTED: {reason}", metadata=log_meta)
                                 self._record_signal_analysis(
                                     sig, ai_data, False, indicators=technical_context, trace_id=ai_trace_id
                                 )
