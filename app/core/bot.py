@@ -307,7 +307,7 @@ class BotContext:
         )
 
     def _get_analysis_symbols(self) -> list:
-        """Scanner top-K (≥ min_score), same ordering as the Discord scan board."""
+        """Scanner top-K (≥ min_score), then sticky armed symbols (append, no displacement)."""
         try:
             k = int((self.scanner_settings or {}).get("analyze_top_k", 3) or 3)
         except (TypeError, ValueError):
@@ -319,10 +319,10 @@ class BotContext:
         except (TypeError, ValueError):
             min_score = 65.0
 
+        ordered: list = []
         job = getattr(self, "scanner_job", None)
         results = list(getattr(job, "last_results", []) or []) if job else []
         if results:
-            ordered: list = []
             for row in results:
                 if not isinstance(row, dict):
                     continue
@@ -339,8 +339,14 @@ class BotContext:
                     ordered.append(sym)
                 if len(ordered) >= k:
                     break
-            if ordered:
-                return ordered[:k]
+
+        sticky = getattr(self, "_strategy_sticky", {}) or {}
+        for (_sname, sym), state in sticky.items():
+            if state and state.get("looking_for_entry") and sym and sym not in ordered:
+                ordered.append(sym)
+
+        if ordered:
+            return ordered
 
         active = getattr(self, "active_symbol", None)
         return [active] if active else []

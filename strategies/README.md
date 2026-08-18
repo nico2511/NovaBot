@@ -49,8 +49,9 @@ Do **not** fade 15m chop against a 1h trend — Range LT owns the 1h box only.
 `ScannerJob` builds a liquid universe once, then each **enabled** strategy scores
 candidates via `score_scan_candidate` on its `get_scan_timeframe()` (15m ST, 1h LT).
 Boards are merged (union by symbol, max score). Top-K scan hits
-(≥ `min_score`, `scanner_settings.analyze_top_k`, default **3**) feeds the
-trading loop — same symbols as the Discord scanner board.
+(≥ `min_score`, `scanner_settings.analyze_top_k`, default **3**) feed the
+trading loop first; sticky **armed** symbols are appended after (same log line,
+without displacing scan picks).
 
 - Scan = context TF only. SuperTrend **1m trigger** stays in `generate_signal` after focus.
 - `active_symbol` is UI/scanner focus, not the only analyzed market.

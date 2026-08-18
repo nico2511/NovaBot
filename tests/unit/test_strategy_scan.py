@@ -245,6 +245,24 @@ def test_analysis_symbols_match_scanner_top_k():
             {"symbol": "UNI", "score": 82},
         ]
     )
+    assert bot._get_analysis_symbols() == ["SOL", "NEAR", "XRP", "SUI"]
+
+
+def test_analysis_symbols_armed_deduped_when_on_scan():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65, "analyze_top_k": 3}
+    bot._strategy_sticky = {
+        ("range_lt", "NEAR"): {"looking_for_entry": True},
+    }
+    bot.scanner_job = SimpleNamespace(
+        last_results=[
+            {"symbol": "SOL", "score": 86},
+            {"symbol": "NEAR", "score": 85},
+            {"symbol": "XRP", "score": 84},
+        ]
+    )
     assert bot._get_analysis_symbols() == ["SOL", "NEAR", "XRP"]
 
 
