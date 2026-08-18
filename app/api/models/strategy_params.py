@@ -4,7 +4,7 @@ Per-strategy Pydantic schemas used to validate POST /api/engine/config/strategy-
 All fields are Optional: the endpoint performs a PARTIAL update (merge), so a
 caller can send only the keys they want to change.
 
-NovaBot currently runs a single strategy: SuperTrend.
+NovaBot currently runs SuperTrend, Trend LT, and Range LT.
 """
 from typing import Dict, Optional, Type
 from pydantic import BaseModel, Field, ConfigDict
@@ -40,10 +40,40 @@ class SupertrendParams(_StrictParams):
     pullback_touch_atr: Optional[float] = Field(None, gt=0, le=10)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+
+
+class RangeLtParams(_StrictParams):
+    lookback: Optional[int] = Field(None, ge=12, le=200)
+    min_touches: Optional[int] = Field(None, ge=1, le=20)
+    adx_max: Optional[float] = Field(None, ge=0, le=50)
+    max_adx_slope: Optional[float] = Field(None, ge=-20, le=20)
+    ema_period: Optional[int] = Field(None, ge=10, le=200)
+    ema_slope_flat_max: Optional[float] = Field(None, ge=0, le=0.05)
+    min_range_pct: Optional[float] = Field(None, gt=0, le=30)
+    max_range_pct: Optional[float] = Field(None, gt=0, le=50)
+    touch_atr: Optional[float] = Field(None, gt=0, le=5)
+    touch_width_frac: Optional[float] = Field(None, gt=0, le=1)
+    edge_frac: Optional[float] = Field(None, gt=0, le=0.5)
+    min_rr: Optional[float] = Field(None, gt=0, le=10)
+    sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
+    sl_range_frac: Optional[float] = Field(None, gt=0, le=1)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    htf_slope_max: Optional[float] = Field(None, ge=0, le=0.05)
+    veto_rsi_long_max: Optional[float] = Field(None, ge=40, le=100)
+    veto_rsi_short_min: Optional[float] = Field(None, ge=0, le=60)
+    veto_adx_trend: Optional[float] = Field(None, ge=10, le=80)
+    log_veto_report: Optional[bool] = None
+    allow_longs: Optional[bool] = None
+    allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
 
 
 STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {
     "supertrend": SupertrendParams,
+    "range_lt": RangeLtParams,
 }
 
 

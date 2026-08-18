@@ -1769,6 +1769,33 @@ class BotContext:
         # No strategy plan attached — do not apply orphan global métier vetoes
         return None
 
+    def _log_hard_veto_outcome(
+        self,
+        signal: str,
+        symbol: str,
+        strat_name: str,
+        strategy=None,
+        veto_reason: str = None,
+    ) -> None:
+        """Log PASS/BLOCK breakdown when the strategy filled last_veto_report."""
+        report = None
+        if strategy is not None and hasattr(strategy, "format_veto_report"):
+            try:
+                report = strategy.format_veto_report()
+            except Exception:
+                report = None
+        if report:
+            prefix = "⛔ HARD VETO" if veto_reason else "🛡️ VETO PASS"
+            self.add_log(
+                f"{prefix} {signal} {symbol} ({strat_name}): {report}",
+                metadata={"quiet": True},
+            )
+        elif veto_reason:
+            self.add_log(
+                f"⛔ HARD VETO {signal} {symbol} ({strat_name}): {veto_reason}",
+                metadata={"quiet": True},
+            )
+
     def _clear_strategy_entry_cooldown(self, strategy_name: str | None, symbol: str | None = None) -> None:
         """Undo strategy-side entry cooldown after veto/AI reject (no fill happened)."""
         if not strategy_name or not hasattr(self, "strategy_engine"):
@@ -2868,12 +2895,14 @@ class BotContext:
                             market_context,
                             strategy=strat_obj,
                         )
+                        self._log_hard_veto_outcome(
+                            str(sig.get("signal") or "BUY"),
+                            str(sig_symbol or ""),
+                            str(strat_name or ""),
+                            strategy=strat_obj,
+                            veto_reason=veto_reason,
+                        )
                         if veto_reason:
-                            self.add_log(
-                                f"⛔ HARD VETO {sig.get('signal')} {sig_symbol} "
-                                f"({strat_name}): {veto_reason}",
-                                metadata={"quiet": True},
-                            )
                             # Signal armed strategy cooldown — clear so a false veto doesn't burn 15m
                             self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
                             time.sleep(10)

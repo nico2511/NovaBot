@@ -83,8 +83,26 @@ class BaseStrategy(ABC):
 
         Return a reason string to block the trade, or None to allow.
         Default: no strategy-level veto (bot stays a dumb machine).
+
+        Strategies that want a PASS/BLOCK breakdown for logs may fill
+        ``last_veto_report`` (list of {name, blocked, detail}) during this call.
         """
         return None
+
+    def format_veto_report(self) -> Optional[str]:
+        """Compact PASS/BLOCK line from ``last_veto_report``, or None."""
+        rows = getattr(self, "last_veto_report", None)
+        if not rows:
+            return None
+        parts = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "check")
+            tag = "BLOCK" if row.get("blocked") else "PASS"
+            detail = str(row.get("detail") or "").strip()
+            parts.append(f"{name} {tag}" + (f" ({detail})" if detail else ""))
+        return " | ".join(parts) if parts else None
 
     def post_ai_adjust(
         self,

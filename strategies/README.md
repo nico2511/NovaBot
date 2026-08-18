@@ -14,21 +14,22 @@ Everything that decides *whether / how* to trade a setup belongs in the **strate
 | `generate_signal` / `add_indicators` | Timeline API (`GET /api/history/timeline`) |
 | optional `manage_trade` | |
 
-Reference: [`supertrend.py`](./supertrend.py) (15m) and [`trend_lt.py`](./trend_lt.py) (1h).
+Reference: [`supertrend.py`](./supertrend.py) (15m), [`trend_lt.py`](./trend_lt.py) (1h trend), [`range_lt.py`](./range_lt.py) (1h box fade).
 
 ---
 
-## SuperTrend (ST) vs Trend LT
+## SuperTrend (ST) vs Trend LT vs Range LT
 
-| | **SuperTrend** | **Trend LT** |
-|--|----------------|--------------|
-| Key | `supertrend` | `trend_lt` |
-| TF | 15m context + 1m trigger | 1h context + 1h reclaim |
-| Setup | EMA200 + ST, pullback → reclaim | Same idea on 1h (progressive swings) |
-| Engine `type` | `trend` (needs 15m TREND regime) | `always_active` (own 1h ADX filters) |
-| Priority | Lower if both fire same tick | **Wins** over ST on same symbol/tick |
+| | **SuperTrend** | **Trend LT** | **Range LT** |
+|--|----------------|--------------|--------------|
+| Key | `supertrend` | `trend_lt` | `range_lt` |
+| TF | 15m context + 1m trigger | 1h context + 1h reclaim | 1h context + 1h rejection |
+| Setup | EMA200 + ST, pullback → reclaim | Same idea on 1h (progressive swings) | Fade a 1h box (tag extreme → close back inside) |
+| Engine `type` | `trend` (needs 15m TREND regime) | `always_active` (own 1h ADX min) | `always_active` (own 1h ADX **max** + flat EMA50) |
+| Priority | Lowest if several fire same tick | **Wins** over ST / Range LT | Beats ST; loses to Trend LT |
 
 Do **not** soften ST filters to catch LT-style moves — use Trend LT instead.
+Do **not** fade 15m chop against a 1h trend — Range LT owns the 1h box only.
 
 ---
 
@@ -74,6 +75,7 @@ Signal records include `trace_id` / `trade_id` when available.
    self.strategies = {
        "supertrend": StrategySupertrend(...),
        "trend_lt": StrategyTrendLT(...),
+       "range_lt": StrategyRangeLT(...),
        "ma_strategie": StrategyMaStrategie(strats_config.get("ma_strategie")),
    }
    ```

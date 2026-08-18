@@ -3,6 +3,7 @@ from app.services.indicators import ta
 import pandas as pd
 from strategies.supertrend import StrategySupertrend
 from strategies.trend_lt import StrategyTrendLT
+from strategies.range_lt import StrategyRangeLT
 
 # Import robuste pour Panic Close
 try:
@@ -21,11 +22,12 @@ class StrategyEngine:
         else:
             self.load_config()
 
-        # SuperTrend 15m + Trend LT 1h (independent plans)
+        # SuperTrend 15m + Trend LT 1h + Range LT 1h (independent plans)
         strats_config = self.config
         self.strategies = {
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
             "trend_lt": StrategyTrendLT(strats_config.get("trend_lt")),
+            "range_lt": StrategyRangeLT(strats_config.get("range_lt")),
         }
 
         for key, strategy in self.strategies.items():
@@ -157,7 +159,7 @@ class StrategyEngine:
                 continue
 
             # SuperTrend is type=trend — active in TREND / TREND_BEAR_STRONG only.
-            # trend_lt is always_active so progressive 1h swings are not gated by 15m ADX regime.
+            # trend_lt / range_lt are always_active so 1h plans are not gated by 15m ADX.
             # always_active / sniper kept for tests / future hooks.
             if strat_type in ("always_active", "sniper"):
                 active_strategies.append(self.strategies[name])
@@ -178,7 +180,7 @@ class StrategyEngine:
             strat_names = ", ".join([s.name for s in active_strategies])
             print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
         elif regime == "RANGE":
-            print("[BOT] ⏸️ Regime RANGE — SuperTrend idle (Trend LT may still run)")
+            print("[BOT] ⏸️ Regime RANGE — SuperTrend idle (Trend LT / Range LT may still run)")
 
         # 4. Generate Signals
         signals = []
