@@ -226,3 +226,34 @@ def test_strategies_for_analysis_all_when_no_scan_snapshot():
     bot._strategy_sticky = {}
     bot.scanner_job = None
     assert bot._strategies_for_analysis("ETH") is None
+
+
+def test_analysis_symbols_match_scanner_top_k():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65, "analyze_top_k": 3}
+    bot._strategy_sticky = {
+        ("range_lt", "SUI"): {"looking_for_entry": True},
+    }
+    bot.active_symbol = "SUI"
+    bot.scanner_job = SimpleNamespace(
+        last_results=[
+            {"symbol": "SOL", "score": 86},
+            {"symbol": "NEAR", "score": 85},
+            {"symbol": "XRP", "score": 84},
+            {"symbol": "UNI", "score": 82},
+        ]
+    )
+    assert bot._get_analysis_symbols() == ["SOL", "NEAR", "XRP"]
+
+
+def test_analysis_symbols_fallback_active_when_no_scan():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65, "analyze_top_k": 3}
+    bot._strategy_sticky = {}
+    bot.active_symbol = "ETH"
+    bot.scanner_job = SimpleNamespace(last_results=[])
+    assert bot._get_analysis_symbols() == ["ETH"]

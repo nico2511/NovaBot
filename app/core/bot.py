@@ -307,36 +307,43 @@ class BotContext:
         )
 
     def _get_analysis_symbols(self) -> list:
-        """Sticky armed symbols ∪ scanner top-K (active_symbol always included)."""
+        """Scanner top-K (≥ min_score), same ordering as the Discord scan board."""
         try:
             k = int((self.scanner_settings or {}).get("analyze_top_k", 3) or 3)
         except (TypeError, ValueError):
             k = 3
         k = max(1, min(k, 10))
 
-        ordered: list = []
-        sticky = getattr(self, "_strategy_sticky", {}) or {}
-        for (_sname, sym), state in sticky.items():
-            if state and state.get("looking_for_entry") and sym and sym not in ordered:
-                ordered.append(sym)
+        try:
+            min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
+        except (TypeError, ValueError):
+            min_score = 65.0
 
         job = getattr(self, "scanner_job", None)
         results = list(getattr(job, "last_results", []) or []) if job else []
-        for row in results:
-            sym = row.get("symbol") if isinstance(row, dict) else None
-            if sym and sym not in ordered:
-                ordered.append(sym)
-            if len(ordered) >= k:
-                break
+        if results:
+            ordered: list = []
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                sym = row.get("symbol")
+                if not sym:
+                    continue
+                try:
+                    score = float(row.get("score") or 0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                if score < min_score:
+                    continue
+                if sym not in ordered:
+                    ordered.append(sym)
+                if len(ordered) >= k:
+                    break
+            if ordered:
+                return ordered[:k]
 
         active = getattr(self, "active_symbol", None)
-        if active and active not in ordered:
-            ordered.insert(0, active)
-        elif active and ordered and ordered[0] != active:
-            # Keep UI focus first among analyzed set when present
-            ordered = [active] + [s for s in ordered if s != active]
-
-        return ordered[:k] if ordered else ([active] if active else [])
+        return [active] if active else []
 
     def _strategies_for_analysis(self, symbol: str):
         """Strategies to evaluate on this symbol.
