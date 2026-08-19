@@ -42,8 +42,9 @@ class StorageService:
         self.config_dir = self.data_dir / "config"
         self.cache_dir = self.data_dir / "cache"
         self.state_dir = self.data_dir / "state"
+        self.analysis_dir = self.data_dir / "analysis"
         
-        for directory in [self.config_dir, self.cache_dir, self.state_dir]:
+        for directory in [self.config_dir, self.cache_dir, self.state_dir, self.analysis_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
     def atomic_write_json(self, filepath: Path, data: Dict[str, Any], indent: int = 2) -> bool:
@@ -287,7 +288,36 @@ class StorageService:
     def load_pnl_snapshot(self) -> Dict[str, Any]:
         """Load daily PnL snapshot from data/state/daily_pnl_snapshot.json"""
         return self.read_json(self.state_dir / "daily_pnl_snapshot.json", default={})
-    
+
+    # Analysis files (data/analysis/)
+
+    def load_signal_analysis(self) -> Any:
+        """Load signal analysis history from data/analysis/signal_analysis.json"""
+        path = self.analysis_dir / "signal_analysis.json"
+        default: list = []
+        if not path.exists():
+            return default
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if data is not None else default
+        except Exception as e:
+            logger.error(f"❌ Failed to read {path.name}: {e}")
+            return default
+
+    def load_sentiment_history(self) -> Any:
+        """Load sentiment history from data/analysis/sentiment_history.json"""
+        path = self.analysis_dir / "sentiment_history.json"
+        default: list = []
+        if not path.exists():
+            return default
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if data is not None else default
+        except Exception as e:
+            logger.error(f"❌ Failed to read {path.name}: {e}")
+            return default
 
 # Global storage service instance
 # Will be initialized with BASE_DIR from api.py
@@ -302,4 +332,5 @@ def init_storage(base_dir: str):
     logger.info(f"   - Config: {storage_service.config_dir}")
     logger.info(f"   - Cache: {storage_service.cache_dir}")
     logger.info(f"   - State: {storage_service.state_dir}")
+    logger.info(f"   - Analysis: {storage_service.analysis_dir}")
     return storage_service

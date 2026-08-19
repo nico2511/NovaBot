@@ -62,3 +62,19 @@ def test_strategies_save_load(mock_storage):
     # For now, let's trust load_settings loads user_settings.json.
     # If we want to test generic json read/write:
     pass
+
+
+def test_analysis_load_methods(mock_storage):
+    """Verify analysis JSON loaders exist and handle missing files."""
+    assert mock_storage.load_signal_analysis() == []
+    assert mock_storage.load_sentiment_history() == []
+
+    sa_path = mock_storage.analysis_dir / "signal_analysis.json"
+    sa_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(sa_path, "w", encoding="utf-8") as f:
+        json.dump([{"symbol": "BTC", "approved": True}], f)
+
+    loaded = mock_storage.load_signal_analysis()
+    assert isinstance(loaded, list)
+    assert loaded[0]["symbol"] == "BTC"
+

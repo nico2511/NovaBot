@@ -31,24 +31,65 @@ class TradeRecorder:
         
         self._ensure_storage()
 
+    def _collapse_csv_row(self, row: list) -> list:
+        """Merge overflow columns (unquoted commas in ai_reasoning) back into schema."""
+        n = len(self.headers)
+        if len(row) <= n:
+            return row + [""] * (n - len(row))
+        idx = self.headers.index("ai_reasoning")
+        tail_count = n - idx - 1
+        merged = ",".join(row[idx : len(row) - tail_count])
+        return row[:idx] + [merged] + row[-tail_count:]
+
+    def _read_csv_rows(self) -> list[list[str]]:
+        with open(self.csv_file, encoding="utf-8", newline="") as f:
+            rows = list(csv.reader(f))
+        if not rows:
+            return []
+        header = rows[0]
+        data_rows = rows[1:] if header == self.headers or "timestamp" in header else rows
+        normalized = []
+        for row in data_rows:
+            if not row:
+                continue
+            normalized.append(self._collapse_csv_row(row))
+        return normalized
+
+    def _maybe_migrate_csv_header(self) -> None:
+        if not os.path.exists(self.csv_file):
+            return
+        try:
+            with open(self.csv_file, encoding="utf-8", newline="") as f:
+                header = next(csv.reader(f), None)
+            if header == self.headers:
+                return
+            rows = self._read_csv_rows()
+            with open(self.csv_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+                writer.writerow(self.headers)
+                writer.writerows(rows)
+            logger.info(
+                "Migrated trade_history.csv schema (%s -> %s columns)",
+                len(header or []),
+                len(self.headers),
+            )
+        except Exception as e:
+            logger.warning("CSV header migration skipped: %s", e)
+
     def _read_csv_safe(self) -> pd.DataFrame:
-        """Read CSV robustly handling schema evolution"""
+        """Read CSV robustly handling schema evolution and malformed rows."""
         if not os.path.exists(self.csv_file):
             return pd.DataFrame(columns=self.headers)
-        
+
+        self._maybe_migrate_csv_header()
         try:
-            df = pd.read_csv(self.csv_file, engine="python")
-            for h in self.headers:
-                if h not in df.columns:
-                    df[h] = None
-            # Prefer canonical column order; keep any unexpected extras out
-            return df.reindex(columns=self.headers)
-        except Exception as e:
-            logger.warning("CSV Read Error (attempting fallback): %s", e)
-            try:
-                return pd.read_csv(self.csv_file, names=self.headers, header=None, skiprows=1, engine="python")
-            except Exception:
+            rows = self._read_csv_rows()
+            if not rows:
                 return pd.DataFrame(columns=self.headers)
+            return pd.DataFrame(rows, columns=self.headers)
+        except Exception as e:
+            logger.warning("CSV Read Error: %s", e)
+            return pd.DataFrame(columns=self.headers)
         
     def _ensure_storage(self):
         """Ensure data directory and CSV file exist with correct headers"""
@@ -58,11 +99,13 @@ class TradeRecorder:
         if not os.path.exists(self.csv_file):
             try:
                 with open(self.csv_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
+                    writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
                     writer.writerow(self.headers)
                 logger.info("Created new trade history file: %s", self.csv_file)
             except Exception as e:
                 logger.error("Critical error creating trade history file: %s", e)
+        else:
+            self._maybe_migrate_csv_header()
 
     def add_trade(self, trade_data: Dict[str, Any]):
         """
@@ -114,7 +157,7 @@ class TradeRecorder:
             
             with self._lock:
                 with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
+                    writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
                     writer.writerow(row)
             
             reasoning_snippet = str(entry_indicators.get("ai_reasoning", "N/A"))[:100]
