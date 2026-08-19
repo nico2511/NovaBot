@@ -197,6 +197,26 @@ def test_range_lt_scan_rejects_uptrend():
     assert s.score_scan_candidate(_ohlcv_trend(), symbol="TREND") is None
 
 
+def test_range_lt_rejects_short_on_h1_high_piercing_box_top():
+    """Wick above hourly box top with close inside is breakout, not a fade."""
+    df = _ohlcv_range(n=140)
+    range_low = float(df["low"].iloc[-(72 + 3) : -2].min())
+    range_high = float(df["high"].iloc[-(72 + 3) : -2].max())
+    last_conf = df.index[-2]
+    df.loc[last_conf, "high"] = range_high + 0.15
+    df.loc[last_conf, "open"] = range_high - 0.05
+    df.loc[last_conf, "close"] = range_high - 0.12
+    df.loc[last_conf, "low"] = df.loc[last_conf, "close"] - 0.08
+    df.loc[last_conf, "volume"] = 2000.0
+
+    s = StrategyRangeLT({"params": _relaxed_params(lookback=40, structure_lookback=72)})
+    sig = s.generate_signal(df, extra_data={"1h": df})
+    assert sig is None
+    assert s.last_rejection_reason
+    reason = s.last_rejection_reason.lower()
+    assert "pierced" in reason or "ceiling" in reason or "hourly" in reason
+
+
 def test_range_lt_can_fade_synthetic_range_low():
     """Craft a ranging series ending with a low-tag + close-back-inside bar."""
     df = _ohlcv_range(n=140)
@@ -206,7 +226,7 @@ def test_range_lt_can_fade_synthetic_range_low():
     range_high = float(df["high"].iloc[-(48 + 3) : -2].max())
     mid = (range_low + range_high) / 2.0
     last_conf = df.index[-2]
-    df.loc[last_conf, "low"] = range_low - 0.02
+    df.loc[last_conf, "low"] = range_low + 0.02
     df.loc[last_conf, "open"] = range_low + 0.15
     df.loc[last_conf, "close"] = range_low + max(0.35, (mid - range_low) * 0.2)
     df.loc[last_conf, "high"] = df.loc[last_conf, "close"] + 0.05

@@ -311,6 +311,8 @@ Do NOT reject solely because:
     def _params_snapshot(self):
         return {
             "lookback": int(self.get_param("lookback", 48)),
+            "structure_lookback": int(self.get_param("structure_lookback", 72)),
+            "ceiling_expansion_bars": int(self.get_param("ceiling_expansion_bars", 6)),
             "min_touches": int(self.get_param("min_touches", 2)),
             "adx_max": float(self.get_param("adx_max", 18.0)),
             "max_adx_slope": float(self.get_param("max_adx_slope", 0.4)),
@@ -419,18 +421,21 @@ Do NOT reject solely because:
         self, df, p: dict, require_rejection: bool
     ) -> Optional[Dict[str, Any]]:
         lookback = int(p["lookback"])
-        min_bars = max(lookback + 8, int(p["ema_period"]) + 10, 60)
+        struct_lb = max(lookback, int(p.get("structure_lookback", lookback)))
+        min_bars = max(struct_lb + 8, int(p["ema_period"]) + 10, 60)
         if df is None or getattr(df, "empty", True) or len(df) < min_bars:
             return None
 
         work = self.add_indicators(df, p)
         # Drop forming candle; box is built on bars *before* the last confirmed close.
         confirmed = work.iloc[:-1]
-        if len(confirmed) < lookback + 2:
+        if len(confirmed) < struct_lb + 2:
             return None
-        prior = confirmed.iloc[-(lookback + 1) : -1]
+        prior = confirmed.iloc[-(struct_lb + 1) : -1]
         last = confirmed.iloc[-1]
         close = float(last["close"])
+        bar_high = float(last["high"])
+        bar_low = float(last["low"])
         adx = float(last["ADX_14"])
         atr = float(last["ATR_14"]) if not np.isnan(float(last["ATR_14"])) else 0.0
         rsi = float(last["RSI_14"]) if not np.isnan(float(last.get("RSI_14", np.nan))) else 50.0
@@ -470,40 +475,57 @@ Do NOT reject solely because:
 
         loc = (close - range_low) / width
         breakout = close > range_high or close < range_low
-        near_high = loc >= (1.0 - float(p["edge_frac"])) or float(last["high"]) >= (range_high - band)
-        near_low = loc <= float(p["edge_frac"]) or float(last["low"]) <= (range_low + band)
+        edge = float(p["edge_frac"])
+        # Hourly location only — no arming on wick-only LTF-style tags without close at the edge.
+        near_high = loc >= (1.0 - edge)
+        near_low = loc <= edge
+
+        exp_n = max(2, int(p.get("ceiling_expansion_bars", 6)))
+        recent = confirmed.iloc[-exp_n:]
+        recent_high = float(recent["high"].max())
+        recent_low = float(recent["low"].min())
+        tol = band * 0.05
+        ceiling_expanding = recent_high > (range_high + tol)
+        floor_expanding = recent_low < (range_low - tol)
 
         inner = 0.08 * width
-        tagged_high = float(last["high"]) >= (range_high - band)
-        tagged_low = float(last["low"]) <= (range_low + band)
+        tagged_high = bar_high >= (range_high - band)
+        tagged_low = bar_low <= (range_low + band)
+        # SHORT: H1 high must not pierce the hourly box top (breakout wick ≠ fade).
+        h1_top_intact = bar_high <= range_high
+        h1_bottom_intact = bar_low >= range_low
         reject_high = (
             tagged_high
+            and h1_top_intact
             and close < (range_high - inner)
             and close <= float(last["open"])
             and close > range_low
+            and near_high
         )
         reject_low = (
             tagged_low
+            and h1_bottom_intact
             and close > (range_low + inner)
             and close >= float(last["open"])
             and close < range_high
+            and near_low
         )
 
         bias = None
         if not breakout:
             if require_rejection:
-                if reject_low and near_low and loc <= 0.5:
+                if reject_low and loc <= 0.5:
                     bias = "LONG"
-                elif reject_high and near_high and loc >= 0.5:
+                elif reject_high and loc >= 0.5 and not ceiling_expanding:
                     bias = "SHORT"
             else:
-                if near_low and not near_high:
+                if near_low and not near_high and not floor_expanding:
                     bias = "LONG"
-                elif near_high and not near_low:
+                elif near_high and not near_low and not ceiling_expanding:
                     bias = "SHORT"
-                elif near_low and loc <= 0.5:
+                elif near_low and loc <= 0.5 and not floor_expanding:
                     bias = "LONG"
-                elif near_high and loc >= 0.5:
+                elif near_high and loc >= 0.5 and not ceiling_expanding:
                     bias = "SHORT"
 
         vol_ratio_pct = self._volume_ratio_pct(work)
@@ -534,6 +556,10 @@ Do NOT reject solely because:
             "near_low": near_low,
             "reject_high": reject_high,
             "reject_low": reject_low,
+            "ceiling_expanding": ceiling_expanding,
+            "floor_expanding": floor_expanding,
+            "h1_top_intact": h1_top_intact,
+            "h1_bottom_intact": h1_bottom_intact,
             "bias": bias,
             "volume_ratio_pct": vol_ratio_pct,
             "now_ts": self._get_timestamp(confirmed, -1),
@@ -585,7 +611,8 @@ Do NOT reject solely because:
             return self._reject("Missing 1h data for range_lt")
 
         lookback = int(p["lookback"])
-        if len(df_1h) < max(lookback + 8, int(p["ema_period"]) + 10):
+        struct_lb = max(lookback, int(p.get("structure_lookback", lookback)))
+        if len(df_1h) < max(struct_lb + 8, int(p["ema_period"]) + 10):
             return self._reject("Not enough 1h candles for range_lt context")
 
         setup = self._evaluate_setup(df_1h, p, require_rejection=False)
@@ -614,6 +641,12 @@ Do NOT reject solely because:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
         elif setup["near_high"]:
+            if setup.get("ceiling_expanding"):
+                self.looking_for_entry = False
+                self.entry_direction = None
+                return self._reject(
+                    "H1 range ceiling expanding above box top — not a confirmed hourly top"
+                )
             self.entry_direction = "SHORT"
             self.looking_for_entry = True
         elif not self.looking_for_entry:
@@ -627,8 +660,21 @@ Do NOT reject solely because:
             or (self.entry_direction == "SHORT" and setup.get("reject_high") and loc >= 0.5)
         )
         if not rejected:
+            if self.entry_direction == "SHORT":
+                if setup.get("ceiling_expanding"):
+                    return self._reject(
+                        "H1 ceiling expanding — wait for a stable hourly range top"
+                    )
+                if not setup.get("h1_top_intact", True):
+                    return self._reject(
+                        "1h high pierced box top (breakout wick) — not an hourly fade entry"
+                    )
+            if self.entry_direction == "LONG" and setup.get("floor_expanding"):
+                return self._reject(
+                    "H1 floor expanding below box — wait for a stable hourly range low"
+                )
             return self._reject(
-                f"Armed {self.entry_direction} — waiting for 1h rejection close back inside box"
+                f"Armed {self.entry_direction} — waiting for 1h rejection close at hourly extreme"
             )
 
         htf_block = self._htf_blocks_fade(df_1h, self.entry_direction, p)

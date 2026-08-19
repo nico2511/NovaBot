@@ -78,6 +78,8 @@
         "signal_score_bonus": 50,
         "params": {
             "lookback": 48,
+            "structure_lookback": 72,
+            "ceiling_expansion_bars": 6,
             "min_touches": 2,
             "adx_max": 18,
             "max_adx_slope": 0.4,
