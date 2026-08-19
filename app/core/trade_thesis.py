@@ -172,6 +172,185 @@ def evaluate_supertrend_thesis(
     )
 
 
+def evaluate_waterfall_thesis(
+    *,
+    side: str,
+    entry: float,
+    current_price: float,
+    close_15m: float,
+    ema9: float,
+    rsi: float = 50.0,
+    prev_open: float = 0.0,
+    prev_close: float = 0.0,
+    prev_high: float = 0.0,
+    cascade_high: Optional[float] = None,
+    rsi_exhaustion: float = 22.0,
+) -> ThesisVerdict:
+    """Classify whether an open waterfall short thesis still holds."""
+    side = (side or "").upper()
+    if side != "SELL":
+        return ThesisVerdict(
+            status=THESIS_DEAD,
+            action=ACTION_HOLD,
+            reasons=("waterfall thesis is short-only",),
+            adx=0.0,
+            adx_slope=0.0,
+            st_direction=-1,
+            close=float(close_15m or 0),
+            supertrend=float(ema9 or 0),
+            pnl_pct=_pnl_pct(side, entry, current_price),
+        )
+
+    reasons = []
+    dead = False
+    weak = False
+    close_15m = float(close_15m or 0)
+    ema9 = float(ema9 or 0)
+
+    # Cascade broken: price reclaimed EMA9
+    if ema9 > 0 and close_15m > ema9:
+        dead = True
+        reasons.append(f"15m close {close_15m:.6g} reclaimed EMA9 {ema9:.6g}")
+
+    # Bullish reversal candle through prior high
+    if prev_close > prev_open and prev_high > 0 and close_15m > prev_high:
+        if not dead:
+            weak = True
+            reasons.append("Green candle breaking prior high — cascade stalling")
+        else:
+            reasons.append("Bullish reversal through prior high")
+
+    # Stop run above entry plan high (structure break against short)
+    if cascade_high is not None:
+        try:
+            ch = float(cascade_high)
+            if ch > 0 and close_15m > ch * 1.002:
+                dead = True
+                reasons.append(f"Price above cascade high {ch:.6g}")
+        except (TypeError, ValueError):
+            pass
+
+    if not dead and rsi < rsi_exhaustion:
+        weak = True
+        reasons.append(f"RSI {rsi:.1f} — bounce risk on exhausted cascade")
+
+    if dead:
+        status = THESIS_DEAD
+    elif weak:
+        status = THESIS_WEAK
+    else:
+        status = THESIS_VALID
+        reasons = reasons or ("15m waterfall cascade still active",)
+
+    pnl = _pnl_pct(side, entry, current_price)
+    if status == THESIS_DEAD:
+        action = ACTION_CLOSE_IF_PROFIT
+    elif status == THESIS_WEAK and pnl > 0:
+        action = ACTION_TIGHTEN_SL
+    else:
+        action = ACTION_HOLD
+
+    return ThesisVerdict(
+        status=status,
+        action=action,
+        reasons=tuple(reasons),
+        adx=0.0,
+        adx_slope=0.0,
+        st_direction=-1,
+        close=close_15m,
+        supertrend=ema9,
+        pnl_pct=float(pnl),
+    )
+
+
+def evaluate_rocket_thesis(
+    *,
+    side: str,
+    entry: float,
+    current_price: float,
+    close_15m: float,
+    ema9: float,
+    rsi: float = 50.0,
+    prev_open: float = 0.0,
+    prev_close: float = 0.0,
+    prev_low: float = 0.0,
+    cascade_low: Optional[float] = None,
+    rsi_exhaustion: float = 78.0,
+) -> ThesisVerdict:
+    """Classify whether an open rocket long thesis still holds."""
+    side = (side or "").upper()
+    if side != "BUY":
+        return ThesisVerdict(
+            status=THESIS_DEAD,
+            action=ACTION_HOLD,
+            reasons=("rocket thesis is long-only",),
+            adx=0.0,
+            adx_slope=0.0,
+            st_direction=1,
+            close=float(close_15m or 0),
+            supertrend=float(ema9 or 0),
+            pnl_pct=_pnl_pct(side, entry, current_price),
+        )
+
+    reasons = []
+    dead = False
+    weak = False
+    close_15m = float(close_15m or 0)
+    ema9 = float(ema9 or 0)
+
+    if ema9 > 0 and close_15m < ema9:
+        dead = True
+        reasons.append(f"15m close {close_15m:.6g} lost EMA9 {ema9:.6g}")
+
+    if prev_close < prev_open and prev_low > 0 and close_15m < prev_low:
+        if not dead:
+            weak = True
+            reasons.append("Red candle breaking prior low — cascade stalling")
+        else:
+            reasons.append("Bearish reversal through prior low")
+
+    if cascade_low is not None:
+        try:
+            cl = float(cascade_low)
+            if cl > 0 and close_15m < cl * 0.998:
+                dead = True
+                reasons.append(f"Price below cascade low {cl:.6g}")
+        except (TypeError, ValueError):
+            pass
+
+    if not dead and rsi > rsi_exhaustion:
+        weak = True
+        reasons.append(f"RSI {rsi:.1f} — fade risk on exhausted cascade")
+
+    if dead:
+        status = THESIS_DEAD
+    elif weak:
+        status = THESIS_WEAK
+    else:
+        status = THESIS_VALID
+        reasons = reasons or ("15m rocket cascade still active",)
+
+    pnl = _pnl_pct(side, entry, current_price)
+    if status == THESIS_DEAD:
+        action = ACTION_CLOSE_IF_PROFIT
+    elif status == THESIS_WEAK and pnl > 0:
+        action = ACTION_TIGHTEN_SL
+    else:
+        action = ACTION_HOLD
+
+    return ThesisVerdict(
+        status=status,
+        action=action,
+        reasons=tuple(reasons),
+        adx=0.0,
+        adx_slope=0.0,
+        st_direction=1,
+        close=close_15m,
+        supertrend=ema9,
+        pnl_pct=float(pnl),
+    )
+
+
 def break_even_sl(side: str, entry: float) -> Optional[float]:
     """Slightly profitable BE lock (same idea as Smart BE)."""
     if entry <= 0:

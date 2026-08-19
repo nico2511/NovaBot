@@ -4,6 +4,8 @@ import pandas as pd
 from strategies.supertrend import StrategySupertrend
 from strategies.trend_lt import StrategyTrendLT
 from strategies.range_lt import StrategyRangeLT
+from strategies.waterfall import StrategyWaterfall
+from strategies.rocket import StrategyRocket
 
 # Import robuste pour Panic Close
 try:
@@ -28,6 +30,8 @@ class StrategyEngine:
             "supertrend": StrategySupertrend(strats_config.get("supertrend")),
             "trend_lt": StrategyTrendLT(strats_config.get("trend_lt")),
             "range_lt": StrategyRangeLT(strats_config.get("range_lt")),
+            "waterfall": StrategyWaterfall(strats_config.get("waterfall")),
+            "rocket": StrategyRocket(strats_config.get("rocket")),
         }
 
         for key, strategy in self.strategies.items():
@@ -140,6 +144,28 @@ class StrategyEngine:
         except Exception as e:
             print(f"⚠️ Waterfall check failed: {e}")
 
+        # 3. ROCKET DETECTION (Anti-Lag / Pump Detection) — mirror of waterfall
+        # Bear cascade takes priority when both could fire on the same tick.
+        if regime != "TREND_BEAR_STRONG":
+            try:
+                curr_close = df['close'].iloc[-1]
+                curr_open = df['open'].iloc[-1]
+                curr_ema9 = ema_9.iloc[-1]
+                curr_ema20 = ema_20.iloc[-1]
+                prev_close = df['close'].iloc[-2]
+                prev_open = df['open'].iloc[-2]
+                prev_high = df['high'].iloc[-2]
+
+                is_curr_green = curr_close > curr_open
+                is_prev_green = prev_close > prev_open
+
+                if (curr_close > curr_ema9) and (curr_ema9 > curr_ema20) and \
+                   is_curr_green and is_prev_green and \
+                   (curr_close > prev_high):
+                    regime = "TREND_BULL_STRONG"
+            except Exception as e:
+                print(f"⚠️ Rocket check failed: {e}")
+
         # Add indicators to df for strategies
         df['ADX_14'] = adx_df['ADX'] # Save specific column
         df['RSI_14'] = rsi_series
@@ -165,7 +191,7 @@ class StrategyEngine:
                 active_strategies.append(self.strategies[name])
                 continue
 
-            if (regime == "TREND" or regime == "TREND_BEAR_STRONG") and strat_type == "trend":
+            if (regime in ("TREND", "TREND_BEAR_STRONG", "TREND_BULL_STRONG")) and strat_type == "trend":
                 active_strategies.append(self.strategies[name])
 
         only = None

@@ -71,9 +71,41 @@ class RangeLtParams(_StrictParams):
     scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
 
 
+class WaterfallParams(_StrictParams):
+    min_rr: Optional[float] = Field(None, gt=0, le=10)
+    sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    sl_swing_lookback: Optional[int] = Field(None, ge=3, le=50)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    volume_spike_pct: Optional[float] = Field(None, ge=0, le=500)
+    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    require_1m_confirm: Optional[bool] = None
+    veto_rsi_oversold: Optional[float] = Field(None, ge=0, le=40)
+    allow_longs: Optional[bool] = None
+    allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+
+
+class RocketParams(_StrictParams):
+    min_rr: Optional[float] = Field(None, gt=0, le=10)
+    sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    sl_swing_lookback: Optional[int] = Field(None, ge=3, le=50)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    volume_spike_pct: Optional[float] = Field(None, ge=0, le=500)
+    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    require_1m_confirm: Optional[bool] = None
+    veto_rsi_overbought: Optional[float] = Field(None, ge=60, le=100)
+    allow_longs: Optional[bool] = None
+    allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+
+
 STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {
     "supertrend": SupertrendParams,
     "range_lt": RangeLtParams,
+    "waterfall": WaterfallParams,
+    "rocket": RocketParams,
 }
 
 

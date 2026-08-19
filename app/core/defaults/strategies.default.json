@@ -108,5 +108,57 @@
         "display_conditions": ["RangeHigh", "RangeLow", "EMA_50", "ADX_14"],
         "version": "2026-08-range-lt-v1",
         "expected_freq": "Low (1h box rejection fade)"
+    },
+    "waterfall": {
+        "enabled": true,
+        "type": "trend",
+        "description": "Short-only 15m cascade rider: double red, lower lows, price < EMA9 < EMA20.",
+        "active": true,
+        "timeframe": "15m",
+        "signal_score_bonus": 120,
+        "skip_bb_anti_chase": true,
+        "params": {
+            "min_rr": 1.0,
+            "sl_atr_mult": 0.5,
+            "min_sl_pct": 0.4,
+            "sl_swing_lookback": 8,
+            "min_volume_ratio_pct": 40,
+            "volume_spike_pct": 120,
+            "cooldown_minutes": 10,
+            "require_1m_confirm": true,
+            "veto_rsi_oversold": 18,
+            "allow_longs": false,
+            "allow_shorts": true,
+            "scan_interval_minutes": 5
+        },
+        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "version": "2026-08-waterfall-v1",
+        "expected_freq": "Rare (bear cascade only)"
+    },
+    "rocket": {
+        "enabled": true,
+        "type": "trend",
+        "description": "Long-only 15m pump rider: double green, higher highs, price > EMA9 > EMA20.",
+        "active": true,
+        "timeframe": "15m",
+        "signal_score_bonus": 120,
+        "skip_bb_anti_chase": true,
+        "params": {
+            "min_rr": 1.0,
+            "sl_atr_mult": 0.5,
+            "min_sl_pct": 0.4,
+            "sl_swing_lookback": 8,
+            "min_volume_ratio_pct": 40,
+            "volume_spike_pct": 120,
+            "cooldown_minutes": 10,
+            "require_1m_confirm": true,
+            "veto_rsi_overbought": 82,
+            "allow_longs": true,
+            "allow_shorts": false,
+            "scan_interval_minutes": 5
+        },
+        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "version": "2026-08-rocket-v1",
+        "expected_freq": "Rare (bull cascade only)"
     }
 }

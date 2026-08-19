@@ -3412,6 +3412,9 @@ class BotContext:
                                     "range_high",
                                     "range_low",
                                     "range_mid",
+                                    "cascade_ema9",
+                                    "cascade_high",
+                                    "cascade_low",
                                 ):
                                     if sig.get(plan_key) is not None:
                                         meta[plan_key] = sig[plan_key]
