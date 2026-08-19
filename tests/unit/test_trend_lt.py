@@ -52,3 +52,10 @@ def test_trend_lt_post_ai_adjust_trims_buy_tp():
     out = s.post_ai_adjust(signal, ai, {"swing_high": 105.0, "swing_low": 90.0})
     assert out["suggested_adjustments"]["tp"] < 105.0
     assert out["suggested_adjustments"]["tp"] > 100.0
+
+
+def test_trend_lt_supports_trade_thesis():
+    s = StrategyTrendLT({"params": {}})
+    assert s.supports_trade_thesis() is True
+    assert s.get_thesis_timeframe() == "1h"
+    assert s.evaluate_trade_thesis({}, 100.0, df=None) is None

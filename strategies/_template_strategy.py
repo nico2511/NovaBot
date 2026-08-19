@@ -62,6 +62,18 @@ Reject on weak volume / bad R:R / clear counter-trend as you define them.
     def get_min_volume_ratio_pct(self) -> Optional[float]:
         return float(self.get_param("min_volume_ratio_pct", 50.0) or 50.0)
 
+    def supports_trade_thesis(self) -> bool:
+        # Set True when the open-trade plan can break (box breakout, ST flip, …)
+        return False
+
+    def get_thesis_timeframe(self) -> str:
+        return super().get_thesis_timeframe()
+
+    def evaluate_trade_thesis(self, trade, current_price, *, df, extra_data=None):
+        # Return ThesisVerdict from app.core.trade_thesis, or None to skip this tick.
+        # Persist plan fields on the signal (e.g. range_high/range_low) — bot stores them in trade.metadata.
+        return None
+
     def add_indicators(self, df):
         # Add columns your signal logic needs
         return df

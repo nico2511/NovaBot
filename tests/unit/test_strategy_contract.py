@@ -1,9 +1,28 @@
 """Strategy contract ownership — SuperTrend as reference plan."""
 from __future__ import annotations
 
+from strategies.range_lt import StrategyRangeLT
 from strategies.supertrend import StrategySupertrend
 
 
+def test_supertrend_supports_trade_thesis():
+    s = StrategySupertrend({"params": {}})
+    assert s.supports_trade_thesis() is True
+    assert s.get_thesis_timeframe() == "15m"
+
+
+def test_range_lt_supports_trade_thesis():
+    s = StrategyRangeLT({"params": {}})
+    assert s.supports_trade_thesis() is True
+    assert s.get_thesis_timeframe() == "1h"
+
+
+def test_trend_lt_supports_trade_thesis():
+    from strategies.trend_lt import StrategyTrendLT
+
+    s = StrategyTrendLT({"params": {}})
+    assert s.supports_trade_thesis() is True
+    assert s.get_thesis_timeframe() == "1h"
 def test_supertrend_exposes_persona_and_criteria():
     s = StrategySupertrend({"params": {}})
     assert s.get_ai_persona()

@@ -12,7 +12,8 @@ Everything that decides *whether / how* to trade a setup belongs in the **strate
 | `score_scan_candidate()` / scan TF | ScannerJob orchestrator (universe, merge, top-K) |
 | `post_ai_adjust()` | Multi-position book (`trade_id`), top-K analysis |
 | `generate_signal` / `add_indicators` | Timeline API (`GET /api/history/timeline`) |
-| optional `manage_trade` | |
+| optional `manage_trade` | Trailing default if `manage_trade` returns `None` |
+| optional `evaluate_trade_thesis` | In-trade plan monitoring (VALID / WEAK / DEAD) |
 
 Reference: [`supertrend.py`](./supertrend.py) (15m), [`trend_lt.py`](./trend_lt.py) (1h trend), [`range_lt.py`](./range_lt.py) (1h box fade).
 
@@ -105,8 +106,10 @@ See [`base.py`](./base.py).
 - `post_ai_adjust(signal, ai_result, ctx)` → mutate AI result (e.g. trim TP) **before** R:R / volume hard gates.
 - `get_min_volume_ratio_pct()` → post-AI WEAK_VOLUME floor (optional).
 - `get_rr_epsilon()` → default `0.02` when comparing post-trim R:R to capital profile min.
+- `supports_trade_thesis()` / `get_thesis_timeframe()` / `evaluate_trade_thesis(trade, price, *, df)` → in-trade plan invalidation (bot fetches OHLCV, strategy decides). Put plan bounds on the signal dict; bot persists them in `trade.metadata` at entry.
 
 Shared veto helpers (optional import): [`app/core/veto_checker.py`](../app/core/veto_checker.py) — **not** a global bot law.
+Shared thesis helpers: [`app/core/trade_thesis.py`](../app/core/trade_thesis.py).
 
 ---
 

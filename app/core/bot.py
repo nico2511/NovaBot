@@ -32,9 +32,7 @@ from app.core.trade_thesis import (
     THESIS_DEAD,
     THESIS_WEAK,
     break_even_sl,
-    evaluate_supertrend_thesis,
     should_apply_be_tighten,
-    thesis_indicators_ready,
 )
 from app.services.hyperliquid_service import hyperliquid_service
 from app.services.discord_service import discord_service
@@ -2184,14 +2182,16 @@ class BotContext:
                 self.add_log(f"⚠️ Management Error on {symbol}: {manage_err}")
 
     def _maybe_evaluate_trade_thesis(self, symbol: str, trade: dict, current_price: float) -> bool:
-        """Periodic in-trade SuperTrend thesis check → HOLD / tighten BE / soft close.
+        """Periodic in-trade thesis check (strategy-owned) → HOLD / tighten BE / soft close.
 
         Returns True if this call closed the position (caller should skip local exits).
         """
         if not self.trading_enabled:
             return False
+
         strategy_name = str(trade.get("strategy") or "")
-        if strategy_name and strategy_name != "supertrend":
+        strat = self.strategy_engine.strategies.get(strategy_name)
+        if not strat or not strat.supports_trade_thesis():
             return False
 
         now = time.time()
@@ -2200,38 +2200,16 @@ class BotContext:
             return False
 
         try:
-            df = hyperliquid_service.get_candles(symbol, interval="15m", limit=250)
-            if df is None or getattr(df, "empty", True) or len(df) < 50:
+            tf = strat.get_thesis_timeframe()
+            df = hyperliquid_service.get_candles(symbol, interval=tf, limit=250)
+            if df is None or getattr(df, "empty", True):
                 return False
 
-            strat = self.strategy_engine.strategies.get("supertrend")
-            if strat is None:
-                return False
-            p = strat._params_snapshot() if hasattr(strat, "_params_snapshot") else {}
-            ema_need = int(p.get("ema_filter", 200) or 200) + 10
-            if len(df) < ema_need:
-                return False
-
-            strat.add_indicators(df, p)
-
-            last_15m = df.iloc[-2]
-            adx = float(last_15m.get("ADX_14", 0) or 0)
-            try:
-                adx_slope = adx - float(df["ADX_14"].iloc[-3])
-            except Exception:
-                adx_slope = 0.0
-
-            close_15m = float(last_15m.get("close", 0) or 0)
-            ema_filter = float(last_15m.get("EMA_200", 0) or 0)
-            st_direction = int(last_15m.get("ST_Direction", 0) or 0)
-            supertrend = float(last_15m.get("Supertrend", 0) or 0)
-            if not thesis_indicators_ready(
-                close_15m=close_15m,
-                ema_filter=ema_filter,
-                st_direction=st_direction,
-                supertrend=supertrend,
-                adx=adx,
-            ):
+            extra = {tf: df} if tf else None
+            verdict = strat.evaluate_trade_thesis(
+                trade, float(current_price), df=df, extra_data=extra
+            )
+            if verdict is None:
                 return False
 
             # Only advance cooldown after a usable evaluation
@@ -2239,30 +2217,6 @@ class BotContext:
 
             side = str(trade.get("side") or "BUY").upper()
             entry = float(trade.get("entry") or trade.get("entry_price") or 0)
-            # Strategy min_adx_slope is an ENTRY soft filter (default -0.35).
-            # In-trade: that maps to WEAK; DEAD uses a harder floor (default -1.0).
-            raw_entry_slope = p.get("min_adx_slope", -0.35)
-            try:
-                weak_adx_slope = (
-                    float(raw_entry_slope) if raw_entry_slope is not None else -0.35
-                )
-            except (TypeError, ValueError):
-                weak_adx_slope = -0.35
-            dead_adx_slope = min(-1.0, weak_adx_slope - 0.65)
-            verdict = evaluate_supertrend_thesis(
-                side=side,
-                entry=entry,
-                current_price=float(current_price),
-                close_15m=close_15m,
-                ema_filter=ema_filter,
-                st_direction=st_direction,
-                supertrend=supertrend,
-                adx=adx,
-                adx_slope=adx_slope,
-                adx_threshold=float(p.get("adx_threshold", 22) or 22),
-                min_adx_slope=dead_adx_slope,
-                weak_adx_slope=weak_adx_slope,
-            )
             prev = trade.get("thesis_status")
             if prev != verdict.status:
                 self.add_log(
@@ -3454,6 +3408,13 @@ class BotContext:
                             
                                 meta = dict(sig.get("metadata") or {})
                                 meta["trace_id"] = ai_trace_id
+                                for plan_key in (
+                                    "range_high",
+                                    "range_low",
+                                    "range_mid",
+                                ):
+                                    if sig.get(plan_key) is not None:
+                                        meta[plan_key] = sig[plan_key]
                                 entry_ok = self.execute_entry_atomically(
                                     self.active_symbol,
                                     sig.get("signal"),

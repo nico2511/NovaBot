@@ -647,3 +647,68 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             }
 
         return self._reject("No entry setup")
+
+    def supports_trade_thesis(self) -> bool:
+        return True
+
+    def get_thesis_timeframe(self) -> str:
+        return "15m"
+
+    def evaluate_trade_thesis(self, trade, current_price, *, df, extra_data=None):
+        from app.core.trade_thesis import evaluate_supertrend_thesis, thesis_indicators_ready
+
+        if df is None or getattr(df, "empty", True) or len(df) < 50:
+            return None
+
+        p = self._params_snapshot()
+        ema_need = int(p.get("ema_filter", 200) or 200) + 10
+        if len(df) < ema_need:
+            return None
+
+        self.add_indicators(df, p)
+
+        last_15m = df.iloc[-2]
+        adx = float(last_15m.get("ADX_14", 0) or 0)
+        try:
+            adx_slope = adx - float(df["ADX_14"].iloc[-3])
+        except Exception:
+            adx_slope = 0.0
+
+        close_15m = float(last_15m.get("close", 0) or 0)
+        ema_filter = float(last_15m.get("EMA_200", 0) or 0)
+        st_direction = int(last_15m.get("ST_Direction", 0) or 0)
+        supertrend = float(last_15m.get("Supertrend", 0) or 0)
+        if not thesis_indicators_ready(
+            close_15m=close_15m,
+            ema_filter=ema_filter,
+            st_direction=st_direction,
+            supertrend=supertrend,
+            adx=adx,
+        ):
+            return None
+
+        side = str(trade.get("side") or "BUY").upper()
+        entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+        raw_entry_slope = p.get("min_adx_slope", -0.35)
+        try:
+            weak_adx_slope = (
+                float(raw_entry_slope) if raw_entry_slope is not None else -0.35
+            )
+        except (TypeError, ValueError):
+            weak_adx_slope = -0.35
+        dead_adx_slope = min(-1.0, weak_adx_slope - 0.65)
+
+        return evaluate_supertrend_thesis(
+            side=side,
+            entry=entry,
+            current_price=float(current_price),
+            close_15m=close_15m,
+            ema_filter=ema_filter,
+            st_direction=st_direction,
+            supertrend=supertrend,
+            adx=adx,
+            adx_slope=adx_slope,
+            adx_threshold=float(p.get("adx_threshold", 22) or 22),
+            min_adx_slope=dead_adx_slope,
+            weak_adx_slope=weak_adx_slope,
+        )

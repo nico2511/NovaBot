@@ -327,6 +327,36 @@ class BaseStrategy(ABC):
         """
         return None
 
+    # ==========================
+    # IN-TRADE THESIS (strategy-owned plan monitoring)
+    # ==========================
+    # The bot fetches OHLCV on get_thesis_timeframe(), then calls
+    # evaluate_trade_thesis. Return None when data is insufficient this tick.
+
+    def supports_trade_thesis(self) -> bool:
+        """True when this strategy monitors open-trade plan invalidation."""
+        return False
+
+    def get_thesis_timeframe(self) -> str:
+        """OHLCV interval for in-trade thesis checks (defaults to scan TF)."""
+        return self.get_scan_timeframe()
+
+    def evaluate_trade_thesis(
+        self,
+        trade: Dict[str, Any],
+        current_price: float,
+        *,
+        df: pd.DataFrame,
+        extra_data: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Classify whether the open trade's entry thesis still holds.
+
+        Return a ThesisVerdict from app.core.trade_thesis, or None to skip
+        this tick (missing data / plan context not on trade yet).
+        """
+        return None
+
     def _reject(self, reason: str):
         """Set a human-readable rejection reason for diagnostics and return None."""
         self.last_rejection_reason = reason

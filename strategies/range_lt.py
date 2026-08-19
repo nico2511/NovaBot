@@ -662,3 +662,61 @@ Do NOT reject solely because:
                 f"(slope {setup['adx_slope']:+.2f}), SL {sl_pct:.2f}% beyond box"
             ),
         }
+
+    def supports_trade_thesis(self) -> bool:
+        return True
+
+    def get_thesis_timeframe(self) -> str:
+        return "1h"
+
+    def _plan_bounds_from_trade(self, trade: dict) -> Tuple[Optional[float], Optional[float]]:
+        meta = trade.get("metadata") or {}
+        rh = meta.get("range_high", trade.get("range_high"))
+        rl = meta.get("range_low", trade.get("range_low"))
+        try:
+            return (
+                float(rh) if rh is not None else None,
+                float(rl) if rl is not None else None,
+            )
+        except (TypeError, ValueError):
+            return None, None
+
+    def evaluate_trade_thesis(self, trade, current_price, *, df, extra_data=None):
+        from app.core.trade_thesis import evaluate_range_lt_thesis
+
+        range_high, range_low = self._plan_bounds_from_trade(trade)
+        if range_high is None or range_low is None or range_high <= range_low:
+            return None
+        if df is None or getattr(df, "empty", True) or len(df) < 20:
+            return None
+
+        p = self._params_snapshot()
+        self.add_indicators(df, p)
+
+        last_1h = df.iloc[-2]
+        close_1h = float(last_1h.get("close", 0) or 0)
+        if close_1h <= 0:
+            return None
+
+        adx = float(last_1h.get("ADX_14", 0) or 0)
+        try:
+            adx_slope = adx - float(df["ADX_14"].iloc[-3])
+        except Exception:
+            adx_slope = 0.0
+
+        side = str(trade.get("side") or "BUY").upper()
+        entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+        adx_trend = float(p.get("adx_trend_veto", 22) or 22)
+
+        return evaluate_range_lt_thesis(
+            side=side,
+            entry=entry,
+            current_price=float(current_price),
+            close_1h=close_1h,
+            range_high=range_high,
+            range_low=range_low,
+            adx=adx,
+            adx_slope=adx_slope,
+            adx_trend_threshold=adx_trend,
+            weak_adx_slope=float(p.get("thesis_weak_adx_slope", 0.4) or 0.4),
+        )

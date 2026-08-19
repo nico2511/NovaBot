@@ -509,3 +509,68 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
                 f"ADX: {adx:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 1h ST/ATR"
             ),
         }
+
+    def supports_trade_thesis(self) -> bool:
+        return True
+
+    def get_thesis_timeframe(self) -> str:
+        return "1h"
+
+    def evaluate_trade_thesis(self, trade, current_price, *, df, extra_data=None):
+        from app.core.trade_thesis import evaluate_supertrend_thesis, thesis_indicators_ready
+
+        if df is None or getattr(df, "empty", True) or len(df) < 50:
+            return None
+
+        p = self._params_snapshot()
+        ema_need = int(p.get("ema_filter", 200) or 200) + 10
+        if len(df) < ema_need:
+            return None
+
+        work = self.add_indicators(df, p)
+
+        last_1h = work.iloc[-2]
+        adx = float(last_1h.get("ADX_14", 0) or 0)
+        try:
+            adx_slope = adx - float(work["ADX_14"].iloc[-3])
+        except Exception:
+            adx_slope = 0.0
+
+        close_1h = float(last_1h.get("close", 0) or 0)
+        ema_filter = float(last_1h.get("EMA_200", 0) or 0)
+        st_direction = int(last_1h.get("ST_Direction", 0) or 0)
+        supertrend = float(last_1h.get("Supertrend", 0) or 0)
+        if not thesis_indicators_ready(
+            close_15m=close_1h,
+            ema_filter=ema_filter,
+            st_direction=st_direction,
+            supertrend=supertrend,
+            adx=adx,
+        ):
+            return None
+
+        side = str(trade.get("side") or "BUY").upper()
+        entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+        raw_entry_slope = p.get("min_adx_slope", -0.5)
+        try:
+            weak_adx_slope = (
+                float(raw_entry_slope) if raw_entry_slope is not None else -0.5
+            )
+        except (TypeError, ValueError):
+            weak_adx_slope = -0.5
+        dead_adx_slope = min(-1.0, weak_adx_slope - 0.65)
+
+        return evaluate_supertrend_thesis(
+            side=side,
+            entry=entry,
+            current_price=float(current_price),
+            close_15m=close_1h,
+            ema_filter=ema_filter,
+            st_direction=st_direction,
+            supertrend=supertrend,
+            adx=adx,
+            adx_slope=adx_slope,
+            adx_threshold=float(p.get("adx_threshold", 20) or 20),
+            min_adx_slope=dead_adx_slope,
+            weak_adx_slope=weak_adx_slope,
+        )

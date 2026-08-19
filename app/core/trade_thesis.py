@@ -1,9 +1,10 @@
 """
-In-trade thesis evaluation for SuperTrend positions.
+In-trade thesis evaluation — pure helpers, no I/O.
 
-Pure helpers — no I/O. The bot fetches 15m data, computes indicators, then
-asks for a verdict + soft action:
+Each strategy implements evaluate_trade_thesis() on BaseStrategy; helpers
+here encode plan-specific rules (SuperTrend 15m structure, Range LT box, …).
 
+Verdict actions:
   VALID  → leave trailing/BE alone
   WEAK   → thesis softening; tighten SL toward break-even if green
   DEAD   → structure broken; close only if unrealized PnL covers fees, else leave SL
@@ -119,7 +120,7 @@ def evaluate_supertrend_thesis(
 
     if not aligned_st or not on_st_side:
         dead = True
-        reasons.append("15m SuperTrend flipped / price through ST")
+        reasons.append("SuperTrend flipped / price through ST")
     if not aligned_ema:
         # EMA loss alone = weak first; combined with ST break = dead already
         if dead:
@@ -192,6 +193,103 @@ def should_apply_be_tighten(side: str, entry: float, current_sl: float, be_sl: f
     if side == "SELL":
         return sl == 0 or sl > be_sl
     return False
+
+
+def evaluate_range_lt_thesis(
+    *,
+    side: str,
+    entry: float,
+    current_price: float,
+    close_1h: float,
+    range_high: float,
+    range_low: float,
+    adx: float = 0.0,
+    adx_slope: float = 0.0,
+    adx_trend_threshold: float = 22.0,
+    weak_adx_slope: float = 0.4,
+) -> ThesisVerdict:
+    """Classify whether an open Range LT box-fade thesis still holds."""
+    side = (side or "").upper()
+    rh = float(range_high)
+    rl = float(range_low)
+    close_1h = float(close_1h)
+    if side not in ("BUY", "SELL") or rh <= rl or close_1h <= 0:
+        return ThesisVerdict(
+            status=THESIS_DEAD,
+            action=ACTION_HOLD,
+            reasons=("invalid range thesis inputs",),
+            adx=float(adx or 0),
+            adx_slope=float(adx_slope or 0),
+            st_direction=0,
+            close=close_1h,
+            supertrend=rh if side == "SELL" else rl,
+            pnl_pct=_pnl_pct(side, entry, current_price),
+        )
+
+    reasons = []
+    dead = False
+    weak = False
+
+    if side == "SELL":
+        if close_1h > rh:
+            dead = True
+            reasons.append(
+                f"1h close {close_1h:.6g} above box high {rh:.6g} (breakout up)"
+            )
+        elif close_1h < rl:
+            dead = True
+            reasons.append(
+                f"1h close {close_1h:.6g} below box low {rl:.6g} (wrong-side drift)"
+            )
+    else:
+        if close_1h < rl:
+            dead = True
+            reasons.append(
+                f"1h close {close_1h:.6g} below box low {rl:.6g} (breakout down)"
+            )
+        elif close_1h > rh:
+            dead = True
+            reasons.append(
+                f"1h close {close_1h:.6g} above box high {rh:.6g} (wrong-side drift)"
+            )
+
+    if not dead:
+        if adx >= adx_trend_threshold and adx_slope >= weak_adx_slope:
+            weak = True
+            reasons.append(
+                f"ADX expanding ({adx:.1f}, slope {adx_slope:+.2f}) — range may break"
+            )
+
+    if dead:
+        status = THESIS_DEAD
+    elif weak:
+        status = THESIS_WEAK
+    else:
+        status = THESIS_VALID
+        reasons = reasons or (
+            f"1h close {close_1h:.6g} inside box [{rl:.6g}-{rh:.6g}]",
+        )
+
+    pnl = _pnl_pct(side, entry, current_price)
+    if status == THESIS_DEAD:
+        action = ACTION_CLOSE_IF_PROFIT
+    elif status == THESIS_WEAK and pnl > 0:
+        action = ACTION_TIGHTEN_SL
+    else:
+        action = ACTION_HOLD
+
+    bound = rh if side == "SELL" else rl
+    return ThesisVerdict(
+        status=status,
+        action=action,
+        reasons=tuple(reasons),
+        adx=float(adx),
+        adx_slope=float(adx_slope),
+        st_direction=1 if not dead else -1,
+        close=close_1h,
+        supertrend=bound,
+        pnl_pct=float(pnl),
+    )
 
 
 def decision_from_verdict(verdict: ThesisVerdict) -> Dict[str, Any]:
