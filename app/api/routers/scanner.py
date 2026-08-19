@@ -25,6 +25,40 @@ def _job(bot):
     return job
 
 
+def _scanner_strategy_params(bot) -> dict:
+    """SuperTrend params snapshot for backward-compatible /scanner/status."""
+    engine = getattr(bot, "strategy_engine", None)
+    if not engine:
+        return {}
+    strat = (getattr(engine, "strategies", None) or {}).get("supertrend")
+    if strat is None:
+        return {}
+    cfg = getattr(strat, "config", None) or {}
+    params = cfg.get("params") or getattr(strat, "params", None) or {}
+    return dict(params) if isinstance(params, dict) else {}
+
+
+def _scanner_lanes(job) -> list:
+    lanes = []
+    for name, strat in job._active_strategies():
+        try:
+            tf = str(strat.get_scan_timeframe() or "15m")
+        except Exception:
+            tf = "15m"
+        try:
+            interval_m = float(strat.get_scan_interval_minutes())
+        except Exception:
+            interval_m = 15.0
+        lanes.append(
+            {
+                "strategy": name,
+                "timeframe": tf,
+                "interval_minutes": interval_m,
+            }
+        )
+    return lanes
+
+
 @router.get("/opportunities")
 def get_opportunities(bot=Depends(get_bot_context)):
     """Return last SuperTrend scan results (cached in ScannerJob)."""
@@ -64,6 +98,7 @@ def scanner_status(bot=Depends(get_bot_context)):
         "is_scanning": bool(job.is_scanning),
         "last_scan_time": job.last_scan_time,
         "settings": settings,
-        "st_params": job._load_st_params(),
+        "st_params": _scanner_strategy_params(bot),
+        "lanes": _scanner_lanes(job),
         "result_count": len(job.get_last_results()),
     }
