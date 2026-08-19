@@ -41,3 +41,31 @@ def test_migrate_csv_header_to_current_schema(tmp_path):
     with open(csv_path, encoding="utf-8", newline="") as f:
         header = next(csv.reader(f))
     assert header == recorder.headers
+
+
+def test_get_stats_with_string_pnl_values(tmp_path):
+    csv_path = tmp_path / "trade_history.csv"
+    recorder = TradeRecorder(data_dir=str(tmp_path))
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(recorder.headers)
+        writer.writerow(
+            [
+                "2026-08-19T10:00:00", "ADA", "BUY", "0.17", "0.18", "100", "1.5",
+                "supertrend", "TP", "5", "TREND", "30", "55", "0.17", "0.16", "80",
+                "70", "ok", "2026-08-19T09:00:00", "trade-1", "trace-1",
+            ]
+        )
+        writer.writerow(
+            [
+                "2026-08-19T11:00:00", "ETH", "BUY", "1900", "1890", "1", "-0.5",
+                "supertrend", "SL", "5", "TREND", "30", "55", "1900", "1890", "80",
+                "70", "loss", "2026-08-19T10:00:00", "trade-2", "trace-2",
+            ]
+        )
+
+    stats = recorder.get_stats()
+    assert stats["total_trades"] == 2
+    assert stats["total_pnl"] == 1.0
+    assert stats["win_rate"] == 50.0

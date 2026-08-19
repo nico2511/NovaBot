@@ -43,7 +43,7 @@ class WebSocketPriceManager:
             staleness_threshold: Seconds before price is considered stale
             logger: Optional logger instance (standard logging.Logger or custom object with info/warning/error methods)
         """
-        self.symbols = symbols
+        self.symbols = [str(s).strip().upper() for s in (symbols or []) if str(s).strip()]
         self.on_price_update = on_price_update
         self.staleness_threshold = staleness_threshold
         self.logger = logger
@@ -129,22 +129,49 @@ class WebSocketPriceManager:
             else:
                 self._log_info("✅ WebSocket Manager stopped.")
 
+    def is_alive(self) -> bool:
+        """True when the WS thread is running."""
+        return bool(
+            self._running
+            and self._ws_thread is not None
+            and self._ws_thread.is_alive()
+        )
+
+    def seed_price(self, symbol: str, price: float) -> None:
+        """Seed cache from REST while waiting for WS ticks (startup / symbol add)."""
+        sym = str(symbol or "").strip().upper()
+        if not sym or price is None or float(price) <= 0:
+            return
+        with self._lock:
+            if sym not in self.symbols:
+                self.symbols.append(sym)
+            self.prices[sym] = float(price)
+            self.last_update[sym] = time.time()
+
+    def sync_symbols(self, symbols: List[str]) -> None:
+        """Ensure all symbols are tracked (e.g. after engine restart)."""
+        for raw in symbols or []:
+            sym = str(raw or "").strip().upper()
+            if not sym:
+                continue
+            with self._lock:
+                if sym not in self.symbols:
+                    self.symbols.append(sym)
+
     def get_price(self, symbol: str) -> Optional[float]:
         """Get thread-safe price for a symbol."""
+        sym = str(symbol or "").strip().upper()
         with self._lock:
-            if symbol not in self.prices:
+            if sym not in self.prices:
                 return None
             
-            last_update_time = self.last_update.get(symbol, 0)
+            last_update_time = self.last_update.get(sym, 0)
             age = time.time() - last_update_time
             
             if age > self.staleness_threshold:
-                # Log once per threshold breach to avoid spamming? 
-                # For now keeping it simple as requested
-                # self._log_warning(f"⚠️ Price for {symbol} is stale ({age:.1f}s old)")
                 return None
             
-            return self.prices[symbol]
+            return self.prices[sym]
     
     def get_all_prices(self) -> Dict[str, float]:
         """Get copy of all cached prices."""
@@ -153,19 +180,25 @@ class WebSocketPriceManager:
 
     def add_symbol(self, symbol: str) -> None:
         """Add symbol to local filter."""
-        self._log_info(f"➕ Adding symbol {symbol}")
+        sym = str(symbol or "").strip().upper()
+        if not sym:
+            return
+        self._log_info(f"➕ Adding symbol {sym}")
         with self._lock:
-            if symbol not in self.symbols:
-                self.symbols.append(symbol)
+            if sym not in self.symbols:
+                self.symbols.append(sym)
 
     def remove_symbol(self, symbol: str) -> None:
         """Remove symbol from local filter."""
-        self._log_info(f"➖ Removing symbol {symbol}")
+        sym = str(symbol or "").strip().upper()
+        if not sym:
+            return
+        self._log_info(f"➖ Removing symbol {sym}")
         with self._lock:
-            if symbol in self.symbols:
-                self.symbols.remove(symbol)
-                self.prices.pop(symbol, None)
-                self.last_update.pop(symbol, None)
+            if sym in self.symbols:
+                self.symbols.remove(sym)
+                self.prices.pop(sym, None)
+                self.last_update.pop(sym, None)
 
     def _run_ws_loop(self) -> None:
         """
@@ -255,33 +288,23 @@ class WebSocketPriceManager:
         try:
             data = json.loads(message)
             
-            # Message format: {"channel": "allMids", "data": {"mids": {"BTC": "...", "ETH": "..."}}}
-            if data.get("channel") == "allMids":
-                payload = data.get("data", {})
-                mids = payload.get("mids", {})
+            channel = data.get("channel") or data.get("type")
+            if channel == "allMids":
+                payload = data.get("data", {}) or {}
+                mids = payload.get("mids", {}) if isinstance(payload, dict) else {}
                 
                 current_time = time.time()
                 
-                # Optimize locking: only lock once per batch
                 with self._lock:
-                    for symbol in self.symbols:
-                        if symbol in mids:
+                    tracked = list(self.symbols)
+                    for sym in tracked:
+                        if sym in mids:
                             try:
-                                price = float(mids[symbol])
-                                self.prices[symbol] = price
-                                self.last_update[symbol] = current_time
-                                
-                                if self.on_price_update:
-                                    # Call callback outside? No, keep it simple for now, 
-                                    # but warn if it blocks.
-                                    # Ideally callbacks should be non-blocking.
-                                    pass 
-                            except ValueError:
+                                price = float(mids[sym])
+                                self.prices[sym] = price
+                                self.last_update[sym] = current_time
+                            except (TypeError, ValueError):
                                 continue
-                                
-                # Processing callbacks outside lock would be better for performance 
-                # if callback is slow, but requires copying data.
-                # Given current usage (lightweight), this is acceptable.
                 
         except json.JSONDecodeError:
             pass

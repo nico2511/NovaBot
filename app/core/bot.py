@@ -923,10 +923,9 @@ class BotContext:
         self.active_symbol = new_symbol
         
         try:
-            if hyperliquid_service.ws_manager:
-                hyperliquid_service.ws_manager.add_symbol(new_symbol)
+            hyperliquid_service.ensure_ws_symbol(new_symbol)
         except Exception as e:
-            self.add_log(f"⚠️ Failed to update WebSocket subscription: {e}")
+            self.add_log(f"Failed to update WebSocket subscription: {e}")
         
         StateManager.save_state(self)
 
@@ -3480,8 +3479,7 @@ class BotContext:
                         elif focus_symbol and focus_symbol != ui_symbol:
                             # Persist focus + ensure WS for the filled symbol
                             try:
-                                if hyperliquid_service.ws_manager:
-                                    hyperliquid_service.ws_manager.add_symbol(focus_symbol)
+                                hyperliquid_service.ensure_ws_symbol(focus_symbol)
                             except Exception:
                                 pass
                             try:
@@ -3546,10 +3544,9 @@ class BotContext:
             
             self.add_log(f"🕵️ ADOPTED {symbol}: Size {size} | Entry {entry_price}")
             try:
-                if hyperliquid_service.ws_manager:
-                    hyperliquid_service.ws_manager.add_symbol(symbol)
+                hyperliquid_service.ensure_ws_symbol(symbol)
             except Exception as ws_add_err:
-                self.add_log(f"⚠️ Failed to subscribe WS price for adopted {symbol}: {ws_add_err}")
+                self.add_log(f"Failed to subscribe WS price for adopted {symbol}: {ws_add_err}")
             
             # --- GLOBAL ADOPTION NOTIFICATION ---
             direction_label = "LONG 🟢" if side == "BUY" else "SHORT 🔴"

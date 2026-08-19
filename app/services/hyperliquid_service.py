@@ -124,6 +124,48 @@ class HyperliquidService:
     
         # Log callback for UI integration
         self.log_callback = None
+        self._ws_fallback_last_log: dict[str, float] = {}
+    
+    def _normalize_ws_symbols(self, symbols: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols or []:
+            sym = self.get_canonical_symbol(str(raw or "").strip())
+            if sym and sym not in seen:
+                seen.add(sym)
+                out.append(sym)
+        return out
+
+    def _fetch_rest_mid(self, symbol: str) -> float:
+        """REST mid price (allMids). Returns 0.0 on failure."""
+        symbol = self.get_canonical_symbol(symbol)
+        try:
+            mids = self.info.all_mids()
+            mid = mids.get(symbol) if isinstance(mids, dict) else None
+            if mid is not None:
+                px = float(mid)
+                return px if px > 0 else 0.0
+        except Exception as e:
+            self.log(f"allMids price failed for {symbol}: {e}", "DEBUG")
+        return 0.0
+
+    def _seed_ws_prices(self, symbols: list[str]) -> None:
+        if not self.ws_manager:
+            return
+        for sym in self._normalize_ws_symbols(symbols):
+            px = self._fetch_rest_mid(sym)
+            if px > 0:
+                self.ws_manager.seed_price(sym, px)
+
+    def _log_ws_cache_miss_once(self, symbol: str) -> None:
+        now = time.time()
+        if now - self._ws_fallback_last_log.get(symbol, 0) < 300:
+            return
+        self._ws_fallback_last_log[symbol] = now
+        self.log(
+            f"WS price cache miss for {symbol}; seeded from REST until WS tick",
+            "DEBUG",
+        )
     
     def set_log_callback(self, callback_func):
         """
@@ -157,20 +199,21 @@ class HyperliquidService:
         This should be called once at bot startup with the list of symbols
         to monitor. The WebSocket runs in a background thread and continuously
         updates price cache.
-        
-        Args:
-            symbols: List of symbols to subscribe to (e.g., ["BTC", "ETH"])
-        
-        Example:
-            >>> service = HyperliquidService()
-            >>> service.start_websocket(["BTC", "HYPE"])
         """
-        if self.ws_manager is not None:
-            self.log("⚠️ WebSocket manager already initialized")
+        tracked = self._normalize_ws_symbols(symbols)
+        if not tracked:
             return
-        
+
+        if self.ws_manager is not None:
+            if self.ws_manager.is_alive():
+                self.ws_manager.sync_symbols(tracked)
+                self._seed_ws_prices(tracked)
+                self.log(f"WebSocket symbols synced: {', '.join(tracked)}")
+                return
+            self.log("WebSocket thread dead; restarting price feed")
+            self.stop_websocket()
+
         try:
-            # Create a logger bridge that routes WebSocket logs to our log() method
             class LogBridge:
                 """Simple logger bridge for WebSocket integration"""
                 def __init__(self, service):
@@ -188,13 +231,13 @@ class HyperliquidService:
                 def debug(self, msg, *args):
                     self.service.log(msg, "DEBUG")
             
-            # Pass LogBridge instance directly to WebSocket
-            self.ws_manager = WebSocketPriceManager(symbols, logger=LogBridge(self))
+            self.ws_manager = WebSocketPriceManager(tracked, logger=LogBridge(self))
             self.ws_manager.start()
-            self.log(f"✅ WebSocket price feeds started for: {', '.join(symbols)}")
+            self._seed_ws_prices(tracked)
+            self.log(f"WebSocket price feeds started for: {', '.join(tracked)}")
         except Exception as e:
-            self.log(f"❌ Failed to start WebSocket manager: {e}")
-            self.log("⚠️ Falling back to REST API for price feeds")
+            self.log(f"Failed to start WebSocket manager: {e}", "ERROR")
+            self.log("Falling back to REST API for price feeds", "INFO")
             self.ws_manager = None
     
     def stop_websocket(self) -> None:
@@ -206,6 +249,17 @@ class HyperliquidService:
         if self.ws_manager:
             self.ws_manager.stop()
             self.ws_manager = None
+
+    def ensure_ws_symbol(self, symbol: str) -> None:
+        """Track symbol on WS feed and seed REST mid until first WS tick."""
+        sym = self.get_canonical_symbol(str(symbol or "").strip())
+        if not sym:
+            return
+        if self.ws_manager is None:
+            self.start_websocket([sym])
+            return
+        self.ws_manager.sync_symbols([sym])
+        self._seed_ws_prices([sym])
     
     def _parse_interval_to_seconds(self, interval: str) -> int:
         """Parse interval string (e.g., '1m', '15m', '1h') to seconds"""
@@ -1229,33 +1283,28 @@ class HyperliquidService:
         """
         symbol = self.get_canonical_symbol(symbol)
 
-        # Try WebSocket cache first (preferred method)
         if self.ws_manager is not None:
             price = self.ws_manager.get_price(symbol)
             if price is not None and price > 0:
                 return float(price)
-            self.log(f"⚠️ WebSocket price unavailable for {symbol}, falling back to REST")
-        
-        # Prefer allMids over candles — cheap, reliable mid; candles can be empty
-        try:
-            mids = self.info.all_mids()
-            mid = mids.get(symbol) if isinstance(mids, dict) else None
-            if mid is not None:
-                px = float(mid)
-                if px > 0:
-                    return px
-        except Exception as e:
-            self.log(f"⚠️ allMids price failed for {symbol}: {e}")
 
-        # Last resort: latest 1m candle close
+        px = self._fetch_rest_mid(symbol)
+        if px > 0:
+            if self.ws_manager is not None:
+                self.ws_manager.seed_price(symbol, px)
+                self._log_ws_cache_miss_once(symbol)
+            return px
+
         try:
             df = self.get_candles(symbol, "1m", 1)
             if not df.empty:
                 px = float(df['close'].iloc[-1])
                 if px > 0:
+                    if self.ws_manager is not None:
+                        self.ws_manager.seed_price(symbol, px)
                     return px
         except Exception as e:
-            self.log(f"❌ Error getting price via candles: {e}")
+            self.log(f"Error getting price via candles: {e}", "ERROR")
         
         return 0.0
 

@@ -28,8 +28,19 @@ class TradeRecorder:
             # Timeline / multi-trade ids
             "entry_time", "trade_id", "trace_id",
         ]
+        self._numeric_columns = (
+            "entry_price", "exit_price", "size", "pnl", "leverage",
+            "entry_adx", "entry_rsi", "entry_ema20", "entry_ema50",
+            "entry_volume_ratio", "ai_confidence",
+        )
         
         self._ensure_storage()
+
+    def _coerce_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        for col in self._numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        return df
 
     def _collapse_csv_row(self, row: list) -> list:
         """Merge overflow columns (unquoted commas in ai_reasoning) back into schema."""
@@ -86,7 +97,8 @@ class TradeRecorder:
             rows = self._read_csv_rows()
             if not rows:
                 return pd.DataFrame(columns=self.headers)
-            return pd.DataFrame(rows, columns=self.headers)
+            df = pd.DataFrame(rows, columns=self.headers)
+            return self._coerce_numeric_columns(df)
         except Exception as e:
             logger.warning("CSV Read Error: %s", e)
             return pd.DataFrame(columns=self.headers)
