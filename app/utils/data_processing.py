@@ -16,9 +16,11 @@ def get_dynamic_context(df: pd.DataFrame) -> dict:
     if df.empty or len(df) < 2: 
         return {}
     
-    # Get last 2 rows
-    curr = df.iloc[-1]
-    prev = df.iloc[-2]
+    # Confirmed bar vs previous (avoid live-candle wick noise — matches _prepare_ai_context)
+    curr_i = -2 if len(df) >= 2 else -1
+    prev_i = -3 if len(df) >= 3 else (curr_i - 1 if abs(curr_i) < len(df) else curr_i)
+    curr = df.iloc[curr_i]
+    prev = df.iloc[prev_i]
     
     ctx = {}
     
@@ -137,7 +139,7 @@ def get_dynamic_context(df: pd.DataFrame) -> dict:
         prev_price = float(prev['close'])
         price_chg = ((curr_price - prev_price) / prev_price * 100)
         
-        ctx['price_change_15m'] = round(price_chg, 2)
+        ctx['price_change_pct'] = round(price_chg, 2)
         ctx['price_trend'] = "🟢" if price_chg > 0 else "🔴"
     except Exception:
         pass

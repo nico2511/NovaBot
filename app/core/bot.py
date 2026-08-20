@@ -854,13 +854,15 @@ class BotContext:
             self._last_signal_discord = {"signature": signature, "time": now_ts}
 
             regime = technical_context.get("regime", "UNKNOWN")
-            adx = technical_context.get("adx", 0)
+            adx = technical_context.get("adx_val", technical_context.get("adx", 0))
             adx_slope = technical_context.get("adx_slope", 0)
-            rsi = technical_context.get("rsi", 0)
+            rsi = technical_context.get("rsi_val", technical_context.get("rsi", 0))
             ema20 = technical_context.get("ema_20", 0)
             ema50 = technical_context.get("ema_50", 0)
             vol_ratio = technical_context.get("volume_ratio", 0)
-            ema_trend = "↗" if ema20 > ema50 else "↘" if ema20 < ema50 else "→"
+            ema_trend = "↗" if ema20 and ema50 and ema20 > ema50 else (
+                "↘" if ema20 and ema50 and ema20 < ema50 else "→"
+            )
 
             debug_payload = {
                 "symbol": symbol,
@@ -1267,12 +1269,7 @@ class BotContext:
             funding_rate = hyperliquid_service.get_funding_rate(self.active_symbol)
         except Exception as e:
             logger.debug("Funding rate fetch failed for %s: %s", self.active_symbol, e)
-            
-        # Extract OI Metrics calculated in trading_loop
-        oi_change_pct = float(df['OI_Change_Pct'].iloc[-1]) if 'OI_Change_Pct' in df.columns else 0.0
-        oi_divergence = float(df['OI_Divergence'].iloc[-1]) if 'OI_Divergence' in df.columns else 0.0
-        oi_vs_ma = float(df['OI_vs_MA'].iloc[-1]) if 'OI_vs_MA' in df.columns else 0.0
-        
+
         return {
             "symbol": self.active_symbol,
             "strategy_timeframe": tf,
@@ -1297,14 +1294,17 @@ class BotContext:
             "sl_distance": round(sl_distance, 2) if sl_distance else None,
             "tp_distance": round(tp_distance, 2) if tp_distance else None,
             "rr_ratio": rr_ratio,
-            "recent_closes": df['close'].tail(20).tolist() if not df.empty else [],
             "open_interest": hyperliquid_service.get_open_interest(self.active_symbol),
             "funding_rate": funding_rate,
-            "oi_change_15m": round(oi_change_pct, 4),
-            "oi_divergence": round(oi_divergence, 4),
-            "oi_sentiment": "ACCUMULATION" if oi_vs_ma > 1.05 and funding_rate > 0 else "DISTRIBUTION" if oi_vs_ma < 0.95 else "NEUTRAL",
             **dynamic_ctx
         }
+
+    @staticmethod
+    def _ai_context_snapshot(market_context: dict) -> dict:
+        """Strategy-TF context exactly as seen by the IA gate (for audit + entry tags)."""
+        from app.utils.ai_context import normalize_strategy_context
+
+        return normalize_strategy_context(market_context)
 
     async def _update_market_analysis(self):
         """Disabled"""
@@ -1402,65 +1402,22 @@ class BotContext:
                 "trade_id": trade_id or sig.get("trade_id"),
             }
             
-            # Enrich with market context for retrospective analysis
+            # Enrich with the same strategy-TF context the IA gate saw
             try:
-                # 1. Technical Indicators (Use explicit pass if available, else try simple extraction)
                 if indicators:
                     entry["indicators"] = indicators
-                elif not self.latest_data.empty:
-                    last_row = self.latest_data.iloc[-1]
-                    entry["indicators"] = {
-                        "rsi": round(float(last_row.get("rsi", 0)), 2),
-                        "adx": round(float(last_row.get("adx", 0)), 2),
-                        "ema20": round(float(last_row.get("ema20", 0)), 6),
-                        "ema50": round(float(last_row.get("ema50", 0)), 6),
-                        "bb_upper": round(float(last_row.get("bb_upper", 0)), 6),
-                        "bb_middle": round(float(last_row.get("bb_middle", 0)), 6),
-                        "bb_lower": round(float(last_row.get("bb_lower", 0)), 6),
-                        "volume_ratio": round(float(last_row.get("volume_ratio", 0)), 2),
-                        "macd": round(float(last_row.get("macd", 0)), 6),
-                        "macd_signal": round(float(last_row.get("macd_signal", 0)), 6),
-                        "macd_hist": round(float(last_row.get("macd_hist", 0)), 6)
-                    }
-                
-                # 2. Market Regime from latest_analysis
-                if self.latest_analysis:
-                    entry["regime"] = {
-                        "type": self.latest_analysis.get("regime", "UNKNOWN"),
-                        "bias": self.latest_analysis.get("bias", "NEUTRAL")
-                    }
-                
-                # 3. Copilot Sentiment (from AI cache)
-                if self.ai_cache.get("last_market_analysis"):
-                    market_sentiment = self.ai_cache["last_market_analysis"]
-                    entry["copilot_sentiment"] = {
-                        "5m": {
-                            "sentiment": market_sentiment.get("5m", {}).get("sentiment", "UNKNOWN"),
-                            "score": market_sentiment.get("5m", {}).get("score", 0),
-                            "rsi": market_sentiment.get("5m", {}).get("rsi", 0)
-                        },
-                        "1h": {
-                            "sentiment": market_sentiment.get("1h", {}).get("sentiment", "UNKNOWN"),
-                            "score": market_sentiment.get("1h", {}).get("score", 0),
-                            "rsi": market_sentiment.get("1h", {}).get("rsi", 0),
-                            "trend": market_sentiment.get("1h", {}).get("trend", "UNKNOWN")
-                        },
-                        "4h": {
-                            "sentiment": market_sentiment.get("4h", {}).get("sentiment", "UNKNOWN"),
-                            "score": market_sentiment.get("4h", {}).get("score", 0),
-                            "rsi": market_sentiment.get("4h", {}).get("rsi", 0)
-                        }
-                    }
-                
-                # 4. Funding & OI if available (from latest market data fetch)
+                    entry["strategy_timeframe"] = indicators.get("strategy_timeframe")
+                    if indicators.get("mtf_sentiment"):
+                        entry["mtf_sentiment"] = indicators["mtf_sentiment"]
+
                 try:
-                    # Logic improved: Use the bot's own service (Sync)
                     entry["market_data"] = {
                         "funding_rate": hyperliquid_service.get_funding_rate(self.active_symbol),
-                        "open_interest": hyperliquid_service.get_open_interest(self.active_symbol)
+                        "open_interest": hyperliquid_service.get_open_interest(self.active_symbol),
                     }
-                except: pass
-                
+                except Exception:
+                    pass
+
             except Exception as ctx_err:
                 self.add_log(f"⚠️ Failed to enrich signal context: {ctx_err}")
             
@@ -2908,6 +2865,7 @@ class BotContext:
                             market_context["volume_ratio"] = technical_context["volume_ratio"]
                         market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
                         market_context["strategy_timeframe"] = sig_tf
+                        ai_context = self._ai_context_snapshot(market_context)
 
                         # --- HARD VETO (strategy-owned) before spending AI tokens ---
                         veto_reason = self._check_hard_veto(
@@ -2941,36 +2899,8 @@ class BotContext:
                                 "tp": sig.get("tp"),
                                 "timestamp": sig.get("timestamp"),
                             },
-                            "market_context_keys": sorted(list((market_context or {}).keys())),
-                            "market_context_focus": {
-                                # Keys the IA prompt actually reads (rsi_val/adx_val aliases)
-                                "current_price": market_context.get("current_price") if isinstance(market_context, dict) else None,
-                                "regime": market_context.get("regime") if isinstance(market_context, dict) else None,
-                                "market_bias": market_context.get("market_bias") if isinstance(market_context, dict) else None,
-                                "rsi_val": (
-                                    market_context.get("rsi_val")
-                                    if isinstance(market_context, dict)
-                                    else None
-                                )
-                                or (
-                                    market_context.get("rsi")
-                                    if isinstance(market_context, dict)
-                                    else None
-                                ),
-                                "adx_val": (
-                                    market_context.get("adx_val")
-                                    if isinstance(market_context, dict)
-                                    else None
-                                )
-                                or (
-                                    market_context.get("adx")
-                                    if isinstance(market_context, dict)
-                                    else None
-                                ),
-                                "bb_position": market_context.get("bb_position") if isinstance(market_context, dict) else None,
-                                "volume_ratio": market_context.get("volume_ratio") if isinstance(market_context, dict) else None,
-                                "strategy_timeframe": market_context.get("strategy_timeframe") if isinstance(market_context, dict) else None,
-                            },
+                            "market_context_keys": sorted(list((ai_context or {}).keys())),
+                            "market_context_focus": ai_context,
                         }
                         current_time = time.time()
                         time_since_last_call = current_time - self.last_ai_call
@@ -2990,28 +2920,9 @@ class BotContext:
                             if sig_symbol:
                                 self._save_strategy_sticky(sig_symbol)
                         else:
-                            # Discord Pre-AI card: for non-15m strategies show TF metrics AI sees
-                            # (engine technical_context is always 15m — caused Vol 16% vs AI 95% confusion)
-                            tech_discord = dict(technical_context or {})
-                            if (
-                                self._normalize_timeframe(sig_tf) != "15m"
-                                and isinstance(market_context, dict)
-                            ):
-                                if market_context.get("rsi_val") is not None:
-                                    tech_discord["rsi"] = market_context["rsi_val"]
-                                elif market_context.get("rsi") is not None:
-                                    tech_discord["rsi"] = market_context["rsi"]
-                                if market_context.get("adx_val") is not None:
-                                    tech_discord["adx"] = market_context["adx_val"]
-                                elif market_context.get("adx") is not None:
-                                    tech_discord["adx"] = market_context["adx"]
-                                if market_context.get("adx_slope") is not None:
-                                    tech_discord["adx_slope"] = market_context["adx_slope"]
-                                if market_context.get("volume_ratio") is not None:
-                                    tech_discord["volume_ratio"] = market_context["volume_ratio"]
-                                if market_context.get("regime") is not None:
-                                    tech_discord["regime"] = market_context["regime"]
-                                tech_discord["strategy_timeframe"] = sig_tf
+                            # Discord Pre-AI card: always show strategy-TF metrics (same as IA)
+                            tech_discord = dict(ai_context or {})
+                            tech_discord["strategy_timeframe"] = sig_tf
                             self._notify_signal_detected_discord(
                                 sig,
                                 tech_discord,
@@ -3031,7 +2942,7 @@ class BotContext:
                                     "symbol": sig.get("symbol", self.active_symbol),
                                     "strategy": sig.get("strategy"),
                                     "signal_data": sig,
-                                    "market_context": market_context,
+                                    "market_context": ai_context,
                                 }
                                 self._write_ai_payload_log({"type": "ai_request", **payload_obj})
                                 preview = self._safe_json_preview(
@@ -3050,7 +2961,7 @@ class BotContext:
                                         self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
                             val_res = ia_service.validate_signal(
                                 sig,
-                                market_context,
+                                ai_context,
                                 strategy_persona=strategy_persona,
                                 strategy=strat_obj,
                             )
@@ -3116,7 +3027,7 @@ class BotContext:
                                     reason = ai_data.get('reasoning', 'No reason')
                                     self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)
                                     self._record_signal_analysis(
-                                        sig, ai_data, True, indicators=technical_context, trace_id=ai_trace_id
+                                        sig, ai_data, True, indicators=ai_context, trace_id=ai_trace_id
                                     )
                                 
                                     # Discord Notification for AI Approval
@@ -3150,7 +3061,7 @@ class BotContext:
                                 else:
                                     self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                     self._record_signal_analysis(
-                                        sig, ai_data, False, indicators=technical_context, trace_id=ai_trace_id
+                                        sig, ai_data, False, indicators=ai_context, trace_id=ai_trace_id
                                     )
                                     try:
                                         reason = ai_data.get('reasoning', 'No reason')
@@ -3172,7 +3083,7 @@ class BotContext:
                                     log_meta.update(ai_data)
                                 self.add_log(f"❌ AI REJECTED: {reason}", metadata=log_meta)
                                 self._record_signal_analysis(
-                                    sig, ai_data, False, indicators=technical_context, trace_id=ai_trace_id
+                                    sig, ai_data, False, indicators=ai_context, trace_id=ai_trace_id
                                 )
                                 try:
                                     discord_service.send_alert(
@@ -3385,8 +3296,7 @@ class BotContext:
                                      self.force_sync()
                             
                                 # Capture full market snapshot for trade analysis
-                                # Use pre-calculated technical_context mixed with AI data
-                                entry_indicators = technical_context.copy()
+                                entry_indicators = dict(ai_context or {})
                                 entry_indicators.update({
                                     "ai_confidence": confidence if 'confidence' in locals() else 0,
                                     "ai_reasoning": (ai_data.get("reasoning", "") if 'ai_data' in locals() else sig.get("reason", "Strategy Signal"))[:200]

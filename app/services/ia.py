@@ -544,6 +544,8 @@ Prefer execution when R:R is good and momentum exists — do not over-filter."""
 
         strat_tf = str(ctx.get("strategy_timeframe") or config.TRADING_TIMEFRAME or "15m")
 
+        from app.utils.ai_context import format_funding_rate_pct
+
         account_default = config.RISK_PROFILE or "Balanced Growth"
         if strategy is not None and hasattr(strategy, "get_risk_profile"):
             try:
@@ -553,7 +555,13 @@ Prefer execution when R:R is good and momentum exists — do not over-filter."""
         else:
             risk_profile = account_default
 
-        # Prompt simplifié : Instruction directe de validation.
+        funding_line = format_funding_rate_pct(ctx.get("funding_rate"))
+        try:
+            price_chg = float(ctx.get("price_change_pct", ctx.get("price_change_15m", 0)) or 0)
+        except (TypeError, ValueError):
+            price_chg = 0.0
+
+        # Prompt: strategy-TF context only (no duplicate or dead fields).
         prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
 
 === SIGNAL TO VALIDATE ===
@@ -568,49 +576,37 @@ Computed R:R: {rr_line}
 SL Distance: {sl_pct_line}
 {tp_structure_note}
 
-=== CURRENT MARKET CONDITIONS ({strat_tf}) ===
+=== MARKET CONTEXT ({strat_tf} — strategy timeframe) ===
 Current Price: ${ctx.get('current_price', 'N/A')}
-Market Regime: {ctx.get('regime', 'UNKNOWN')}
-Market Bias: {ctx.get('market_bias', 'NEUTRAL')}
+Regime: {ctx.get('regime', 'UNKNOWN')}
+Bias: {ctx.get('market_bias', 'NEUTRAL')}
 
-Technical Indicators (Dynamic on {strat_tf}):
-- RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] ({strat_tf} Change: {ctx.get('rsi_slope', 0):+.1f})
-- Volume: {ctx.get('vol_current', 'N/A')} [{ctx.get('vol_trend', '')}] ({strat_tf} Change: {ctx.get('vol_slope', 0):+.1f}%)
-- ADX: {ctx.get('adx_val', 'N/A')} (Slope: {ctx.get('adx_slope', 0):+.1f})
-- MACD (12,26,9): Line {ctx.get('macd_line', 'N/A')} | Signal {ctx.get('macd_signal', 'N/A')} | Hist {ctx.get('macd_hist', 'N/A')}
-- Open Interest: ${int(ctx.get('open_interest', 0)):,}
-- Funding Rate: {ctx.get('funding_rate', 0):.4f}% ({"Longs pay Shorts" if ctx.get('funding_rate', 0) > 0 else "Shorts pay Longs" if ctx.get('funding_rate', 0) < 0 else "Neutral"})
-- Price Action: {ctx.get('price_trend', '')} ({ctx.get('price_change_15m', 0):+.2f}% on {strat_tf})
-
-Bollinger Bands (20, 2.0):
-- Upper: ${ctx.get('bb_upper', 'N/A')}
-- Middle: ${ctx.get('bb_middle', 'N/A')}
-- Lower: ${ctx.get('bb_lower', 'N/A')}
-- Position: {ctx.get('bb_position', 'N/A')}
-- Width: {ctx.get('bb_width', 'N/A')}%
-
-EMA Trends:
-- EMA 20 Slope: {ctx.get('ema_20_slope', 0):.6f}
-- EMA 50 Slope: {ctx.get('ema_50_slope', 0):.6f} [{ctx.get('ema_50_slope_label', 'N/A')}]
-
-Fibonacci Levels (from Swing):
-- 78.6%: ${ctx.get('fib_786', 'N/A')}
-- 61.8% (Golden): ${ctx.get('fib_618', 'N/A')}
-- 50.0%: ${ctx.get('fib_50', 'N/A')}
-- 38.2%: ${ctx.get('fib_382', 'N/A')}
-- 23.6%: ${ctx.get('fib_236', 'N/A')}
-- Current Zone: {ctx.get('fib_zone', 'N/A')}
-
-Key Levels:
-- Swing High: ${swing_high}
-- Swing Low: ${swing_low}
-
-=== COPILOT SENTIMENT (MTF) ===
-{ctx.get('mtf_sentiment', 'N/A')}
+Momentum:
+- RSI(14): {ctx.get('rsi_val', 'N/A')} [{ctx.get('rsi_trend', '')}] (Δ {ctx.get('rsi_slope', 0):+.1f})
+- ADX: {ctx.get('adx_val', 'N/A')} (slope {ctx.get('adx_slope', 0):+.1f})
+- Price: {ctx.get('price_trend', '')} ({price_chg:+.2f}% on {strat_tf})
 
 Volume:
-- Current: {ctx.get('current_volume', 'N/A')}
-- Ratio vs Avg: {ctx.get('volume_ratio', 'N/A')}%
+- Ratio vs MA50: {ctx.get('volume_ratio', 'N/A')}%
+- Change: {ctx.get('vol_slope', 0):+.1f}% [{ctx.get('vol_trend', '')}]
+
+Structure:
+- MACD: line {ctx.get('macd_line', 'N/A')} | signal {ctx.get('macd_signal', 'N/A')} | hist {ctx.get('macd_hist', 'N/A')}
+- Bollinger: upper ${ctx.get('bb_upper', 'N/A')} | mid ${ctx.get('bb_middle', 'N/A')} | lower ${ctx.get('bb_lower', 'N/A')}
+- BB position: {ctx.get('bb_position', 'N/A')} | width {ctx.get('bb_width', 'N/A')}%
+- Swing high: ${swing_high} | swing low: ${swing_low}
+- Fib zone: {ctx.get('fib_zone', 'N/A')} (61.8% ${ctx.get('fib_618', 'N/A')})
+
+Trend:
+- EMA20 slope: {ctx.get('ema_20_slope', 0):.6f}
+- EMA50 slope: {ctx.get('ema_50_slope', 0):.6f} [{ctx.get('ema_50_slope_label', 'N/A')}]
+
+Derivatives:
+- Open Interest: ${int(ctx.get('open_interest', 0) or 0):,}
+- Funding (hourly): {funding_line}
+
+=== HIGHER TIMEFRAMES ===
+{ctx.get('mtf_sentiment', 'N/A')}
 
 {criteria}
 
