@@ -1,13 +1,15 @@
 # Strategy Guide — Bot = machine, Strategy = plan
 
-NovaBot’s loop, orders, state, Discord, and **capital** `risk_profile` live in the bot.
-Everything that decides *whether / how* to trade a setup belongs in the **strategy**:
+NovaBot’s loop, orders, state, Discord, and **portfolio ceilings** (daily stop, max positions) live in the bot.
+Each strategy selects a **risk-profile preset** from the shared library (`strategies.json` → `risk_profile`).
 
 | In the strategy | In the bot (machine) |
 |-----------------|----------------------|
 | `params` / `get_param` | Loop, HL entry/exit, state |
-| `AI_PERSONA` / `get_ai_persona()` | `risk_profile` capital appetite (min R:R floor, lev, min conf) |
-| `get_ai_validation_criteria()` | Discord, storage |
+| `risk_profile` (preset selection) | Portfolio ceilings + account default fallback |
+| `AI_PERSONA` / `get_ai_persona()` | Discord, storage |
+| `get_risk_profile()` | Resolves preset → min R:R, sizing %, leverage |
+| `get_ai_validation_criteria()` | ScannerJob orchestrator |
 | `check_hard_veto()` | Trailing default if `manage_trade` returns `None` |
 | `score_scan_candidate()` / scan TF | ScannerJob orchestrator (universe, merge, top-K) |
 | `post_ai_adjust()` | Multi-position book (`trade_id`), top-K analysis |
@@ -16,6 +18,26 @@ Everything that decides *whether / how* to trade a setup belongs in the **strate
 | optional `evaluate_trade_thesis` | In-trade plan monitoring (VALID / WEAK / DEAD) |
 
 Reference: [`supertrend.py`](./supertrend.py) (15m), [`trend_lt.py`](./trend_lt.py) (1h trend), [`range_lt.py`](./range_lt.py) (1h box fade).
+
+---
+
+## Risk profile presets (per strategy)
+
+Shared library (`app/core/risk_profiles.py` + `prompts.RISK_PARAMS_MAP`):
+
+| Preset | min R:R | Typical use |
+|--------|---------|-------------|
+| Capital Preservation First | 1.5 | range_lt, prudent account default |
+| Balanced Growth | 1.3 | supertrend, trend_lt |
+| High Volatility Hunter | 1.0 | rocket, waterfall |
+
+Set on each strategy root in `data/config/strategies.json`:
+
+```json
+"rocket": { "risk_profile": "High Volatility Hunter", ... }
+```
+
+Account `risk_defaults.risk_profile` is the **fallback** when a strategy omits the key.
 
 ---
 

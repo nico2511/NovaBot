@@ -544,6 +544,15 @@ Prefer execution when R:R is good and momentum exists — do not over-filter."""
 
         strat_tf = str(ctx.get("strategy_timeframe") or config.TRADING_TIMEFRAME or "15m")
 
+        account_default = config.RISK_PROFILE or "Balanced Growth"
+        if strategy is not None and hasattr(strategy, "get_risk_profile"):
+            try:
+                risk_profile = strategy.get_risk_profile(account_default)
+            except Exception:
+                risk_profile = account_default
+        else:
+            risk_profile = account_default
+
         # Prompt simplifié : Instruction directe de validation.
         prompt = f"""Validate the following trading signal based on the current market conditions and your configured Persona/Risk Profile.
 
@@ -613,7 +622,7 @@ Volume:
         # Primary timeframe follows the strategy plan (e.g. 1h for trend_lt), not global 15m.
         system_prompt = get_system_prompt(
             persona=config.BOT_PERSONA,
-            risk_profile=config.RISK_PROFILE,
+            risk_profile=risk_profile,
             timeframe=strat_tf,
         )
         if strategy_persona:
@@ -635,7 +644,7 @@ Volume:
             result = self._enforce_hard_constraints(
                 signal_data,
                 result,
-                config.RISK_PROFILE,
+                risk_profile,
                 market_context=ctx,
                 strategy=strategy,
             )

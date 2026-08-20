@@ -168,7 +168,7 @@ curl -X POST -H "X-API-Key: ..." https://.../api/force_sync
 
 Ajuste dans `data/config/user_settings.json` (volume persistant) — les changements sont rechargés à chaud sans redémarrer. Les clés importantes :
 
-- `risk_defaults.risk_profile` : appétit **capital** seulement — `"Capital Preservation First"` / `"Balanced Growth"` / `"High Volatility Hunter"` (min R:R compte, levier, conf). La géométrie métier reste dans la stratégie.
+- `risk_defaults.risk_profile` : profil **compte par défaut** (fallback si une stratégie n’en déclare pas). Chaque stratégie choisit son preset dans `data/config/strategies.json` → `risk_profile` (ex. rocket → High Volatility Hunter).
 - `risk_defaults.bot_persona` : tempérament capital UI (ne remplace pas `AI_PERSONA` de la strat).
 - `risk_defaults.max_positions` : nombre max de positions simultanées.
 - `scanner.leverage` : levier demandé (borné par le profil).

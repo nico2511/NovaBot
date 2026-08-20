@@ -12,6 +12,27 @@ from app.services import storage
 
 logger = logging.getLogger("EngineRouter")
 
+
+def _strategy_risk_profiles_snapshot(bot) -> dict:
+    """Map strategy name → effective risk profile preset."""
+    out = {}
+    account_default = bot.global_settings.get("risk_defaults", {}).get(
+        "risk_profile", "Capital Preservation First"
+    )
+    engine = getattr(bot, "strategy_engine", None)
+    if not engine or not getattr(engine, "strategies", None):
+        return out
+    for name, strat in engine.strategies.items():
+        try:
+            if hasattr(strat, "get_risk_profile"):
+                out[name] = strat.get_risk_profile(account_default)
+            else:
+                out[name] = account_default
+        except Exception:
+            out[name] = account_default
+    return out
+
+
 router = APIRouter(prefix="/api", tags=["engine"], dependencies=[Depends(require_api_key)])
 
 
@@ -105,7 +126,10 @@ def get_status(bot=Depends(get_bot_context)):
                 "daily_stop_loss": bot.global_settings.get("risk_defaults", {}).get("daily_stop_loss", 0),
                 "leverage": getattr(bot, 'leverage', 1),
                 "bot_persona": getattr(bot, 'bot_persona', 'Unknown'),
-                "risk_profile": getattr(bot, 'risk_profile', 'Unknown')
+                "risk_profile": bot.global_settings.get("risk_defaults", {}).get(
+                    "risk_profile", "Capital Preservation First"
+                ),
+                "strategy_risk_profiles": _strategy_risk_profiles_snapshot(bot),
             },
             "scanner": getattr(bot, "scanner_settings", {}),
             "market_analysis": getattr(bot, 'ai_cache', {}).get('last_position_analysis'),

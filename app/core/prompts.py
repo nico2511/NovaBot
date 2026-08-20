@@ -116,7 +116,8 @@ RISK_PROFILE_INSTRUCTIONS_V2 = {
     """
 }
 
-# Helper for Dynamic Constraint Injection
+# Helper for Dynamic Constraint Injection — extended via app/core/risk_profiles.py
+# (risk_pct, max_leverage). Strategies select a preset; account settings provide fallback.
 RISK_PARAMS_MAP = {
     # Tuned for SuperTrend ATR stops on volatile HL perps (not pure scalps).
     "Capital Preservation First": {"min_rr": 1.5, "max_sl": 0.06, "min_conf": 62},

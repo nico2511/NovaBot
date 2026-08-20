@@ -92,6 +92,24 @@ def test_missing_price_levels_does_not_crash(ia):
     assert out["approved"] is True
 
 
+def test_rocket_1r_passes_high_volatility_hunter(ia):
+    """Momentum strategies target ~1R; HV Hunter profile must allow it."""
+    signal = {"price": 1.7517, "sl": 1.7267, "tp": 1.7767}  # R:R = 1.0
+    ai_result = {"approved": True, "confidence": 65, "reasoning": "rocket cascade"}
+
+    out = ia._enforce_hard_constraints(signal, ai_result, "High Volatility Hunter")
+    assert out["approved"] is True
+
+
+def test_rocket_1r_rejected_under_balanced_growth(ia):
+    signal = {"price": 1.7517, "sl": 1.7267, "tp": 1.7767}
+    ai_result = {"approved": True, "confidence": 65}
+
+    out = ia._enforce_hard_constraints(signal, ai_result, "Balanced Growth")
+    assert out["approved"] is False
+    assert out["rejection_reason_category"] == "BAD_RR"
+
+
 def test_unknown_risk_profile_falls_back_to_default(ia):
     """Unknown profiles use 1.5 default min_rr (same as Capital Preservation)."""
     signal = {"price": 100.0, "sl": 98.0, "tp": 102.0}  # R:R = 1.0

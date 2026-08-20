@@ -5,6 +5,7 @@
     "supertrend": {
         "enabled": true,
         "type": "trend",
+        "risk_profile": "Balanced Growth",
         "description": "Supertrend strategy with EMA 200 filter and multi-timeframe precision.",
         "active": true,
         "timeframe": "15m",
@@ -40,6 +41,7 @@
     "trend_lt": {
         "enabled": true,
         "type": "always_active",
+        "risk_profile": "Balanced Growth",
         "description": "Longer-horizon 1h EMA200 + SuperTrend pullback/reclaim swings.",
         "active": true,
         "timeframe": "1h",
@@ -72,6 +74,7 @@
     "range_lt": {
         "enabled": true,
         "type": "always_active",
+        "risk_profile": "Capital Preservation First",
         "description": "1h box fade: mean-reversion at range extremes when ADX is low and EMA50 is flat.",
         "active": true,
         "timeframe": "1h",
@@ -112,6 +115,7 @@
     "waterfall": {
         "enabled": true,
         "type": "trend",
+        "risk_profile": "High Volatility Hunter",
         "description": "Short-only 15m cascade rider: double red, lower lows, price < EMA9 < EMA20.",
         "active": true,
         "timeframe": "15m",
@@ -138,6 +142,7 @@
     "rocket": {
         "enabled": true,
         "type": "trend",
+        "risk_profile": "High Volatility Hunter",
         "description": "Long-only 15m pump rider: double green, higher highs, price > EMA9 > EMA20.",
         "active": true,
         "timeframe": "15m",

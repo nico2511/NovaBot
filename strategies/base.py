@@ -1,7 +1,8 @@
 """
 Strategy contract — the strategy IS the trading plan.
 
-The bot is a generic machine (loop, orders, state, capital risk_profile).
+The bot is a generic machine (loop, orders, state, portfolio ceilings).
+Each strategy selects a risk-profile preset from the shared library.
 Everything market-specific lives here: params, AI persona, hard vetoes,
 post-AI geometry, signals, optional manage_trade.
 
@@ -127,8 +128,19 @@ class BaseStrategy(ABC):
         return None
 
     def get_rr_epsilon(self) -> float:
-        """Tolerance when comparing post-trim R:R to the capital risk_profile min."""
+        """Tolerance when comparing post-trim R:R to the strategy risk-profile min."""
         return 0.02
+
+    def get_risk_profile(self, account_default: Optional[str] = None) -> str:
+        """Effective risk profile preset for this strategy plan."""
+        from app.core.risk_profiles import resolve_strategy_risk_profile
+
+        key = getattr(self, "name", None)
+        return resolve_strategy_risk_profile(
+            self.config,
+            account_default,
+            strategy_key=str(key) if key else None,
+        )
 
     # ==========================
     # SCAN (strategy-owned universe ranking)

@@ -2513,84 +2513,67 @@ class BotContext:
         return {"status": "success", "message": "Resync initiated"}
 
 
-    def _enforce_leverage(self):
-        """Enforce leverage based on Risk Profile settings"""
-        try:
-            # Fallback: Use global_settings default_leverage
-            default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
-            default_margin_type = self.global_settings.get("risk_defaults", {}).get("default_margin_type", "Cross")
-            
-            # Read trading params from scanner_settings (centralized source) with fallbacks
-            requested_leverage = self.scanner_settings.get("leverage")
-            
-            # If leverage not explicitly set or set to 1 (likely default), derive from risk profile
-            if requested_leverage is None or int(requested_leverage) <= 1:
-                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                if risk_profile == "Capital Preservation First":
-                    requested_leverage = 3
-                elif risk_profile == "Balanced Growth":
-                    requested_leverage = 5
-                elif risk_profile == "High Volatility Hunter":
-                    requested_leverage = 10
-                else:
-                    requested_leverage = default_leverage
-            else:
-                requested_leverage = int(requested_leverage)
+    def _account_default_risk_profile(self) -> str:
+        return self.global_settings.get("risk_defaults", {}).get(
+            "risk_profile", "Capital Preservation First"
+        )
 
+    def _resolve_risk_profile(self, strategy_name: str | None = None) -> str:
+        """Effective risk preset: strategy selection → account default."""
+        from app.core.risk_profiles import resolve_strategy_risk_profile
+
+        account_default = self._account_default_risk_profile()
+        if not strategy_name or not hasattr(self, "strategy_engine"):
+            return account_default
+        strat = self.strategy_engine.strategies.get(strategy_name)
+        if strat is not None and hasattr(strat, "get_risk_profile"):
+            try:
+                return strat.get_risk_profile(account_default)
+            except Exception:
+                pass
+        cfg = (getattr(self.strategy_engine, "config", None) or {}).get(strategy_name)
+        return resolve_strategy_risk_profile(cfg, account_default, strategy_key=strategy_name)
+
+    def _resolve_trade_leverage(self, strategy_name: str | None = None) -> int:
+        """Leverage from strategy risk profile, capped by account default_leverage."""
+        from app.core.risk_profiles import clamp_leverage, get_max_leverage
+
+        default_leverage = int(
+            self.global_settings.get("risk_defaults", {}).get("default_leverage", 5) or 5
+        )
+        profile = self._resolve_risk_profile(strategy_name)
+        return clamp_leverage(get_max_leverage(profile), default_leverage)
+
+    def _enforce_leverage(self, strategy_name: str | None = None):
+        """Enforce leverage based on strategy risk profile (or account default)."""
+        try:
+            default_margin_type = self.global_settings.get("risk_defaults", {}).get(
+                "default_margin_type", "Cross"
+            )
             margin_type = self.scanner_settings.get("margin_type", default_margin_type)
-            is_cross = (margin_type == "Cross")
-            
-            target_leverage = requested_leverage
-            
-            # RISK PROFILE BASED LEVERAGE (Sync with prompts.py)
-            risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-            
-            if risk_profile == "Capital Preservation First":
-                target_leverage = 3
-            elif risk_profile == "Balanced Growth":
-                target_leverage = 5
-            elif risk_profile == "High Volatility Hunter":
-                target_leverage = 10
-            else:
-                target_leverage = int(self.scanner_settings.get("leverage", default_leverage))
-            
-            self.add_log(f"🛡️ RISK PROFILE ({risk_profile}): Using leverage: {target_leverage}x")
+            is_cross = margin_type == "Cross"
+
+            target_leverage = self._resolve_trade_leverage(strategy_name)
+            risk_profile = self._resolve_risk_profile(strategy_name)
+            label = strategy_name or "account default"
+
+            self.add_log(
+                f"🛡️ RISK PROFILE ({risk_profile}, {label}): Using leverage: {target_leverage}x"
+            )
             try:
                 balance_data = hyperliquid_service.get_account_balance()
                 if balance_data.get("status") == "success":
                     self.account_value = float(balance_data.get("total_equity", 0.0))
             except Exception as e:
                 logger.debug("Balance fetch during leverage sync failed: %s", e)
-            self.add_log(f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange...")
+            self.add_log(
+                f"⚙️ SYNC: Enforcing Leverage {target_leverage}x ({margin_type}) on Exchange..."
+            )
             hyperliquid_service.update_leverage(self.active_symbol, target_leverage, is_cross)
             self._leverage_synced = True
-            
+
         except Exception as e:
             self.add_log(f"⚠️ LEVERAGE SYNC FAILED: {e}")
-
-    def _resolve_trade_leverage(self) -> int:
-        """Same leverage rules as _enforce_leverage (risk profile overrides scanner default)."""
-        default_leverage = self.global_settings.get("risk_defaults", {}).get("default_leverage", 5)
-        requested_leverage = self.scanner_settings.get("leverage")
-        risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-
-        if requested_leverage is None or int(requested_leverage) <= 1:
-            if risk_profile == "Capital Preservation First":
-                return 3
-            if risk_profile == "Balanced Growth":
-                return 5
-            if risk_profile == "High Volatility Hunter":
-                return 10
-            return int(default_leverage)
-
-        target = int(requested_leverage)
-        if risk_profile == "Capital Preservation First":
-            return 3
-        if risk_profile == "Balanced Growth":
-            return 5
-        if risk_profile == "High Volatility Hunter":
-            return 10
-        return target
 
     def trading_loop(self):
         """Main trading loop"""
@@ -3251,6 +3234,11 @@ class BotContext:
                         
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
+
+                            try:
+                                self._enforce_leverage(strategy_name=sig.get("strategy"))
+                            except Exception as lev_err:
+                                self.add_log(f"⚠️ Pre-entry leverage sync failed: {lev_err}")
                         
                             # --- ATR-BASED SL FLOOR (Prevent unrealistically tight SL) ---
                             try:
@@ -3293,18 +3281,17 @@ class BotContext:
                             except Exception:
                                 pass
                             if not self.scanner_settings.get("gamification_enabled", True):
-                                risk_profile = self.global_settings.get("risk_defaults", {}).get("risk_profile", "Capital Preservation First")
-                            
-                                # Assign risk % constants based on profile
-                                risk_pct = 1.5 # Default (Conservative)
-                                if risk_profile == "Balanced Growth": risk_pct = 3.5
-                                elif risk_profile == "High Volatility Hunter": risk_pct = 7.0
+                                strat_name = sig.get("strategy")
+                                risk_profile = self._resolve_risk_profile(strat_name)
+                                from app.core.risk_profiles import get_risk_pct
+
+                                risk_pct = get_risk_pct(risk_profile)
                                 split = max(1, int(self.max_positions or 1))
                                 per_trade_pct = risk_pct / split
-                            
+
                                 self.add_log(
-                                    f"📏 SIZING: {risk_profile} budget {risk_pct:.1f}% equity "
-                                    f"→ {per_trade_pct:.2f}%/trade (÷{split} max_positions)"
+                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} budget "
+                                    f"{risk_pct:.1f}% equity → {per_trade_pct:.2f}%/trade (÷{split} max_positions)"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
@@ -3316,7 +3303,7 @@ class BotContext:
                             else:
                                 # Standard sizing (Fixed $20 Margin @ Target Leverage),
                                 # split across max_positions inside RiskManager
-                                current_leverage = self._resolve_trade_leverage()
+                                current_leverage = self._resolve_trade_leverage(sig.get("strategy"))
                                 split = max(1, int(self.max_positions or 1))
                                 self.add_log(
                                     f"📏 SIZING: fixed margin ${DEFAULT_SIZE_USDC:.0f} "
@@ -3331,7 +3318,7 @@ class BotContext:
                                     leverage=current_leverage
                                 )
 
-                            current_leverage = self._resolve_trade_leverage()
+                            current_leverage = self._resolve_trade_leverage(sig.get("strategy"))
                             split = max(1, int(self.max_positions or 1))
                             target_notional = (DEFAULT_SIZE_USDC / split) * current_leverage
                             self.add_log(
@@ -3911,21 +3898,15 @@ class BotContext:
                         min_rr = 2.0
                     tp_mult = max(sl_mult * min_rr, sl_mult)
                 else:
-                    # Capital appetite fallback only (no scalp legacy branch)
+                    from app.core.risk_profiles import get_profile_params
+
                     if not hasattr(self, "global_settings"):
                         self.global_settings = {}
-                    risk_profile = self.global_settings.get("risk_defaults", {}).get(
-                        "risk_profile", "Capital Preservation First"
-                    )
-                    if risk_profile == "Capital Preservation First":
-                        sl_mult = 2.0
-                        tp_mult = 3.0
-                    elif risk_profile == "High Volatility Hunter":
-                        sl_mult = 2.5
-                        tp_mult = 4.0
-                    else:
-                        sl_mult = 2.0
-                        tp_mult = 3.0
+                    risk_profile = self._resolve_risk_profile(strategy_name)
+                    params = get_profile_params(risk_profile)
+                    min_rr = float(params.get("min_rr", 1.5))
+                    sl_mult = 2.0
+                    tp_mult = max(sl_mult * min_rr, sl_mult)
             except Exception as e:
                 self.add_log(f"⚠️ Context Logic Error: {e}")
                 sl_mult = 2.0
