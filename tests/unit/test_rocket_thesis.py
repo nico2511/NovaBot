@@ -17,6 +17,22 @@ def test_rocket_thesis_valid_while_cascade_active():
     assert v.status == THESIS_VALID
 
 
+def test_rocket_thesis_holds_inside_entry_rsi_band():
+    """RSI 79 is allowed at entry (veto 82) — must not BE-lock mid-band."""
+    v = evaluate_rocket_thesis(
+        side="BUY",
+        entry=10.0,
+        current_price=10.5,
+        close_15m=10.4,
+        ema9=10.1,
+        rsi=79,
+        prev_open=10.2,
+        prev_close=10.35,
+        prev_low=10.15,
+    )
+    assert v.status == THESIS_VALID
+
+
 def test_rocket_thesis_weak_on_exhausted_rsi():
     v = evaluate_rocket_thesis(
         side="BUY",

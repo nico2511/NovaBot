@@ -17,6 +17,22 @@ def test_waterfall_thesis_valid_while_cascade_active():
     assert v.status == THESIS_VALID
 
 
+def test_waterfall_thesis_holds_inside_entry_rsi_band():
+    """RSI 20 is allowed at entry (veto 18) — must not BE-lock mid-band."""
+    v = evaluate_waterfall_thesis(
+        side="SELL",
+        entry=10.0,
+        current_price=9.4,
+        close_15m=9.5,
+        ema9=9.9,
+        rsi=20,
+        prev_open=9.55,
+        prev_close=9.45,
+        prev_high=9.6,
+    )
+    assert v.status == THESIS_VALID
+
+
 def test_waterfall_thesis_weak_on_exhausted_rsi():
     v = evaluate_waterfall_thesis(
         side="SELL",
@@ -24,7 +40,7 @@ def test_waterfall_thesis_weak_on_exhausted_rsi():
         current_price=9.0,
         close_15m=9.1,
         ema9=9.5,
-        rsi=18,
+        rsi=15,
         prev_open=9.15,
         prev_close=9.05,
         prev_high=9.2,

@@ -184,9 +184,13 @@ def evaluate_waterfall_thesis(
     prev_close: float = 0.0,
     prev_high: float = 0.0,
     cascade_high: Optional[float] = None,
-    rsi_exhaustion: float = 22.0,
+    rsi_exhaustion: float = 18.0,
 ) -> ThesisVerdict:
-    """Classify whether an open waterfall short thesis still holds."""
+    """Classify whether an open waterfall short thesis still holds.
+
+    ``rsi_exhaustion`` mirrors strategy ``veto_rsi_oversold`` so BE-lock does
+    not fire inside the RSI band that was valid at entry.
+    """
     side = (side or "").upper()
     if side != "SELL":
         return ThesisVerdict(
@@ -275,9 +279,13 @@ def evaluate_rocket_thesis(
     prev_close: float = 0.0,
     prev_low: float = 0.0,
     cascade_low: Optional[float] = None,
-    rsi_exhaustion: float = 78.0,
+    rsi_exhaustion: float = 82.0,
 ) -> ThesisVerdict:
-    """Classify whether an open rocket long thesis still holds."""
+    """Classify whether an open rocket long thesis still holds.
+
+    ``rsi_exhaustion`` mirrors strategy ``veto_rsi_overbought`` so BE-lock does
+    not fire inside the RSI band that was valid at entry.
+    """
     side = (side or "").upper()
     if side != "BUY":
         return ThesisVerdict(

@@ -450,4 +450,5 @@ Do NOT reject solely because:
             prev_close=prev_close,
             prev_high=prev_high,
             cascade_high=float(cascade_high) if cascade_high is not None else None,
+            rsi_exhaustion=self._float_param("veto_rsi_oversold", 18.0),
         )

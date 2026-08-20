@@ -3016,13 +3016,19 @@ class BotContext:
                             risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
                         
                             if approved:
-                                # HYBRID CONFIDENCE THRESHOLD CHECK
-                                required_conf = config.AI_CONF_THRESHOLD_MEDIUM  # Default
-                                if risk_level == "HIGH":
-                                    required_conf = config.AI_CONF_THRESHOLD_HIGH
-                                elif risk_level == "LOW":
-                                    required_conf = config.AI_CONF_THRESHOLD_LOW
-                            
+                                # Confidence floor: risk_level bars, tempered by strategy risk profile
+                                # (HV Hunter / rocket+waterfall must not demand 75% just because AI tags HIGH).
+                                from app.core.risk_profiles import required_ai_confidence
+
+                                strat_for_conf = sig.get("strategy")
+                                required_conf = required_ai_confidence(
+                                    risk_level,
+                                    self._resolve_risk_profile(strat_for_conf),
+                                    threshold_high=config.AI_CONF_THRESHOLD_HIGH,
+                                    threshold_medium=config.AI_CONF_THRESHOLD_MEDIUM,
+                                    threshold_low=config.AI_CONF_THRESHOLD_LOW,
+                                )
+
                                 if confidence >= required_conf:
                                     reason = ai_data.get('reasoning', 'No reason')
                                     self.add_log(f"✅ AI APPROVED (Conf: {confidence}%): {reason}", metadata=ai_data)

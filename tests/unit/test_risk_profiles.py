@@ -9,6 +9,7 @@ from app.core.risk_profiles import (
     get_max_leverage,
     get_profile_params,
     get_risk_pct,
+    required_ai_confidence,
     resolve_strategy_risk_profile,
 )
 from strategies.rocket import StrategyRocket
@@ -58,3 +59,18 @@ def test_all_presets_known():
     for name in AVAILABLE_RISK_PROFILES:
         assert get_risk_pct(name) > 0
         assert get_max_leverage(name) >= 1
+
+
+def test_hv_hunter_high_risk_does_not_require_global_high_bar():
+    """Rocket/waterfall: AI tags HIGH often — 68% must clear the gate."""
+    req = required_ai_confidence("HIGH", "High Volatility Hunter")
+    assert req == 55
+    assert req <= 68
+
+
+def test_balanced_high_risk_keeps_strict_bar():
+    assert required_ai_confidence("HIGH", "Balanced Growth") == 75
+
+
+def test_hv_hunter_medium_uses_profile_floor():
+    assert required_ai_confidence("MEDIUM", "High Volatility Hunter") == 55
