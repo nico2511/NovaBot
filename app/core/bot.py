@@ -2390,6 +2390,14 @@ class BotContext:
             side = trade.get("side")
             exit_price = float(closing_trade.get("entry_price", 0))
             pnl_usdc = float(closing_trade.get("pnl", 0))
+            from app.core.exit_classification import classify_sync_exit_reason
+
+            exit_reason = classify_sync_exit_reason(
+                side,
+                exit_price,
+                sl=trade.get("sl"),
+                tp=trade.get("tp"),
+            )
             exchange_close_time = None
             raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
             try:
@@ -2413,6 +2421,7 @@ class BotContext:
 
             self.add_log(
                 f"📝 SYNC: Confirmed close for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}"
+                + f", Reason: {exit_reason}"
                 + (f", ExchangeTime: {exchange_close_time}" if exchange_close_time else "")
                 + ")"
                 + (f" | id={tid}" if tid else "")
@@ -2429,7 +2438,7 @@ class BotContext:
                 "size": size,
                 "pnl": pnl_usdc,
                 "pnl_usdc": pnl_usdc,
-                "exit_reason": "External/Sync Close",
+                "exit_reason": exit_reason,
                 "exit_time": pd.Timestamp.now().isoformat(),
                 "entry_time": trade.get("timestamp"),
                 "entry_indicators": trade.get("entry_indicators", {}),
@@ -2441,7 +2450,7 @@ class BotContext:
 
             discord_service.send_alert(
                 f"🏁 TRADE CLOSED (Exchange): {symbol}",
-                f"Reason: Confirmed exchange fill (SL/TP/manual)\n"
+                f"Reason: {exit_reason} (exchange fill; inferred from SL/TP when possible)\n"
                 f"PnL: ${pnl_usdc:.2f}\n"
                 f"Exchange close time (if available): {exchange_close_time or 'N/A'}\n"
                 f"Detected by bot at: {pd.Timestamp.now(tz='UTC').isoformat()}",
