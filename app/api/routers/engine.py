@@ -13,6 +13,21 @@ from app.services import storage
 logger = logging.getLogger("EngineRouter")
 
 
+def _openrouter_credit_snapshot() -> dict:
+    """Cached OpenRouter remaining credits (no network)."""
+    try:
+        from app.services.ia import ia_service
+        snap = ia_service.get_credit_snapshot() or {}
+        return {
+            "status": snap.get("status"),
+            "remaining_usd": snap.get("remaining_usd"),
+            "checked_at": snap.get("checked_at"),
+            "source": snap.get("source"),
+        }
+    except Exception:
+        return {"status": "unknown", "remaining_usd": None, "checked_at": None, "source": None}
+
+
 def _strategy_risk_profiles_snapshot(bot) -> dict:
     """Map strategy name → effective risk profile preset."""
     out = {}
@@ -124,7 +139,11 @@ def get_status(bot=Depends(get_bot_context)):
             "settings": {
                 "max_positions": bot.max_positions,
                 "daily_stop_loss": bot.global_settings.get("risk_defaults", {}).get("daily_stop_loss", 0),
-                "leverage": getattr(bot, 'leverage', 1),
+                "leverage": (
+                    bot._resolve_trade_leverage()
+                    if hasattr(bot, "_resolve_trade_leverage")
+                    else 5
+                ),
                 "bot_persona": getattr(bot, 'bot_persona', 'Unknown'),
                 "risk_profile": bot.global_settings.get("risk_defaults", {}).get(
                     "risk_profile", "Capital Preservation First"
@@ -132,6 +151,7 @@ def get_status(bot=Depends(get_bot_context)):
                 "strategy_risk_profiles": _strategy_risk_profiles_snapshot(bot),
             },
             "scanner": getattr(bot, "scanner_settings", {}),
+            "openrouter": _openrouter_credit_snapshot(),
             "market_analysis": getattr(bot, 'ai_cache', {}).get('last_position_analysis'),
             "logs": list(getattr(bot, 'logs', []))[-50:]
         }

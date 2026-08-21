@@ -39,7 +39,7 @@ class GlobalSettingsModel(BaseModel):
     ai_thresholds: Dict[str, int]
     available_personas: Optional[List[str]] = None
     available_risk_profiles: Optional[List[str]] = None
-    default_leverage: int = 1
+    default_leverage: int = 10  # UI/account fallback; trade lev = risk profile
     default_margin_type: str = "ISOLATED"
     auto_start_trading: bool = False
     notifications: Dict[str, str] = {}

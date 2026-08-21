@@ -2501,14 +2501,11 @@ class BotContext:
         return resolve_strategy_risk_profile(cfg, account_default, strategy_key=strategy_name)
 
     def _resolve_trade_leverage(self, strategy_name: str | None = None) -> int:
-        """Leverage from strategy risk profile, capped by account default_leverage."""
-        from app.core.risk_profiles import clamp_leverage, get_max_leverage
+        """Leverage from the strategy risk profile (Preservation/Balanced/Hunter)."""
+        from app.core.risk_profiles import get_max_leverage
 
-        default_leverage = int(
-            self.global_settings.get("risk_defaults", {}).get("default_leverage", 5) or 5
-        )
         profile = self._resolve_risk_profile(strategy_name)
-        return clamp_leverage(get_max_leverage(profile), default_leverage)
+        return get_max_leverage(profile)
 
     def _enforce_leverage(self, strategy_name: str | None = None):
         """Enforce leverage based on strategy risk profile (or account default)."""
@@ -2568,6 +2565,24 @@ class BotContext:
                 self.risk_manager.sync_with_hyperliquid(hyperliquid_service)
             except Exception as risk_sync_err:
                 self.add_log(f"⚠️ Risk position sync failed: {risk_sync_err}")
+            try:
+                snap = ia_service.refresh_credits(reason="startup")
+                remaining = snap.get("remaining_usd")
+                remaining_txt = (
+                    f"${remaining:.2f}" if isinstance(remaining, (int, float)) else "inconnu"
+                )
+                status = snap.get("status") or "unknown"
+                self.add_log(f"💳 OpenRouter: {remaining_txt} restants (status={status})")
+                if status == "critical":
+                    self.add_log("⛔ Analyses IA suspendues: crédit OpenRouter insuffisant")
+                elif status == "warn":
+                    self.add_log("⚠️ OpenRouter: crédit faible — recharge recommandé")
+                elif status == "unknown" or remaining is None:
+                    self.add_log(
+                        "ℹ️ OpenRouter: solde inconnu — plafond clé ou OPENROUTER_MANAGEMENT_API_KEY"
+                    )
+            except Exception as credit_err:
+                self.add_log(f"⚠️ OpenRouter credit check failed: {credit_err}")
             self.startup_sync_done = True
             self.add_log("✅ STARTUP SYNC: Complete")
             self.add_log("🕵️ Starting Position Reconciler...")
@@ -2587,6 +2602,10 @@ class BotContext:
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
                     self._last_state_sync_time = now
+                try:
+                    ia_service.maybe_refresh_credits()
+                except Exception as credit_err:
+                    logger.debug("OpenRouter credit refresh skipped: %s", credit_err)
             except Exception as tick_err:
                 self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
 

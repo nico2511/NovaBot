@@ -44,6 +44,13 @@ def test_profile_params_include_sizing_and_leverage():
     assert p["max_leverage"] == 5
 
 
+def test_profile_leverage_presets():
+    """Trade leverage is owned by risk profile (not a hardcoded account 1x)."""
+    assert get_max_leverage("Capital Preservation First") == 3
+    assert get_max_leverage("Balanced Growth") == 5
+    assert get_max_leverage("High Volatility Hunter") == 10
+
+
 def test_clamp_leverage_respects_account_cap():
     assert clamp_leverage(10, 5) == 5
     assert clamp_leverage(3, 5) == 3

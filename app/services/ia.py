@@ -11,6 +11,17 @@ import re
 
 from app.core.config import config
 from app.core.prompts import get_system_prompt, SIGNAL_VALIDATION_JSON_SCHEMA
+from app.services.openrouter_credits import (
+    STATUS_CRITICAL,
+    STATUS_DISABLED,
+    STATUS_ERROR,
+    STATUS_OK,
+    STATUS_UNKNOWN,
+    STATUS_WARN,
+    build_credit_snapshot,
+    empty_snapshot,
+    fetch_credit_payloads,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +44,13 @@ class IAService:
         
         # Circuit Breaker
         self.circuit_breaker_until: Optional[datetime] = None
+
+        # OpenRouter credit probe (startup + hourly; cached snapshot)
+        self._credit_status: Dict[str, Any] = empty_snapshot(
+            STATUS_DISABLED if not self.openrouter_key else STATUS_UNKNOWN
+        )
+        self._last_credit_check: Optional[datetime] = None
+        self._last_credit_alert_status: Optional[str] = None
         
         # Initialize OpenRouter client
         if self.openrouter_key:
@@ -51,6 +69,181 @@ class IAService:
                 self.client = None
         else:
             logger.info("OpenRouter Key not found. AI Service disabled.")
+
+    def get_credit_snapshot(self) -> Dict[str, Any]:
+        """Last cached OpenRouter credit probe (never hits the network)."""
+        return dict(self._credit_status or empty_snapshot())
+
+    def credits_allow_ai_call(self) -> bool:
+        """False only when remaining is known and at/below the min floor."""
+        snap = self._credit_status or {}
+        return snap.get("status") != STATUS_CRITICAL
+
+    def maybe_refresh_credits(self) -> Optional[Dict[str, Any]]:
+        """Refresh remaining credits if the hourly (or configured) interval elapsed."""
+        if not self.openrouter_key:
+            return self._credit_status
+        interval = int(getattr(config, "OPENROUTER_CREDIT_CHECK_INTERVAL_SEC", 3600) or 0)
+        if interval <= 0 and self._last_credit_check is not None:
+            return self._credit_status
+        now = datetime.now()
+        if self._last_credit_check is not None and interval > 0:
+            elapsed = (now - self._last_credit_check).total_seconds()
+            if elapsed < interval:
+                return self._credit_status
+        return self.refresh_credits(reason="periodic")
+
+    def refresh_credits(self, *, notify: bool = True, reason: str = "periodic") -> Dict[str, Any]:
+        """Fetch OpenRouter remaining credits and optionally alert Discord."""
+        if not self.openrouter_key:
+            self._credit_status = empty_snapshot(STATUS_DISABLED, error="OPENROUTER_API_KEY missing")
+            self._last_credit_check = datetime.now()
+            logger.info("OpenRouter credit check skipped: no API key")
+            return self.get_credit_snapshot()
+
+        warn_usd = float(getattr(config, "OPENROUTER_CREDIT_WARN_USD", 1.0))
+        min_usd = float(getattr(config, "OPENROUTER_CREDIT_MIN_USD", 0.10))
+        try:
+            credits_payload, key_payload, error = fetch_credit_payloads(
+                self.openrouter_key,
+                management_key=getattr(config, "OPENROUTER_MANAGEMENT_API_KEY", "") or None,
+            )
+            snap = build_credit_snapshot(
+                credits_payload=credits_payload,
+                key_payload=key_payload,
+                warn_usd=warn_usd,
+                min_usd=min_usd,
+                error=error,
+            )
+        except Exception as e:
+            logger.warning("OpenRouter credit check failed: %s", e)
+            snap = empty_snapshot(STATUS_ERROR, error=str(e))
+            snap["checked_at"] = datetime.now().isoformat(timespec="seconds")
+
+        self._credit_status = snap
+        self._last_credit_check = datetime.now()
+        remaining = snap.get("remaining_usd")
+        remaining_txt = f"${remaining:.2f}" if isinstance(remaining, (int, float)) else "unknown"
+        logger.info(
+            "OpenRouter credits [%s]: remaining=%s status=%s source=%s",
+            reason,
+            remaining_txt,
+            snap.get("status"),
+            snap.get("source"),
+        )
+        if notify:
+            self._notify_credit_status(snap, reason=reason)
+        return self.get_credit_snapshot()
+
+    def _mark_credits_exhausted(self, detail: str) -> None:
+        """Trip critical after a live 402 / insufficient-credit API error."""
+        snap = dict(self._credit_status or empty_snapshot())
+        snap["status"] = STATUS_CRITICAL
+        snap["ok"] = False
+        snap["error"] = detail
+        snap["checked_at"] = datetime.now().isoformat(timespec="seconds")
+        if snap.get("remaining_usd") is None:
+            snap["remaining_usd"] = 0.0
+        self._credit_status = snap
+        self._notify_credit_status(snap, reason="api_402")
+
+    def _notify_credit_status(self, snap: Dict[str, Any], reason: str = "periodic") -> None:
+        """Discord: always log at startup; alerts only on warn/critical or recovery."""
+        try:
+            from app.services.discord_service import discord_service
+        except Exception:
+            return
+
+        status = snap.get("status") or STATUS_UNKNOWN
+        remaining = snap.get("remaining_usd")
+        remaining_txt = f"${remaining:.2f}" if isinstance(remaining, (int, float)) else "inconnu"
+        warn_usd = float(getattr(config, "OPENROUTER_CREDIT_WARN_USD", 1.0))
+        min_usd = float(getattr(config, "OPENROUTER_CREDIT_MIN_USD", 0.10))
+
+        if reason == "startup":
+            try:
+                discord_service.send_log(
+                    f"OpenRouter credit: {remaining_txt} remaining (status={status})"
+                )
+            except Exception:
+                pass
+
+        prev = self._last_credit_alert_status
+        worse = (STATUS_OK, STATUS_WARN, STATUS_CRITICAL)
+        prev_rank = worse.index(prev) if prev in worse else -1
+        new_rank = worse.index(status) if status in worse else -1
+        recovered = prev in (STATUS_WARN, STATUS_CRITICAL) and status == STATUS_OK
+        escalated = new_rank > prev_rank and status in (STATUS_WARN, STATUS_CRITICAL)
+        first_problem = prev is None and status in (STATUS_WARN, STATUS_CRITICAL)
+
+        if status == STATUS_CRITICAL and (escalated or first_problem or reason == "api_402"):
+            discord_service.notify(
+                "CRITICAL",
+                "OpenRouter",
+                (
+                    f"Crédit insuffisant ({remaining_txt} restants, plancher {min_usd:.2f} USD).\n"
+                    f"Les analyses IA sont suspendues jusqu'au rechargement du compte.\n"
+                    f"https://openrouter.ai/settings/credits"
+                ),
+                source="openrouter_credits",
+            )
+            self._last_credit_alert_status = STATUS_CRITICAL
+        elif status == STATUS_WARN and (escalated or first_problem):
+            discord_service.notify(
+                "WARNING",
+                "OpenRouter",
+                (
+                    f"Crédit faible : {remaining_txt} restants "
+                    f"(alerte {warn_usd:.2f} USD, plancher {min_usd:.2f} USD).\n"
+                    f"Recharge avant que les validations IA ne s'arrêtent.\n"
+                    f"https://openrouter.ai/settings/credits"
+                ),
+                source="openrouter_credits",
+            )
+            self._last_credit_alert_status = STATUS_WARN
+        elif recovered:
+            try:
+                discord_service.send_alert(
+                    "✅ OpenRouter crédit rétabli",
+                    f"Solde disponible : {remaining_txt}. Analyses IA reprises.",
+                    color="2ECC71",
+                )
+            except Exception:
+                pass
+            self._last_credit_alert_status = STATUS_OK
+        elif status == STATUS_OK:
+            self._last_credit_alert_status = STATUS_OK
+        elif status == STATUS_UNKNOWN and reason == "startup":
+            try:
+                discord_service.send_log(
+                    "OpenRouter credit: remaining unknown — set a per-key spend limit "
+                    "or OPENROUTER_MANAGEMENT_API_KEY so NovaBot can read the balance"
+                )
+            except Exception:
+                pass
+
+    def _pre_call_guard(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """Block spend when circuit breaker or remaining credits are exhausted."""
+        self.maybe_refresh_credits()
+        if self.circuit_breaker_until:
+            if datetime.now() < self.circuit_breaker_until:
+                remaining = int((self.circuit_breaker_until - datetime.now()).total_seconds() / 60)
+                logger.warning(
+                    "AI Circuit Breaker active (%s min left). Using rule-based fallback.",
+                    remaining,
+                )
+                return self._rule_based_fallback(prompt)
+            self.circuit_breaker_until = None
+            logger.info("AI Circuit Breaker RESET - Resuming AI calls")
+        if not self.credits_allow_ai_call():
+            remaining = (self._credit_status or {}).get("remaining_usd")
+            remaining_txt = f"${remaining:.2f}" if isinstance(remaining, (int, float)) else "unknown"
+            logger.error(
+                "Skipping AI call: OpenRouter credits insufficient (%s). Using rule-based fallback.",
+                remaining_txt,
+            )
+            return self._rule_based_fallback(prompt)
+        return None
     
     def get_dynamic_system_prompt(self) -> str:
         """
@@ -295,6 +488,10 @@ class IAService:
         """
         Call OpenRouter API with error handling.
         """
+        blocked = self._pre_call_guard(prompt)
+        if blocked:
+            return blocked
+
         if not self.client:
             raise Exception("AI Client not initialized (Missing Key)")
         
@@ -325,6 +522,12 @@ class IAService:
             raw_content = completion.choices[0].message.content or ""
             return {"raw_output": raw_content.strip(), "model": f"openrouter:{self.model}"}
         except Exception as e:
+            error_str = str(e).lower()
+            if "402" in error_str or "insufficient" in error_str or "payment required" in error_str:
+                logger.error("OpenRouter 402 / insufficient credits: %s", e)
+                self._mark_credits_exhausted(str(e))
+                self.circuit_breaker_until = datetime.now() + timedelta(minutes=10)
+                return self._rule_based_fallback(prompt)
             raise Exception(f"OpenRouter failed: {e}")
     
     def _parse_validation_payload(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -387,10 +590,12 @@ class IAService:
             error_str = str(e).lower()
             logger.warning("AI Call failed: %s", e)
 
-            # Trigger Circuit Breaker on quota errors
-            if "quota" in error_str or "429" in error_str:
+            # Trigger Circuit Breaker on quota / credit errors
+            if "quota" in error_str or "429" in error_str or "402" in error_str or "insufficient" in error_str:
                 self.circuit_breaker_until = datetime.now() + timedelta(minutes=10)
                 logger.error("AI CIRCUIT BREAKER TRIGGERED: Pausing AI for 10 minutes")
+                if "402" in error_str or "insufficient" in error_str or "payment required" in error_str:
+                    self._mark_credits_exhausted(str(e))
             
             return {
                 "raw_output": json.dumps({

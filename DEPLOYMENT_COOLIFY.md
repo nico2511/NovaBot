@@ -32,6 +32,9 @@ Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes 
 | `HL_PRIVATE_KEY`             | Clé de l'Agent API (sans 0x)            |
 | `HL_ACCOUNT_ADDRESS`         | Adresse de votre portefeuille principal |
 | `OPENROUTER_API_KEY`         | Clé pour l'analyse IA                   |
+| `OPENROUTER_CREDIT_CHECK_INTERVAL_SEC` | Optionnel — sonde crédit (défaut 3600s) |
+| `OPENROUTER_CREDIT_WARN_USD` | Optionnel — alerte Discord (défaut 1.0) |
+| `OPENROUTER_CREDIT_MIN_USD`  | Optionnel — stop IA sous ce solde (0.10)|
 | `DISCORD_WEBHOOK_URL_ALERTS` | Webhook pour les trades                 |
 | `DISCORD_WEBHOOK_URL_LOGS`   | Webhook pour les logs                   |
 | `TRADING_SYMBOL`             | Symbole à trader (ex: HYPE, BTC)        |

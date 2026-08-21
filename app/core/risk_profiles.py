@@ -85,7 +85,10 @@ def get_max_leverage(profile_name: Optional[str]) -> int:
 
 
 def clamp_leverage(profile_leverage: int, account_cap: Optional[int] = None) -> int:
-    """Apply optional account-level leverage ceiling."""
+    """Optional helper: apply an explicit account ceiling (unused for live trade sizing).
+
+    Trade leverage is taken from the strategy risk profile via ``get_max_leverage``.
+    """
     lev = max(1, int(profile_leverage))
     if account_cap is not None and int(account_cap) > 0:
         return min(lev, int(account_cap))

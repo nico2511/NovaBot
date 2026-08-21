@@ -163,6 +163,7 @@ curl -X POST -H "X-API-Key: ..." https://.../api/force_sync
 
 - Circuit breaker déclenché (quota OpenRouter dépassé) : attends 10 min, il se réarme tout seul.
 - Vérifie `OPENROUTER_API_KEY` dans les env vars Coolify.
+- Solde OpenRouter trop bas : le bot sonde le crédit au démarrage puis toutes les heures (`GET /health` → `openrouter.remaining_usd`). Recharge sur https://openrouter.ai/settings/credits. Seuil d'alerte `OPENROUTER_CREDIT_WARN_USD` (défaut 1 USD), arrêt des appels IA sous `OPENROUTER_CREDIT_MIN_USD` (défaut 0.10 USD). Si `remaining_usd` reste `null`, définis un plafond de dépense sur la clé OpenRouter **ou** `OPENROUTER_MANAGEMENT_API_KEY` (lecture du solde compte via `/credits`).
 
 ### Trop de signaux / pas assez
 
@@ -214,6 +215,9 @@ Copie `.env.example` en `.env` et remplis. **Obligatoires** :
 | `HL_PRIVATE_KEY`     | Clé privée Hyperliquid (agent API, sans `0x`) |
 | `HL_ACCOUNT_ADDRESS` | Adresse du portefeuille                       |
 | `OPENROUTER_API_KEY` | Validation IA                                 |
+| `OPENROUTER_CREDIT_CHECK_INTERVAL_SEC` | Sonde crédit IA (défaut `3600` = 1h ; `86400` = 1j ; `0` = démarrage seul) |
+| `OPENROUTER_CREDIT_WARN_USD` | Alerte Discord sous ce solde (défaut `1.0`) |
+| `OPENROUTER_CREDIT_MIN_USD` | Suspend les appels IA sous ce solde (défaut `0.10`) |
 | `TRADING_SYMBOL`     | Symbole tradé (ex: `HYPE`, `BTC`)             |
 
 

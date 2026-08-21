@@ -44,7 +44,8 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
                 },
                 "available_personas": risk.get("available_personas", ["Conservative Scalper", "Aggressive Day Trader", "Sniper"]),
                 "available_risk_profiles": risk.get("available_risk_profiles", ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"]),
-                "default_leverage": risk.get("default_leverage", 1),
+                # UI field only — live trade leverage comes from strategy risk profiles
+                "default_leverage": risk.get("default_leverage", 10),
                 "default_margin_type": risk.get("default_margin_type", "ISOLATED"),
                 "auto_start_trading": ops.get("auto_start_trading", False),
                 "notifications": notifications
@@ -72,7 +73,7 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
             },
             "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
             "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
-            "default_leverage": risk_defaults.get("default_leverage", 1),
+            "default_leverage": risk_defaults.get("default_leverage", 10),
             "default_margin_type": risk_defaults.get("default_margin_type", "ISOLATED"),
             "auto_start_trading": operations.get("auto_start_trading", False),
             "notifications": settings.get("notifications", {})
@@ -89,7 +90,7 @@ def get_global_settings(bot=Depends(get_bot_context_optional)):
             "ai_thresholds": {"high": 101, "medium": 55, "low": 101},
             "available_personas": ["Conservative Scalper", "Aggressive Day Trader", "Sniper"],
             "available_risk_profiles": ["Capital Preservation First", "Balanced Growth", "High Volatility Hunter"],
-            "default_leverage": 1,
+            "default_leverage": 10,
             "default_margin_type": "ISOLATED",
             "notifications": {}
         }
@@ -114,7 +115,7 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
         full_settings["risk_defaults"]["daily_stop_loss"] = new_flat.get("daily_stop_loss", 50.0)
         full_settings["risk_defaults"]["bot_persona"] = new_flat.get("bot_persona", "Conservative Scalper")
         full_settings["risk_defaults"]["risk_profile"] = new_flat.get("risk_profile", "Capital Preservation First")
-        full_settings["risk_defaults"]["default_leverage"] = new_flat.get("default_leverage", 1)
+        full_settings["risk_defaults"]["default_leverage"] = new_flat.get("default_leverage", 10)
         full_settings["risk_defaults"]["default_margin_type"] = new_flat.get("default_margin_type", "ISOLATED")
 
         # ai_config
@@ -262,7 +263,7 @@ def update_legacy_settings(
                 current["daily_stop_loss"] = data.get("daily_stop_loss", current.get("daily_stop_loss", 50.0))
                 current["bot_persona"] = data.get("bot_persona", current.get("bot_persona", "Conservative Scalper"))
                 current["risk_profile"] = data.get("risk_profile", current.get("risk_profile", "Capital Preservation First"))
-                current["default_leverage"] = data.get("default_leverage", current.get("default_leverage", 1))
+                current["default_leverage"] = data.get("default_leverage", current.get("default_leverage", 10))
                 current["default_margin_type"] = data.get("default_margin_type", current.get("default_margin_type", "ISOLATED"))
                 
             elif section == "operations":

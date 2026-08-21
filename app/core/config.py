@@ -41,8 +41,15 @@ def _parse_csv_env(name: str, default: str) -> list:
 @dataclass
 class Config:
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY")
+    # Optional management/provisioning key for GET /api/v1/credits (account balance).
+    # Chat calls keep using OPENROUTER_API_KEY; leave empty to try the chat key first.
+    OPENROUTER_MANAGEMENT_API_KEY: str = os.getenv("OPENROUTER_MANAGEMENT_API_KEY", "") or ""
     AI_MODEL_NAME: str = _state_settings.get('ai_config', {}).get('model_name') or os.getenv("AI_MODEL_NAME", "deepseek/deepseek-v3.2")
     AI_PROVIDER: str = "openrouter"  # Always openrouter
+    # Credit probe: startup + this interval (0 = startup only). Default hourly.
+    OPENROUTER_CREDIT_CHECK_INTERVAL_SEC: int = int(os.getenv("OPENROUTER_CREDIT_CHECK_INTERVAL_SEC", "3600"))
+    OPENROUTER_CREDIT_WARN_USD: float = float(os.getenv("OPENROUTER_CREDIT_WARN_USD", "1.0"))
+    OPENROUTER_CREDIT_MIN_USD: float = float(os.getenv("OPENROUTER_CREDIT_MIN_USD", "0.10"))
     
     # Hyperliquid
     HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
@@ -70,7 +77,11 @@ class Config:
     # Risk Defaults (from bot_state.json or .env fallback)
     DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "2"))
     DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
-    DEFAULT_LEVERAGE: int = 1
+    # Account UI fallback only — live trade leverage comes from risk_profiles.max_leverage
+    DEFAULT_LEVERAGE: int = int(
+        _state_settings.get("risk_defaults", {}).get("default_leverage")
+        or os.getenv("DEFAULT_LEVERAGE", "10")
+    )
     MAX_NOTIONAL_CAP_MULTIPLIER: float = float(
         _state_settings.get('risk_defaults', {}).get('max_notional_cap_multiplier')
         or os.getenv("MAX_NOTIONAL_CAP_MULTIPLIER", "50")

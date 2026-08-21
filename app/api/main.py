@@ -372,6 +372,20 @@ def root(request: Request):
 _HEARTBEAT_STALE_SEC = 120
 
 
+def _health_openrouter_snapshot() -> dict:
+    """Cached OpenRouter remaining credits — never probes the network from /health."""
+    try:
+        from app.services.ia import ia_service
+        snap = ia_service.get_credit_snapshot() or {}
+        return {
+            "status": snap.get("status"),
+            "remaining_usd": snap.get("remaining_usd"),
+            "checked_at": snap.get("checked_at"),
+        }
+    except Exception:
+        return {"status": "unknown", "remaining_usd": None, "checked_at": None}
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint for monitoring / Docker HEALTHCHECK."""
@@ -446,6 +460,7 @@ def health_check():
         "last_heartbeat_age_sec": last_heartbeat_age_sec,
         "api_auth_enabled": bool(_app_config.API_KEY_REQUIRED),
         "reason": reason,
+        "openrouter": _health_openrouter_snapshot(),
     }
     status_code = 503 if overall == "unhealthy" else 200
     return JSONResponse(status_code=status_code, content=payload)

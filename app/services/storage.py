@@ -137,7 +137,9 @@ class StorageService:
                 "allow_same_symbol_concurrent": False,
                 "daily_stop_loss": 50.0,
                 "bot_persona": "Conservative Scalper",
-                "risk_profile": "Capital Preservation First"
+                "risk_profile": "Capital Preservation First",
+                # UI/account field only; live trade leverage = strategy risk profile
+                "default_leverage": 10,
             },
             "ai_config": {
                 "conf_threshold_high": 75,
