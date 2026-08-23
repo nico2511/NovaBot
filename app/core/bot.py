@@ -2338,38 +2338,22 @@ class BotContext:
             )
             return False
 
-        def _trade_ts(t):
-            ts = t.get("timestamp", t.get("time", 0))
-            try:
-                return int(ts)
-            except (TypeError, ValueError):
-                try:
-                    dt = pd.to_datetime(ts, utc=True, errors="coerce")
-                    if pd.isna(dt):
-                        return 0
-                    return int(dt.value // 1_000_000)
-                except Exception:
-                    return 0
+        from app.core.close_pnl import aggregate_exchange_close, estimate_gross_pnl
 
-        # Hard requirement: a real closing fill (not "latest fill" / estimated mid)
-        symbol_trades = [t for t in recent_trades if t.get("symbol") == symbol]
-        symbol_trades.sort(key=_trade_ts, reverse=True)
-        closing_trade = next(
-            (
-                t for t in symbol_trades
-                if float(t.get("pnl") or 0) != 0
-                or "Close" in str(t.get("dir", ""))
-            ),
-            None,
+        close_snapshot = aggregate_exchange_close(
+            recent_trades,
+            symbol=symbol,
+            trade=trade,
         )
-
-        if not closing_trade:
+        if not close_snapshot:
             self.add_log(
                 f"⚠️ SYNC: {symbol} missing from book but no Close fill yet — "
                 f"keeping trade active (waiting for exchange SL/TP fill)"
                 + (f" | id={tid}" if tid else "")
             )
             return False
+
+        closing_trade = close_snapshot  # unified snapshot dict
 
         # Confirmed close fill → safe to release local tracking
         with self.trade_lock:
@@ -2385,11 +2369,14 @@ class BotContext:
             + (f" | id={tid}" if tid else "")
         )
         try:
-            entry_price = float(trade.get("entry", 0))
-            size = float(trade.get("size", 0))
+            entry_price = float(trade.get("entry") or trade.get("entry_price") or 0)
+            size = float(trade.get("size") or 0)
             side = trade.get("side")
-            exit_price = float(closing_trade.get("entry_price", 0))
-            pnl_usdc = float(closing_trade.get("pnl", 0))
+            exit_price = float(closing_trade.get("exit_price") or closing_trade.get("entry_price") or 0)
+            pnl_usdc = float(closing_trade.get("pnl") or 0)
+            close_fee = float(closing_trade.get("fee") or 0)
+            close_size = float(closing_trade.get("close_size") or 0)
+            fill_count = int(closing_trade.get("fill_count") or 1)
             from app.core.exit_classification import classify_sync_exit_reason
 
             exit_reason = classify_sync_exit_reason(
@@ -2399,7 +2386,7 @@ class BotContext:
                 tp=trade.get("tp"),
             )
             exchange_close_time = None
-            raw_ts = closing_trade.get("timestamp", closing_trade.get("time"))
+            raw_ts = closing_trade.get("exchange_close_time") or closing_trade.get("timestamp") or closing_trade.get("time")
             try:
                 if raw_ts is not None:
                     try:
@@ -2412,15 +2399,32 @@ class BotContext:
             except Exception:
                 exchange_close_time = None
 
-            if pnl_usdc == 0 and entry_price > 0 and exit_price > 0:
-                pnl_usdc = (
-                    (exit_price - entry_price) * size
-                    if side == "BUY"
-                    else (entry_price - exit_price) * size
+            gross_est = estimate_gross_pnl(
+                side=str(side or ""),
+                entry_price=entry_price,
+                exit_price=exit_price,
+                size=size,
+            )
+            if pnl_usdc == 0 and gross_est != 0:
+                pnl_usdc = gross_est
+            elif (
+                pnl_usdc != 0
+                and gross_est != 0
+                and abs(gross_est - pnl_usdc) > max(0.75, abs(gross_est) * 0.25)
+                and close_size > 0
+                and size > 0
+                and close_size + 1e-9 < size * 0.95
+            ):
+                self.add_log(
+                    f"⚠️ SYNC PnL mismatch {symbol}: exchange closed {close_size:.6g}/{size:.6g} "
+                    f"→ closedPnl ${pnl_usdc:.2f} vs gross est ${gross_est:.2f} ({fill_count} fill(s))"
+                    + (f" | id={tid}" if tid else "")
                 )
 
             self.add_log(
                 f"📝 SYNC: Confirmed close for {symbol} (Exit: {exit_price}, PnL: ${float(pnl_usdc):.2f}"
+                + (f", fees: ${close_fee:.4f}" if close_fee else "")
+                + (f", fills: {fill_count}" if fill_count > 1 else "")
                 + f", Reason: {exit_reason}"
                 + (f", ExchangeTime: {exchange_close_time}" if exchange_close_time else "")
                 + ")"
@@ -2450,10 +2454,17 @@ class BotContext:
 
             discord_service.send_alert(
                 f"🏁 TRADE CLOSED (Exchange): {symbol}",
-                f"Reason: {exit_reason} (exchange fill; inferred from SL/TP when possible)\n"
-                f"PnL: ${pnl_usdc:.2f}\n"
-                f"Exchange close time (if available): {exchange_close_time or 'N/A'}\n"
-                f"Detected by bot at: {pd.Timestamp.now(tz='UTC').isoformat()}",
+                (
+                    f"Reason: {exit_reason} (exchange fill; inferred from SL/TP when possible)\n"
+                    f"PnL: ${pnl_usdc:.2f} (closedPnl Hyperliquid"
+                    + (f", {fill_count} fills" if fill_count > 1 else "")
+                    + ")\n"
+                    f"Exit: {exit_price:.6g} | Entry: {entry_price:.6g} | Size: {size:.6g}"
+                    + (f" (closed {close_size:.6g})" if close_size and abs(close_size - size) > 1e-6 else "")
+                    + (f"\nFees: ${close_fee:.4f}" if close_fee else "")
+                    + f"\nExchange close time (if available): {exchange_close_time or 'N/A'}\n"
+                    f"Detected by bot at: {pd.Timestamp.now(tz='UTC').isoformat()}"
+                ),
                 color="00FF00" if pnl_usdc >= 0 else "FF0000",
             )
 
