@@ -138,12 +138,16 @@ class ScannerJob:
         if not engine:
             return []
         cfg = getattr(engine, "config", None) or {}
+        from app.core.weekend_pause import is_strategy_weekend_paused
+
         out = []
         for name, strat in (getattr(engine, "strategies", None) or {}).items():
             if strat is None:
                 continue
             scfg = cfg.get(name) or {}
             if scfg.get("enabled") is False or scfg.get("active") is False:
+                continue
+            if is_strategy_weekend_paused(name, cfg):
                 continue
             # Participate only if score_scan_candidate is overridden meaningfully —
             # call it; base returns None for all. Still iterate enabled strats.
@@ -285,6 +289,13 @@ class ScannerJob:
                 boards = {
                     k: list(v) for k, v in (self.last_results_by_strategy or {}).items()
                 }
+
+            engine = getattr(self.bot, "strategy_engine", None)
+            cfg = getattr(engine, "config", None) or {}
+            from app.core.weekend_pause import get_weekend_paused_strategies
+
+            for paused_name in get_weekend_paused_strategies(cfg):
+                boards.pop(paused_name, None)
 
             lanes_run = []
             for name, strat in self._active_strategies():

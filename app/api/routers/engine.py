@@ -28,6 +28,17 @@ def _openrouter_credit_snapshot() -> dict:
         return {"status": "unknown", "remaining_usd": None, "checked_at": None, "source": None}
 
 
+def _weekend_pause_snapshot(bot) -> dict:
+    try:
+        from app.core.weekend_pause import weekend_pause_status
+
+        engine = getattr(bot, "strategy_engine", None)
+        cfg = getattr(engine, "config", None) or {}
+        return weekend_pause_status(cfg)
+    except Exception:
+        return {"enabled": False, "active": False}
+
+
 def _strategy_risk_profiles_snapshot(bot) -> dict:
     """Map strategy name → effective risk profile preset."""
     out = {}
@@ -149,6 +160,7 @@ def get_status(bot=Depends(get_bot_context)):
                     "risk_profile", "Capital Preservation First"
                 ),
                 "strategy_risk_profiles": _strategy_risk_profiles_snapshot(bot),
+                "weekend_pause": _weekend_pause_snapshot(bot),
             },
             "scanner": getattr(bot, "scanner_settings", {}),
             "openrouter": _openrouter_credit_snapshot(),

@@ -1,4 +1,13 @@
 {
+    "weekend_pause": {
+        "enabled": true,
+        "timezone": "Europe/Paris",
+        "start_weekday": 6,
+        "start_hour": 0,
+        "end_weekday": 6,
+        "end_hour": 12,
+        "strategies": ["rocket", "waterfall"]
+    },
     "market_regime": {
         "adx_threshold": 22
     },

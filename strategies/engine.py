@@ -16,6 +16,12 @@ except ImportError:
 
 import json
 
+from app.core.weekend_pause import (
+    get_weekend_paused_strategies,
+    is_strategy_weekend_paused,
+    log_weekend_pause_once,
+)
+
 class StrategyEngine:
     def __init__(self, risk_manager=None, config=None):
         self.risk_manager = risk_manager
@@ -175,6 +181,10 @@ class StrategyEngine:
         
         # 3. Select Strategies
         active_strategies = []
+        weekend_paused = get_weekend_paused_strategies(self.config)
+        if weekend_paused:
+            log_weekend_pause_once(print, self.config, weekend_paused)
+
         for name, params in self.config.items():
             if not isinstance(params, dict): continue
             if not params.get("enabled"): continue
@@ -182,6 +192,9 @@ class StrategyEngine:
             strat_type = params.get("type", "")
             
             if name not in self.strategies:
+                continue
+
+            if is_strategy_weekend_paused(name, self.config):
                 continue
 
             # SuperTrend is type=trend — active in TREND / TREND_BEAR_STRONG only.
