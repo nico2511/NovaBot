@@ -1080,7 +1080,7 @@ class HyperliquidService:
             }
     
     def get_account_value(self):
-        """Get total account value in USDC for gamification"""
+        """Get total account value in USDC."""
         balance = self.get_account_balance()
         return balance.get("total_equity", 0)
 

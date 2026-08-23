@@ -2609,7 +2609,7 @@ class BotContext:
             except Exception as tick_err:
                 self.add_log(f"⚠️ Loop Tick Error: {tick_err}")
 
-            # Dynamic Leverage & Gamification Enforcement
+            # Keep exchange leverage aligned with strategy risk profile
             if self.trading_enabled and not self._leverage_synced:
                 self._enforce_leverage()
             elif not self.trading_enabled:
@@ -3217,76 +3217,81 @@ class BotContext:
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
                         
-                            # DYNAMIC POSITION SIZING based on RISK PROFILE
-                            # Keep RiskManager.split in sync with runtime max_positions
+                            # POSITION SIZING: risk_pct + leverage from strategy risk profile
+                            # Budget is split across max_positions; exchange lev reduces margin.
                             try:
                                 self.risk_manager.update_settings(
                                     max_positions=int(self.max_positions or 1)
                                 )
                             except Exception:
                                 pass
-                            if not self.scanner_settings.get("gamification_enabled", True):
-                                strat_name = sig.get("strategy")
-                                risk_profile = self._resolve_risk_profile(strat_name)
-                                from app.core.risk_profiles import get_risk_pct
 
-                                risk_pct = get_risk_pct(risk_profile)
-                                split = max(1, int(self.max_positions or 1))
-                                per_trade_pct = risk_pct / split
+                            strat_name = sig.get("strategy")
+                            risk_profile = self._resolve_risk_profile(strat_name)
+                            from app.core.risk_profiles import get_risk_pct
 
+                            risk_pct = get_risk_pct(risk_profile)
+                            current_leverage = self._resolve_trade_leverage(strat_name)
+                            split = max(1, int(self.max_positions or 1))
+                            per_trade_pct = risk_pct / split
+                            has_sl = sl_price is not None and float(sl_price) > 0 and float(entry_price) != float(sl_price)
+
+                            if has_sl:
                                 self.add_log(
                                     f"📏 SIZING: {strat_name or '?'} / {risk_profile} budget "
-                                    f"{risk_pct:.1f}% equity → {per_trade_pct:.2f}%/trade (÷{split} max_positions)"
+                                    f"{risk_pct:.1f}% equity → {per_trade_pct:.2f}%/trade "
+                                    f"(÷{split} max_positions) | lev={current_leverage}x"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
                                     sl_price=sl_price,
                                     equity=equity,
                                     method="risk_pct",
-                                    size_value=risk_pct
+                                    size_value=risk_pct,
+                                    leverage=current_leverage,
                                 )
                             else:
-                                # Standard sizing (Fixed $20 Margin @ Target Leverage),
-                                # split across max_positions inside RiskManager
-                                current_leverage = self._resolve_trade_leverage(sig.get("strategy"))
-                                split = max(1, int(self.max_positions or 1))
+                                # No usable SL → fall back to fixed margin × profile leverage
                                 self.add_log(
-                                    f"📏 SIZING: fixed margin ${DEFAULT_SIZE_USDC:.0f} "
-                                    f"→ ${DEFAULT_SIZE_USDC / split:.1f}/slot (÷{split} max_positions)"
+                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} "
+                                    f"no SL → fixed margin ${DEFAULT_SIZE_USDC:.0f} "
+                                    f"→ ${DEFAULT_SIZE_USDC / split:.1f}/slot @ {current_leverage}x"
                                 )
                                 size = self.risk_manager.calculate_position_size(
-                                    price=entry_price, 
-                                    sl_price=sl_price, 
+                                    price=entry_price,
+                                    sl_price=sl_price,
                                     equity=equity,
                                     method="fixed",
                                     size_value=DEFAULT_SIZE_USDC,
-                                    leverage=current_leverage
+                                    leverage=current_leverage,
                                 )
 
-                            current_leverage = self._resolve_trade_leverage(sig.get("strategy"))
-                            split = max(1, int(self.max_positions or 1))
-                            target_notional = (DEFAULT_SIZE_USDC / split) * current_leverage
+                            sized_notional = float(size) * float(entry_price) if size and entry_price else 0.0
+                            margin_est = (
+                                sized_notional / current_leverage if current_leverage > 0 else sized_notional
+                            )
                             self.add_log(
-                                f"📏 Sizing: equity=${equity:.2f}, target notional/slot≈${target_notional:.0f}, "
-                                f"size={size:.4f} {self.active_symbol}"
+                                f"📏 Sizing: equity=${equity:.2f}, notional≈${sized_notional:.0f}, "
+                                f"margin≈${margin_est:.0f}, size={size:.4f} {self.active_symbol}"
                             )
                             try:
                                 discord_service.send_log(
                                     f"📏 SIZING {sig.get('signal')} {self.active_symbol} | "
-                                    f"equity=${equity:.2f} | target/slot≈${target_notional:.0f} | "
-                                    f"size={size:.4f} | lev={current_leverage}x | "
-                                    f"max_pos={split} | strat={sig.get('strategy')}"
+                                    f"equity=${equity:.2f} | notional≈${sized_notional:.0f} | "
+                                    f"margin≈${margin_est:.0f} | size={size:.4f} | "
+                                    f"lev={current_leverage}x | risk={per_trade_pct:.2f}%/trade | "
+                                    f"max_pos={split} | strat={strat_name} | profile={risk_profile}"
                                 )
                             except Exception:
                                 pass
 
                             if size <= 0:
                                 cap_mult = self.risk_manager.max_notional_cap_multiplier
-                                min_eq_target = target_notional / cap_mult
+                                slot_cap = (equity * cap_mult) / split if equity > 0 else 0.0
                                 reason = (
                                     f"Position size is zero (equity=${equity:.2f}). "
                                     f"Need equity ≥ ~${MIN_POSITION_NOTIONAL_USD / cap_mult:.2f} for min order, "
-                                    f"≥ ~${min_eq_target:.2f} for ${target_notional:.0f} target (cap ×{cap_mult:.0f})."
+                                    f"per-slot cap ≈${slot_cap:.0f} (×{cap_mult:.0f} / max_pos={split})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
                                 self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
@@ -3294,8 +3299,10 @@ class BotContext:
                                     f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
                                     reason=reason,
                                     equity=equity,
-                                    target_notional=target_notional,
+                                    sized_notional=sized_notional,
+                                    slot_cap=slot_cap,
                                     cap_multiplier=cap_mult,
+                                    leverage=current_leverage,
                                     strategy=sig.get("strategy"),
                                     entry=entry_price,
                                     sl=sl_price,
