@@ -3083,26 +3083,18 @@ class BotContext:
                                     )
                                 
                                     if ai_data.get("suggested_adjustments"):
+                                        from app.services.ia import coerce_optional_price
+
                                         adj = ai_data["suggested_adjustments"]
-                                    
-                                        # Robust parsing for AI suggestions (handle "$0.50" strings)
-                                        if adj.get("sl"): 
-                                            try:
-                                                val = adj["sl"]
-                                                if isinstance(val, str):
-                                                    val = float(val.replace('$', '').replace(',', '').strip())
-                                                sig["sl"] = float(val)
-                                            except Exception as e:
-                                                self.add_log(f"⚠️ Failed to parse AI SL adjustment: {adj['sl']} ({e})")
-                                            
-                                        if adj.get("tp"): 
-                                            try:
-                                                val = adj["tp"]
-                                                if isinstance(val, str):
-                                                    val = float(val.replace('$', '').replace(',', '').strip())
-                                                sig["tp"] = float(val)
-                                            except Exception as e:
-                                                self.add_log(f"⚠️ Failed to parse AI TP adjustment: {adj['tp']} ({e})")
+                                        if isinstance(adj, dict):
+                                            # null / "null" / empty = keep strategy SL/TP (no Discord noise)
+                                            parsed_sl = coerce_optional_price(adj.get("sl"))
+                                            parsed_tp = coerce_optional_price(adj.get("tp"))
+                                            if parsed_sl is not None:
+                                                sig["sl"] = parsed_sl
+                                            if parsed_tp is not None:
+                                                sig["tp"] = parsed_tp
+
                                 else:
                                     self.add_log(f"⚠️ AI approved but CONFIDENCE TOO LOW ({confidence}% < {required_conf}% for {risk_level} risk)", metadata=ai_data)
                                     self._record_signal_analysis(

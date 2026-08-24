@@ -25,6 +25,43 @@ from app.services.openrouter_credits import (
 
 logger = logging.getLogger(__name__)
 
+_NULL_LIKE = frozenset({"", "null", "none", "n/a", "na", "nil", "-"})
+
+
+def coerce_optional_price(value: Any) -> Optional[float]:
+    """Parse an AI-suggested price; treat null-like placeholders as no adjustment."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").strip()
+        if not cleaned or cleaned.lower() in _NULL_LIKE:
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_suggested_adjustments(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce suggested_adjustments.sl/tp null-like strings to None in-place."""
+    if not isinstance(payload, dict):
+        return payload
+    adj = payload.get("suggested_adjustments")
+    if not isinstance(adj, dict):
+        return payload
+    for key in ("sl", "tp"):
+        if key in adj:
+            adj[key] = coerce_optional_price(adj.get(key))
+    return payload
+
 
 class IAService:
     """
@@ -332,6 +369,13 @@ class IAService:
             flags=re.IGNORECASE,
         )
         repaired = re.sub(r":\s*<price or null>", ": null", repaired, flags=re.IGNORECASE)
+        # LLMs often quote null as a string: "sl": "null"
+        repaired = re.sub(
+            r':\s*"(?:null|none|n/?a|nil)"',
+            ": null",
+            repaired,
+            flags=re.IGNORECASE,
+        )
         repaired = re.sub(
             r'"rejection_reason_category"\s*:\s*"See System Prompt ENUM"\s*\|\s*null',
             '"rejection_reason_category": null',
@@ -447,7 +491,7 @@ class IAService:
                 parsed = json.loads(candidate)
                 if not isinstance(parsed, dict):
                     raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
-                return parsed
+                return normalize_suggested_adjustments(parsed)
             except json.JSONDecodeError as exc:
                 last_error = exc
 
@@ -457,7 +501,7 @@ class IAService:
                 "AI validation JSON recovered via regex fallback | snippet=%s",
                 str(extracted)[:400],
             )
-            return fallback
+            return normalize_suggested_adjustments(fallback)
 
         if last_error is not None:
             raise last_error
@@ -557,7 +601,7 @@ class IAService:
                 }
             merged = {**result, **parsed}
             merged["raw_output"] = raw
-            return merged
+            return normalize_suggested_adjustments(merged)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("AI validation JSON parse failed: %s | snippet=%s", e, str(raw)[:400])
             return {
@@ -908,8 +952,15 @@ Derivatives:
 
             # 1. Check Risk:Reward (after any structural TP trim)
             entry = float(signal.get("price", 0))
-            sl = float(ai_result.get("suggested_adjustments", {}).get("sl") or signal.get("sl", 0))
-            tp = float(ai_result.get("suggested_adjustments", {}).get("tp") or signal.get("tp", 0))
+            adj = ai_result.get("suggested_adjustments") or {}
+            if not isinstance(adj, dict):
+                adj = {}
+            sl = coerce_optional_price(adj.get("sl"))
+            if sl is None:
+                sl = float(signal.get("sl") or 0)
+            tp = coerce_optional_price(adj.get("tp"))
+            if tp is None:
+                tp = float(signal.get("tp") or 0)
             
             if entry > 0 and sl > 0 and tp > 0:
                 risk = abs(entry - sl)

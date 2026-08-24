@@ -110,6 +110,58 @@ def test_parse_json_response_recovers_partial_json_via_fallback(ia):
     assert parsed["confidence"] == 81
 
 
+def test_parse_json_response_repairs_quoted_null_prices(ia):
+    raw = """{
+  "approved": true,
+  "confidence": 66,
+  "reasoning": "ok",
+  "suggested_adjustments": {"sl": "null", "tp": "null"}
+}"""
+    repaired = ia.repair_json(raw)
+    assert '"sl":null' in repaired.replace(" ", "")
+    out = ia.parse_json_response(raw)
+    assert out["suggested_adjustments"]["sl"] is None
+    assert out["suggested_adjustments"]["tp"] is None
+
+
+def test_coerce_optional_price_null_like():
+    from app.services.ia import coerce_optional_price
+
+    assert coerce_optional_price(None) is None
+    assert coerce_optional_price("null") is None
+    assert coerce_optional_price("NULL") is None
+    assert coerce_optional_price("") is None
+    assert coerce_optional_price("n/a") is None
+    assert coerce_optional_price(0.095) == pytest.approx(0.095)
+    assert coerce_optional_price("$0.10") == pytest.approx(0.10)
+    assert coerce_optional_price("abc") is None
+
+
+def test_normalize_suggested_adjustments_string_null():
+    from app.services.ia import normalize_suggested_adjustments
+
+    payload = {"suggested_adjustments": {"sl": "null", "tp": "0.12"}}
+    out = normalize_suggested_adjustments(payload)
+    assert out["suggested_adjustments"]["sl"] is None
+    assert out["suggested_adjustments"]["tp"] == pytest.approx(0.12)
+
+
+def test_parse_validation_payload_normalizes_quoted_null(ia):
+    result = {
+        "raw_output": """{
+  "approved": true,
+  "confidence": 66,
+  "reasoning": "Strong R:R",
+  "suggested_adjustments": {"sl": "null", "tp": "null"}
+}""",
+        "model": "test-model",
+    }
+    out = ia._parse_validation_payload(result)
+    assert out["approved"] is True
+    assert out["suggested_adjustments"]["sl"] is None
+    assert out["suggested_adjustments"]["tp"] is None
+
+
 def test_parse_validation_payload_marks_unrecoverable_as_parse_error(ia):
     result = {"raw_output": "not json at all", "model": "test-model"}
     out = ia._parse_validation_payload(result)
