@@ -61,6 +61,20 @@ def test_rocket_hard_veto_blocks_low_volume():
     assert s.check_hard_veto("BUY", ctx) is not None
 
 
+def test_rocket_hard_veto_blocks_dying_volume():
+    s = StrategyRocket({"params": {}})
+    ctx = {"volume_ratio": 110, "rsi": 66, "vol_slope": -39.0}
+    reason = s.check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "dying" in reason.lower() or "fuel" in reason.lower()
+
+
+def test_rocket_hard_veto_allows_stable_volume():
+    s = StrategyRocket({"params": {}})
+    ctx = {"volume_ratio": 110, "rsi": 66, "vol_slope": -10.0}
+    assert s.check_hard_veto("BUY", ctx) is None
+
+
 def test_rocket_rejects_insufficient_data():
     s = StrategyRocket({"params": {}})
     assert s.generate_signal(pd.DataFrame()) is None
@@ -76,8 +90,17 @@ def test_detect_rocket_on_synthetic():
     assert snap.get("ema9", 0) > 0
 
 
+_HAPPY_PARAMS = {
+    "cooldown_minutes": 0,
+    "veto_rsi_overbought": 100,
+    # Rising synthetic series sits on its own highs — disable structure gate for happy path
+    "struct_lookback": 500,
+    "veto_vol_slope_min": -100,
+}
+
+
 def test_rocket_generate_signal_long():
-    s = StrategyRocket({"params": {"cooldown_minutes": 0, "veto_rsi_overbought": 100}})
+    s = StrategyRocket({"params": dict(_HAPPY_PARAMS)})
     df_15m = _bull_cascade_15m()
     df_1m = _bull_1m_confirm()
     sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
@@ -87,8 +110,69 @@ def test_rocket_generate_signal_long():
     assert sig.get("cascade_ema9") is not None
 
 
+def test_rocket_rejects_prior_resistance_without_spike():
+    """Revisit of an earlier swing high without volume spike (double-top)."""
+    s = StrategyRocket(
+        {
+            "params": {
+                "cooldown_minutes": 0,
+                "veto_rsi_overbought": 100,
+                "veto_vol_slope_min": -100,
+                "struct_lookback": 40,
+                "struct_exclude_bars": 3,
+                "ceiling_proximity_pct": 0.5,
+                "breakout_clear_pct": 0.15,
+                "volume_spike_pct": 120,
+            }
+        }
+    )
+    df_15m = _bull_cascade_15m()
+    tip = float(df_15m["close"].iloc[-1])
+    df_1m = _bull_1m_confirm(anchor=tip)
+    entry = float(df_1m["close"].iloc[-2])
+    # Prior swing high exactly at the 1m entry — classic double-top
+    df_15m.loc[df_15m.index[30:40], "high"] = entry
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.last_rejection_reason
+    low = s.last_rejection_reason.lower()
+    assert "resistance" in low or "spike" in low
+
+
+def test_rocket_at_prior_ceiling_helper():
+    s = StrategyRocket({"params": {}})
+    p = s._params_snapshot()
+    assert s._at_prior_ceiling(12.0, 12.0, p) is True
+    assert s._at_prior_ceiling(11.0, 12.0, p) is False
+    # Clear breakout above prior high
+    clear_p = {**p, "breakout_clear_pct": 0.20}
+    assert s._at_prior_ceiling(12.05, 12.0, clear_p) is False
+
+
+def test_rocket_rejects_dying_volume_on_signal():
+    s = StrategyRocket(
+        {
+            "params": {
+                "cooldown_minutes": 0,
+                "veto_rsi_overbought": 100,
+                "struct_lookback": 500,
+                "veto_vol_slope_min": -30,
+            }
+        }
+    )
+    df_15m = _bull_cascade_15m()
+    df_15m.loc[df_15m.index[-3], "volume"] = 20000.0
+    df_15m.loc[df_15m.index[-2], "volume"] = 8000.0  # −60% slope
+    df_1m = _bull_1m_confirm()
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert "dying" in (s.last_rejection_reason or "").lower() or "soft" in (
+        s.last_rejection_reason or ""
+    ).lower()
+
+
 def test_rocket_scan_scores_cascade():
-    s = StrategyRocket({"params": {"veto_rsi_overbought": 100}})
+    s = StrategyRocket({"params": {"veto_rsi_overbought": 100, "struct_lookback": 500, "veto_vol_slope_min": -100}})
     df = s.add_indicators(_bull_cascade_15m())
     row = s.score_scan_candidate(df, symbol="TEST")
     assert row is not None

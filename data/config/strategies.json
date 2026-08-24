@@ -140,12 +140,17 @@
             "cooldown_minutes": 10,
             "require_1m_confirm": true,
             "veto_rsi_oversold": 18,
+            "veto_vol_slope_min": -30,
+            "floor_proximity_pct": 0.35,
+            "breakdown_clear_pct": 0.20,
+            "struct_lookback": 96,
+            "struct_exclude_bars": 3,
             "allow_longs": false,
             "allow_shorts": true,
             "scan_interval_minutes": 5
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-08-waterfall-v1",
+        "version": "2026-08-waterfall-v2",
         "expected_freq": "Rare (bear cascade only)"
     },
     "rocket": {
@@ -167,12 +172,17 @@
             "cooldown_minutes": 10,
             "require_1m_confirm": true,
             "veto_rsi_overbought": 82,
+            "veto_vol_slope_min": -30,
+            "ceiling_proximity_pct": 0.35,
+            "breakout_clear_pct": 0.20,
+            "struct_lookback": 96,
+            "struct_exclude_bars": 3,
             "allow_longs": true,
             "allow_shorts": false,
             "scan_interval_minutes": 5
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-08-rocket-v1",
+        "version": "2026-08-rocket-v2",
         "expected_freq": "Rare (bull cascade only)"
     }
 }

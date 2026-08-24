@@ -81,6 +81,11 @@ class WaterfallParams(_StrictParams):
     cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
     require_1m_confirm: Optional[bool] = None
     veto_rsi_oversold: Optional[float] = Field(None, ge=0, le=40)
+    veto_vol_slope_min: Optional[float] = Field(None, ge=-100, le=0)
+    floor_proximity_pct: Optional[float] = Field(None, ge=0, le=5)
+    breakdown_clear_pct: Optional[float] = Field(None, ge=0, le=5)
+    struct_lookback: Optional[int] = Field(None, ge=8, le=500)
+    struct_exclude_bars: Optional[int] = Field(None, ge=1, le=20)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
     scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
@@ -96,6 +101,11 @@ class RocketParams(_StrictParams):
     cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
     require_1m_confirm: Optional[bool] = None
     veto_rsi_overbought: Optional[float] = Field(None, ge=60, le=100)
+    veto_vol_slope_min: Optional[float] = Field(None, ge=-100, le=0)
+    ceiling_proximity_pct: Optional[float] = Field(None, ge=0, le=5)
+    breakout_clear_pct: Optional[float] = Field(None, ge=0, le=5)
+    struct_lookback: Optional[int] = Field(None, ge=8, le=500)
+    struct_exclude_bars: Optional[int] = Field(None, ge=1, le=20)
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
     scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)

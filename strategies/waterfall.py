@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from app.services.indicators import ta
@@ -94,8 +93,10 @@ class StrategyWaterfall(BaseStrategy):
     4. Do NOT reject because RSI is low — waterfalls are oversold by design.
     5. Do NOT reject because SL is above entry (normal for shorts).
     6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
-    7. REJECT if higher-TF (1h/4h) is strongly bullish AND price reclaimed 1h EMA20.
-    8. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
+    7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
+    8. REJECT if entry is into prior swing-low support without a clear breakdown + volume spike.
+    9. REJECT if higher-TF (1h/4h) is strongly bullish AND price reclaimed 1h EMA20.
+    10. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
     """
 
     AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (WATERFALL) ===
@@ -106,17 +107,21 @@ APPROVE when ALL of:
 1. Signal is SELL (short-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
 3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
-4. No obvious 1h bullish reclaim (price back above 1h EMA20 with green momentum)
+4. Volume is NOT dying (vol_slope not in hard DROP)
+5. Entry is NOT a double-bottom into prior swing support without clear breakdown
+6. No obvious 1h bullish reclaim (price back above 1h EMA20 with green momentum)
 
 REJECT when ANY of:
 - Signal is BUY (wrong direction)
 - volume_ratio < 40% without spike (WEAK_VOLUME)
+- vol_slope strongly negative / volume dying into the move
+- Entry pressed into prior swing-low support without clear breakdown + spike
 - Computed R:R below profile minimum (BAD_RR)
 - Clear 1h counter-trend reclaim against the short
 
 Do NOT reject solely because:
 - RSI is oversold (expected on waterfalls)
-- Price is at lower BB (we short into the fall)
+- Price is at lower BB (we short into the fall — BB ≠ structural swing support)
 - SL is wider than scalp norms (ATR stops are normal)
 - Entry has no pullback (waterfall = immediate momentum entry)
 """
@@ -155,7 +160,49 @@ Do NOT reject solely because:
             "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
             "veto_rsi_oversold": self._float_param("veto_rsi_oversold", 18.0),
             "volume_spike_pct": self._float_param("volume_spike_pct", 120.0),
+            "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
+            "floor_proximity_pct": self._float_param("floor_proximity_pct", 0.35),
+            "breakdown_clear_pct": self._float_param("breakdown_clear_pct", 0.20),
+            "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
+            "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
         }
+
+    @staticmethod
+    def _vol_slope_from_df(df: pd.DataFrame) -> Optional[float]:
+        """Confirmed-bar volume change % (same idea as get_dynamic_context)."""
+        if df is None or getattr(df, "empty", True) or "volume" not in df.columns or len(df) < 3:
+            return None
+        try:
+            curr = float(df["volume"].iloc[-2])
+            prev = float(df["volume"].iloc[-3])
+            if prev <= 0:
+                return 0.0 if curr == 0 else 100.0
+            return ((curr - prev) / prev) * 100.0
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _prior_structure_low(self, df: pd.DataFrame, p: Dict[str, Any]) -> Optional[float]:
+        """Min low before the live cascade bars — prior support, not the LL itself."""
+        excl = max(1, int(p["struct_exclude_bars"]))
+        look = max(excl + 2, int(p["struct_lookback"]))
+        if df is None or getattr(df, "empty", True) or len(df) < look + excl:
+            return None
+        try:
+            return float(df["low"].iloc[-(look + excl) : -excl].min())
+        except (TypeError, ValueError):
+            return None
+
+    def _at_prior_floor(
+        self, entry: float, prior_low: float, p: Dict[str, Any]
+    ) -> bool:
+        """True when entry revisits prior swing low without a clear breakdown."""
+        if entry <= 0 or prior_low <= 0:
+            return False
+        prox = float(p["floor_proximity_pct"]) / 100.0
+        clear = float(p["breakdown_clear_pct"]) / 100.0
+        if entry < prior_low * (1.0 - clear):
+            return False
+        return entry <= prior_low * (1.0 + prox)
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
         ctx = market_context or {}
@@ -179,6 +226,19 @@ Do NOT reject solely because:
         spike = self._float_param("volume_spike_pct", 120.0)
         if vol < min_vol and vol < spike:
             return f"Volume {vol:.0f}% < {min_vol:.0f}% (no cascade spike)"
+
+        slope_floor = self._float_param("veto_vol_slope_min", -30.0)
+        try:
+            raw_slope = ctx.get("vol_slope")
+            if raw_slope is not None:
+                vol_slope = float(raw_slope)
+                if vol_slope < slope_floor:
+                    return (
+                        f"Volume dying (slope {vol_slope:+.1f}% < {slope_floor:.0f}%) "
+                        "— no fuel for waterfall continuation"
+                    )
+        except (TypeError, ValueError):
+            pass
 
         return None
 
@@ -210,6 +270,10 @@ Do NOT reject solely because:
         if rsi < float(p["veto_rsi_oversold"]):
             return None
 
+        vol_slope = self._vol_slope_from_df(work)
+        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            return None
+
         vol_ratio_pct = None
         if "volume" in work.columns and len(work) >= 3:
             try:
@@ -223,6 +287,19 @@ Do NOT reject solely because:
         min_vol = float(p["min_volume_ratio_pct"])
         spike = float(p["volume_spike_pct"])
         if vol_ratio_pct is not None and vol_ratio_pct < min_vol and vol_ratio_pct < spike:
+            return None
+
+        try:
+            px = float(work["close"].iloc[-1])
+        except Exception:
+            px = 0.0
+        prior_low = self._prior_structure_low(work, p)
+        if (
+            prior_low is not None
+            and px > 0
+            and self._at_prior_floor(px, prior_low, p)
+            and (vol_ratio_pct is None or vol_ratio_pct < spike)
+        ):
             return None
 
         score = 70.0
@@ -370,6 +447,32 @@ Do NOT reject solely because:
                 return self._reject("1m confirm failed — need red candle + lower low")
         else:
             entry = float(df_1m["close"].iloc[-2])
+
+        vol_slope = self._vol_slope_from_df(df_15m)
+        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            return self._reject(
+                f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
+                "— soft cascade, skip waterfall"
+            )
+
+        prior_low = self._prior_structure_low(df_15m, p)
+        if prior_low is not None and self._at_prior_floor(float(entry), prior_low, p):
+            vol_ratio_pct = None
+            if "volume" in df_15m.columns and len(df_15m) >= 3:
+                try:
+                    vol_now = float(df_15m["volume"].iloc[-2])
+                    vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
+                    if vol_ma > 0:
+                        vol_ratio_pct = (vol_now / vol_ma) * 100.0
+                except Exception:
+                    vol_ratio_pct = None
+            spike = float(p["volume_spike_pct"])
+            if vol_ratio_pct is None or vol_ratio_pct < spike:
+                vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
+                return self._reject(
+                    f"Prior swing support {prior_low:.6g} — entry without "
+                    f"clear breakdown / volume spike (vol {vr} < {spike:.0f}%)"
+                )
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):

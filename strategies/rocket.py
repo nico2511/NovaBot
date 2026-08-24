@@ -93,8 +93,10 @@ class StrategyRocket(BaseStrategy):
     4. Do NOT reject because RSI is high — rockets are overbought by design.
     5. Do NOT reject because SL is below entry (normal for longs).
     6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
-    7. REJECT if higher-TF (1h/4h) is strongly bearish AND price lost 1h EMA20.
-    8. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
+    7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
+    8. REJECT if entry is into prior swing-high resistance without a clear breakout + volume spike.
+    9. REJECT if higher-TF (1h/4h) is strongly bearish AND price lost 1h EMA20.
+    10. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
     """
 
     AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (ROCKET) ===
@@ -105,17 +107,21 @@ APPROVE when ALL of:
 1. Signal is BUY (long-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
 3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
-4. No obvious 1h bearish breakdown (price below 1h EMA20 with red momentum)
+4. Volume is NOT dying (vol_slope not in hard DROP)
+5. Entry is NOT a double-top into prior swing resistance without clear breakout
+6. No obvious 1h bearish breakdown (price below 1h EMA20 with red momentum)
 
 REJECT when ANY of:
 - Signal is SELL (wrong direction)
 - volume_ratio < 40% without spike (WEAK_VOLUME)
+- vol_slope strongly negative / volume dying into the move
+- Entry pressed into prior swing-high resistance without clear breakout + spike
 - Computed R:R below profile minimum (BAD_RR)
 - Clear 1h counter-trend breakdown against the long
 
 Do NOT reject solely because:
 - RSI is overbought (expected on rockets)
-- Price is at upper BB (we buy into the pump)
+- Price is at upper BB (we buy into the pump — BB ≠ structural swing resistance)
 - SL is wider than scalp norms (ATR stops are normal)
 - Entry has no pullback (rocket = immediate momentum entry)
 """
@@ -154,7 +160,49 @@ Do NOT reject solely because:
             "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
             "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 82.0),
             "volume_spike_pct": self._float_param("volume_spike_pct", 120.0),
+            "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
+            "ceiling_proximity_pct": self._float_param("ceiling_proximity_pct", 0.35),
+            "breakout_clear_pct": self._float_param("breakout_clear_pct", 0.20),
+            "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
+            "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
         }
+
+    @staticmethod
+    def _vol_slope_from_df(df: pd.DataFrame) -> Optional[float]:
+        """Confirmed-bar volume change % (same idea as get_dynamic_context)."""
+        if df is None or getattr(df, "empty", True) or "volume" not in df.columns or len(df) < 3:
+            return None
+        try:
+            curr = float(df["volume"].iloc[-2])
+            prev = float(df["volume"].iloc[-3])
+            if prev <= 0:
+                return 0.0 if curr == 0 else 100.0
+            return ((curr - prev) / prev) * 100.0
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _prior_structure_high(self, df: pd.DataFrame, p: Dict[str, Any]) -> Optional[float]:
+        """Max high before the live cascade bars — prior resistance, not the HH itself."""
+        excl = max(1, int(p["struct_exclude_bars"]))
+        look = max(excl + 2, int(p["struct_lookback"]))
+        if df is None or getattr(df, "empty", True) or len(df) < look + excl:
+            return None
+        try:
+            return float(df["high"].iloc[-(look + excl) : -excl].max())
+        except (TypeError, ValueError):
+            return None
+
+    def _at_prior_ceiling(
+        self, entry: float, prior_high: float, p: Dict[str, Any]
+    ) -> bool:
+        """True when entry revisits prior swing high without a clear breakout."""
+        if entry <= 0 or prior_high <= 0:
+            return False
+        prox = float(p["ceiling_proximity_pct"]) / 100.0
+        clear = float(p["breakout_clear_pct"]) / 100.0
+        if entry > prior_high * (1.0 + clear):
+            return False
+        return entry >= prior_high * (1.0 - prox)
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
         ctx = market_context or {}
@@ -178,6 +226,20 @@ Do NOT reject solely because:
         spike = self._float_param("volume_spike_pct", 120.0)
         if vol < min_vol and vol < spike:
             return f"Volume {vol:.0f}% < {min_vol:.0f}% (no cascade spike)"
+
+        # Dying volume = soft cascade (BTC double-top case: vol_slope −39%)
+        slope_floor = self._float_param("veto_vol_slope_min", -30.0)
+        try:
+            raw_slope = ctx.get("vol_slope")
+            if raw_slope is not None:
+                vol_slope = float(raw_slope)
+                if vol_slope < slope_floor:
+                    return (
+                        f"Volume dying (slope {vol_slope:+.1f}% < {slope_floor:.0f}%) "
+                        "— no fuel for rocket continuation"
+                    )
+        except (TypeError, ValueError):
+            pass
 
         return None
 
@@ -207,6 +269,10 @@ Do NOT reject solely because:
         if rsi > float(p["veto_rsi_overbought"]):
             return None
 
+        vol_slope = self._vol_slope_from_df(work)
+        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            return None
+
         vol_ratio_pct = None
         if "volume" in work.columns and len(work) >= 3:
             try:
@@ -220,6 +286,19 @@ Do NOT reject solely because:
         min_vol = float(p["min_volume_ratio_pct"])
         spike = float(p["volume_spike_pct"])
         if vol_ratio_pct is not None and vol_ratio_pct < min_vol and vol_ratio_pct < spike:
+            return None
+
+        try:
+            px = float(work["close"].iloc[-1])
+        except Exception:
+            px = 0.0
+        prior_high = self._prior_structure_high(work, p)
+        if (
+            prior_high is not None
+            and px > 0
+            and self._at_prior_ceiling(px, prior_high, p)
+            and (vol_ratio_pct is None or vol_ratio_pct < spike)
+        ):
             return None
 
         score = 70.0
@@ -367,6 +446,32 @@ Do NOT reject solely because:
                 return self._reject("1m confirm failed — need green candle + higher high")
         else:
             entry = float(df_1m["close"].iloc[-2])
+
+        vol_slope = self._vol_slope_from_df(df_15m)
+        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            return self._reject(
+                f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
+                "— soft cascade, skip rocket"
+            )
+
+        prior_high = self._prior_structure_high(df_15m, p)
+        if prior_high is not None and self._at_prior_ceiling(float(entry), prior_high, p):
+            vol_ratio_pct = None
+            if "volume" in df_15m.columns and len(df_15m) >= 3:
+                try:
+                    vol_now = float(df_15m["volume"].iloc[-2])
+                    vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
+                    if vol_ma > 0:
+                        vol_ratio_pct = (vol_now / vol_ma) * 100.0
+                except Exception:
+                    vol_ratio_pct = None
+            spike = float(p["volume_spike_pct"])
+            if vol_ratio_pct is None or vol_ratio_pct < spike:
+                vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
+                return self._reject(
+                    f"Prior swing resistance {prior_high:.6g} — entry without "
+                    f"clear breakout / volume spike (vol {vr} < {spike:.0f}%)"
+                )
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):
