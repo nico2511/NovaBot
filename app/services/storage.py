@@ -160,7 +160,8 @@ class StorageService:
                 "whitelist": [
                     "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
                     "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
-                    "DOT", "ATOM", "LTC", "BCH", "XRP"
+                    "DOT", "ATOM", "LTC", "BCH", "XRP",
+                    "BNB", "TRX", "HYPE", "DOGE", "ZEC",
                 ]
             },
             "notifications": {}

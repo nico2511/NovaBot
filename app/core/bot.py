@@ -110,7 +110,8 @@ class BotContext:
             "whitelist": [
                 "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
                 "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
-                "DOT", "ATOM", "LTC", "BCH", "XRP"
+                "DOT", "ATOM", "LTC", "BCH", "XRP",
+                "BNB", "TRX", "HYPE", "DOGE", "ZEC",
             ],
         }
         # Per (strategy, symbol) sticky armed state for multi-symbol analysis
@@ -241,13 +242,29 @@ class BotContext:
             # Merge scanner knobs from user_settings.json (SoT for scanner)
             try:
                 from app.services.storage import storage_service
+                default_whitelist = list(self.scanner_settings.get("whitelist") or [])
                 disk_settings = storage_service.load_settings() or {}
                 disk_scanner = disk_settings.get("scanner") or {}
                 if disk_scanner:
                     self.scanner_settings = {**self.scanner_settings, **disk_scanner}
+                    # Append new default majors without dropping user custom symbols
+                    disk_wl = self.scanner_settings.get("whitelist")
+                    if isinstance(disk_wl, list):
+                        seen = {
+                            str(s).upper().replace("-USD", "").replace("-USDC", "")
+                            for s in disk_wl
+                        }
+                        merged_wl = list(disk_wl)
+                        for s in default_whitelist:
+                            key = str(s).upper().replace("-USD", "").replace("-USDC", "")
+                            if key and key not in seen:
+                                merged_wl.append(s)
+                                seen.add(key)
+                        self.scanner_settings["whitelist"] = merged_wl
                     self.add_log(
                         f"🕵️ Scanner settings loaded (enabled={self.scanner_settings.get('enabled')}, "
-                        f"auto_switch={self.scanner_settings.get('auto_switch')})"
+                        f"auto_switch={self.scanner_settings.get('auto_switch')}, "
+                        f"whitelist={len(self.scanner_settings.get('whitelist') or [])})"
                     )
                 disk_risk = disk_settings.get("risk_defaults") or {}
                 if disk_risk:
