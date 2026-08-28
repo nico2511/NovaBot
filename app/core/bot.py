@@ -32,6 +32,7 @@ from app.core.trade_thesis import (
     THESIS_DEAD,
     THESIS_WEAK,
     break_even_sl,
+    compute_thesis_dead_streak,
     should_apply_be_tighten,
 )
 from app.services.hyperliquid_service import hyperliquid_service
@@ -2182,6 +2183,10 @@ class BotContext:
             verdict = strat.evaluate_trade_thesis(
                 trade, float(current_price), df=df, extra_data=extra
             )
+            if verdict is not None:
+                verdict = strat.finalize_thesis_verdict(
+                    trade, float(current_price), df, verdict
+                )
             if verdict is None:
                 return False
 
@@ -2229,19 +2234,36 @@ class BotContext:
                 t_ref["thesis_status"] = verdict.status
                 t_ref["thesis_action"] = verdict.action
                 t_ref["thesis_pnl_pct"] = verdict.pnl_pct
+                t_ref["thesis_dead_streak"] = compute_thesis_dead_streak(
+                    prev,
+                    verdict.status,
+                    int(trade.get("thesis_dead_streak") or 0),
+                )
                 cur_sl = float(t_ref.get("sl") or 0)
                 entry = float(t_ref.get("entry") or t_ref.get("entry_price") or entry)
 
             if verdict.action == ACTION_TIGHTEN_SL:
-                be = break_even_sl(side, entry)
-                if be and should_apply_be_tighten(side, entry, cur_sl, be):
+                target_sl = (
+                    float(verdict.tighten_sl)
+                    if verdict.tighten_sl is not None
+                    else break_even_sl(side, entry)
+                )
+                if target_sl and should_apply_be_tighten(side, entry, cur_sl, target_sl):
+                    reasons_text = " ".join(verdict.reasons)
+                    if "DEAD_DRIFT" in reasons_text:
+                        label = "DEAD_DRIFT"
+                    elif "NEAR_TP_EXHAUSTION" in reasons_text:
+                        label = "NEAR_TP_EXHAUSTION"
+                    else:
+                        label = "WEAK"
                     self.add_log(
-                        f"🛡️ Thesis WEAK: tighten SL {symbol} {cur_sl:.6g}→{be:.6g} (BE lock)"
+                        f"🛡️ Thesis {label}: tighten SL {symbol} "
+                        f"{cur_sl:.6g}→{target_sl:.6g}"
                     )
                     with self.trade_lock:
                         t_ref = self.active_trades.get(symbol)
                         if t_ref:
-                            t_ref["sl"] = float(be)
+                            t_ref["sl"] = float(target_sl)
                             t_ref["initial_sl_tp_set"] = True
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                             StateManager.save_state(self)

@@ -369,6 +369,30 @@ class BaseStrategy(ABC):
         """
         return None
 
+    def finalize_thesis_verdict(
+        self,
+        trade: Dict[str, Any],
+        current_price: float,
+        df: pd.DataFrame,
+        verdict,
+    ):
+        """Post-process strategy thesis with shared overlays (near-TP / DEAD drift)."""
+        from app.core.trade_thesis import apply_dead_drift, apply_near_tp_exhaustion
+
+        if verdict is None:
+            return None
+        verdict = apply_near_tp_exhaustion(
+            verdict,
+            trade=trade,
+            current_price=float(current_price),
+            df=df,
+        )
+        return apply_dead_drift(
+            verdict,
+            trade=trade,
+            current_sl=float(trade.get("sl") or 0),
+        )
+
     def _reject(self, reason: str):
         """Set a human-readable rejection reason for diagnostics and return None."""
         self.last_rejection_reason = reason

@@ -8,12 +8,18 @@ Verdict actions:
   VALID  → leave trailing/BE alone
   WEAK   → thesis softening; tighten SL toward break-even if green
   DEAD   → structure broken; close only if unrealized PnL covers fees, else leave SL
+
+NEAR_TP_EXHAUSTION overlay (via apply_near_tp_exhaustion / finalize_thesis_verdict):
+  High progress toward TP + drying volume + tight-range stall → WEAK + lock partial gains.
+
+DEAD_DRIFT overlay (via apply_dead_drift / finalize_thesis_verdict):
+  Confirmed DEAD + small red PnL → progressively tighten SL toward entry (cap max loss).
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, replace
+from typing import Any, Dict, Optional, Tuple
 
 
 THESIS_VALID = "VALID"
@@ -26,6 +32,20 @@ ACTION_CLOSE_IF_PROFIT = "CLOSE_IF_PROFIT"
 
 # Soft-close only when green enough to survive round-trip fees (~HL taker).
 MIN_SOFT_CLOSE_PNL_PCT = 0.25
+
+# Near-TP exhaustion: fill the 70–85% progress gap before default trailing kicks in.
+NEAR_TP_MIN_PROGRESS_PCT = 70.0
+NEAR_TP_EXHAUSTION_MAX_VOL_RATIO = 50.0
+NEAR_TP_STALL_BARS = 3
+NEAR_TP_STALL_MAX_RANGE_PCT = 0.40
+NEAR_TP_LOCK_FRACTION = 0.55
+
+# DEAD drift: after consecutive DEAD checks on a small loser, ratchet SL toward entry.
+DEAD_DRIFT_MIN_STREAK = 2
+DEAD_DRIFT_MIN_LOSS_PCT = 0.25
+DEAD_DRIFT_MAX_LOSS_PCT = 2.5
+DEAD_DRIFT_FRACTION = 0.35
+DEAD_DRIFT_CAP_LOSS_PCT = 1.2
 
 
 def is_finite_number(value: Any) -> bool:
@@ -65,6 +85,7 @@ class ThesisVerdict:
     close: float
     supertrend: float
     pnl_pct: float
+    tighten_sl: Optional[float] = None
 
 
 def _pnl_pct(side: str, entry: float, price: float) -> float:
@@ -72,6 +93,277 @@ def _pnl_pct(side: str, entry: float, price: float) -> float:
         return 0.0
     raw = (price - entry) / entry * 100.0
     return raw if side == "BUY" else -raw
+
+
+def tp_progress_pct(side: str, entry: float, tp: float, price: float) -> Optional[float]:
+    """Progress toward TP as % of entry→TP distance (mirrors trailing_logic)."""
+    side = (side or "").upper()
+    if side not in ("BUY", "SELL") or entry <= 0 or tp <= 0 or price <= 0:
+        return None
+    if side == "BUY":
+        total_dist = tp - entry
+        current_dist = price - entry
+    else:
+        total_dist = entry - tp
+        current_dist = entry - price
+    if total_dist <= 0:
+        return None
+    return (current_dist / total_dist) * 100.0
+
+
+def volume_ratio_pct(df: Any, *, lookback: int = 50) -> Optional[float]:
+    """Last closed bar volume vs rolling mean (%), excluding the forming candle."""
+    if df is None or getattr(df, "empty", True) or "volume" not in getattr(df, "columns", []):
+        return None
+    if len(df) < lookback + 2:
+        return None
+    try:
+        vol = float(df["volume"].iloc[-2])
+        ma = float(df["volume"].iloc[:-2].tail(lookback).mean())
+        if ma <= 0:
+            return None
+        return vol / ma * 100.0
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def count_stall_bars(df: Any, *, n: int = 3, max_range_pct: float = 0.40) -> int:
+    """Count recent closed bars with tight high-low range (price stalling)."""
+    if df is None or getattr(df, "empty", True) or len(df) < n + 2:
+        return 0
+    stall = 0
+    for i in range(-(n + 1), -1):
+        try:
+            row = df.iloc[i]
+            high = float(row["high"])
+            low = float(row["low"])
+            close = float(row["close"])
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+        if close <= 0:
+            continue
+        if (high - low) / close * 100.0 <= max_range_pct:
+            stall += 1
+    return stall
+
+
+def near_tp_exhaustion_sl(
+    side: str,
+    entry: float,
+    tp: float,
+    *,
+    lock_fraction: float = NEAR_TP_LOCK_FRACTION,
+) -> Optional[float]:
+    """Lock a fraction of the planned entry→TP move when momentum dries near target."""
+    side = (side or "").upper()
+    if entry <= 0 or tp <= 0:
+        return None
+    frac = float(lock_fraction)
+    if frac <= 0 or frac >= 1:
+        return None
+    if side == "BUY":
+        total = tp - entry
+        if total <= 0:
+            return None
+        return entry + total * frac
+    if side == "SELL":
+        total = entry - tp
+        if total <= 0:
+            return None
+        return entry - total * frac
+    return None
+
+
+def detect_near_tp_exhaustion(
+    *,
+    side: str,
+    entry: float,
+    tp: float,
+    current_price: float,
+    df: Any,
+    min_progress_pct: float = NEAR_TP_MIN_PROGRESS_PCT,
+    max_volume_ratio_pct: float = NEAR_TP_EXHAUSTION_MAX_VOL_RATIO,
+    stall_bars: int = NEAR_TP_STALL_BARS,
+    stall_max_range_pct: float = NEAR_TP_STALL_MAX_RANGE_PCT,
+) -> Tuple[bool, tuple]:
+    """True when price is near TP but volume dried up and candles are compressing."""
+    progress = tp_progress_pct(side, entry, tp, current_price)
+    if progress is None or progress < min_progress_pct:
+        return False, ()
+
+    vol_ratio = volume_ratio_pct(df)
+    if vol_ratio is None or vol_ratio >= max_volume_ratio_pct:
+        return False, ()
+
+    stalls = count_stall_bars(df, n=stall_bars, max_range_pct=stall_max_range_pct)
+    if stalls < stall_bars:
+        return False, ()
+
+    return True, (
+        f"NEAR_TP_EXHAUSTION: {progress:.0f}% to TP, vol {vol_ratio:.0f}% avg, "
+        f"{stalls} tight-range bars",
+    )
+
+
+def apply_near_tp_exhaustion(
+    verdict: ThesisVerdict,
+    *,
+    trade: Dict[str, Any],
+    current_price: float,
+    df: Any,
+    min_progress_pct: float = NEAR_TP_MIN_PROGRESS_PCT,
+    max_volume_ratio_pct: float = NEAR_TP_EXHAUSTION_MAX_VOL_RATIO,
+    stall_bars: int = NEAR_TP_STALL_BARS,
+    stall_max_range_pct: float = NEAR_TP_STALL_MAX_RANGE_PCT,
+    lock_fraction: float = NEAR_TP_LOCK_FRACTION,
+) -> ThesisVerdict:
+    """Upgrade VALID→WEAK when near TP with exhaustion; suggest a partial-profit SL lock."""
+    if verdict.status == THESIS_DEAD or verdict.pnl_pct <= 0:
+        return verdict
+
+    side = str(trade.get("side") or "BUY").upper()
+    entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+    tp = float(trade.get("tp") or 0)
+    if entry <= 0 or tp <= 0:
+        return verdict
+
+    triggered, reasons = detect_near_tp_exhaustion(
+        side=side,
+        entry=entry,
+        tp=tp,
+        current_price=float(current_price),
+        df=df,
+        min_progress_pct=min_progress_pct,
+        max_volume_ratio_pct=max_volume_ratio_pct,
+        stall_bars=stall_bars,
+        stall_max_range_pct=stall_max_range_pct,
+    )
+    if not triggered:
+        return verdict
+
+    lock_sl = near_tp_exhaustion_sl(
+        side, entry, tp, lock_fraction=lock_fraction
+    )
+    if lock_sl is None:
+        return verdict
+
+    merged_reasons = tuple(verdict.reasons) + reasons
+    return replace(
+        verdict,
+        status=THESIS_WEAK,
+        action=ACTION_TIGHTEN_SL,
+        reasons=merged_reasons,
+        tighten_sl=float(lock_sl),
+    )
+
+
+def compute_thesis_dead_streak(
+    prev_status: Optional[str],
+    verdict_status: str,
+    prev_streak: int = 0,
+) -> int:
+    """Consecutive DEAD thesis checks (reset on VALID / WEAK)."""
+    if verdict_status != THESIS_DEAD:
+        return 0
+    if prev_status == THESIS_DEAD:
+        return max(1, int(prev_streak or 0) + 1)
+    return 1
+
+
+def dead_drift_sl(
+    side: str,
+    entry: float,
+    current_sl: float,
+    *,
+    drift_fraction: float = DEAD_DRIFT_FRACTION,
+    cap_loss_pct: float = DEAD_DRIFT_CAP_LOSS_PCT,
+) -> Optional[float]:
+    """Move SL partially toward entry; never past entry on a still-losing trade."""
+    side = (side or "").upper()
+    entry = float(entry)
+    current_sl = float(current_sl)
+    if entry <= 0 or current_sl <= 0:
+        return None
+    frac = float(drift_fraction)
+    if frac <= 0 or frac >= 1:
+        return None
+    cap = float(cap_loss_pct)
+
+    if side == "BUY":
+        gap = entry - current_sl
+        if gap <= 0:
+            return None
+        tightened = current_sl + gap * frac
+        floor = entry * (1.0 - cap / 100.0)
+        tightened = max(tightened, floor)
+        tightened = min(tightened, entry * 0.999)
+        return tightened if tightened > current_sl else None
+
+    if side == "SELL":
+        gap = current_sl - entry
+        if gap <= 0:
+            return None
+        tightened = current_sl - gap * frac
+        ceiling = entry * (1.0 + cap / 100.0)
+        tightened = min(tightened, ceiling)
+        tightened = max(tightened, entry * 1.001)
+        return tightened if tightened < current_sl else None
+
+    return None
+
+
+def apply_dead_drift(
+    verdict: ThesisVerdict,
+    *,
+    trade: Dict[str, Any],
+    current_sl: float,
+    min_streak: int = DEAD_DRIFT_MIN_STREAK,
+    min_loss_pct: float = DEAD_DRIFT_MIN_LOSS_PCT,
+    max_loss_pct: float = DEAD_DRIFT_MAX_LOSS_PCT,
+    drift_fraction: float = DEAD_DRIFT_FRACTION,
+    cap_loss_pct: float = DEAD_DRIFT_CAP_LOSS_PCT,
+) -> ThesisVerdict:
+    """On confirmed DEAD + red, ratchet SL toward entry to cap further loss."""
+    if verdict.status != THESIS_DEAD:
+        return verdict
+    if verdict.pnl_pct >= 0:
+        return verdict
+
+    loss = abs(float(verdict.pnl_pct))
+    if loss < min_loss_pct or loss > max_loss_pct:
+        return verdict
+
+    prev_status = trade.get("thesis_status")
+    prev_streak = int(trade.get("thesis_dead_streak") or 0)
+    streak = compute_thesis_dead_streak(prev_status, verdict.status, prev_streak)
+    if streak < min_streak:
+        return verdict
+
+    side = str(trade.get("side") or "BUY").upper()
+    entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+    if entry <= 0:
+        return verdict
+
+    drift_sl = dead_drift_sl(
+        side,
+        entry,
+        float(current_sl),
+        drift_fraction=drift_fraction,
+        cap_loss_pct=cap_loss_pct,
+    )
+    if drift_sl is None:
+        return verdict
+
+    reason = (
+        f"DEAD_DRIFT: streak {streak}, PnL {verdict.pnl_pct:+.2f}% "
+        f"→ tighten SL toward entry (cap -{cap_loss_pct:.1f}%)"
+    )
+    return replace(
+        verdict,
+        action=ACTION_TIGHTEN_SL,
+        reasons=tuple(verdict.reasons) + (reason,),
+        tighten_sl=float(drift_sl),
+    )
 
 
 def evaluate_supertrend_thesis(

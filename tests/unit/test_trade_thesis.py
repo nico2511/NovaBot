@@ -1,19 +1,33 @@
 """Unit tests for in-trade SuperTrend thesis evaluation."""
 from __future__ import annotations
 
+import pandas as pd
+import pytest
+
 from app.core.trade_thesis import (
     ACTION_CLOSE_IF_PROFIT,
     ACTION_HOLD,
     ACTION_TIGHTEN_SL,
     MIN_SOFT_CLOSE_PNL_PCT,
+    NEAR_TP_LOCK_FRACTION,
     THESIS_DEAD,
     THESIS_VALID,
     THESIS_WEAK,
+    ThesisVerdict,
+    apply_near_tp_exhaustion,
+    apply_dead_drift,
     break_even_sl,
+    compute_thesis_dead_streak,
+    count_stall_bars,
+    dead_drift_sl,
+    detect_near_tp_exhaustion,
     evaluate_range_lt_thesis,
     evaluate_supertrend_thesis,
+    near_tp_exhaustion_sl,
     should_apply_be_tighten,
     thesis_indicators_ready,
+    tp_progress_pct,
+    volume_ratio_pct,
 )
 
 
@@ -195,3 +209,229 @@ def test_range_lt_long_dead_on_breakout_below_box():
         adx_slope=-0.1,
     )
     assert v.status == THESIS_DEAD
+
+
+def _stall_df(*, vol: float = 10.0, tight: bool = True) -> pd.DataFrame:
+    """Synthetic OHLCV: last 3 closed bars tight-range + low volume vs history."""
+    rows = []
+    base_vol = 200.0
+    for i in range(60):
+        close = 100.0 + i * 0.01
+        if tight and i >= 56:
+            high, low = close + 0.0002, close - 0.0002
+            v = vol
+        else:
+            high, low = close + 0.5, close - 0.5
+            v = base_vol
+        rows.append(
+            {
+                "open": close - 0.01,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": v,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _valid_verdict(**kwargs) -> ThesisVerdict:
+    defaults = dict(
+        status=THESIS_VALID,
+        action=ACTION_HOLD,
+        reasons=("aligned",),
+        adx=25.0,
+        adx_slope=0.1,
+        st_direction=1,
+        close=107.5,
+        supertrend=100.0,
+        pnl_pct=7.5,
+    )
+    defaults.update(kwargs)
+    return ThesisVerdict(**defaults)
+
+
+def test_tp_progress_pct_long():
+    assert tp_progress_pct("BUY", 100.0, 110.0, 107.0) == 70.0
+    assert tp_progress_pct("BUY", 100.0, 110.0, 115.0) == 150.0
+
+
+def test_volume_ratio_pct_low_on_stall_df():
+    df = _stall_df(vol=10.0)
+    ratio = volume_ratio_pct(df)
+    assert ratio is not None
+    assert ratio < 50.0
+
+
+def test_count_stall_bars_on_tight_candles():
+    df = _stall_df(tight=True)
+    assert count_stall_bars(df, n=3) == 3
+
+
+def test_near_tp_exhaustion_sl_locks_partial_move():
+    sl = near_tp_exhaustion_sl("BUY", 100.0, 110.0, lock_fraction=NEAR_TP_LOCK_FRACTION)
+    assert sl == 105.5
+
+
+def test_detect_near_tp_exhaustion_triggers():
+    df = _stall_df()
+    ok, reasons = detect_near_tp_exhaustion(
+        side="BUY",
+        entry=100.0,
+        tp=110.0,
+        current_price=107.5,
+        df=df,
+        min_progress_pct=70.0,
+        max_volume_ratio_pct=50.0,
+    )
+    assert ok is True
+    assert reasons and "NEAR_TP_EXHAUSTION" in reasons[0]
+
+
+def test_detect_near_tp_exhaustion_skips_far_from_tp():
+    df = _stall_df()
+    ok, _ = detect_near_tp_exhaustion(
+        side="BUY",
+        entry=100.0,
+        tp=110.0,
+        current_price=103.0,
+        df=df,
+    )
+    assert ok is False
+
+
+def test_apply_near_tp_exhaustion_upgrades_valid_to_weak():
+    df = _stall_df()
+    base = _valid_verdict()
+    trade = {"side": "BUY", "entry": 100.0, "tp": 110.0}
+    out = apply_near_tp_exhaustion(
+        base,
+        trade=trade,
+        current_price=107.5,
+        df=df,
+    )
+    assert out.status == THESIS_WEAK
+    assert out.action == ACTION_TIGHTEN_SL
+    assert out.tighten_sl == 105.5
+    assert any("NEAR_TP_EXHAUSTION" in r for r in out.reasons)
+
+
+def test_apply_near_tp_exhaustion_skips_dead():
+    df = _stall_df()
+    dead = _valid_verdict(status=THESIS_DEAD, action=ACTION_CLOSE_IF_PROFIT)
+    trade = {"side": "BUY", "entry": 100.0, "tp": 110.0}
+    out = apply_near_tp_exhaustion(
+        dead,
+        trade=trade,
+        current_price=107.5,
+        df=df,
+    )
+    assert out.status == THESIS_DEAD
+    assert out.tighten_sl is None
+
+
+def test_apply_near_tp_exhaustion_skips_red():
+    df = _stall_df()
+    base = _valid_verdict(pnl_pct=-0.5)
+    trade = {"side": "BUY", "entry": 100.0, "tp": 110.0}
+    out = apply_near_tp_exhaustion(
+        base,
+        trade=trade,
+        current_price=99.5,
+        df=df,
+    )
+    assert out.status == THESIS_VALID
+    assert out.tighten_sl is None
+
+
+def test_compute_thesis_dead_streak():
+    assert compute_thesis_dead_streak(THESIS_VALID, THESIS_DEAD, 0) == 1
+    assert compute_thesis_dead_streak(THESIS_DEAD, THESIS_DEAD, 1) == 2
+    assert compute_thesis_dead_streak(THESIS_DEAD, THESIS_VALID, 3) == 0
+
+
+def test_dead_drift_sl_moves_buy_sl_toward_entry():
+    sl = dead_drift_sl(
+        "BUY", 100.0, 98.0, drift_fraction=0.35, cap_loss_pct=2.0
+    )
+    assert sl == pytest.approx(98.7)
+
+
+def test_dead_drift_sl_caps_max_loss():
+    # Drift alone would land at 98.7; cap floor at -1.2% bumps SL to 98.8.
+    sl = dead_drift_sl("BUY", 100.0, 98.0, drift_fraction=0.35, cap_loss_pct=1.2)
+    assert sl == pytest.approx(98.8)
+
+
+def test_apply_dead_drift_on_confirmed_dead_red():
+    dead = _valid_verdict(
+        status=THESIS_DEAD,
+        action=ACTION_CLOSE_IF_PROFIT,
+        pnl_pct=-0.8,
+        reasons=("SuperTrend flipped",),
+    )
+    trade = {
+        "side": "BUY",
+        "entry": 100.0,
+        "sl": 98.0,
+        "thesis_status": THESIS_DEAD,
+        "thesis_dead_streak": 1,
+    }
+    out = apply_dead_drift(dead, trade=trade, current_sl=98.0)
+    assert out.action == ACTION_TIGHTEN_SL
+    assert out.tighten_sl == pytest.approx(98.8)
+    assert any("DEAD_DRIFT" in r for r in out.reasons)
+
+
+def test_apply_dead_drift_waits_for_second_dead_check():
+    dead = _valid_verdict(
+        status=THESIS_DEAD,
+        action=ACTION_CLOSE_IF_PROFIT,
+        pnl_pct=-0.8,
+        reasons=("SuperTrend flipped",),
+    )
+    trade = {
+        "side": "BUY",
+        "entry": 100.0,
+        "sl": 98.0,
+        "thesis_status": THESIS_VALID,
+        "thesis_dead_streak": 0,
+    }
+    out = apply_dead_drift(dead, trade=trade, current_sl=98.0)
+    assert out.action == ACTION_CLOSE_IF_PROFIT
+    assert out.tighten_sl is None
+
+
+def test_apply_dead_drift_skips_green_dead():
+    dead = _valid_verdict(
+        status=THESIS_DEAD,
+        action=ACTION_CLOSE_IF_PROFIT,
+        pnl_pct=0.5,
+    )
+    trade = {
+        "side": "BUY",
+        "entry": 100.0,
+        "sl": 98.0,
+        "thesis_status": THESIS_DEAD,
+        "thesis_dead_streak": 3,
+    }
+    out = apply_dead_drift(dead, trade=trade, current_sl=98.0)
+    assert out.action == ACTION_CLOSE_IF_PROFIT
+    assert out.tighten_sl is None
+
+
+def test_apply_dead_drift_skips_deep_loss():
+    dead = _valid_verdict(
+        status=THESIS_DEAD,
+        action=ACTION_CLOSE_IF_PROFIT,
+        pnl_pct=-3.0,
+    )
+    trade = {
+        "side": "BUY",
+        "entry": 100.0,
+        "sl": 97.0,
+        "thesis_status": THESIS_DEAD,
+        "thesis_dead_streak": 3,
+    }
+    out = apply_dead_drift(dead, trade=trade, current_sl=97.0)
+    assert out.tighten_sl is None
