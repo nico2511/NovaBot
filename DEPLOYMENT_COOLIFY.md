@@ -29,7 +29,7 @@ Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes 
 
 | Clé                          | Usage                                   |
 | ---------------------------- | --------------------------------------- |
-| `HL_PRIVATE_KEY`             | Clé de l'Agent API (sans 0x)            |
+| `HL_PRIVATE_KEY`             | Clé de l'Agent API                      |
 | `HL_ACCOUNT_ADDRESS`         | Adresse de votre portefeuille principal |
 | `OPENROUTER_API_KEY`         | Clé pour l'analyse IA                   |
 | `OPENROUTER_CREDIT_CHECK_INTERVAL_SEC` | Optionnel — sonde crédit (défaut 3600s) |
@@ -37,8 +37,14 @@ Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes 
 | `OPENROUTER_CREDIT_MIN_USD`  | Optionnel — stop IA sous ce solde (0.10)|
 | `DISCORD_WEBHOOK_URL_ALERTS` | Webhook pour les trades                 |
 | `DISCORD_WEBHOOK_URL_LOGS`   | Webhook pour les logs                   |
-| `TRADING_SYMBOL`             | Symbole à trader (ex: HYPE, BTC)        |
 | `PORT`                       | `3001`                                  |
+| `API_KEY` + `API_KEY_REQUIRED` | Auth API en production                |
+
+Symbole, timeframe, scanner, risk → **`data/config/user_settings.json`** (pas dans Coolify env).
+
+### Journal web
+
+Après déploiement : `https://votre-domaine/journal` — positions + historique bot (lecture seule, même processus que l'API).
 
 
 ### Étape 3 : Volumes Persistants
@@ -57,4 +63,4 @@ Vérifiez dans l'onglet **Storage** que les volumes sont bien configurés :
 ---
 
 > [!NOTE]
-> Puisqu'il n'y a plus d'interface graphique (frontend), toute l'interaction se fait via les logs et les alertes Discord. C'est le mode le plus stable pour une utilisation 24/7.
+> Interaction principale : logs, Discord, et **`/journal`** (positions + historique bot, lecture seule, sans front séparé).

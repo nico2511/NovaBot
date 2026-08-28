@@ -19,7 +19,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 logger = logging.getLogger(__name__)
 
-from app.core.config import config
+from app.core.config import config, bootstrap_active_symbol
 from app.core.risk_manager import RiskManager
 from app.core.constants import *
 from app.core.state_manager import StateManager
@@ -74,7 +74,7 @@ class BotContext:
         
         # Multi-Position Support: trade_id keyed book (+ symbol index)
         # MUST be initialized BEFORE any property access (like self.latest_data)
-        self.active_symbol = config.TRADING_SYMBOL  # Must be set before latest_data
+        self.active_symbol = bootstrap_active_symbol()  # cold-start; scanner + bot_state override
         self.trade_book = TradeBook()
         self.latest_data_map = {}  # { "HYPE": DataFrame, "ETH": DataFrame }
         # HL-safe default: one bot trade per symbol (exchange nets per coin)

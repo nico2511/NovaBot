@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MainApp")
 
 # Import routers
-from app.api.routers import engine, trading, market, settings, history, scanner
+from app.api.routers import engine, trading, market, settings, history, scanner, journal
 
 # Settings Watcher
 from app.services.settings_watcher import SettingsWatcher
@@ -181,8 +181,9 @@ app.include_router(settings.router)
 app.include_router(history.router)
 app.include_router(history.logs_router)  # Logs at /api/logs
 app.include_router(scanner.router)
+app.include_router(journal.router)
 
-logger.info("✅ Routers registered: engine, trading, market, settings, history, logs")
+logger.info("✅ Routers registered: engine, trading, market, settings, history, logs, journal")
 
 
 @app.exception_handler(Exception)
@@ -340,6 +341,7 @@ def _render_index_html(groups: dict) -> str:
       <a href="/redoc">ReDoc</a>
       <a href="/openapi.json">OpenAPI JSON</a>
       <a href="/health">/health</a>
+      <a href="/journal">Journal trades</a>
     </div>
     {api_key_hint}
     {body}

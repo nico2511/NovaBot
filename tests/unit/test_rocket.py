@@ -144,9 +144,10 @@ def test_rocket_at_prior_ceiling_helper():
     p = s._params_snapshot()
     assert s._at_prior_ceiling(12.0, 12.0, p) is True
     assert s._at_prior_ceiling(11.0, 12.0, p) is False
-    # Clear breakout above prior high
+    # Clear breakout above prior high (15m close, not wick)
     clear_p = {**p, "breakout_clear_pct": 0.20}
     assert s._at_prior_ceiling(12.05, 12.0, clear_p) is False
+    assert s._at_prior_ceiling(12.01, 12.0, clear_p) is True
 
 
 def test_rocket_rejects_dying_volume_on_signal():

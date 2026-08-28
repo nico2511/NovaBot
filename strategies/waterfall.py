@@ -12,6 +12,15 @@ import pandas as pd
 
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
+from strategies.cascade_exhaustion import (
+    DEFAULT_RANGE_ADX_MAX,
+    DEFAULT_RANGE_RSI_SHORT_MAX,
+    DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
+    DEFAULT_WICK_TRAP_MIN_RATIO,
+    check_range_exhaustion_veto,
+    clear_breakdown_below,
+    wick_trap_reason_short,
+)
 
 
 def detect_waterfall(
@@ -89,8 +98,9 @@ class StrategyWaterfall(BaseStrategy):
     RULES OF ENGAGEMENT:
     1. SHORT ONLY — never approve BUY.
     2. APPROVE when cascade is live and R:R meets the risk-profile minimum.
-    3. Do NOT reject because price is near the lower Bollinger band — we ride the fall.
-    4. Do NOT reject because RSI is low — waterfalls are oversold by design.
+    3. Do NOT reject because price is near the lower Bollinger band in a **trend** — we ride the fall.
+    4. Do NOT reject because RSI is low **in a trend** — waterfalls are oversold by design.
+    4b. REJECT range climaxes: RANGE regime + weak ADX + (lower BB OR RSI<28) = capitulation trap, not continuation.
     5. Do NOT reject because SL is above entry (normal for shorts).
     6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
     7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
@@ -120,10 +130,13 @@ REJECT when ANY of:
 - Clear 1h counter-trend reclaim against the short
 
 Do NOT reject solely because:
-- RSI is oversold (expected on waterfalls)
-- Price is at lower BB (we short into the fall — BB ≠ structural swing support)
+- RSI is oversold **when regime is TREND and ADX supports momentum**
+- Price is at lower BB **in a trending market** (we short into the fall)
 - SL is wider than scalp norms (ATR stops are normal)
 - Entry has no pullback (waterfall = immediate momentum entry)
+
+REJECT range climax traps:
+- Regime RANGE + ADX weak + (BELOW_LOWER BB or RSI < 28) = capitulation bottom, not waterfall fuel
 """
 
     def __init__(self, config=None):
@@ -165,6 +178,13 @@ Do NOT reject solely because:
             "breakdown_clear_pct": self._float_param("breakdown_clear_pct", 0.20),
             "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
+            "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
+            "range_adx_max": self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
+            "range_rsi_short_max": self._float_param("range_rsi_short_max", DEFAULT_RANGE_RSI_SHORT_MAX),
+            "wick_trap_min_ratio": self._float_param("wick_trap_min_ratio", DEFAULT_WICK_TRAP_MIN_RATIO),
+            "wick_trap_close_extreme_pct": self._float_param(
+                "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT
+            ),
         }
 
     @staticmethod
@@ -240,6 +260,16 @@ Do NOT reject solely because:
         except (TypeError, ValueError):
             pass
 
+        if bool(self.get_param("range_exhaustion_enabled", True)):
+            reason = check_range_exhaustion_veto(
+                side,
+                ctx,
+                adx_max=self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
+                rsi_short_max=self._float_param("range_rsi_short_max", DEFAULT_RANGE_RSI_SHORT_MAX),
+            )
+            if reason:
+                return reason
+
         return None
 
     def get_scan_timeframe(self) -> str:
@@ -300,6 +330,15 @@ Do NOT reject solely because:
             and self._at_prior_floor(px, prior_low, p)
             and (vol_ratio_pct is None or vol_ratio_pct < spike)
         ):
+            return None
+
+        wick_reason = wick_trap_reason_short(
+            work,
+            bar_index=-1,
+            min_wick_ratio=float(p["wick_trap_min_ratio"]),
+            close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
+        )
+        if wick_reason:
             return None
 
         score = 70.0
@@ -437,6 +476,15 @@ Do NOT reject solely because:
                 f"15m RSI {rsi_15m:.1f} < {p['veto_rsi_oversold']:.0f} — cascade exhausted"
             )
 
+        wick_reason = wick_trap_reason_short(
+            df_15m,
+            bar_index=-1,
+            min_wick_ratio=float(p["wick_trap_min_ratio"]),
+            close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
+        )
+        if wick_reason:
+            return self._reject(wick_reason)
+
         df_1m = extra.get("1m")
         if df_1m is None or getattr(df_1m, "empty", True):
             return self._reject("Missing 1m data for waterfall entry")
@@ -456,23 +504,29 @@ Do NOT reject solely because:
             )
 
         prior_low = self._prior_structure_low(df_15m, p)
-        if prior_low is not None and self._at_prior_floor(float(entry), prior_low, p):
-            vol_ratio_pct = None
-            if "volume" in df_15m.columns and len(df_15m) >= 3:
-                try:
-                    vol_now = float(df_15m["volume"].iloc[-2])
-                    vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
-                    if vol_ma > 0:
-                        vol_ratio_pct = (vol_now / vol_ma) * 100.0
-                except Exception:
-                    vol_ratio_pct = None
-            spike = float(p["volume_spike_pct"])
-            if vol_ratio_pct is None or vol_ratio_pct < spike:
-                vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
-                return self._reject(
-                    f"Prior swing support {prior_low:.6g} — entry without "
-                    f"clear breakdown / volume spike (vol {vr} < {spike:.0f}%)"
-                )
+        cascade_close = float(cascade.get("close") or entry)
+        if prior_low is not None:
+            broke_down = clear_breakdown_below(
+                cascade_close, prior_low, float(p["breakdown_clear_pct"])
+            )
+            at_floor = self._at_prior_floor(float(entry), prior_low, p)
+            if at_floor and not broke_down:
+                vol_ratio_pct = None
+                if "volume" in df_15m.columns and len(df_15m) >= 3:
+                    try:
+                        vol_now = float(df_15m["volume"].iloc[-2])
+                        vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
+                        if vol_ma > 0:
+                            vol_ratio_pct = (vol_now / vol_ma) * 100.0
+                    except Exception:
+                        vol_ratio_pct = None
+                spike = float(p["volume_spike_pct"])
+                if vol_ratio_pct is None or vol_ratio_pct < spike:
+                    vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
+                    return self._reject(
+                        f"Prior swing support {prior_low:.6g} — entry without "
+                        f"clear 15m close breakdown / volume spike (vol {vr} < {spike:.0f}%)"
+                    )
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):

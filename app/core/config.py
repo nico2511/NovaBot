@@ -32,6 +32,21 @@ def _load_bot_state_settings():
 
 _state_settings = _load_bot_state_settings()
 
+def _normalize_symbol(raw: str) -> str:
+    return str(raw or "").upper().replace("-USD", "").replace("-USDC", "").strip()
+
+
+def bootstrap_active_symbol(settings: dict | None = None) -> str:
+    """Cold-start focus symbol before the scanner runs. Not a trading constraint."""
+    settings = settings or _state_settings
+    for raw in (settings.get("scanner") or {}).get("whitelist") or []:
+        sym = _normalize_symbol(raw)
+        if sym:
+            return sym
+    legacy = _normalize_symbol(os.getenv("TRADING_SYMBOL", ""))
+    return legacy or "BTC"
+
+
 def _parse_csv_env(name: str, default: str) -> list:
     """Parse a comma-separated env var into a list of stripped non-empty values."""
     raw = os.getenv(name, default) or ""
@@ -89,7 +104,9 @@ class Config:
     
     # Operations (from bot_state.json or .env fallback)
     AUTO_START_TRADING: bool = _state_settings.get('operations', {}).get('auto_start_trading') if _state_settings.get('operations', {}).get('auto_start_trading') is not None else (os.getenv("AUTO_START_TRADING", "false").lower() == "true")
-    TRADING_SYMBOL: str = os.getenv("TRADING_SYMBOL", "HYPE")
+    
+    # Deprecated: use bootstrap_active_symbol() — scanner whitelist drives markets.
+    TRADING_SYMBOL: str = bootstrap_active_symbol()
     
     # Scanner Settings (New in v2 - from user_settings.json)
     SCANNER_ENABLED: bool = _state_settings.get('scanner', {}).get('enabled', False)

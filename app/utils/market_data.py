@@ -7,11 +7,12 @@ import numpy as np
 from datetime import datetime
 import aiohttp
 from app.services.indicators import Indicators
-from app.core.config import config
+from app.core.config import bootstrap_active_symbol
 
 
-async def get_hyperliquid_candles(symbol: str = config.TRADING_SYMBOL, interval: str = "15m", limit: int = 100):
+async def get_hyperliquid_candles(symbol: str = None, interval: str = "15m", limit: int = 100):
     """Fetch candles from HyperLiquid API"""
+    symbol = symbol or bootstrap_active_symbol()
     try:
         url = 'https://api.hyperliquid.xyz/info'
         
@@ -92,8 +93,9 @@ async def get_hyperliquid_candles(symbol: str = config.TRADING_SYMBOL, interval:
         return None
 
 
-async def get_current_price(symbol: str = config.TRADING_SYMBOL) -> float:
+async def get_current_price(symbol: str = None) -> float:
     """Get current price from HyperLiquid"""
+    symbol = symbol or bootstrap_active_symbol()
     try:
         url = 'https://api.hyperliquid.xyz/info'
         payload = {"type": "allMids"}
@@ -109,8 +111,9 @@ async def get_current_price(symbol: str = config.TRADING_SYMBOL) -> float:
     return 87000.0
 
 
-async def get_formatted_candles(symbol: str = config.TRADING_SYMBOL, interval: str = "15m", limit: int = 100):
+async def get_formatted_candles(symbol: str = None, interval: str = "15m", limit: int = 100):
     """Get candles formatted for frontend chart (lightweight-charts)"""
+    symbol = symbol or bootstrap_active_symbol()
     df = await get_hyperliquid_candles(symbol, interval, limit)
     if df is None or df.empty:
         return []
@@ -131,8 +134,9 @@ async def get_formatted_candles(symbol: str = config.TRADING_SYMBOL, interval: s
     return candles
 
 
-async def get_open_interest(symbol: str = config.TRADING_SYMBOL) -> float:
+async def get_open_interest(symbol: str = None) -> float:
     """Get Open Interest for a symbol (Mock or Real)"""
+    symbol = symbol or bootstrap_active_symbol()
     # Hyperliquid doesn't expose clean OI in public info endpoint easily without iteration
     # returns value in USD
     try:

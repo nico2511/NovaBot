@@ -207,39 +207,40 @@ Stratégies : SuperTrend 15m + Trend LT 1h — voir [`strategies/README.md`](str
 
 ## Variables d'environnement
 
-Copie `.env.example` en `.env` et remplis. **Obligatoires** :
+Copie `.env.example` en `.env`. **Deux niveaux de config :**
 
+| Où | Quoi |
+| --- | --- |
+| `.env` | Secrets (clés HL, OpenRouter, Discord) + infra (PORT, API_KEY, CORS) |
+| `data/config/user_settings.json` | Opérations (timeframe, auto-start, symbole), risk, scanner, IA |
 
-| Clé                  | Usage                                         |
-| -------------------- | --------------------------------------------- |
-| `HL_PRIVATE_KEY`     | Clé privée Hyperliquid (agent API, sans `0x`) |
-| `HL_ACCOUNT_ADDRESS` | Adresse du portefeuille                       |
-| `OPENROUTER_API_KEY` | Validation IA                                 |
-| `OPENROUTER_CREDIT_CHECK_INTERVAL_SEC` | Sonde crédit IA (défaut `3600` = 1h ; `86400` = 1j ; `0` = démarrage seul) |
-| `OPENROUTER_CREDIT_WARN_USD` | Alerte Discord sous ce solde (défaut `1.0`) |
-| `OPENROUTER_CREDIT_MIN_USD` | Suspend les appels IA sous ce solde (défaut `0.10`) |
-| `TRADING_SYMBOL`     | Symbole tradé (ex: `HYPE`, `BTC`)             |
+### Obligatoires dans `.env`
 
+| Clé | Usage |
+| --- | --- |
+| `HL_PRIVATE_KEY` | Clé privée Hyperliquid (agent API) |
+| `HL_ACCOUNT_ADDRESS` | Adresse du portefeuille |
+| `OPENROUTER_API_KEY` | Validation IA |
 
-**Fortement recommandées** :
+### Optionnelles `.env`
 
+| Clé | Usage |
+| --- | --- |
+| `OPENROUTER_MANAGEMENT_API_KEY` | Solde compte OpenRouter (GET /credits) |
+| `OPENROUTER_CREDIT_CHECK_INTERVAL_SEC` | Sonde crédit IA (défaut `3600`) |
+| `OPENROUTER_CREDIT_WARN_USD` / `OPENROUTER_CREDIT_MIN_USD` | Alertes / coupure IA |
+| `DISCORD_WEBHOOK_URL_ALERTS` / `_LOGS` | Notifications (ou section `notifications` dans user_settings) |
+| `PORT` | Port HTTP (défaut `3001`) |
+| `API_KEY` + `API_KEY_REQUIRED` | Auth API en production |
+| `CORS_ALLOWED_ORIGINS` | Origines CORS CSV (même host que `/journal` → pas nécessaire) |
 
-| Clé                          | Usage                                     |
-| ---------------------------- | ----------------------------------------- |
-| `DISCORD_WEBHOOK_URL_ALERTS` | Notifications trades (entrée/sortie)      |
-| `DISCORD_WEBHOOK_URL_LOGS`   | Logs bot (moins verbeux que le fichier)   |
-| `AUTO_START_TRADING`         | `false` pour démarrer en mode observation |
+### Dans `user_settings.json` (plus dans `.env`)
 
+`log_level`, `auto_start_trading`, `trading_timeframe`, `max_positions`, `daily_stop_loss`, `model_name`, seuils IA, scanner (whitelist = univers tradé), etc.
 
-**Production (Coolify)** :
+### Journal web (lecture seule)
 
-
-| Clé                    | Usage                                                           |
-| ---------------------- | --------------------------------------------------------------- |
-| `API_KEY`              | Chaîne aléatoire longue (32+ car.) pour l'authentification API  |
-| `API_KEY_REQUIRED`     | `true` pour forcer le header `X-API-Key` sur tous les endpoints |
-| `CORS_ALLOWED_ORIGINS` | Vide ou liste CSV de domaines si un front appelle l'API         |
-| `LOG_LEVEL`            | `INFO` par défaut, `DEBUG` pour investiguer                     |
+Une fois le bot lancé, ouvrez **`http://localhost:3001/journal`** (ou votre URL Coolify + `/journal`). Entrez la clé API une fois si `API_KEY_REQUIRED=true`. Pas de front séparé — tout est servi par le même processus FastAPI.
 
 
 ---

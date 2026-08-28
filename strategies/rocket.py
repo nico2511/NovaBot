@@ -12,6 +12,15 @@ import pandas as pd
 
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
+from strategies.cascade_exhaustion import (
+    DEFAULT_RANGE_ADX_MAX,
+    DEFAULT_RANGE_RSI_LONG_MIN,
+    DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
+    DEFAULT_WICK_TRAP_MIN_RATIO,
+    check_range_exhaustion_veto,
+    clear_breakout_above,
+    wick_trap_reason_long,
+)
 
 
 def detect_rocket(
@@ -89,8 +98,9 @@ class StrategyRocket(BaseStrategy):
     RULES OF ENGAGEMENT:
     1. LONG ONLY — never approve SELL.
     2. APPROVE when cascade is live and R:R meets the risk-profile minimum.
-    3. Do NOT reject because price is near the upper Bollinger band — we ride the pump.
-    4. Do NOT reject because RSI is high — rockets are overbought by design.
+    3. Do NOT reject because price is near the upper Bollinger band in a **trend** — we ride the pump.
+    4. Do NOT reject because RSI is high **in a trend** — rockets are overbought by design.
+    4b. REJECT range blow-offs: RANGE regime + weak ADX + (upper BB OR RSI>72) = climax trap, not continuation.
     5. Do NOT reject because SL is below entry (normal for longs).
     6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
     7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
@@ -120,10 +130,13 @@ REJECT when ANY of:
 - Clear 1h counter-trend breakdown against the long
 
 Do NOT reject solely because:
-- RSI is overbought (expected on rockets)
-- Price is at upper BB (we buy into the pump — BB ≠ structural swing resistance)
+- RSI is overbought **when regime is TREND and ADX supports momentum**
+- Price is at upper BB **in a trending market** (we buy into the pump)
 - SL is wider than scalp norms (ATR stops are normal)
 - Entry has no pullback (rocket = immediate momentum entry)
+
+REJECT range climax traps:
+- Regime RANGE + ADX weak + (ABOVE_UPPER BB or RSI > 72) = blow-off top, not rocket fuel
 """
 
     def __init__(self, config=None):
@@ -165,6 +178,13 @@ Do NOT reject solely because:
             "breakout_clear_pct": self._float_param("breakout_clear_pct", 0.20),
             "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
+            "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
+            "range_adx_max": self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
+            "range_rsi_long_min": self._float_param("range_rsi_long_min", DEFAULT_RANGE_RSI_LONG_MIN),
+            "wick_trap_min_ratio": self._float_param("wick_trap_min_ratio", DEFAULT_WICK_TRAP_MIN_RATIO),
+            "wick_trap_close_extreme_pct": self._float_param(
+                "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT
+            ),
         }
 
     @staticmethod
@@ -241,6 +261,16 @@ Do NOT reject solely because:
         except (TypeError, ValueError):
             pass
 
+        if bool(self.get_param("range_exhaustion_enabled", True)):
+            reason = check_range_exhaustion_veto(
+                side,
+                ctx,
+                adx_max=self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
+                rsi_long_min=self._float_param("range_rsi_long_min", DEFAULT_RANGE_RSI_LONG_MIN),
+            )
+            if reason:
+                return reason
+
         return None
 
     def get_scan_timeframe(self) -> str:
@@ -299,6 +329,15 @@ Do NOT reject solely because:
             and self._at_prior_ceiling(px, prior_high, p)
             and (vol_ratio_pct is None or vol_ratio_pct < spike)
         ):
+            return None
+
+        wick_reason = wick_trap_reason_long(
+            work,
+            bar_index=-1,
+            min_wick_ratio=float(p["wick_trap_min_ratio"]),
+            close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
+        )
+        if wick_reason:
             return None
 
         score = 70.0
@@ -436,6 +475,15 @@ Do NOT reject solely because:
                 f"15m RSI {rsi_15m:.1f} > {p['veto_rsi_overbought']:.0f} — cascade exhausted"
             )
 
+        wick_reason = wick_trap_reason_long(
+            df_15m,
+            bar_index=-1,
+            min_wick_ratio=float(p["wick_trap_min_ratio"]),
+            close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
+        )
+        if wick_reason:
+            return self._reject(wick_reason)
+
         df_1m = extra.get("1m")
         if df_1m is None or getattr(df_1m, "empty", True):
             return self._reject("Missing 1m data for rocket entry")
@@ -455,23 +503,29 @@ Do NOT reject solely because:
             )
 
         prior_high = self._prior_structure_high(df_15m, p)
-        if prior_high is not None and self._at_prior_ceiling(float(entry), prior_high, p):
-            vol_ratio_pct = None
-            if "volume" in df_15m.columns and len(df_15m) >= 3:
-                try:
-                    vol_now = float(df_15m["volume"].iloc[-2])
-                    vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
-                    if vol_ma > 0:
-                        vol_ratio_pct = (vol_now / vol_ma) * 100.0
-                except Exception:
-                    vol_ratio_pct = None
-            spike = float(p["volume_spike_pct"])
-            if vol_ratio_pct is None or vol_ratio_pct < spike:
-                vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
-                return self._reject(
-                    f"Prior swing resistance {prior_high:.6g} — entry without "
-                    f"clear breakout / volume spike (vol {vr} < {spike:.0f}%)"
-                )
+        cascade_close = float(cascade.get("close") or entry)
+        if prior_high is not None:
+            broke_out = clear_breakout_above(
+                cascade_close, prior_high, float(p["breakout_clear_pct"])
+            )
+            at_ceiling = self._at_prior_ceiling(float(entry), prior_high, p)
+            if at_ceiling and not broke_out:
+                vol_ratio_pct = None
+                if "volume" in df_15m.columns and len(df_15m) >= 3:
+                    try:
+                        vol_now = float(df_15m["volume"].iloc[-2])
+                        vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
+                        if vol_ma > 0:
+                            vol_ratio_pct = (vol_now / vol_ma) * 100.0
+                    except Exception:
+                        vol_ratio_pct = None
+                spike = float(p["volume_spike_pct"])
+                if vol_ratio_pct is None or vol_ratio_pct < spike:
+                    vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
+                    return self._reject(
+                        f"Prior swing resistance {prior_high:.6g} — entry without "
+                        f"clear 15m close breakout / volume spike (vol {vr} < {spike:.0f}%)"
+                    )
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):

@@ -193,8 +193,8 @@ class StateManager:
             if "active_trade" in state and "active_trades" not in state:
                 old_trade = state.get("active_trade")
                 if old_trade:
-                    from app.core.config import config
-                    symbol = old_trade.get("symbol", config.TRADING_SYMBOL)
+                    from app.core.config import bootstrap_active_symbol
+                    symbol = old_trade.get("symbol", bootstrap_active_symbol())
                     context.active_trades = {symbol: old_trade}
                     logger.info("Migrated legacy active_trade to active_trades[%s]", symbol)
                     state_modified = True
@@ -221,8 +221,8 @@ class StateManager:
             # is_running is always False at load time — threads do not survive restarts.
             context.is_running = False
             
-            from app.core.config import config
-            context.active_symbol = state.get("active_symbol", config.TRADING_SYMBOL)
+            from app.core.config import bootstrap_active_symbol
+            context.active_symbol = state.get("active_symbol") or bootstrap_active_symbol()
             
             # Restore Risk Manager
             if "risk_state" in state:
