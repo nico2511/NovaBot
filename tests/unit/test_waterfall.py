@@ -64,7 +64,7 @@ def test_waterfall_hard_veto_blocks_low_volume():
 
 def test_waterfall_hard_veto_blocks_dying_volume():
     s = StrategyWaterfall({"params": {}})
-    ctx = {"volume_ratio": 110, "rsi": 35, "vol_slope": -39.0}
+    ctx = {"volume_ratio": 130, "rsi": 35, "vol_slope": -39.0}
     reason = s.check_hard_veto("SELL", ctx)
     assert reason is not None
     assert "dying" in reason.lower() or "fuel" in reason.lower()

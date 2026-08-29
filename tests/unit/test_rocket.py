@@ -63,7 +63,7 @@ def test_rocket_hard_veto_blocks_low_volume():
 
 def test_rocket_hard_veto_blocks_dying_volume():
     s = StrategyRocket({"params": {}})
-    ctx = {"volume_ratio": 110, "rsi": 66, "vol_slope": -39.0}
+    ctx = {"volume_ratio": 130, "rsi": 66, "vol_slope": -39.0}
     reason = s.check_hard_veto("BUY", ctx)
     assert reason is not None
     assert "dying" in reason.lower() or "fuel" in reason.lower()
@@ -71,7 +71,7 @@ def test_rocket_hard_veto_blocks_dying_volume():
 
 def test_rocket_hard_veto_allows_stable_volume():
     s = StrategyRocket({"params": {}})
-    ctx = {"volume_ratio": 110, "rsi": 66, "vol_slope": -10.0}
+    ctx = {"volume_ratio": 130, "rsi": 66, "vol_slope": -10.0}
     assert s.check_hard_veto("BUY", ctx) is None
 
 

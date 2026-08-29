@@ -18,7 +18,7 @@
       "sl_atr_mult": 2.0,
       "trigger_flip_lookback": 30,
       "cooldown_minutes": 15,
-      "min_volume_ratio_pct": 50,
+      "min_volume_ratio_pct": 80,
       "rsi_neutral_low": 46,
       "rsi_neutral_high": 54,
       "min_adx_slope": -0.35,
@@ -139,7 +139,7 @@
       "sl_atr_mult": 0.5,
       "min_sl_pct": 0.4,
       "sl_swing_lookback": 8,
-      "min_volume_ratio_pct": 40,
+      "min_volume_ratio_pct": 120,
       "volume_spike_pct": 120,
       "cooldown_minutes": 10,
       "require_1m_confirm": true,
@@ -151,7 +151,7 @@
       "struct_exclude_bars": 3,
       "allow_longs": false,
       "allow_shorts": true,
-      "scan_interval_minutes": 5
+      "scan_interval_minutes": 15
     },
     "display_conditions": [
       "EMA_9",
@@ -175,7 +175,7 @@
       "sl_atr_mult": 0.5,
       "min_sl_pct": 0.4,
       "sl_swing_lookback": 8,
-      "min_volume_ratio_pct": 40,
+      "min_volume_ratio_pct": 120,
       "volume_spike_pct": 120,
       "cooldown_minutes": 10,
       "require_1m_confirm": true,
@@ -187,7 +187,7 @@
       "struct_exclude_bars": 3,
       "allow_longs": true,
       "allow_shorts": false,
-      "scan_interval_minutes": 5
+      "scan_interval_minutes": 15
     },
     "display_conditions": [
       "EMA_9",

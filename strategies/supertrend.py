@@ -94,9 +94,9 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
 
     def get_min_volume_ratio_pct(self):
         try:
-            return float(self.get_param("min_volume_ratio_pct", 50.0) or 50.0)
+            return float(self.get_param("min_volume_ratio_pct", 80.0) or 80.0)
         except (TypeError, ValueError):
-            return 50.0
+            return 80.0
 
     def check_hard_veto(self, signal: str, market_context: dict):
         """Strategy-owned hard veto — SuperTrend 15m thresholds via shared helper."""
@@ -313,7 +313,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             "trigger_flip_lookback": int(self.get_param("trigger_flip_lookback", 30)),
             "cooldown_minutes":      int(self.get_param("cooldown_minutes", 15)),
             # Anti stop-hunt guard: skip signals in thin liquidity + neutral momentum
-            "min_volume_ratio_pct":  float(self.get_param("min_volume_ratio_pct", 50.0)),
+            "min_volume_ratio_pct":  float(self.get_param("min_volume_ratio_pct", 80.0)),
             "rsi_neutral_low":       float(self.get_param("rsi_neutral_low", 45.0)),
             "rsi_neutral_high":      float(self.get_param("rsi_neutral_high", 55.0)),
             # Quality filters (reduce mid-trend chase / dying ADX / tiny SL noise)

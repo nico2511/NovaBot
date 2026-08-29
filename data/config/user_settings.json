@@ -6,7 +6,7 @@
     },
     "risk_defaults": {
         "max_positions": 2,
-        "daily_stop_loss": 30.0,
+        "daily_stop_loss": 15.0,
         "bot_persona": "Conservative Scalper",
         "risk_profile": "Capital Preservation First",
         "default_leverage": 2,

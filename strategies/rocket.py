@@ -148,7 +148,7 @@ REJECT range climax traps:
         return self.AI_VALIDATION_CRITERIA
 
     def get_min_volume_ratio_pct(self) -> Optional[float]:
-        return self._float_param("min_volume_ratio_pct", 40.0)
+        return self._float_param("min_volume_ratio_pct", 120.0)
 
     def get_rr_epsilon(self) -> float:
         return 0.05
@@ -168,7 +168,7 @@ REJECT range climax traps:
             "sl_atr_mult": self._float_param("sl_atr_mult", 0.5),
             "min_sl_pct": self._float_param("min_sl_pct", 0.4),
             "sl_swing_lookback": int(self.get_param("sl_swing_lookback", 8) or 8),
-            "min_volume_ratio_pct": self._float_param("min_volume_ratio_pct", 40.0),
+            "min_volume_ratio_pct": self._float_param("min_volume_ratio_pct", 120.0),
             "cooldown_minutes": int(self.get_param("cooldown_minutes", 10) or 10),
             "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
             "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 82.0),
@@ -242,7 +242,7 @@ REJECT range climax traps:
             vol = float(ctx.get("volume_ratio") or 100)
         except (TypeError, ValueError):
             vol = 100.0
-        min_vol = self._float_param("min_volume_ratio_pct", 40.0)
+        min_vol = self._float_param("min_volume_ratio_pct", 120.0)
         spike = self._float_param("volume_spike_pct", 120.0)
         if vol < min_vol and vol < spike:
             return f"Volume {vol:.0f}% < {min_vol:.0f}% (no cascade spike)"
@@ -283,7 +283,7 @@ REJECT range climax traps:
                 return max(1.0, float(raw))
         except (TypeError, ValueError):
             pass
-        return 5.0
+        return 15.0
 
     def score_scan_candidate(self, df, *, symbol: str, meta=None):
         active, snap = detect_rocket(df, use_live=True)
