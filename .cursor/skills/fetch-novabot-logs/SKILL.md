@@ -76,6 +76,22 @@ When the user asks to analyze logs:
 
 If API is unreachable, report it and analyze `scratch/local/` only.
 
+## Companion scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `python .cursor/skills/fetch-novabot-logs/scripts/bot_report.py --fetch` | Fetch API + write `scratch/report.md` |
+| `python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py` | Compare local `data/config/` vs live API |
+| `python .cursor/skills/fetch-novabot-logs/scripts/sync_config.py --apply` | Push local config to live via API |
+
+Deploy check workflow:
+
+```bash
+python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py
+python .cursor/skills/fetch-novabot-logs/scripts/sync_config.py --apply   # if diffs
+python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py           # verify
+```
+
 ## Flags
 
 | Flag | Effect |

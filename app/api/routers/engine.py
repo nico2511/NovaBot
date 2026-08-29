@@ -3,11 +3,12 @@ Engine Router - Bot Engine Control Endpoints
 Handles start, stop, restart, and status operations
 """
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.dependencies import get_bot_context
+from app.api.dependencies import get_bot_context, get_bot_context_optional
 from app.api.auth import require_api_key
 from pydantic import BaseModel
 import logging
 import pandas as pd
+from typing import Any, Dict
 from app.services import storage
 
 logger = logging.getLogger("EngineRouter")
@@ -503,6 +504,60 @@ def get_strategies_config():
         return storage.storage_service.load_strategies()
     except Exception as e:
         logger.error(f"Error loading strategies config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/config/strategies-config")
+def put_strategies_config(
+    payload: Dict[str, Any],
+    bot=Depends(get_bot_context_optional),
+):
+    """
+    Replace strategies.json on disk and refresh runtime strategy instances.
+
+    Used by scripts/sync_config.py to push repo config to a running instance
+    without shell access to the Coolify data volume.
+    """
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(status_code=400, detail="Payload must be a non-empty JSON object")
+
+    try:
+        ok = storage.storage_service.save_strategies(payload)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to persist strategies.json")
+
+        refreshed: list[str] = []
+        if bot and hasattr(bot, "strategy_engine"):
+            engine = bot.strategy_engine
+            for strat_id, cfg in payload.items():
+                if strat_id == "market_regime" or not isinstance(cfg, dict):
+                    continue
+                strategy = engine.strategies.get(strat_id) if hasattr(engine, "strategies") else None
+                if strategy is not None:
+                    strategy.config = cfg
+                    if hasattr(strategy, "refresh_params"):
+                        try:
+                            strategy.refresh_params()
+                        except Exception as exc:
+                            logger.warning("refresh_params() failed for %s: %s", strat_id, exc)
+                    refreshed.append(strat_id)
+                if hasattr(engine, "config") and isinstance(engine.config, dict):
+                    engine.config[strat_id] = cfg
+
+        if bot:
+            bot.add_log(
+                f"⚙️ Strategies config synced via API ({len(payload)} top-level keys)"
+            )
+
+        return {
+            "status": "success",
+            "message": "strategies.json updated",
+            "refreshed_runtime": refreshed,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving strategies config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
