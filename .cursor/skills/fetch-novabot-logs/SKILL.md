@@ -76,6 +76,8 @@ When the user asks to analyze logs:
 
 If API is unreachable, report it and analyze `scratch/local/` only.
 
+**Public repo:** never commit `.env`, `user_settings.json` (use `user_settings.example.json`), or `scratch/`. Production must set `API_KEY_REQUIRED=true`. `sync_config.py` preserves live Discord webhooks — do not copy them into git.
+
 ## Companion scripts (`scripts/`)
 
 | Script | Purpose |

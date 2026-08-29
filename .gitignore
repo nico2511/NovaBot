@@ -41,6 +41,7 @@ __pycache__/
 Thumbs.db
 
 /scripts/
+scratch/
 stories/
 docs/
 backtest_lab/

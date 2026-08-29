@@ -19,6 +19,10 @@
         "conf_threshold_medium": 60,
         "conf_threshold_low": 40
     },
+    "notifications": {
+        "discord_webhook_alerts": "",
+        "discord_webhook_logs": ""
+    },
     "scanner": {
         "enabled": true,
         "interval": 15,
