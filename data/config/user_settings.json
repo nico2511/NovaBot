@@ -5,11 +5,11 @@
         "trading_timeframe": "15m"
     },
     "risk_defaults": {
-        "max_positions": 2,
-        "daily_stop_loss": 30.0,
+        "max_positions": 1,
+        "daily_stop_loss": 6.0,
         "bot_persona": "Conservative Scalper",
         "risk_profile": "Capital Preservation First",
-        "default_leverage": 2,
+        "default_leverage": 1,
         "default_margin_type": "ISOLATED"
     },
     "ai_config": {
