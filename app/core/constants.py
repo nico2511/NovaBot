@@ -13,8 +13,8 @@ TIMEFRAME_15M = "15m"
 # Execution & Risk
 DEFAULT_LEVERAGE = 5
 DEFAULT_SIZE_USDC = 20.0
-# Max position notional = equity × this multiplier (was 20; raised so ~$100 trades need ~$2 equity)
-MAX_NOTIONAL_CAP_MULTIPLIER = 50.0
+# Max position notional = equity × this multiplier (1.0 = true 1x, notional ≤ equity)
+MAX_NOTIONAL_CAP_MULTIPLIER = 1.0
 MIN_POSITION_NOTIONAL_USD = 12.0  # Hyperliquid minimum order value
 FALLBACK_STOP_LOSS_PCT = 0.025 # 2.5%
 FALLBACK_TAKE_PROFIT_PCT = 0.04  # 4%

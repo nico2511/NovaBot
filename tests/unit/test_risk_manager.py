@@ -184,7 +184,7 @@ def test_calculate_position_size_clamps_to_min():
 
 def test_multi_pos_refuses_upsize_below_hl_min():
     """With max_positions>1, do not clamp up below HL min (would defeat split)."""
-    rm = RiskManager(max_positions=3, max_notional_cap_multiplier=50.0)
+    rm = RiskManager(max_positions=3)
     # $1 margin / 3 slots * 1x lev ≈ $0.33 notional — refuse instead of upsizing to $12
     size = rm.calculate_position_size(
         price=100.0, sl_price=99.0, equity=1000.0,
@@ -207,19 +207,34 @@ def test_calculate_position_size_returns_zero_when_equity_is_zero():
 
 
 def test_calculate_position_size_returns_zero_when_equity_too_low_for_min():
-    """Equity $0.20 × cap 50 → max $10, below Hyperliquid $12 minimum."""
-    rm = RiskManager(max_notional_cap_multiplier=50.0)
+    """Equity $10 × cap 1 → max $10, below Hyperliquid $12 minimum."""
+    rm = RiskManager(max_notional_cap_multiplier=1.0)
     assert rm.calculate_position_size(
-        price=1.0, sl_price=0.9, equity=0.2,
+        price=1.0, sl_price=0.9, equity=10.0,
         size_type="margin", size_value=20.0, leverage=5,
     ) == 0.0
 
 
-def test_calculate_position_size_100_target_with_2_dollar_equity():
-    """Cap ×50: $2 equity allows $100 notional (default margin × leverage)."""
-    rm = RiskManager(max_positions=1, max_notional_cap_multiplier=50.0)
+def test_calculate_position_size_caps_notional_to_equity():
+    """Cap ×1: notional cannot exceed equity (true 1x)."""
+    rm = RiskManager(max_positions=1, max_notional_cap_multiplier=1.0)
     size = rm.calculate_position_size(
-        price=0.5, sl_price=0.49, equity=2.0,
+        price=0.5, sl_price=0.49, equity=50.0,
         size_type="margin", size_value=20.0, leverage=5,
     )
-    assert size * 0.5 == pytest.approx(100.0)
+    # $20 margin × 5 lev = $100 notional, clamped to equity $50
+    assert size * 0.5 == pytest.approx(50.0)
+
+
+def test_default_notional_cap_is_equity_times_one():
+    """RiskManager default multiplier is 1.0 — max notional = equity."""
+    from app.core.constants import MAX_NOTIONAL_CAP_MULTIPLIER
+
+    assert MAX_NOTIONAL_CAP_MULTIPLIER == 1.0
+    rm = RiskManager(max_positions=1)
+    assert rm.max_notional_cap_multiplier == 1.0
+    size = rm.calculate_position_size(
+        price=1.0, sl_price=0.9, equity=100.0,
+        size_type="notional", size_value=5000.0,
+    )
+    assert size * 1.0 == pytest.approx(100.0)

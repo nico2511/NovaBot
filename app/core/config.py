@@ -92,14 +92,14 @@ class Config:
     # Risk Defaults (from bot_state.json or .env fallback)
     DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "2"))
     DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
-    # Account UI fallback only — live trade leverage comes from risk_profiles.max_leverage
+    # Account UI ceiling for live trade leverage (clamps strategy risk-profile max_leverage)
     DEFAULT_LEVERAGE: int = int(
         _state_settings.get("risk_defaults", {}).get("default_leverage")
         or os.getenv("DEFAULT_LEVERAGE", "10")
     )
     MAX_NOTIONAL_CAP_MULTIPLIER: float = float(
         _state_settings.get('risk_defaults', {}).get('max_notional_cap_multiplier')
-        or os.getenv("MAX_NOTIONAL_CAP_MULTIPLIER", "50")
+        or os.getenv("MAX_NOTIONAL_CAP_MULTIPLIER", "1")
     )
     
     # Operations (from bot_state.json or .env fallback)

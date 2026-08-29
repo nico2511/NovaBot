@@ -2550,12 +2550,25 @@ class BotContext:
         cfg = (getattr(self.strategy_engine, "config", None) or {}).get(strategy_name)
         return resolve_strategy_risk_profile(cfg, account_default, strategy_key=strategy_name)
 
+    def _account_leverage_cap(self) -> int:
+        """UI/account ``default_leverage`` ceiling. Missing or invalid → 1x."""
+        raw = (getattr(self, "global_settings", None) or {}).get("risk_defaults", {}).get(
+            "default_leverage"
+        )
+        try:
+            if raw is None or raw == "":
+                return 1
+            cap = int(raw)
+        except (TypeError, ValueError):
+            return 1
+        return cap if cap > 0 else 1
+
     def _resolve_trade_leverage(self, strategy_name: str | None = None) -> int:
-        """Leverage from the strategy risk profile (Preservation/Balanced/Hunter)."""
-        from app.core.risk_profiles import get_max_leverage
+        """Profile max leverage, clamped to the account ``default_leverage`` ceiling."""
+        from app.core.risk_profiles import clamp_leverage, get_max_leverage
 
         profile = self._resolve_risk_profile(strategy_name)
-        return get_max_leverage(profile)
+        return clamp_leverage(get_max_leverage(profile), account_cap=self._account_leverage_cap())
 
     def _enforce_leverage(self, strategy_name: str | None = None):
         """Enforce leverage based on strategy risk profile (or account default)."""
@@ -2963,7 +2976,28 @@ class BotContext:
                             self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
                             time.sleep(10)
                             continue
-                    
+
+                        # Structural TP/SL preview: if post-trim R:R < strategy min_rr, skip OpenRouter
+                        if strat_obj is not None and hasattr(strat_obj, "pre_ai_geometry_veto"):
+                            try:
+                                geo_sig, geo_reason = strat_obj.pre_ai_geometry_veto(
+                                    sig, market_context
+                                )
+                            except Exception as geo_err:
+                                self.add_log(f"⚠️ Pre-AI geometry check failed: {geo_err}")
+                                geo_sig, geo_reason = sig, None
+                            if geo_reason:
+                                self.add_log(
+                                    f"⛔ GEOMETRY R:R {sig.get('signal')} {sig_symbol} "
+                                    f"({strat_name}): {geo_reason}",
+                                    metadata={"quiet": True},
+                                )
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                time.sleep(10)
+                                continue
+                            if isinstance(geo_sig, dict):
+                                sig = geo_sig
+
                         # Discord debug notification at strategy-detection stage (before AI gate).
                         # Include a compact preview of the *actual* data that will be sent to IA.
                         ai_payload_preview = {
@@ -3259,7 +3293,8 @@ class BotContext:
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
                         
-                            # POSITION SIZING: risk_pct + leverage from strategy risk profile
+                            # POSITION SIZING: risk_pct from strategy risk profile;
+                            # leverage = profile max clamped to account default_leverage.
                             # Budget is split across max_positions; exchange lev reduces margin.
                             try:
                                 self.risk_manager.update_settings(

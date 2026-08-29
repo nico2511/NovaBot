@@ -724,12 +724,28 @@ Example:
         """
         symbol = signal_data.get('symbol', 'UNKNOWN')
         key = self._get_cache_key("signal_validation", f"{symbol}_{signal_data.get('signal')}")
-        
+        ctx = market_context or {}
+
+        # Hard-reject below-min R:R after structural trim BEFORE any OpenRouter call.
+        if strategy is not None and hasattr(strategy, "pre_ai_geometry_veto"):
+            try:
+                signal_data, geo_reason = strategy.pre_ai_geometry_veto(signal_data, ctx)
+            except Exception as geo_err:
+                logger.debug("pre_ai_geometry_veto skipped: %s", geo_err)
+                geo_reason = None
+            if geo_reason:
+                logger.warning("PRE-AI GEOMETRY VETO %s: %s", symbol, str(geo_reason)[:160])
+                return {
+                    "approved": False,
+                    "confidence": 0,
+                    "reasoning": geo_reason,
+                    "rejection_reason_category": "BAD_RR",
+                    "risk_score": 9,
+                }
+
         cached = self._get_cached_response(key, 1)
         if cached:
             return cached
-        
-        ctx = market_context or {}
 
         # Pre-compute R:R / SL width so the model doesn't invent geometry errors.
         rr_line = "N/A"
