@@ -228,7 +228,7 @@ def test_rr_epsilon_allows_near_miss_after_trim(ia):
         "reasoning": "ok",
         "suggested_adjustments": {"sl": None, "tp": None},
     }
-    ctx = {"volume_ratio": 72.7}
+    ctx = {"volume_ratio": 120.0}
 
     out = ia._enforce_hard_constraints(
         signal,
@@ -238,3 +238,83 @@ def test_rr_epsilon_allows_near_miss_after_trim(ia):
         strategy=StrategySupertrend({"params": {}}),
     )
     assert out["approved"] is True
+
+
+def test_pre_ai_geometry_veto_when_trim_breaks_strategy_min_rr():
+    """Structural trim that collapses advertised 2.0 R:R must veto before AI."""
+    from strategies.supertrend import StrategySupertrend
+
+    s = StrategySupertrend({"params": {"min_rr": 2.0}})
+    signal = {
+        "strategy": "supertrend",
+        "signal": "BUY",
+        "price": 100.0,
+        "sl": 98.0,
+        "tp": 104.0,  # advertised R:R = 2.0
+    }
+    ctx = {"swing_high": 100.5, "swing_low": 90.0, "volume_ratio": 120.0}
+
+    adjusted, reason = s.pre_ai_geometry_veto(signal, ctx)
+    assert reason is not None
+    assert "min_rr" in reason
+    assert adjusted["tp"] < 101.0  # trimmed toward swing, not the mechanical 104
+
+
+def test_post_trim_below_min_rr_never_reaches_openrouter(ia):
+    """A setup whose post-trim R:R is below strategy min_rr must not call the AI."""
+    from unittest.mock import MagicMock
+
+    from strategies.supertrend import StrategySupertrend
+
+    s = StrategySupertrend({"params": {"min_rr": 2.0}})
+    signal = {
+        "strategy": "supertrend",
+        "signal": "BUY",
+        "symbol": "SOL",
+        "price": 100.0,
+        "sl": 98.0,
+        "tp": 104.0,
+    }
+    ctx = {"swing_high": 100.5, "swing_low": 90.0, "volume_ratio": 120.0}
+
+    ia._call_openrouter_api = MagicMock(
+        return_value={"raw_output": '{"approved": true, "confidence": 80}'}
+    )
+    out = ia.validate_signal(signal, ctx, strategy=s)
+
+    ia._call_openrouter_api.assert_not_called()
+    assert out["approved"] is False
+    assert out["rejection_reason_category"] == "BAD_RR"
+    assert "min_rr" in (out.get("reasoning") or "")
+
+
+def test_valid_post_trim_rr_still_calls_openrouter(ia):
+    """When structural TP still meets min_rr, the AI gate is allowed to run."""
+    from unittest.mock import MagicMock
+
+    from strategies.supertrend import StrategySupertrend
+
+    s = StrategySupertrend({"params": {"min_rr": 2.0}})
+    # risk=1, mechanical tp=102; swing 110 is beyond TP so no trim
+    signal = {
+        "strategy": "supertrend",
+        "signal": "BUY",
+        "symbol": "ETH",
+        "price": 100.0,
+        "sl": 99.0,
+        "tp": 102.0,
+    }
+    ctx = {"swing_high": 110.0, "swing_low": 90.0, "volume_ratio": 120.0}
+
+    ia.client = MagicMock()
+    ia._call_openrouter_api = MagicMock(
+        return_value={
+            "raw_output": (
+                '{"approved": true, "confidence": 80, "reasoning": "ok",'
+                ' "risk_level": "MEDIUM", "suggested_adjustments": {}}'
+            )
+        }
+    )
+    out = ia.validate_signal(signal, ctx, strategy=s)
+    ia._call_openrouter_api.assert_called_once()
+    assert out.get("rejection_reason_category") != "BAD_RR"

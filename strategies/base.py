@@ -12,7 +12,7 @@ so a new strategy that only implements generate_signal still runs safely.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -120,6 +120,76 @@ class BaseStrategy(ABC):
         """
         return ai_result
 
+    def pre_ai_geometry_veto(
+        self,
+        signal: Dict[str, Any],
+        market_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        """
+        Preview structural TP/SL (same geometry as ``post_ai_adjust``) and veto
+        before AI if the resulting R:R is below this strategy's ``min_rr``.
+
+        Does not ship an untrimmed target that is only valid by ignoring
+        structure: if the untrimmed TP is the only way to meet min_rr but the
+        structural trim is required, return a veto reason.
+
+        Returns ``(signal_with_geometry, veto_reason)``. Caller must not send
+        the signal to OpenRouter when ``veto_reason`` is set.
+        """
+        out = dict(signal or {})
+        try:
+            min_rr = float(self.get_param("min_rr", 0) or 0)
+        except (TypeError, ValueError):
+            min_rr = 0.0
+
+        dummy = {"approved": True, "suggested_adjustments": {}, "reasoning": ""}
+        try:
+            adjusted = self.post_ai_adjust(out, dummy, market_context) or dummy
+        except Exception:
+            adjusted = dummy
+        adj = (adjusted or {}).get("suggested_adjustments") or {}
+        if not isinstance(adj, dict):
+            adj = {}
+        for key in ("tp", "sl"):
+            raw = adj.get(key)
+            try:
+                val = float(raw) if raw is not None else 0.0
+            except (TypeError, ValueError):
+                continue
+            if val > 0:
+                out[key] = val
+
+        if min_rr <= 0:
+            return out, None
+
+        try:
+            entry = float(out.get("price") or 0)
+            sl = float(out.get("sl") or 0)
+            tp = float(out.get("tp") or 0)
+        except (TypeError, ValueError):
+            return out, None
+        if entry <= 0 or sl <= 0 or tp <= 0:
+            return out, None
+
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
+        if risk <= 0:
+            return out, (
+                f"Invalid stop-loss after geometry (zero risk; entry={entry}, sl={sl}). "
+                "Setup vetoed before AI."
+            )
+        rr = reward / risk
+        try:
+            rr_eps = float(self.get_rr_epsilon() or 0.02)
+        except (TypeError, ValueError):
+            rr_eps = 0.02
+        if rr + rr_eps < min_rr:
+            return out, (
+                f"Post-trim R:R {rr:.2f} < strategy min_rr {min_rr:.2f} "
+                f"(entry={entry}, sl={sl}, tp={tp}). Setup vetoed before AI."
+            )
+        return out, None
+
     def get_min_volume_ratio_pct(self) -> Optional[float]:
         """
         Optional volume floor (%) for post-AI WEAK_VOLUME hard gate.
@@ -128,7 +198,7 @@ class BaseStrategy(ABC):
         return None
 
     def get_rr_epsilon(self) -> float:
-        """Tolerance when comparing post-trim R:R to the strategy risk-profile min."""
+        """Tolerance when comparing post-trim R:R to the strategy min_rr floor."""
         return 0.02
 
     def get_risk_profile(self, account_default: Optional[str] = None) -> str:

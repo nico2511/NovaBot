@@ -85,14 +85,19 @@ def get_max_leverage(profile_name: Optional[str]) -> int:
 
 
 def clamp_leverage(profile_leverage: int, account_cap: Optional[int] = None) -> int:
-    """Optional helper: apply an explicit account ceiling (unused for live trade sizing).
+    """Cap profile leverage at the account UI ceiling (``default_leverage``).
 
-    Trade leverage is taken from the strategy risk profile via ``get_max_leverage``.
+    Account cap is a ceiling, not a floor: a 3x Preservation profile stays 3x
+    when the account allows 5x. Missing / invalid / non-positive cap → 1x.
     """
     lev = max(1, int(profile_leverage))
-    if account_cap is not None and int(account_cap) > 0:
-        return min(lev, int(account_cap))
-    return lev
+    try:
+        cap = int(account_cap) if account_cap is not None else 1
+    except (TypeError, ValueError):
+        cap = 1
+    if cap < 1:
+        cap = 1
+    return min(lev, cap)
 
 
 def required_ai_confidence(
