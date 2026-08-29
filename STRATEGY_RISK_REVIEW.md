@@ -9,7 +9,7 @@
 
 | Source | Result |
 |--------|--------|
-| Live API `http://10.10.20.79:3001/health` | **Unreachable.** `curl -m 8` timed out (exit 28). No retry (RFC1918 from this cloud VM). |
+| Live API `http://10.10.20.79:3001/health` | **Unreachable from this cloud VM.** First try: `curl -m 8` timeout (exit 28). Owner confirmed the bot is on that URL; second try `curl -m 10` also timeout (HTTP 000). `10.10.20.79` is RFC1918 — this agent is not on that LAN. Egress is unrestricted; there is simply no route. No further LAN retries. |
 | `/api/logs`, `/api/history/bot/trades`, `/api/history/bot/trades/stats`, `/api/history/timeline`, `/api/signal-analysis` | Not fetched (host unreachable). |
 | `data/state`, `logs/`, `trade_history.csv`, signal-analysis dumps, `daily_pnl_snapshot.json`, `bot_state.json` | **Absent from the working tree.** `.gitignore` excludes `data/*` (except `data/config/`), `logs/`, `bot_state.json`, `daily_pnl_snapshot.json`. |
 | Git history | Config + code only. No committed fill log or PnL snapshot. |
@@ -262,4 +262,6 @@ Do **not** drop SuperTrend `require_pullback` or Range/cascade `min_sl_pct` on t
 
 `user_settings.json` and `strategies.json` are live bot config. Merging this PR changes the **next process restart / settings reload** book: three strategies off, daily stop 6, one slot, Preservation sizing (still ~3x, still not $10 notionals until code grows a cap).
 
-If the running host at 10.10.20.79 still has old in-memory settings, confirm via `/api/config/strategies-config` and `/api/status` **from that LAN** after deploy. This VM cannot see that API.
+If the running host at 10.10.20.79 still has old in-memory settings, confirm via `/api/config/strategies-config` and `/api/status` **from that LAN** after deploy.
+
+To let a cloud agent read live trades/logs, expose a **public** Coolify/HTTPS base (not `10.10.20.79`) or paste snapshots of `/health`, `/api/history/bot/trades`, `/api/history/bot/trades/stats`, `/api/signal-analysis`, and `/api/logs`. This VM cannot route to RFC1918.
