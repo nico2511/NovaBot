@@ -76,7 +76,7 @@ When the user asks to analyze logs:
 
 If API is unreachable, report it and analyze `scratch/local/` only.
 
-**Public repo:** never commit `.env`, `user_settings.json` (use `user_settings.example.json`), or `scratch/`. Production must set `API_KEY_REQUIRED=true`. `sync_config.py` preserves live Discord webhooks — do not copy them into git.
+**Public repo:** never commit `.env`, `user_settings.json` (use `user_settings.example.json`), or `scratch/`. Production must set `API_KEY_REQUIRED=true`. Discord webhooks go in `user_settings.json` → `notifications` (not git); push with `sync_config.py --apply`. HL keys stay in Coolify `.env` only (+ container restart).
 
 ## Companion scripts (`scripts/`)
 

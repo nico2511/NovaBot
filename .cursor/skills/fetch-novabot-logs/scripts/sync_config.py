@@ -4,14 +4,29 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _api_client import api_base_url, get_json, load_local_json, post_json, put_json
+from _api_client import api_base_url, get_json, load_dotenv, load_local_json, post_json, put_json
 
 DIFF_CMD = "python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py"
+
+
+def _local_notifications(local: dict) -> dict | None:
+    notif = local.get("notifications")
+    if not isinstance(notif, dict):
+        return None
+    alerts = str(notif.get("discord_webhook_alerts") or "").strip()
+    logs = str(notif.get("discord_webhook_logs") or "").strip()
+    if not alerts and not logs:
+        return None
+    return {
+        "discord_webhook_alerts": alerts,
+        "discord_webhook_logs": logs or alerts,
+    }
 
 
 def _push_user_settings(dry_run: bool) -> list[str]:
@@ -21,9 +36,14 @@ def _push_user_settings(dry_run: bool) -> list[str]:
         raise RuntimeError(f"Failed to read live settings: {err}")
 
     merged = copy.deepcopy(local)
-    live_notif = (live_all or {}).get("notifications") or {}
-    if live_notif:
-        merged["notifications"] = live_notif
+    local_notif = _local_notifications(local)
+    if local_notif:
+        merged["notifications"] = local_notif
+    else:
+        # No local webhooks → keep live secrets (avoid wiping prod by accident).
+        live_notif = (live_all or {}).get("notifications") or {}
+        if live_notif:
+            merged["notifications"] = live_notif
 
     sections = ("risk_defaults", "operations", "ai_config", "scanner", "notifications")
     messages: list[str] = []
@@ -39,6 +59,25 @@ def _push_user_settings(dry_run: bool) -> list[str]:
             raise RuntimeError(f"{section}: {err}")
         messages.append(f"OK  {section} -> {resp.get('status', 'done')}")
     return messages
+
+
+def _push_notifications_from_env(dry_run: bool) -> list[str]:
+    load_dotenv()
+    alerts = (os.getenv("DISCORD_WEBHOOK_URL_ALERTS") or "").strip()
+    logs = (os.getenv("DISCORD_WEBHOOK_URL_LOGS") or "").strip()
+    if not alerts and not logs:
+        raise RuntimeError("DISCORD_WEBHOOK_URL_ALERTS / LOGS missing in .env")
+
+    payload = {
+        "discord_webhook_alerts": alerts,
+        "discord_webhook_logs": logs or alerts,
+    }
+    if dry_run:
+        return [f"DRY-RUN POST /api/settings/update notifications ({len(payload)} keys)"]
+    resp, err = post_json("/api/settings/update", {"section": "notifications", "data": payload})
+    if err:
+        raise RuntimeError(f"notifications: {err}")
+    return [f"OK  notifications from .env -> {resp.get('status', 'done')}"]
 
 
 def _push_strategies(dry_run: bool) -> list[str]:
@@ -87,11 +126,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="Actually push changes (default is dry-run)")
     parser.add_argument("--user-only", action="store_true", help="Sync user_settings.json only")
     parser.add_argument("--strategies-only", action="store_true", help="Sync strategies.json only")
+    parser.add_argument(
+        "--notifications-from-env",
+        action="store_true",
+        help="Push DISCORD_WEBHOOK_URL_* from .env to live user_settings (ignores old webhooks)",
+    )
     args = parser.parse_args(argv)
 
     if args.api_url:
-        import os
-
         os.environ["NOVABOT_API_URL"] = args.api_url
 
     dry_run = not args.apply
@@ -100,10 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     try:
-        if not args.strategies_only:
+        if args.notifications_from_env:
+            for line in _push_notifications_from_env(dry_run):
+                print(line)
+        elif not args.strategies_only:
             for line in _push_user_settings(dry_run):
                 print(line)
-        if not args.user_only:
+        if not args.user_only and not args.notifications_from_env:
             for line in _push_strategies(dry_run):
                 print(line)
     except RuntimeError as exc:

@@ -2,6 +2,15 @@
     "market_regime": {
         "adx_threshold": 22
     },
+    "weekend_pause": {
+        "enabled": false,
+        "timezone": "Europe/Paris",
+        "start_weekday": 5,
+        "start_hour": 6,
+        "end_weekday": 0,
+        "end_hour": 6,
+        "strategies": ["rocket", "waterfall"]
+    },
     "supertrend": {
         "enabled": true,
         "type": "trend",

@@ -35,7 +35,7 @@ def is_weekend_pause_active(
     Supports same-day windows (e.g. Sun 0h→12h) and wrap-around (e.g. Sat 6h→Mon 6h).
     """
     cfg = _pause_config(config)
-    if not cfg.get("enabled", True):
+    if not cfg.get("enabled", False):
         return False
 
     tz_name = str(cfg.get("timezone") or DEFAULT_TIMEZONE)
@@ -100,7 +100,7 @@ def weekend_pause_status(
     else:
         cur = cur.astimezone(tz)
     return {
-        "enabled": bool(cfg.get("enabled", True)),
+        "enabled": bool(cfg.get("enabled", False)),
         "active": active,
         "timezone": tz_name,
         "window": {
