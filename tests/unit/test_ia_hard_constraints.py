@@ -228,7 +228,7 @@ def test_rr_epsilon_allows_near_miss_after_trim(ia):
         "reasoning": "ok",
         "suggested_adjustments": {"sl": None, "tp": None},
     }
-    ctx = {"volume_ratio": 72.7}
+    ctx = {"volume_ratio": 120.0}
 
     out = ia._enforce_hard_constraints(
         signal,

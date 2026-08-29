@@ -131,23 +131,23 @@ def test_calculate_position_size_notional():
 def test_calculate_position_size_risk_pct():
     """When size_value > 1 the code treats it as a percentage (size_value / 100)."""
     rm = RiskManager(max_positions=1)
-    # Risk 2% of $1000 = $20. price=100, sl=99, diff=1 -> 20 coins
+    # 2% of $1000 = $20. SL 2% ($2) → 10 coins; notional $1000 equals equity×1 cap.
     size = rm.calculate_position_size(
-        price=100.0, sl_price=99.0, equity=1000.0,
+        price=100.0, sl_price=98.0, equity=1000.0,
         method="risk_pct", size_value=2.0,
     )
-    assert size == pytest.approx(20.0)
+    assert size == pytest.approx(10.0)
 
 
 def test_risk_pct_splits_across_max_positions():
     """Portfolio risk budget is divided by max_positions (no N× stacking)."""
     rm = RiskManager(max_positions=2)
-    # 2% of $1000 = $20 total → $10/slot → 10 coins at $1 risk/coin
+    # 2% of $1000 = $20 total → $10/slot. SL 2% → 5 coins; notional $500 = per-slot cap.
     size = rm.calculate_position_size(
-        price=100.0, sl_price=99.0, equity=1000.0,
+        price=100.0, sl_price=98.0, equity=1000.0,
         method="risk_pct", size_value=2.0,
     )
-    assert size == pytest.approx(10.0)
+    assert size == pytest.approx(5.0)
 
 
 def test_fixed_margin_splits_across_max_positions():
