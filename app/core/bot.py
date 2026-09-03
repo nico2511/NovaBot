@@ -3128,7 +3128,9 @@ class BotContext:
                         elif val_res.get("raw_output") or "approved" in val_res:
                             ai_data = val_res
                             approved = ai_data.get("approved", False)
-                            confidence = ai_data.get("confidence", 0)
+                            from app.services.ia import coerce_confidence
+
+                            confidence = coerce_confidence(ai_data.get("confidence", 0))
                             risk_level_raw = ai_data.get("risk_level")
                             risk_level = str(risk_level_raw).upper() if risk_level_raw else "MEDIUM"
                         

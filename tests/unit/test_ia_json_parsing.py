@@ -137,6 +137,45 @@ def test_coerce_optional_price_null_like():
     assert coerce_optional_price("abc") is None
 
 
+def test_coerce_confidence_string_and_percent():
+    from app.services.ia import coerce_confidence
+
+    assert coerce_confidence(75) == 75
+    assert coerce_confidence(75.9) == 75
+    assert coerce_confidence("82") == 82
+    assert coerce_confidence("82%") == 82
+    assert coerce_confidence(" 68 % ") == 68
+    assert coerce_confidence(None) == 0
+    assert coerce_confidence("null") == 0
+    assert coerce_confidence(150) == 100
+    assert coerce_confidence(-5) == 0
+
+
+def test_parse_json_response_coerces_string_confidence(ia):
+    raw = """{
+  "approved": true,
+  "confidence": "78",
+  "reasoning": "Momentum aligned"
+}"""
+    parsed = ia.parse_json_response(raw)
+    assert parsed["confidence"] == 78
+    assert isinstance(parsed["confidence"], int)
+
+
+def test_parse_validation_payload_coerces_string_confidence(ia):
+    result = {
+        "raw_output": """{
+  "approved": true,
+  "confidence": "85%",
+  "reasoning": "Breakout confirmed"
+}""",
+        "model": "test-model",
+    }
+    out = ia._parse_validation_payload(result)
+    assert out["confidence"] == 85
+    assert isinstance(out["confidence"], int)
+
+
 def test_normalize_suggested_adjustments_string_null():
     from app.services.ia import normalize_suggested_adjustments
 
