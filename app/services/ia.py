@@ -28,6 +28,26 @@ logger = logging.getLogger(__name__)
 _NULL_LIKE = frozenset({"", "null", "none", "n/a", "na", "nil", "-"})
 
 
+def coerce_confidence(value: Any) -> int:
+    """Parse AI confidence into an integer percentage in [0, 100]."""
+    if value is None or isinstance(value, bool):
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, min(100, int(value)))
+    if isinstance(value, str):
+        cleaned = value.strip().rstrip("%").strip()
+        if not cleaned or cleaned.lower() in _NULL_LIKE:
+            return 0
+        try:
+            return max(0, min(100, int(float(cleaned))))
+        except ValueError:
+            return 0
+    try:
+        return max(0, min(100, int(float(value))))
+    except (TypeError, ValueError):
+        return 0
+
+
 def coerce_optional_price(value: Any) -> Optional[float]:
     """Parse an AI-suggested price; treat null-like placeholders as no adjustment."""
     if value is None:
@@ -51,9 +71,11 @@ def coerce_optional_price(value: Any) -> Optional[float]:
 
 
 def normalize_suggested_adjustments(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Coerce suggested_adjustments.sl/tp null-like strings to None in-place."""
+    """Coerce validation payload fields (confidence, suggested_adjustments) in-place."""
     if not isinstance(payload, dict):
         return payload
+    if "confidence" in payload:
+        payload["confidence"] = coerce_confidence(payload.get("confidence", 0))
     adj = payload.get("suggested_adjustments")
     if not isinstance(adj, dict):
         return payload
