@@ -184,7 +184,8 @@ def test_lane_counts_above_min_score():
     assert counts == {"supertrend": 1, "trend_lt": 0}
 
 
-def test_strategies_for_analysis_respects_scan_lanes():
+def test_strategies_for_analysis_runs_all_when_lane_qualifies():
+    """One lane hit → every enabled strategy may analyze the symbol."""
     from app.core.bot import BotContext
 
     bot = BotContext.__new__(BotContext)
@@ -192,15 +193,16 @@ def test_strategies_for_analysis_respects_scan_lanes():
     bot._strategy_sticky = {}
     bot.scanner_job = SimpleNamespace(
         last_results_by_strategy={
-            "supertrend": [{"symbol": "XRP", "score": 92}],
+            "rocket": [{"symbol": "HYPE", "score": 85}],
+            "supertrend": [],
             "trend_lt": [],
         }
     )
-    assert bot._strategies_for_analysis("XRP") == {"supertrend"}
+    assert bot._strategies_for_analysis("HYPE") is None
     assert bot._strategies_for_analysis("BTC") == set()
 
 
-def test_strategies_for_analysis_keeps_sticky_armed_off_board():
+def test_strategies_for_analysis_runs_all_when_sticky_armed():
     from app.core.bot import BotContext
 
     bot = BotContext.__new__(BotContext)
@@ -214,8 +216,8 @@ def test_strategies_for_analysis_keeps_sticky_armed_off_board():
             "trend_lt": [],
         }
     )
-    assert bot._strategies_for_analysis("ETH") == {"trend_lt"}
-    assert bot._strategies_for_analysis("SOL") == {"supertrend"}
+    assert bot._strategies_for_analysis("ETH") is None
+    assert bot._strategies_for_analysis("SOL") is None
 
 
 def test_strategies_for_analysis_all_when_no_scan_snapshot():

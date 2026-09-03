@@ -372,47 +372,52 @@ class BotContext:
     def _strategies_for_analysis(self, symbol: str):
         """Strategies to evaluate on this symbol.
 
-        None = no scan snapshot yet (run every enabled strategy).
-        set  = scanner lanes that qualified this symbol (≥ min_score)
-               union sticky ``looking_for_entry`` for this symbol.
+        None = run every regime-eligible enabled strategy on this symbol.
+        set() = symbol not on scanner radar — skip strategy work.
 
-        Prevents Trend LT generate_signal / veto noise on a SuperTrend-only
-        scan hit (and the reverse).
+        When at least one scanner lane scored this symbol (≥ min_score) or a
+        strategy is sticky-armed here, we return None so SuperTrend / Trend LT
+        can enter early even if only rocket/waterfall qualified the scan hit.
         """
         if not symbol:
             return None
 
-        allowed = set()
-        sticky = getattr(self, "_strategy_sticky", {}) or {}
-        for (sname, sym), state in sticky.items():
-            if sym == symbol and isinstance(state, dict) and state.get("looking_for_entry"):
-                allowed.add(sname)
-
         job = getattr(self, "scanner_job", None)
         boards = getattr(job, "last_results_by_strategy", None) if job else None
         if not boards:
-            return allowed or None
+            return None
 
-        try:
-            min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
-        except (TypeError, ValueError):
-            min_score = 65.0
+        on_radar = False
+        sticky = getattr(self, "_strategy_sticky", {}) or {}
+        for (_sname, sym), state in sticky.items():
+            if sym == symbol and isinstance(state, dict) and state.get("looking_for_entry"):
+                on_radar = True
+                break
 
-        for sname, rows in boards.items():
-            for row in rows or []:
-                if not isinstance(row, dict):
-                    continue
-                if row.get("symbol") != symbol:
-                    continue
-                try:
-                    score = float(row.get("score") or 0)
-                except (TypeError, ValueError):
-                    score = 0.0
-                if score >= min_score:
-                    allowed.add(sname)
+        if not on_radar:
+            try:
+                min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
+            except (TypeError, ValueError):
+                min_score = 65.0
+
+            for rows in boards.values():
+                for row in rows or []:
+                    if not isinstance(row, dict) or row.get("symbol") != symbol:
+                        continue
+                    try:
+                        score = float(row.get("score") or 0)
+                    except (TypeError, ValueError):
+                        score = 0.0
+                    if score >= min_score:
+                        on_radar = True
+                        break
+                if on_radar:
                     break
 
-        return allowed
+        if on_radar:
+            return None
+
+        return set()
 
     _STICKY_FIELDS = (
         "looking_for_entry",

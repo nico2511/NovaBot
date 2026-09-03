@@ -9,7 +9,7 @@
     "start_hour": 6,
     "end_weekday": 0,
     "end_hour": 6,
-    "strategies": ["rocket", "waterfall"]
+    "strategies": ["supertrend", "trend_lt", "range_lt", "rocket", "waterfall"]
   },
   "supertrend": {
     "enabled": true,
@@ -152,7 +152,7 @@
       "volume_spike_pct": 120,
       "cooldown_minutes": 10,
       "require_1m_confirm": true,
-      "veto_rsi_oversold": 18,
+      "veto_rsi_oversold": 28,
       "veto_vol_slope_min": -30,
       "floor_proximity_pct": 0.35,
       "breakdown_clear_pct": 0.2,
@@ -160,7 +160,7 @@
       "struct_exclude_bars": 3,
       "allow_longs": false,
       "allow_shorts": true,
-      "scan_interval_minutes": 15
+      "scan_interval_minutes": 5
     },
     "display_conditions": [
       "EMA_9",
@@ -188,7 +188,7 @@
       "volume_spike_pct": 120,
       "cooldown_minutes": 10,
       "require_1m_confirm": true,
-      "veto_rsi_overbought": 82,
+      "veto_rsi_overbought": 72,
       "veto_vol_slope_min": -30,
       "ceiling_proximity_pct": 0.35,
       "breakout_clear_pct": 0.2,
@@ -196,7 +196,7 @@
       "struct_exclude_bars": 3,
       "allow_longs": true,
       "allow_shorts": false,
-      "scan_interval_minutes": 15
+      "scan_interval_minutes": 5
     },
     "display_conditions": [
       "EMA_9",

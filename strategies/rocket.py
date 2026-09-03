@@ -171,7 +171,7 @@ REJECT range climax traps:
             "min_volume_ratio_pct": self._float_param("min_volume_ratio_pct", 120.0),
             "cooldown_minutes": int(self.get_param("cooldown_minutes", 10) or 10),
             "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
-            "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 82.0),
+            "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 72.0),
             "volume_spike_pct": self._float_param("volume_spike_pct", 120.0),
             "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
             "ceiling_proximity_pct": self._float_param("ceiling_proximity_pct", 0.35),
@@ -234,7 +234,7 @@ REJECT range climax traps:
             rsi = float(ctx.get("rsi_val", ctx.get("rsi")) or 50)
         except (TypeError, ValueError):
             rsi = 50.0
-        ceiling = self._float_param("veto_rsi_overbought", 82.0)
+        ceiling = self._float_param("veto_rsi_overbought", 72.0)
         if rsi > ceiling:
             return f"RSI {rsi:.1f} > {ceiling:.0f} — cascade may be exhausted (blow-off top)"
 
@@ -283,7 +283,7 @@ REJECT range climax traps:
                 return max(1.0, float(raw))
         except (TypeError, ValueError):
             pass
-        return 15.0
+        return 5.0
 
     def score_scan_candidate(self, df, *, symbol: str, meta=None):
         active, snap = detect_rocket(df, use_live=True)
@@ -606,5 +606,5 @@ REJECT range climax traps:
             prev_close=prev_close,
             prev_low=prev_low,
             cascade_low=float(cascade_low) if cascade_low is not None else None,
-            rsi_exhaustion=self._float_param("veto_rsi_overbought", 82.0),
+            rsi_exhaustion=self._float_param("veto_rsi_overbought", 72.0),
         )
