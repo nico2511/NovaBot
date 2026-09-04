@@ -13,9 +13,65 @@ import pandas as pd
 from app.services.indicators import ta
 
 DEFAULT_MAX_EXTENSION_ATR = 3.5
+DEFAULT_SPARK_MAX_EXTENSION_ATR = 2.5
 DEFAULT_CASCADE_FRESH_BARS_MAX = 4
+DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX = 3
 DEFAULT_CASCADE_FRESH_BONUS = 10.0
 DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES = 2.0
+DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES = 1.5
+
+
+def detect_bull_cascade(
+    df: pd.DataFrame,
+    *,
+    use_live: bool = True,
+) -> Tuple[bool, Dict[str, float]]:
+    """
+    Bullish cascade: price > EMA9 > EMA20, double green, higher high.
+
+    Shared by rocket (15m) and spark (5m).
+    """
+    empty: Dict[str, float] = {}
+    if df is None or getattr(df, "empty", True) or len(df) < 3:
+        return False, empty
+
+    work = df
+    if "EMA_9" not in work.columns or "EMA_20" not in work.columns:
+        work = work.copy()
+        work["EMA_9"] = ta.ema(work["close"], length=9)
+        work["EMA_20"] = ta.ema(work["close"], length=20)
+
+    curr_i = -1 if use_live else -2
+    prev_i = -2 if use_live else -3
+
+    try:
+        curr_close = float(work["close"].iloc[curr_i])
+        curr_open = float(work["open"].iloc[curr_i])
+        curr_ema9 = float(work["EMA_9"].iloc[curr_i])
+        curr_ema20 = float(work["EMA_20"].iloc[curr_i])
+        prev_close = float(work["close"].iloc[prev_i])
+        prev_open = float(work["open"].iloc[prev_i])
+        prev_high = float(work["high"].iloc[prev_i])
+    except (IndexError, TypeError, ValueError):
+        return False, empty
+
+    is_curr_green = curr_close > curr_open
+    is_prev_green = prev_close > prev_open
+    active = (
+        curr_close > curr_ema9 > curr_ema20
+        and is_curr_green
+        and is_prev_green
+        and curr_close > prev_high
+    )
+    if not active:
+        return False, empty
+
+    return True, {
+        "close": curr_close,
+        "ema9": curr_ema9,
+        "ema20": curr_ema20,
+        "prev_high": prev_high,
+    }
 
 
 def bar_index(*, use_live: bool) -> int:

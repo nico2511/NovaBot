@@ -123,11 +123,38 @@ class RocketParams(_StrictParams):
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
 
 
+class SparkParams(_StrictParams):
+    min_rr: Optional[float] = Field(None, gt=0, le=10)
+    sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    sl_swing_lookback: Optional[int] = Field(None, ge=3, le=50)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    volume_spike_pct: Optional[float] = Field(None, ge=0, le=500)
+    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    require_1m_confirm: Optional[bool] = None
+    veto_rsi_overbought: Optional[float] = Field(None, ge=60, le=100)
+    veto_vol_slope_min: Optional[float] = Field(None, ge=-100, le=0)
+    ceiling_proximity_pct: Optional[float] = Field(None, ge=0, le=5)
+    breakout_clear_pct: Optional[float] = Field(None, ge=0, le=5)
+    struct_lookback: Optional[int] = Field(None, ge=8, le=500)
+    struct_exclude_bars: Optional[int] = Field(None, ge=1, le=20)
+    allow_longs: Optional[bool] = None
+    allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+    scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
+    scan_score_use_confirmed_bar: Optional[bool] = None
+    max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
+    cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
+    cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
+
+
 STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {
     "supertrend": SupertrendParams,
     "range_lt": RangeLtParams,
     "waterfall": WaterfallParams,
     "rocket": RocketParams,
+    "spark": SparkParams,
 }
 
 

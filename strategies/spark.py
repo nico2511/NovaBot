@@ -1,8 +1,8 @@
 """
-Rocket — long-only bullish cascade rider (15m detection / 1m entry).
+Spark — long-only fast bullish cascade rider (5m detection / 1m entry).
 
-Mirror of waterfall: price > EMA9 > EMA20, consecutive green candles,
-higher highs. Enter on the pump, exit when the cascade breaks.
+Faster sibling of rocket for alt pumps that ignite on 5m before a clean 15m
+cascade forms. Same cascade geometry, tighter extension and SL defaults.
 """
 from __future__ import annotations
 
@@ -22,55 +22,53 @@ from strategies.cascade_exhaustion import (
     wick_trap_reason_long,
 )
 from strategies.cascade_rider import (
-    DEFAULT_CASCADE_FRESH_BARS_MAX,
     DEFAULT_CASCADE_FRESH_BONUS,
-    DEFAULT_MAX_EXTENSION_ATR,
-    DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
+    DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX,
+    DEFAULT_SPARK_MAX_EXTENSION_ATR,
+    DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES,
     active_scan_interval_minutes,
     detect_bull_cascade,
     extension_within_limit,
     score_cascade_scan,
 )
 
-detect_rocket = detect_bull_cascade
+detect_spark = detect_bull_cascade
 
 
-class StrategyRocket(BaseStrategy):
+class StrategySpark(BaseStrategy):
     """
-    Rocket long plan (inverse waterfall):
-    - Detect bullish cascade on 15m
+    Spark long plan:
+    - Detect bullish cascade on 5m
     - Enter on confirmed 1m green + higher high
-    - SL below recent swing / EMA9 buffer; TP via min_rr
-    - Thesis: exit when price loses EMA9 or cascade stalls
+    - Tighter SL / extension vs rocket — fast alt ignition
+    - Thesis: exit when price loses EMA9 or cascade stalls (5m)
     """
 
     AI_PERSONA = """
-    CODENAME: "ROCKET RIDER"
+    CODENAME: "SPARK RIDER"
 
     ROLE:
-    You validate FAST bullish cascade longs only. Speed matters — do not overthink.
+    You validate ULTRA-FAST bullish cascade longs on 5m. Latency is critical.
 
     PRIME DIRECTIVE:
-    Approve BUY when the strategy confirmed an active 15m rocket (price > EMA9 > EMA20,
-    double green, higher high) with acceptable volume. Momentum continuation, NOT a fade.
+    Approve BUY when the strategy confirmed an active 5m spark (price > EMA9 > EMA20,
+    double green, higher high) with acceptable volume. Early ignition, NOT a 15m rocket fade.
 
     RULES OF ENGAGEMENT:
     1. LONG ONLY — never approve SELL.
-    2. APPROVE when cascade is live and R:R meets the risk-profile minimum.
-    3. Do NOT reject because price is near the upper Bollinger band in a **trend** — we ride the pump.
-    4. Do NOT reject because RSI is high **in a trend** — rockets are overbought by design.
-    4b. REJECT range blow-offs: RANGE regime + weak ADX + (upper BB OR RSI>72) = climax trap, not continuation.
-    5. Do NOT reject because SL is below entry (normal for longs).
-    6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
-    7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
-    8. REJECT if entry is into prior swing-high resistance without a clear breakout + volume spike.
-    9. REJECT if higher-TF (1h/4h) is strongly bearish AND price lost 1h EMA20.
-    10. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
+    2. APPROVE when 5m cascade is live and R:R meets the risk-profile minimum.
+    3. Do NOT reject because RSI is high in a **trend** — sparks run hot by design.
+    4. REJECT range blow-offs: RANGE + weak ADX + (upper BB OR RSI>74) = climax trap.
+    5. REJECT if volume_ratio < 40% without a clear cascade spike.
+    6. REJECT if volume is dying (vol_slope DROP).
+    7. REJECT if entry is into prior swing-high resistance without breakout + spike.
+    8. REJECT if 1h is strongly bearish AND price lost 1h EMA20.
+    9. When evidence is weak, REJECT — do not rubber-stamp a late chase.
     """
 
-    AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (ROCKET) ===
-The strategy already confirmed: 15m bullish cascade + 1m entry trigger.
-Fast sanity check only — latency-sensitive setup.
+    AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (SPARK) ===
+The strategy already confirmed: 5m bullish cascade + 1m entry trigger.
+Ultra-fast sanity check — latency-sensitive early pump setup.
 
 APPROVE when ALL of:
 1. Signal is BUY (long-only strategy)
@@ -90,12 +88,12 @@ REJECT when ANY of:
 
 Do NOT reject solely because:
 - RSI is overbought **when regime is TREND and ADX supports momentum**
-- Price is at upper BB **in a trending market** (we buy into the pump)
+- Price is at upper BB **in a trending market**
 - SL is wider than scalp norms (ATR stops are normal)
-- Entry has no pullback (rocket = immediate momentum entry)
+- Entry has no pullback (spark = immediate momentum entry)
 
 REJECT range climax traps:
-- Regime RANGE + ADX weak + (ABOVE_UPPER BB or RSI > 72) = blow-off top, not rocket fuel
+- Regime RANGE + ADX weak + (ABOVE_UPPER BB or RSI > 74) = blow-off top
 """
 
     def __init__(self, config=None):
@@ -126,18 +124,18 @@ REJECT range climax traps:
     def _params_snapshot(self) -> Dict[str, Any]:
         return {
             "min_rr": self._float_param("min_rr", 1.0),
-            "sl_atr_mult": self._float_param("sl_atr_mult", 0.5),
-            "min_sl_pct": self._float_param("min_sl_pct", 0.4),
-            "sl_swing_lookback": int(self.get_param("sl_swing_lookback", 8) or 8),
+            "sl_atr_mult": self._float_param("sl_atr_mult", 0.45),
+            "min_sl_pct": self._float_param("min_sl_pct", 0.35),
+            "sl_swing_lookback": int(self.get_param("sl_swing_lookback", 6) or 6),
             "min_volume_ratio_pct": self._float_param("min_volume_ratio_pct", 120.0),
-            "cooldown_minutes": int(self.get_param("cooldown_minutes", 10) or 10),
-            "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
-            "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 72.0),
             "volume_spike_pct": self._float_param("volume_spike_pct", 120.0),
+            "cooldown_minutes": int(self.get_param("cooldown_minutes", 7) or 7),
+            "require_1m_confirm": bool(self.get_param("require_1m_confirm", True)),
+            "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 74.0),
             "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
             "ceiling_proximity_pct": self._float_param("ceiling_proximity_pct", 0.35),
             "breakout_clear_pct": self._float_param("breakout_clear_pct", 0.20),
-            "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
+            "struct_lookback": int(self.get_param("struct_lookback", 48) or 48),
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
             "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
             "range_adx_max": self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
@@ -146,12 +144,15 @@ REJECT range climax traps:
             "wick_trap_close_extreme_pct": self._float_param(
                 "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT
             ),
-            "max_extension_atr": self._float_param("max_extension_atr", DEFAULT_MAX_EXTENSION_ATR),
+            "max_extension_atr": self._float_param("max_extension_atr", DEFAULT_SPARK_MAX_EXTENSION_ATR),
             "extension_ema_period": int(self.get_param("extension_ema_period", 9) or 9),
-            "cascade_fresh_bars_max": int(self.get_param("cascade_fresh_bars_max", DEFAULT_CASCADE_FRESH_BARS_MAX) or DEFAULT_CASCADE_FRESH_BARS_MAX),
+            "cascade_fresh_bars_max": int(
+                self.get_param("cascade_fresh_bars_max", DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX)
+                or DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX
+            ),
             "cascade_fresh_bonus": self._float_param("cascade_fresh_bonus", DEFAULT_CASCADE_FRESH_BONUS),
             "scan_interval_active_minutes": self._float_param(
-                "scan_interval_active_minutes", DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES
+                "scan_interval_active_minutes", DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES
             ),
             "scan_score_use_confirmed_bar": bool(
                 self.get_param("scan_score_use_confirmed_bar", True)
@@ -160,7 +161,6 @@ REJECT range climax traps:
 
     @staticmethod
     def _vol_slope_from_df(df: pd.DataFrame) -> Optional[float]:
-        """Confirmed-bar volume change % (same idea as get_dynamic_context)."""
         if df is None or getattr(df, "empty", True) or "volume" not in df.columns or len(df) < 3:
             return None
         try:
@@ -173,7 +173,6 @@ REJECT range climax traps:
             return None
 
     def _prior_structure_high(self, df: pd.DataFrame, p: Dict[str, Any]) -> Optional[float]:
-        """Max high before the live cascade bars — prior resistance, not the HH itself."""
         excl = max(1, int(p["struct_exclude_bars"]))
         look = max(excl + 2, int(p["struct_lookback"]))
         if df is None or getattr(df, "empty", True) or len(df) < look + excl:
@@ -186,7 +185,6 @@ REJECT range climax traps:
     def _at_prior_ceiling(
         self, entry: float, prior_high: float, p: Dict[str, Any]
     ) -> bool:
-        """True when entry revisits prior swing high without a clear breakout."""
         if entry <= 0 or prior_high <= 0:
             return False
         prox = float(p["ceiling_proximity_pct"]) / 100.0
@@ -199,15 +197,15 @@ REJECT range climax traps:
         ctx = market_context or {}
         side = str(signal or "").upper()
         if side == "SELL":
-            return "Rocket is long-only (SELL blocked)"
+            return "Spark is long-only (SELL blocked)"
 
         try:
             rsi = float(ctx.get("rsi_val", ctx.get("rsi")) or 50)
         except (TypeError, ValueError):
             rsi = 50.0
-        ceiling = self._float_param("veto_rsi_overbought", 72.0)
+        ceiling = self._float_param("veto_rsi_overbought", 74.0)
         if rsi > ceiling:
-            return f"RSI {rsi:.1f} > {ceiling:.0f} — cascade may be exhausted (blow-off top)"
+            return f"RSI {rsi:.1f} > {ceiling:.0f} — 5m spark may be exhausted"
 
         try:
             vol = float(ctx.get("volume_ratio") or 100)
@@ -218,7 +216,6 @@ REJECT range climax traps:
         if vol < min_vol and vol < spike:
             return f"Volume {vol:.0f}% < {min_vol:.0f}% (no cascade spike)"
 
-        # Dying volume = soft cascade (BTC double-top case: vol_slope −39%)
         slope_floor = self._float_param("veto_vol_slope_min", -30.0)
         try:
             raw_slope = ctx.get("vol_slope")
@@ -227,7 +224,7 @@ REJECT range climax traps:
                 if vol_slope < slope_floor:
                     return (
                         f"Volume dying (slope {vol_slope:+.1f}% < {slope_floor:.0f}%) "
-                        "— no fuel for rocket continuation"
+                        "— no fuel for spark continuation"
                     )
         except (TypeError, ValueError):
             pass
@@ -245,7 +242,7 @@ REJECT range climax traps:
         return None
 
     def get_scan_timeframe(self) -> str:
-        return "15m"
+        return "5m"
 
     def get_scan_interval_minutes(
         self,
@@ -255,9 +252,9 @@ REJECT range climax traps:
         p = self._params_snapshot()
         try:
             raw = self.get_param("scan_interval_minutes", None)
-            base = max(1.0, float(raw)) if raw is not None else 5.0
+            base = max(1.0, float(raw)) if raw is not None else 3.0
         except (TypeError, ValueError):
-            base = 5.0
+            base = 3.0
         ctx = scan_context or {}
         return active_scan_interval_minutes(
             base,
@@ -271,17 +268,17 @@ REJECT range climax traps:
             df,
             side="LONG",
             symbol=symbol,
-            detect_fn=detect_rocket,
+            detect_fn=detect_spark,
             params=p,
             vol_slope_from_df=self._vol_slope_from_df,
             prior_structure_level=self._prior_structure_high,
             at_prior_level=self._at_prior_ceiling,
             wick_trap_reason=wick_trap_reason_long,
             rsi_veto=lambda rsi, params: rsi > float(params["veto_rsi_overbought"]),
-            rsi_score_bonus=lambda rsi: min(10.0, max(0.0, (rsi - 65.0) * 0.2)),
+            rsi_score_bonus=lambda rsi: min(10.0, max(0.0, (rsi - 62.0) * 0.2)),
             meta=meta,
-            close_key="rocket_close",
-            ema_key="rocket_ema9",
+            close_key="spark_close",
+            ema_key="spark_ema9",
         )
 
     def post_ai_adjust(
@@ -328,7 +325,7 @@ REJECT range climax traps:
     def _build_sl_tp(
         self,
         entry: float,
-        df_15m: pd.DataFrame,
+        df_ctx: pd.DataFrame,
         cascade: Dict[str, float],
         p: Dict[str, Any],
     ) -> Tuple[Optional[float], Optional[float]]:
@@ -337,12 +334,12 @@ REJECT range climax traps:
 
         lookback = max(3, int(p["sl_swing_lookback"]))
         try:
-            swing_low = float(df_15m["low"].iloc[-lookback:].min())
+            swing_low = float(df_ctx["low"].iloc[-lookback:].min())
         except Exception:
             swing_low = entry
 
-        atr = float(df_15m["ATR_14"].iloc[-1]) if "ATR_14" in df_15m.columns else 0.0
-        ema9 = float(cascade.get("ema9") or df_15m["EMA_9"].iloc[-1])
+        atr = float(df_ctx["ATR_14"].iloc[-1]) if "ATR_14" in df_ctx.columns else 0.0
+        ema9 = float(cascade.get("ema9") or df_ctx["EMA_9"].iloc[-1])
         atr_buf = atr * float(p["sl_atr_mult"]) if atr > 0 else 0.0
         sl_candidate = min(swing_low, ema9 - atr_buf)
 
@@ -382,20 +379,21 @@ REJECT range climax traps:
         p = self._params_snapshot()
         extra = extra_data or {}
 
-        if df is None or getattr(df, "empty", True) or len(df) < 50:
-            return self._reject("Not enough 15m data for rocket detection")
+        df_5m = extra.get("5m")
+        if df_5m is None or getattr(df_5m, "empty", True) or len(df_5m) < 50:
+            return self._reject("Not enough 5m data for spark detection")
 
-        df_15m = self.add_indicators(df)
-        active, cascade = detect_rocket(df_15m, use_live=True)
+        df_5m = self.add_indicators(df_5m)
+        active, cascade = detect_spark(df_5m, use_live=True)
         if not active:
             self.looking_for_entry = False
             self.entry_direction = None
-            return self._reject("No active 15m rocket cascade")
+            return self._reject("No active 5m spark cascade")
 
         self.entry_direction = "LONG"
 
         ext_ok, ext_atr = extension_within_limit(
-            df_15m,
+            df_5m,
             "LONG",
             float(p["max_extension_atr"]),
             ema_period=int(p.get("extension_ema_period", 9) or 9),
@@ -404,22 +402,22 @@ REJECT range climax traps:
         if not ext_ok:
             self.looking_for_entry = False
             return self._reject(
-                f"Extended from 15m EMA{p.get('extension_ema_period', 9)} "
-                f"({ext_atr:.2f}x ATR > {p['max_extension_atr']:.1f}x) — late rocket"
+                f"Extended from 5m EMA{p.get('extension_ema_period', 9)} "
+                f"({ext_atr:.2f}x ATR > {p['max_extension_atr']:.1f}x) — late spark"
             )
 
         try:
-            rsi_15m = float(df_15m["RSI_14"].iloc[-1])
+            rsi_5m = float(df_5m["RSI_14"].iloc[-1])
         except Exception:
-            rsi_15m = 50.0
-        if rsi_15m > float(p["veto_rsi_overbought"]):
+            rsi_5m = 50.0
+        if rsi_5m > float(p["veto_rsi_overbought"]):
             self.looking_for_entry = False
             return self._reject(
-                f"15m RSI {rsi_15m:.1f} > {p['veto_rsi_overbought']:.0f} — cascade exhausted"
+                f"5m RSI {rsi_5m:.1f} > {p['veto_rsi_overbought']:.0f} — cascade exhausted"
             )
 
         wick_reason = wick_trap_reason_long(
-            df_15m,
+            df_5m,
             bar_index=-1,
             min_wick_ratio=float(p["wick_trap_min_ratio"]),
             close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
@@ -431,7 +429,7 @@ REJECT range climax traps:
         df_1m = extra.get("1m")
         if df_1m is None or getattr(df_1m, "empty", True):
             self.looking_for_entry = True
-            return self._reject("Missing 1m data for rocket entry")
+            return self._reject("Missing 1m data for spark entry")
 
         if p["require_1m_confirm"]:
             ok_1m, entry = self._confirm_1m(df_1m)
@@ -441,15 +439,15 @@ REJECT range climax traps:
         else:
             entry = float(df_1m["close"].iloc[-2])
 
-        vol_slope = self._vol_slope_from_df(df_15m)
+        vol_slope = self._vol_slope_from_df(df_5m)
         if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
             self.looking_for_entry = False
             return self._reject(
                 f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
-                "— soft cascade, skip rocket"
+                "— soft cascade, skip spark"
             )
 
-        prior_high = self._prior_structure_high(df_15m, p)
+        prior_high = self._prior_structure_high(df_5m, p)
         cascade_close = float(cascade.get("close") or entry)
         if prior_high is not None:
             broke_out = clear_breakout_above(
@@ -458,10 +456,10 @@ REJECT range climax traps:
             at_ceiling = self._at_prior_ceiling(float(entry), prior_high, p)
             if at_ceiling and not broke_out:
                 vol_ratio_pct = None
-                if "volume" in df_15m.columns and len(df_15m) >= 3:
+                if "volume" in df_5m.columns and len(df_5m) >= 3:
                     try:
-                        vol_now = float(df_15m["volume"].iloc[-2])
-                        vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
+                        vol_now = float(df_5m["volume"].iloc[-2])
+                        vol_ma = float(df_5m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
                         if vol_ma > 0:
                             vol_ratio_pct = (vol_now / vol_ma) * 100.0
                     except Exception:
@@ -472,7 +470,7 @@ REJECT range climax traps:
                     self.looking_for_entry = False
                     return self._reject(
                         f"Prior swing resistance {prior_high:.6g} — entry without "
-                        f"clear 15m close breakout / volume spike (vol {vr} < {spike:.0f}%)"
+                        f"clear 5m close breakout / volume spike (vol {vr} < {spike:.0f}%)"
                     )
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
@@ -482,9 +480,9 @@ REJECT range climax traps:
         if not self._cooldown_ok(now_ts, int(p["cooldown_minutes"])):
             return self._reject(f"Fill cooldown {p['cooldown_minutes']}m not elapsed")
 
-        sl, tp = self._build_sl_tp(entry, df_15m, cascade, p)
+        sl, tp = self._build_sl_tp(entry, df_5m, cascade, p)
         if sl is None or tp is None:
-            return self._reject("Failed to calculate valid SL/TP for rocket long")
+            return self._reject("Failed to calculate valid SL/TP for spark long")
 
         self._mark_signal_bar(now_ts)
         self.looking_for_entry = False
@@ -492,7 +490,7 @@ REJECT range climax traps:
         rr = abs(tp - entry) / abs(entry - sl)
 
         try:
-            swing_low = float(df_15m["low"].iloc[-int(p["sl_swing_lookback"]) :].min())
+            swing_low = float(df_5m["low"].iloc[-int(p["sl_swing_lookback"]) :].min())
         except Exception:
             swing_low = sl
 
@@ -504,7 +502,7 @@ REJECT range climax traps:
             "cascade_ema9": float(cascade.get("ema9") or 0),
             "cascade_low": float(swing_low),
             "comment": (
-                f"Rocket: 15m cascade (price > EMA9 > EMA20, double green, HH). "
+                f"Spark: 5m cascade (price > EMA9 > EMA20, double green, HH). "
                 f"1m entry {entry:.6g}, SL {sl_pct:.2f}% below swing, R:R {rr:.2f}"
             ),
         }
@@ -513,7 +511,7 @@ REJECT range climax traps:
         return True
 
     def get_thesis_timeframe(self) -> str:
-        return "15m"
+        return "5m"
 
     def evaluate_trade_thesis(self, trade, current_price, *, df, extra_data=None):
         from app.core.trade_thesis import evaluate_rocket_thesis
@@ -555,5 +553,5 @@ REJECT range climax traps:
             prev_close=prev_close,
             prev_low=prev_low,
             cascade_low=float(cascade_low) if cascade_low is not None else None,
-            rsi_exhaustion=self._float_param("veto_rsi_overbought", 72.0),
+            rsi_exhaustion=self._float_param("veto_rsi_overbought", 74.0),
         )

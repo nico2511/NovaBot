@@ -243,6 +243,8 @@ class BaseStrategy(ABC):
         except (TypeError, ValueError):
             pass
         tf = self.get_scan_timeframe()
+        if tf in ("5m", "5"):
+            return 5.0
         if tf in ("1h", "60m", "60"):
             return 60.0
         if tf in ("4h", "240m"):

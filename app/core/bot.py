@@ -538,11 +538,14 @@ class BotContext:
         self._restore_strategy_sticky(symbol)
         try:
             df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
+            df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
             df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
             df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
 
             if df_15m.empty:
                 df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
+            if df_5m.empty:
+                df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
             if df_1m.empty:
                 df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
             if df_1h.empty:
@@ -555,7 +558,7 @@ class BotContext:
                 }
 
             numeric_cols = ["open", "high", "low", "close", "volume"]
-            for df_target in [df_15m, df_1m, df_1h]:
+            for df_target in [df_15m, df_5m, df_1m, df_1h]:
                 if df_target is None or getattr(df_target, "empty", True):
                     continue
                 for col in numeric_cols:
@@ -572,6 +575,7 @@ class BotContext:
 
             extra_data = {
                 "1m": df_1m,
+                "5m": df_5m,
                 "1h": df_1h,
                 "symbol": symbol,
                 "funding_rate": funding_rate_live,
@@ -605,6 +609,7 @@ class BotContext:
                 "result": result,
                 "technical_context": technical_context,
                 "df_15m": df_15m,
+                "df_5m": df_5m,
                 "df_1m": df_1m,
                 "df_1h": df_1h,
             }
@@ -625,6 +630,8 @@ class BotContext:
             "240m": "4h",
             "1m": "1m",
             "1min": "1m",
+            "5m": "5m",
+            "5": "5m",
             "15m": "15m",
             "15": "15m",
         }
@@ -636,11 +643,13 @@ class BotContext:
         return BotContext._normalize_timeframe(cfg.get("timeframe") or "15m")
 
     @staticmethod
-    def _ohlcv_for_timeframe(timeframe: str, df_15m, df_1h=None, df_1m=None):
+    def _ohlcv_for_timeframe(timeframe: str, df_15m, df_1h=None, df_1m=None, df_5m=None):
         """Pick the candle frame that matches a strategy's declared timeframe."""
         tf = BotContext._normalize_timeframe(timeframe)
         if tf == "1h" and df_1h is not None and not getattr(df_1h, "empty", True):
             return df_1h
+        if tf == "5m" and df_5m is not None and not getattr(df_5m, "empty", True):
+            return df_5m
         if tf == "1m" and df_1m is not None and not getattr(df_1m, "empty", True):
             return df_1m
         return df_15m
@@ -2776,12 +2785,13 @@ class BotContext:
                     f"{', '.join(analysis_symbols)}"
                 )
 
-                best = None  # (priority, symbol, sig, result, technical_context, df_15m, df_1h, df_1m)
+                best = None  # (priority, symbol, sig, result, technical_context, df_15m, df_1h, df_1m, df_5m)
                 result = {"signals": [], "rejections": []}
                 technical_context = {}
                 df_15m = pd.DataFrame()
                 df_1h = pd.DataFrame()
                 df_1m = pd.DataFrame()
+                df_5m = pd.DataFrame()
                 signals = []
 
                 for analysis_symbol in analysis_symbols:
@@ -2805,6 +2815,7 @@ class BotContext:
                     sym_df = packed["df_15m"]
                     sym_df_1h = packed.get("df_1h")
                     sym_df_1m = packed.get("df_1m")
+                    sym_df_5m = packed.get("df_5m")
                     self.latest_strategy_result = sym_result
                     self.active_strategies = sym_result.get("strategies", [])
 
@@ -2868,12 +2879,23 @@ class BotContext:
                             sym_df,
                             sym_df_1h,
                             sym_df_1m,
+                            sym_df_5m,
                         )
                         if best is None or row[0] > best[0]:
                             best = row
 
                 if best:
-                    _pri, focus_symbol, sig, result, technical_context, df_15m, df_1h, df_1m = best
+                    (
+                        _pri,
+                        focus_symbol,
+                        sig,
+                        result,
+                        technical_context,
+                        df_15m,
+                        df_1h,
+                        df_1m,
+                        df_5m,
+                    ) = best
                     signals = result.get("signals", []) or [sig]
                     current_price = float(
                         technical_context.get("current_price")
@@ -2886,6 +2908,7 @@ class BotContext:
                     current_price = 0
                     df_1h = pd.DataFrame()
                     df_1m = pd.DataFrame()
+                    df_5m = pd.DataFrame()
 
                 ui_symbol = self.active_symbol
                 entry_committed = False
@@ -2950,7 +2973,11 @@ class BotContext:
                             strat_name,
                         )
                         ai_df = self._ohlcv_for_timeframe(
-                            sig_tf, df_15m, df_1h=df_1h, df_1m=df_1m
+                            sig_tf,
+                            df_15m,
+                            df_1h=df_1h,
+                            df_1m=df_1m,
+                            df_5m=df_5m,
                         )
                         market_context = self._prepare_ai_context(df=ai_df, timeframe=sig_tf)
                         # Engine snapshot volume is 15m — overlay only for 15m strategies
