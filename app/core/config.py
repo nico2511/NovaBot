@@ -110,7 +110,7 @@ class Config:
     
     # Scanner Settings (New in v2 - from user_settings.json)
     SCANNER_ENABLED: bool = _state_settings.get('scanner', {}).get('enabled', True)
-    SCANNER_INTERVAL: int = _state_settings.get('scanner', {}).get('interval', 15)
+    SCANNER_INTERVAL: int = _state_settings.get('scanner', {}).get('interval', 5)
     SCANNER_MIN_SCORE: int = _state_settings.get('scanner', {}).get('min_score', 55)
     SCANNER_AUTO_SWITCH: bool = _state_settings.get('scanner', {}).get('auto_switch', False)
 

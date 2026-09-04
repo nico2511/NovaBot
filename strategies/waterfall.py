@@ -61,7 +61,7 @@ class StrategyWaterfall(BaseStrategy):
     4. Do NOT reject because RSI is low **in a trend** — waterfalls are oversold by design.
     4b. REJECT range climaxes: RANGE regime + weak ADX + (lower BB OR RSI<28) = capitulation trap, not continuation.
     5. Do NOT reject because SL is above entry (normal for shorts).
-    6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
+    6. REJECT if volume_ratio < 120% (WEAK_VOLUME) unless a clear volume spike on the cascade.
     7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
     8. REJECT if entry is into prior swing-low support without a clear breakdown + volume spike.
     9. REJECT if higher-TF (1h/4h) is strongly bullish AND price reclaimed 1h EMA20.
@@ -75,14 +75,14 @@ Fast sanity check only — latency-sensitive setup.
 APPROVE when ALL of:
 1. Signal is SELL (short-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
-3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
+3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
 5. Entry is NOT a double-bottom into prior swing support without clear breakdown
 6. No obvious 1h bullish reclaim (price back above 1h EMA20 with green momentum)
 
 REJECT when ANY of:
 - Signal is BUY (wrong direction)
-- volume_ratio < 40% without spike (WEAK_VOLUME)
+- volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
 - Entry pressed into prior swing-low support without clear breakdown + spike
 - Computed R:R below profile minimum (BAD_RR)
@@ -281,6 +281,7 @@ REJECT range climax traps:
             meta=meta,
             close_key="waterfall_close",
             ema_key="waterfall_ema9",
+            timeframe=self.get_scan_timeframe(),
         )
 
     def post_ai_adjust(

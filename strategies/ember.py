@@ -59,7 +59,7 @@ class StrategyEmber(BaseStrategy):
     2. APPROVE when 5m cascade is live and R:R meets the risk-profile minimum.
     3. Do NOT reject because RSI is low in a **trend** — embers run cold by design.
     4. REJECT range capitulation traps: RANGE + weak ADX + (lower BB OR RSI<26) = bottom trap.
-    5. REJECT if volume_ratio < 40% without a clear cascade spike.
+    5. REJECT if volume_ratio < 120% without a clear cascade spike.
     6. REJECT if volume is dying (vol_slope DROP).
     7. REJECT if entry is into prior swing-low support without breakdown + spike.
     8. REJECT if 1h is strongly bullish AND price reclaimed 1h EMA20.
@@ -73,14 +73,14 @@ Ultra-fast sanity check — latency-sensitive early dump setup.
 APPROVE when ALL of:
 1. Signal is SELL (short-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
-3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
+3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
 5. Entry is NOT a double-bottom into prior swing support without clear breakdown
 6. No obvious 1h bullish reclaim (price above 1h EMA20 with green momentum)
 
 REJECT when ANY of:
 - Signal is BUY (wrong direction)
-- volume_ratio < 40% without spike (WEAK_VOLUME)
+- volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
 - Entry pressed into prior swing-low support without clear breakdown + spike
 - Computed R:R below profile minimum (BAD_RR)
@@ -281,6 +281,7 @@ REJECT range climax traps:
             meta=meta,
             close_key="ember_close",
             ema_key="ember_ema9",
+            timeframe=self.get_scan_timeframe(),
         )
 
     def post_ai_adjust(
@@ -556,4 +557,5 @@ REJECT range climax traps:
             prev_high=prev_high,
             cascade_high=float(cascade_high) if cascade_high is not None else None,
             rsi_exhaustion=self._float_param("veto_rsi_oversold", 26.0),
+            timeframe_label="5m",
         )

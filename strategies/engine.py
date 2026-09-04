@@ -8,6 +8,7 @@ from strategies.waterfall import StrategyWaterfall
 from strategies.rocket import StrategyRocket
 from strategies.spark import StrategySpark
 from strategies.ember import StrategyEmber
+from strategies.cascade_rider import detect_bear_cascade, detect_bull_cascade
 
 # Import robuste pour Panic Close
 try:
@@ -17,6 +18,7 @@ except ImportError:
     def should_panic_close(strategy_name, df, regime="RANGE"): return (False, "")
 
 import json
+from typing import Optional
 
 from app.core.weekend_pause import (
     get_weekend_paused_strategies,
@@ -58,6 +60,22 @@ class StrategyEngine:
         except Exception as e:
             print(f"Error loading data/config/strategies.json: {e}")
             self.config = {}
+
+    @staticmethod
+    def _live_5m_cascade(strategy_name: str, extra_data: Optional[dict]) -> bool:
+        """True when a fast 5m rider has a live cascade on extra_data['5m']."""
+        if not extra_data:
+            return False
+        df_5m = extra_data.get("5m")
+        if df_5m is None or getattr(df_5m, "empty", True):
+            return False
+        if strategy_name == "spark":
+            active, _ = detect_bull_cascade(df_5m, use_live=True)
+            return active
+        if strategy_name == "ember":
+            active, _ = detect_bear_cascade(df_5m, use_live=True)
+            return active
+        return False
 
     def _regime_adx_threshold(self) -> float:
         """
@@ -129,52 +147,15 @@ class StrategyEngine:
         if current_adx > threshold and adx_slope < -3:
             print(f"📉 Trend Rejected: ADX {current_adx:.1f} but Slope {adx_slope:.2f} (dropping too fast)")
 
-        # 2. WATERFALL DETECTION (Anti-Lag / Crash Detection)
-        # Priority: IMMÉDIATE. Uses current forming candle (iloc[-1]) to catch crash *during* the fall.
-        try:
-            curr_close = df['close'].iloc[-1]
-            curr_open = df['open'].iloc[-1]
-            curr_ema9 = ema_9.iloc[-1]
-            curr_ema20 = ema_20.iloc[-1]
-            
-            # Previous candle (confirmed)
-            prev_close = df['close'].iloc[-2]
-            prev_open = df['open'].iloc[-2]
-            prev_low = df['low'].iloc[-2]
-
-            is_curr_red = curr_close < curr_open
-            is_prev_red = prev_close < prev_open
-            
-            # Waterfall Condition: Price < EMA9 < EMA20 AND Double Red Candles AND Making Lower Lows
-            if (curr_close < curr_ema9) and (curr_ema9 < curr_ema20) and \
-               is_curr_red and is_prev_red and \
-               (curr_close < prev_low):
-                regime = "TREND_BEAR_STRONG"
-                # print(f"🌊 WATERFALL DETECTED! Price: {curr_close} < EMA9 < EMA20. Regime forced to: {regime}")
-        except Exception as e:
-            print(f"⚠️ Waterfall check failed: {e}")
-
-        # 3. ROCKET DETECTION (Anti-Lag / Pump Detection) — mirror of waterfall
-        # Bear cascade takes priority when both could fire on the same tick.
-        if regime != "TREND_BEAR_STRONG":
-            try:
-                curr_close = df['close'].iloc[-1]
-                curr_open = df['open'].iloc[-1]
-                curr_ema9 = ema_9.iloc[-1]
-                curr_ema20 = ema_20.iloc[-1]
-                prev_close = df['close'].iloc[-2]
-                prev_open = df['open'].iloc[-2]
-                prev_high = df['high'].iloc[-2]
-
-                is_curr_green = curr_close > curr_open
-                is_prev_green = prev_close > prev_open
-
-                if (curr_close > curr_ema9) and (curr_ema9 > curr_ema20) and \
-                   is_curr_green and is_prev_green and \
-                   (curr_close > prev_high):
-                    regime = "TREND_BULL_STRONG"
-            except Exception as e:
-                print(f"⚠️ Rocket check failed: {e}")
+        # 2. WATERFALL / ROCKET DETECTION (Anti-Lag) — shared cascade helpers on 15m
+        work_15m = df.copy()
+        work_15m["EMA_9"] = ema_9
+        work_15m["EMA_20"] = ema_20
+        bear_active, _ = detect_bear_cascade(work_15m, use_live=True)
+        if bear_active:
+            regime = "TREND_BEAR_STRONG"
+        elif detect_bull_cascade(work_15m, use_live=True)[0]:
+            regime = "TREND_BULL_STRONG"
 
         # Add indicators to df for strategies
         df['ADX_14'] = adx_df['ADX'] # Save specific column
@@ -208,8 +189,17 @@ class StrategyEngine:
                 active_strategies.append(self.strategies[name])
                 continue
 
-            if (regime in ("TREND", "TREND_BEAR_STRONG", "TREND_BULL_STRONG")) and strat_type == "trend":
-                active_strategies.append(self.strategies[name])
+            if strat_type == "trend":
+                trend_regime = regime in (
+                    "TREND",
+                    "TREND_BEAR_STRONG",
+                    "TREND_BULL_STRONG",
+                )
+                fast_5m = name in ("spark", "ember") and self._live_5m_cascade(
+                    name, extra_data
+                )
+                if trend_regime or fast_5m:
+                    active_strategies.append(self.strategies[name])
 
         only = None
         if extra_data and extra_data.get("only_strategies") is not None:

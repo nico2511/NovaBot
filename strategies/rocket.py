@@ -61,7 +61,7 @@ class StrategyRocket(BaseStrategy):
     4. Do NOT reject because RSI is high **in a trend** — rockets are overbought by design.
     4b. REJECT range blow-offs: RANGE regime + weak ADX + (upper BB OR RSI>72) = climax trap, not continuation.
     5. Do NOT reject because SL is below entry (normal for longs).
-    6. REJECT if volume_ratio < 40% (WEAK_VOLUME) unless a clear volume spike on the cascade.
+    6. REJECT if volume_ratio < 120% (WEAK_VOLUME) unless a clear volume spike on the cascade.
     7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
     8. REJECT if entry is into prior swing-high resistance without a clear breakout + volume spike.
     9. REJECT if higher-TF (1h/4h) is strongly bearish AND price lost 1h EMA20.
@@ -75,14 +75,14 @@ Fast sanity check only — latency-sensitive setup.
 APPROVE when ALL of:
 1. Signal is BUY (long-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
-3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
+3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
 5. Entry is NOT a double-top into prior swing resistance without clear breakout
 6. No obvious 1h bearish breakdown (price below 1h EMA20 with red momentum)
 
 REJECT when ANY of:
 - Signal is SELL (wrong direction)
-- volume_ratio < 40% without spike (WEAK_VOLUME)
+- volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
 - Entry pressed into prior swing-high resistance without clear breakout + spike
 - Computed R:R below profile minimum (BAD_RR)
@@ -282,6 +282,7 @@ REJECT range climax traps:
             meta=meta,
             close_key="rocket_close",
             ema_key="rocket_ema9",
+            timeframe=self.get_scan_timeframe(),
         )
 
     def post_ai_adjust(
