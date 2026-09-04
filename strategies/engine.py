@@ -7,6 +7,7 @@ from strategies.range_lt import StrategyRangeLT
 from strategies.waterfall import StrategyWaterfall
 from strategies.rocket import StrategyRocket
 from strategies.spark import StrategySpark
+from strategies.ember import StrategyEmber
 
 # Import robuste pour Panic Close
 try:
@@ -40,6 +41,7 @@ class StrategyEngine:
             "waterfall": StrategyWaterfall(strats_config.get("waterfall")),
             "rocket": StrategyRocket(strats_config.get("rocket")),
             "spark": StrategySpark(strats_config.get("spark")),
+            "ember": StrategyEmber(strats_config.get("ember")),
         }
 
         for key, strategy in self.strategies.items():

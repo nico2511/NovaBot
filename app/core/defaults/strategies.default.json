@@ -9,7 +9,7 @@
         "start_hour": 6,
         "end_weekday": 0,
         "end_hour": 6,
-        "strategies": ["supertrend", "trend_lt", "range_lt", "rocket", "waterfall", "spark"]
+        "strategies": ["supertrend", "trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember"]
     },
     "supertrend": {
         "enabled": true,
@@ -234,5 +234,43 @@
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
         "version": "2026-09-spark-v1",
         "expected_freq": "Rare (5m bull cascade only)"
+    },
+    "ember": {
+        "enabled": true,
+        "type": "trend",
+        "risk_profile": "High Volatility Hunter",
+        "description": "Short-only 5m fast dump rider: double red, lower lows, price < EMA9 < EMA20.",
+        "active": true,
+        "timeframe": "5m",
+        "signal_score_bonus": 115,
+        "skip_bb_anti_chase": true,
+        "params": {
+            "min_rr": 1.0,
+            "sl_atr_mult": 0.45,
+            "min_sl_pct": 0.35,
+            "sl_swing_lookback": 6,
+            "min_volume_ratio_pct": 120,
+            "volume_spike_pct": 120,
+            "cooldown_minutes": 7,
+            "require_1m_confirm": true,
+            "veto_rsi_oversold": 26,
+            "veto_vol_slope_min": -30,
+            "floor_proximity_pct": 0.35,
+            "breakdown_clear_pct": 0.20,
+            "struct_lookback": 48,
+            "struct_exclude_bars": 3,
+            "allow_longs": false,
+            "allow_shorts": true,
+            "scan_interval_minutes": 3,
+            "scan_interval_active_minutes": 1.5,
+            "scan_score_use_confirmed_bar": true,
+            "max_extension_atr": 2.5,
+            "extension_ema_period": 9,
+            "cascade_fresh_bars_max": 3,
+            "cascade_fresh_bonus": 10
+        },
+        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "version": "2026-09-ember-v1",
+        "expected_freq": "Rare (5m bear cascade only)"
     }
 }

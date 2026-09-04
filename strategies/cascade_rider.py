@@ -14,11 +14,14 @@ from app.services.indicators import ta
 
 DEFAULT_MAX_EXTENSION_ATR = 3.5
 DEFAULT_SPARK_MAX_EXTENSION_ATR = 2.5
+DEFAULT_EMBER_MAX_EXTENSION_ATR = 2.5
 DEFAULT_CASCADE_FRESH_BARS_MAX = 4
 DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX = 3
+DEFAULT_EMBER_CASCADE_FRESH_BARS_MAX = 3
 DEFAULT_CASCADE_FRESH_BONUS = 10.0
 DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES = 2.0
 DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES = 1.5
+DEFAULT_EMBER_SCAN_INTERVAL_ACTIVE_MINUTES = 1.5
 
 
 def detect_bull_cascade(
@@ -71,6 +74,59 @@ def detect_bull_cascade(
         "ema9": curr_ema9,
         "ema20": curr_ema20,
         "prev_high": prev_high,
+    }
+
+
+def detect_bear_cascade(
+    df: pd.DataFrame,
+    *,
+    use_live: bool = True,
+) -> Tuple[bool, Dict[str, float]]:
+    """
+    Bearish cascade: price < EMA9 < EMA20, double red, lower low.
+
+    Shared by waterfall (15m) and ember (5m).
+    """
+    empty: Dict[str, float] = {}
+    if df is None or getattr(df, "empty", True) or len(df) < 3:
+        return False, empty
+
+    work = df
+    if "EMA_9" not in work.columns or "EMA_20" not in work.columns:
+        work = work.copy()
+        work["EMA_9"] = ta.ema(work["close"], length=9)
+        work["EMA_20"] = ta.ema(work["close"], length=20)
+
+    curr_i = -1 if use_live else -2
+    prev_i = -2 if use_live else -3
+
+    try:
+        curr_close = float(work["close"].iloc[curr_i])
+        curr_open = float(work["open"].iloc[curr_i])
+        curr_ema9 = float(work["EMA_9"].iloc[curr_i])
+        curr_ema20 = float(work["EMA_20"].iloc[curr_i])
+        prev_close = float(work["close"].iloc[prev_i])
+        prev_open = float(work["open"].iloc[prev_i])
+        prev_low = float(work["low"].iloc[prev_i])
+    except (IndexError, TypeError, ValueError):
+        return False, empty
+
+    is_curr_red = curr_close < curr_open
+    is_prev_red = prev_close < prev_open
+    active = (
+        curr_close < curr_ema9 < curr_ema20
+        and is_curr_red
+        and is_prev_red
+        and curr_close < prev_low
+    )
+    if not active:
+        return False, empty
+
+    return True, {
+        "close": curr_close,
+        "ema9": curr_ema9,
+        "ema20": curr_ema20,
+        "prev_low": prev_low,
     }
 
 
