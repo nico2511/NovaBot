@@ -89,6 +89,12 @@ class WaterfallParams(_StrictParams):
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
     scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+    scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
+    scan_score_use_confirmed_bar: Optional[bool] = None
+    max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
+    cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
+    cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
 
 
 class RocketParams(_StrictParams):
@@ -109,6 +115,12 @@ class RocketParams(_StrictParams):
     allow_longs: Optional[bool] = None
     allow_shorts: Optional[bool] = None
     scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+    scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
+    scan_score_use_confirmed_bar: Optional[bool] = None
+    max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
+    cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
+    cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
 
 
 STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {

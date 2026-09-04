@@ -262,7 +262,18 @@ class ScannerJob:
     def _lane_due(self, name: str, strat, now: float, force: bool) -> bool:
         if force:
             return True
+        active_sym = getattr(self.bot, "active_symbol", None)
+        scan_context = {
+            "active_symbol": active_sym,
+            "sticky_armed": (
+                self._sticky_armed_for(name, active_sym) if active_sym else False
+            ),
+        }
         try:
+            interval_m = float(
+                strat.get_scan_interval_minutes(scan_context=scan_context)
+            )
+        except TypeError:
             interval_m = float(strat.get_scan_interval_minutes())
         except Exception:
             interval_m = 15.0

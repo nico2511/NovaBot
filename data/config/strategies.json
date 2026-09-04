@@ -160,14 +160,20 @@
       "struct_exclude_bars": 3,
       "allow_longs": false,
       "allow_shorts": true,
-      "scan_interval_minutes": 5
+      "scan_interval_minutes": 5,
+      "scan_interval_active_minutes": 2,
+      "scan_score_use_confirmed_bar": true,
+      "max_extension_atr": 3.5,
+      "extension_ema_period": 9,
+      "cascade_fresh_bars_max": 4,
+      "cascade_fresh_bonus": 10
     },
     "display_conditions": [
       "EMA_9",
       "EMA_20",
       "RSI_14"
     ],
-    "version": "2026-08-waterfall-v2",
+    "version": "2026-09-cascade-rider-v3",
     "expected_freq": "Rare (bear cascade only)"
   },
   "rocket": {
@@ -196,14 +202,20 @@
       "struct_exclude_bars": 3,
       "allow_longs": true,
       "allow_shorts": false,
-      "scan_interval_minutes": 5
+      "scan_interval_minutes": 5,
+      "scan_interval_active_minutes": 2,
+      "scan_score_use_confirmed_bar": true,
+      "max_extension_atr": 3.5,
+      "extension_ema_period": 9,
+      "cascade_fresh_bars_max": 4,
+      "cascade_fresh_bonus": 10
     },
     "display_conditions": [
       "EMA_9",
       "EMA_20",
       "RSI_14"
     ],
-    "version": "2026-08-rocket-v2",
+    "version": "2026-09-cascade-rider-v3",
     "expected_freq": "Rare (bull cascade only)"
   }
 }

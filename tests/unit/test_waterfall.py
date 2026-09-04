@@ -90,6 +90,7 @@ _HAPPY_PARAMS = {
     "veto_rsi_oversold": 0,
     "struct_lookback": 500,
     "veto_vol_slope_min": -100,
+    "max_extension_atr": 10,
 }
 
 
@@ -107,12 +108,13 @@ def test_waterfall_generate_signal_short():
 def test_waterfall_rejects_dying_volume_on_signal():
     s = StrategyWaterfall(
         {
-            "params": {
-                "cooldown_minutes": 0,
-                "veto_rsi_oversold": 0,
-                "struct_lookback": 500,
-                "veto_vol_slope_min": -30,
-            }
+                "params": {
+                    "cooldown_minutes": 0,
+                    "veto_rsi_oversold": 0,
+                    "veto_vol_slope_min": -30,
+                    "struct_lookback": 500,
+                    "max_extension_atr": 10,
+                }
         }
     )
     df_15m = _bear_cascade_15m()
@@ -130,16 +132,17 @@ def test_waterfall_rejects_prior_support_without_spike():
     """Revisit of an earlier swing low without volume spike (double-bottom fade)."""
     s = StrategyWaterfall(
         {
-            "params": {
-                "cooldown_minutes": 0,
-                "veto_rsi_oversold": 0,
-                "veto_vol_slope_min": -100,
-                "struct_lookback": 40,
-                "struct_exclude_bars": 3,
-                "floor_proximity_pct": 0.5,
-                "breakdown_clear_pct": 0.15,
-                "volume_spike_pct": 120,
-            }
+                "params": {
+                    "cooldown_minutes": 0,
+                    "veto_rsi_oversold": 0,
+                    "veto_vol_slope_min": -100,
+                    "struct_lookback": 40,
+                    "struct_exclude_bars": 3,
+                    "floor_proximity_pct": 0.5,
+                    "breakdown_clear_pct": 0.15,
+                    "volume_spike_pct": 120,
+                    "max_extension_atr": 10,
+                }
         }
     )
     df_15m = _bear_cascade_15m()
@@ -155,13 +158,58 @@ def test_waterfall_rejects_prior_support_without_spike():
 
 def test_waterfall_scan_scores_cascade():
     s = StrategyWaterfall(
-        {"params": {"veto_rsi_oversold": 0, "struct_lookback": 500, "veto_vol_slope_min": -100}}
+        {"params": {"veto_rsi_oversold": 0, "struct_lookback": 500, "veto_vol_slope_min": -100, "max_extension_atr": 10}}
     )
     df = s.add_indicators(_bear_cascade_15m())
     row = s.score_scan_candidate(df, symbol="TEST")
     assert row is not None
     assert row["bias"] == "SHORT"
     assert row["score"] >= 65
+    assert row["armed"] is False
+
+
+def test_waterfall_scan_armed_when_sticky():
+    s = StrategyWaterfall(
+        {"params": {"veto_rsi_oversold": 0, "struct_lookback": 500, "veto_vol_slope_min": -100, "max_extension_atr": 10}}
+    )
+    df = s.add_indicators(_bear_cascade_15m())
+    row = s.score_scan_candidate(df, symbol="TEST", meta={"sticky_armed": True})
+    assert row is not None
+    assert row["armed"] is True
+
+
+def test_waterfall_arms_on_missing_1m_confirm():
+    s = StrategyWaterfall({"params": dict(_HAPPY_PARAMS)})
+    df_15m = _bear_cascade_15m()
+    bad_1m = _bear_1m_confirm()
+    bad_1m.loc[bad_1m.index[-2], "close"] = bad_1m["open"].iloc[-2] + 0.01
+    sig = s.generate_signal(df_15m, extra_data={"1m": bad_1m})
+    assert sig is None
+    assert s.looking_for_entry is True
+    assert s.entry_direction == "SHORT"
+
+
+def test_waterfall_rejects_extended_cascade():
+    s = StrategyWaterfall({"params": {**_HAPPY_PARAMS, "max_extension_atr": 0.5}})
+    df_15m = _bear_cascade_15m()
+    df_15m = s.add_indicators(df_15m)
+    atr = float(df_15m["ATR_14"].iloc[-1])
+    ema9 = float(df_15m["EMA_9"].iloc[-1])
+    prev_low = float(df_15m["low"].iloc[-2])
+    df_15m.loc[df_15m.index[-1], "close"] = min(prev_low - 0.05, ema9 - 2.0 * atr)
+    df_15m.loc[df_15m.index[-1], "open"] = ema9 - 1.5 * atr
+    df_15m.loc[df_15m.index[-1], "low"] = float(df_15m["close"].iloc[-1]) - 0.01
+    df_1m = _bear_1m_confirm()
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.looking_for_entry is False
+    assert "extended" in (s.last_rejection_reason or "").lower()
+
+
+def test_waterfall_accelerated_scan_interval_when_armed():
+    s = StrategyWaterfall({"params": {}})
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 2.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 5.0
 
 
 def test_waterfall_thesis_dead_on_ema_reclaim():
