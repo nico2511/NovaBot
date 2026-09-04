@@ -26,8 +26,12 @@
     "scanner": {
         "enabled": true,
         "interval": 15,
-        "min_score": 70,
+        "min_score": 55,
         "auto_switch": false,
+        "scan_while_in_trade": true,
+        "analyze_top_k": 5,
+        "max_tokens": 50,
+        "switch_cooldown_minutes": 30,
         "max_funding_long": 0.0011,
         "min_funding_short": -0.0045,
         "funding_filter_enabled": true,

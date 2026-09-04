@@ -230,9 +230,11 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             score += 4.0
             reasons.append(f"Acceptable extension ({extension_atr:.2f}x ATR)")
 
-        score = float(min(100.0, round(score, 1)))
+        armed = self._scan_armed_from_meta(meta)
+        score = self._apply_scan_proximity_bonus(
+            score, extension_atr, reasons, armed=armed
+        )
         market = meta or {}
-        armed = bool(getattr(self, "looking_for_entry", False))
         return {
             "symbol": symbol or market.get("symbol"),
             "strategy": getattr(self, "name", "supertrend"),

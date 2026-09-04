@@ -248,7 +248,10 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             score += 4.0
             reasons.append(f"Acceptable extension ({extension_atr:.2f}x ATR)")
 
-        score = float(min(100.0, round(score, 1)))
+        armed = self._scan_armed_from_meta(meta)
+        score = self._apply_scan_proximity_bonus(
+            score, extension_atr, reasons, armed=armed
+        )
         market = meta or {}
         return {
             "symbol": symbol or market.get("symbol"),
@@ -269,7 +272,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             "funding": market.get("funding", 0),
             "momentum_24h": market.get("momentum_24h", 0),
             "reasons": reasons,
-            "armed": bool(getattr(self, "looking_for_entry", False)),
+            "armed": armed,
             "timeframe": "1h",
         }
 

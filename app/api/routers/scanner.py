@@ -1,6 +1,8 @@
 """
 Scanner API — SuperTrend opportunity ranking + manual trigger.
 """
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -93,12 +95,29 @@ def trigger_scan(payload: ManualScanRequest = ManualScanRequest(), bot=Depends(g
 def scanner_status(bot=Depends(get_bot_context)):
     job = _job(bot)
     settings = getattr(bot, "scanner_settings", {}) or {}
+    active = getattr(bot, "active_symbol", None)
+    results = job.get_last_results()
+    active_score = 0.0
+    for row in results:
+        if row.get("symbol") == active:
+            try:
+                active_score = float(row.get("score") or 0)
+            except (TypeError, ValueError):
+                active_score = 0.0
+            break
+    now = time.time()
+    last_switch = float(getattr(job, "last_switch_time", 0) or 0)
+    seconds_since_switch = int(now - last_switch) if last_switch > 0 else None
     return {
         "running": bool(job.is_running),
         "is_scanning": bool(job.is_scanning),
         "last_scan_time": job.last_scan_time,
+        "last_switch_time": last_switch if last_switch > 0 else None,
+        "seconds_since_switch": seconds_since_switch,
+        "active_symbol": active,
+        "active_symbol_score": active_score,
         "settings": settings,
         "st_params": _scanner_strategy_params(bot),
         "lanes": _scanner_lanes(job),
-        "result_count": len(job.get_last_results()),
+        "result_count": len(results),
     }

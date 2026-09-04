@@ -121,6 +121,43 @@ def test_merge_strategy_boards_union_max_score():
     assert by_sym["SUI"]["strategies"] == ["trend_lt"]
 
 
+def test_apply_lane_percentile_scores_preserves_raw():
+    boards = {
+        "rocket": [
+            {"symbol": "A", "score": 70},
+            {"symbol": "B", "score": 90},
+        ]
+    }
+    normed = ScannerJob.apply_lane_percentile_scores(boards)
+    assert normed["rocket"][0]["raw_score"] == 70
+    assert normed["rocket"][1]["raw_score"] == 90
+    assert normed["rocket"][1]["score"] >= normed["rocket"][0]["score"]
+
+
+def test_sticky_armed_bonus_in_scan_score():
+    s = StrategySupertrend(
+        {
+            "params": {
+                "period": 10,
+                "multiplier": 3.0,
+                "ema_filter_period": 50,
+                "adx_threshold": 10,
+                "min_volume_ratio_pct": 50,
+                "max_extension_atr": 50,
+            }
+        }
+    )
+    s.name = "supertrend"
+    df = _ohlcv(direction="up")
+    base = s.score_scan_candidate(df, symbol="ETH", meta={"volume_24h": 5e6})
+    armed = s.score_scan_candidate(
+        df, symbol="ETH", meta={"volume_24h": 5e6, "sticky_armed": True}
+    )
+    assert base is not None and armed is not None
+    assert armed["score"] > base["score"]
+    assert armed["armed"] is True
+
+
 def test_lane_interval_skip(monkeypatch):
     import time
 
@@ -170,7 +207,7 @@ def test_armed_hysteresis_any_strategy(monkeypatch):
     job = _job_for_switch(active="ETH", sticky=sticky)
     best = {"symbol": "SUI", "score": 80, "bias": "SHORT", "adx": 25}
     opps = [best, {"symbol": "ETH", "score": 70}]
-    # gap 10 < armed hysteresis 25 → keep
+    # gap 10 < armed hysteresis 35 → keep
     assert job._maybe_auto_switch(best, opps) is None
     job.bot.switch_active_symbol.assert_not_called()
 

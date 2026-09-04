@@ -42,7 +42,7 @@ def test_keeps_armed_setup_within_armed_hysteresis(monkeypatch):
     job = _job(active="ETH", armed=True)
     best = {"symbol": "AAVE", "score": 91, "bias": "LONG", "adx": 28}
     opps = [best, {"symbol": "ETH", "score": 79}]
-    # Gap 12 < armed hysteresis 25 → keep ETH
+    # Gap 12 < armed hysteresis 35 → keep ETH
     assert job._maybe_auto_switch(best, opps) is None
     job.bot.switch_active_symbol.assert_not_called()
 
@@ -51,8 +51,8 @@ def test_switches_armed_setup_when_gap_exceeds_armed_hysteresis(monkeypatch):
     _stub_side_effects(monkeypatch)
     job = _job(active="ETH", armed=True)
     best = {"symbol": "AAVE", "score": 99, "bias": "LONG", "adx": 40}
-    opps = [best, {"symbol": "ETH", "score": 70}]
-    # Gap 29 >= 25 → allow switch
+    opps = [best, {"symbol": "ETH", "score": 60}]
+    # Gap 39 >= armed hysteresis 35 → allow switch
     assert job._maybe_auto_switch(best, opps) == "AAVE"
     job.bot.switch_active_symbol.assert_called_once_with("AAVE")
 
@@ -71,4 +71,17 @@ def test_no_switch_while_trade_open(monkeypatch):
     job = _job(active="ETH", armed=False, trades={"ETH": {"side": "BUY"}})
     best = {"symbol": "AAVE", "score": 99, "bias": "LONG", "adx": 40}
     assert job._maybe_auto_switch(best, [best]) is None
+    job.bot.switch_active_symbol.assert_not_called()
+
+
+def test_post_switch_cooldown_blocks_switch(monkeypatch):
+    import time as time_mod
+
+    _stub_side_effects(monkeypatch)
+    job = _job(active="ETH", armed=False)
+    job.last_switch_time = time_mod.time() - 60
+    job.bot.scanner_settings = {"switch_cooldown_minutes": 30}
+    best = {"symbol": "AAVE", "score": 99, "bias": "LONG", "adx": 40}
+    opps = [best, {"symbol": "ETH", "score": 50}]
+    assert job._maybe_auto_switch(best, opps) is None
     job.bot.switch_active_symbol.assert_not_called()

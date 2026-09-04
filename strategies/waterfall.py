@@ -349,13 +349,18 @@ REJECT range climax traps:
         score += min(10.0, max(0.0, (35.0 - rsi) * 0.2))
         reasons.append(f"RSI {rsi:.1f}")
 
+        armed = self._scan_armed_from_meta(meta)
+        if armed:
+            score += 15.0
+            reasons.append("Sticky armed near-entry")
+
         return {
             "score": min(100.0, score),
             "bias": "SHORT",
             "symbol": symbol,
             "rsi": round(rsi, 1),
             "reasons": reasons,
-            "armed": True,
+            "armed": armed or True,
             "timeframe": "15m",
             "waterfall_close": snap.get("close"),
             "waterfall_ema9": snap.get("ema9"),

@@ -147,16 +147,17 @@ class StorageService:
                 "conf_threshold_low": 35
             },
             "scanner": {
-                "enabled": False,
+                "enabled": True,
                 "interval": 15,
-                "min_score": 60,
+                "min_score": 55,
                 "auto_switch": False,
                 "min_volume_24h": 2000000,
                 "min_open_interest": 1000000,
-                "max_tokens": 40,
+                "max_tokens": 50,
                 "funding_filter_enabled": False,
-                "scan_while_in_trade": False,
-                "analyze_top_k": 3,
+                "scan_while_in_trade": True,
+                "analyze_top_k": 5,
+                "switch_cooldown_minutes": 30,
                 "whitelist": [
                     "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
                     "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",

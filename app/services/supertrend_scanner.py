@@ -18,7 +18,7 @@ from app.services.hyperliquid_service import hyperliquid_service
 class SupertrendScanner:
     """Universe + candle fetch (legacy name kept for imports / settings wiring)."""
 
-    BASE_MAX_TOKENS = 40
+    BASE_MAX_TOKENS = 50
     CACHE_DURATION = 300
     TOKEN_CACHE_DURATION = 300
     CANDLE_LIMIT = 260

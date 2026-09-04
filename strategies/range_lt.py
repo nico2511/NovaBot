@@ -252,6 +252,17 @@ Do NOT reject solely because:
         else:
             score += 2.0
 
+        armed = self._scan_armed_from_meta(meta)
+        edge_dist = loc if bias == "LONG" else (1.0 - loc)
+        if edge_dist <= 0.15:
+            score += 10.0
+            reasons.append(f"At range edge (loc {loc:.2f})")
+        elif edge_dist <= 0.25:
+            score += 5.0
+            reasons.append(f"Near range edge (loc {loc:.2f})")
+        if armed:
+            score += 15.0
+            reasons.append("Sticky armed near-entry")
         score = float(min(100.0, round(score, 1)))
         market = meta or {}
         return {
@@ -272,7 +283,7 @@ Do NOT reject solely because:
             "funding": market.get("funding", 0),
             "momentum_24h": market.get("momentum_24h", 0),
             "reasons": reasons,
-            "armed": bool(getattr(self, "looking_for_entry", False)),
+            "armed": armed,
             "timeframe": "1h",
         }
 

@@ -244,6 +244,32 @@ class BaseStrategy(ABC):
             return 240.0
         return 15.0
 
+    @staticmethod
+    def _scan_armed_from_meta(meta: Optional[Dict[str, Any]]) -> bool:
+        """True when sticky state marks this (strategy, symbol) as looking_for_entry."""
+        return bool(meta and meta.get("sticky_armed"))
+
+    @staticmethod
+    def _apply_scan_proximity_bonus(
+        score: float,
+        extension_atr: float,
+        reasons: list,
+        *,
+        armed: bool = False,
+    ) -> float:
+        """Boost scan score when price is near the ST band or sticky-armed."""
+        bonus = 0.0
+        if extension_atr <= 0.5:
+            bonus += 12.0
+            reasons.append(f"Near trigger zone ({extension_atr:.2f}x ATR)")
+        elif extension_atr <= 0.8:
+            bonus += 6.0
+            reasons.append(f"Pullback proximity ({extension_atr:.2f}x ATR)")
+        if armed:
+            bonus += 15.0
+            reasons.append("Sticky armed near-entry")
+        return float(min(100.0, round(score + bonus, 1)))
+
     def score_scan_candidate(
         self,
         df: pd.DataFrame,

@@ -20,7 +20,8 @@ class ScannerJob:
     """Parallel scanner thread — does not block the trading loop."""
 
     SWITCH_HYSTERESIS = 10.0
-    SWITCH_HYSTERESIS_ARMED = 25.0
+    SWITCH_HYSTERESIS_ARMED = 35.0
+    SWITCH_COOLDOWN_SECONDS = 30 * 60
     CANDLE_LIMIT = 260
 
     def __init__(self, bot_context):
@@ -28,6 +29,7 @@ class ScannerJob:
         self.is_running = False
         self.thread: Optional[threading.Thread] = None
         self.last_scan_time = 0.0
+        self.last_switch_time = 0.0
         self.is_scanning = False
         self.last_results: List[Dict[str, Any]] = []
         self.last_results_by_strategy: Dict[str, List[Dict[str, Any]]] = {}
@@ -154,6 +156,48 @@ class ScannerJob:
             out.append((name, strat))
         return out
 
+    def _sticky_armed_for(self, strategy_name: str, symbol: str) -> bool:
+        """Per-(strategy, symbol) sticky looking_for_entry from bot state."""
+        sticky = getattr(self.bot, "_strategy_sticky", None) or {}
+        sym = str(symbol or "").upper()
+        for key, state in sticky.items():
+            if not isinstance(key, tuple) or len(key) != 2:
+                continue
+            sname, ssym = key
+            if str(sname) != strategy_name or str(ssym).upper() != sym:
+                continue
+            if isinstance(state, dict) and state.get("looking_for_entry"):
+                return True
+        return False
+
+    @staticmethod
+    def apply_lane_percentile_scores(
+        boards: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Blend raw lane scores with within-lane percentile for fairer cross-strategy merge.
+        Preserves raw_score on each row; score becomes the merge comparison value.
+        """
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for sname, rows in (boards or {}).items():
+            if not rows:
+                out[sname] = []
+                continue
+            scores = [float(r.get("score") or 0) for r in rows]
+            n = len(scores)
+            new_rows: List[Dict[str, Any]] = []
+            for row in rows:
+                raw = float(row.get("score") or 0)
+                rank = sum(1 for x in scores if x <= raw)
+                pct = (100.0 * rank / n) if n else raw
+                merged_score = round(min(100.0, 0.65 * raw + 0.35 * pct), 1)
+                nr = dict(row)
+                nr["raw_score"] = raw
+                nr["score"] = merged_score
+                new_rows.append(nr)
+            out[sname] = new_rows
+        return out
+
     @staticmethod
     def merge_strategy_boards(
         boards: Dict[str, List[Dict[str, Any]]],
@@ -245,7 +289,9 @@ class ScannerJob:
             if df is None or getattr(df, "empty", True):
                 continue
             try:
-                opp = strat.score_scan_candidate(df, symbol=symbol, meta=data)
+                meta = dict(data)
+                meta["sticky_armed"] = self._sticky_armed_for(name, symbol)
+                opp = strat.score_scan_candidate(df, symbol=symbol, meta=meta)
             except Exception as e:
                 self.bot.add_log(f"⚠️ Scan score {name}/{symbol}: {e}")
                 opp = None
@@ -312,6 +358,7 @@ class ScannerJob:
                 self._lane_last_run[name] = now
                 lanes_run.append(f"{name}:{len(scored)}")
 
+            boards = self.apply_lane_percentile_scores(boards)
             merged = self.merge_strategy_boards(boards)
             with self.results_lock:
                 self.last_results_by_strategy = boards
@@ -394,6 +441,22 @@ class ScannerJob:
         if best_symbol == current:
             return None
 
+        settings = getattr(self.bot, "scanner_settings", {}) or {}
+        try:
+            cooldown_s = float(
+                settings.get("switch_cooldown_minutes", 30) or 30
+            ) * 60.0
+        except (TypeError, ValueError):
+            cooldown_s = float(self.SWITCH_COOLDOWN_SECONDS)
+        last_switch = float(getattr(self, "last_switch_time", 0) or 0)
+        if last_switch > 0 and (time.time() - last_switch) < cooldown_s:
+            elapsed = int(time.time() - last_switch)
+            self.bot.add_log(
+                f"🕵️ Keep {current} — post-switch cooldown "
+                f"({elapsed}s / {int(cooldown_s)}s)"
+            )
+            return None
+
         current_score = self._score_for_symbol(current, opportunities)
         hysteresis = self.SWITCH_HYSTERESIS
         armed = self._current_setup_armed()
@@ -417,6 +480,7 @@ class ScannerJob:
 
         old = current
         self.bot.switch_active_symbol(best_symbol)
+        self.last_switch_time = time.time()
         StateManager.save_state(self.bot)
         lanes = ",".join(best.get("strategies") or [best.get("strategy") or "?"])
         msg = (
