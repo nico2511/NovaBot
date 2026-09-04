@@ -59,7 +59,7 @@ class StrategySpark(BaseStrategy):
     2. APPROVE when 5m cascade is live and R:R meets the risk-profile minimum.
     3. Do NOT reject because RSI is high in a **trend** — sparks run hot by design.
     4. REJECT range blow-offs: RANGE + weak ADX + (upper BB OR RSI>74) = climax trap.
-    5. REJECT if volume_ratio < 40% without a clear cascade spike.
+    5. REJECT if volume_ratio < 120% without a clear cascade spike.
     6. REJECT if volume is dying (vol_slope DROP).
     7. REJECT if entry is into prior swing-high resistance without breakout + spike.
     8. REJECT if 1h is strongly bearish AND price lost 1h EMA20.
@@ -73,14 +73,14 @@ Ultra-fast sanity check — latency-sensitive early pump setup.
 APPROVE when ALL of:
 1. Signal is BUY (long-only strategy)
 2. R:R meets capital risk-profile minimum (after any TP trim)
-3. Volume ratio >= 40% OR clear cascade volume spike (> 120%)
+3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
 5. Entry is NOT a double-top into prior swing resistance without clear breakout
 6. No obvious 1h bearish breakdown (price below 1h EMA20 with red momentum)
 
 REJECT when ANY of:
 - Signal is SELL (wrong direction)
-- volume_ratio < 40% without spike (WEAK_VOLUME)
+- volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
 - Entry pressed into prior swing-high resistance without clear breakout + spike
 - Computed R:R below profile minimum (BAD_RR)
@@ -279,6 +279,7 @@ REJECT range climax traps:
             meta=meta,
             close_key="spark_close",
             ema_key="spark_ema9",
+            timeframe=self.get_scan_timeframe(),
         )
 
     def post_ai_adjust(
@@ -554,4 +555,5 @@ REJECT range climax traps:
             prev_low=prev_low,
             cascade_low=float(cascade_low) if cascade_low is not None else None,
             rsi_exhaustion=self._float_param("veto_rsi_overbought", 74.0),
+            timeframe_label="5m",
         )

@@ -477,6 +477,7 @@ def evaluate_waterfall_thesis(
     prev_high: float = 0.0,
     cascade_high: Optional[float] = None,
     rsi_exhaustion: float = 18.0,
+    timeframe_label: str = "15m",
 ) -> ThesisVerdict:
     """Classify whether an open waterfall short thesis still holds.
 
@@ -500,13 +501,14 @@ def evaluate_waterfall_thesis(
     reasons = []
     dead = False
     weak = False
+    tf = str(timeframe_label or "15m")
     close_15m = float(close_15m or 0)
     ema9 = float(ema9 or 0)
 
     # Cascade broken: price reclaimed EMA9
     if ema9 > 0 and close_15m > ema9:
         dead = True
-        reasons.append(f"15m close {close_15m:.6g} reclaimed EMA9 {ema9:.6g}")
+        reasons.append(f"{tf} close {close_15m:.6g} reclaimed EMA9 {ema9:.6g}")
 
     # Bullish reversal candle through prior high
     if prev_close > prev_open and prev_high > 0 and close_15m > prev_high:
@@ -536,7 +538,7 @@ def evaluate_waterfall_thesis(
         status = THESIS_WEAK
     else:
         status = THESIS_VALID
-        reasons = reasons or ("15m waterfall cascade still active",)
+        reasons = reasons or (f"{tf} waterfall cascade still active",)
 
     pnl = _pnl_pct(side, entry, current_price)
     if status == THESIS_DEAD:
@@ -572,6 +574,7 @@ def evaluate_rocket_thesis(
     prev_low: float = 0.0,
     cascade_low: Optional[float] = None,
     rsi_exhaustion: float = 82.0,
+    timeframe_label: str = "15m",
 ) -> ThesisVerdict:
     """Classify whether an open rocket long thesis still holds.
 
@@ -595,12 +598,13 @@ def evaluate_rocket_thesis(
     reasons = []
     dead = False
     weak = False
+    tf = str(timeframe_label or "15m")
     close_15m = float(close_15m or 0)
     ema9 = float(ema9 or 0)
 
     if ema9 > 0 and close_15m < ema9:
         dead = True
-        reasons.append(f"15m close {close_15m:.6g} lost EMA9 {ema9:.6g}")
+        reasons.append(f"{tf} close {close_15m:.6g} lost EMA9 {ema9:.6g}")
 
     if prev_close < prev_open and prev_low > 0 and close_15m < prev_low:
         if not dead:
@@ -628,7 +632,7 @@ def evaluate_rocket_thesis(
         status = THESIS_WEAK
     else:
         status = THESIS_VALID
-        reasons = reasons or ("15m rocket cascade still active",)
+        reasons = reasons or (f"{tf} rocket cascade still active",)
 
     pnl = _pnl_pct(side, entry, current_price)
     if status == THESIS_DEAD:

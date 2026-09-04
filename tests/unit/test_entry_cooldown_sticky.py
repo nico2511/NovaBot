@@ -132,6 +132,13 @@ def test_ohlcv_for_timeframe_prefers_1h():
     assert BotContext._ohlcv_for_timeframe("1h", df_15m, df_1h=pd.DataFrame(), df_1m=df_1m) is df_15m
 
 
+def test_ohlcv_for_timeframe_prefers_5m():
+    df_15m = pd.DataFrame({"close": [1.0, 2.0]})
+    df_5m = pd.DataFrame({"close": [5.0, 6.0]})
+    picked = BotContext._ohlcv_for_timeframe("5m", df_15m, df_5m=df_5m)
+    assert picked is df_5m
+
+
 def test_mark_strategy_fill_persists_sticky():
     bot = BotContext.__new__(BotContext)
     probe = _ProbeStrategy()

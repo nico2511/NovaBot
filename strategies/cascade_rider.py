@@ -1,8 +1,8 @@
 """
-Shared helpers for rocket / waterfall cascade riders (15m detection + 1m entry).
+Shared helpers for rocket / waterfall / spark / ember cascade riders.
 
-Centralises extension filters, cascade age, and hybrid scan scoring so both
-strategies stay symmetric without duplicating métier logic.
+Centralises extension filters, cascade age, and hybrid scan scoring so bull/bear
+and 15m/5m strategies stay symmetric without duplicating métier logic.
 """
 from __future__ import annotations
 
@@ -328,6 +328,7 @@ def score_cascade_scan(
     meta: Optional[Dict[str, Any]],
     close_key: str,
     ema_key: str,
+    timeframe: str = "15m",
 ) -> Optional[Dict[str, float]]:
     """
     Hybrid scan scorer: live bar arms, confirmed bar gates board score.
@@ -423,7 +424,8 @@ def score_cascade_scan(
     fresh_max = int(params.get("cascade_fresh_bars_max", DEFAULT_CASCADE_FRESH_BARS_MAX))
 
     score = 70.0
-    reasons = [f"15m {side.lower()} cascade" + (" confirmed" if hybrid and confirmed_active else " live")]
+    tf = str(timeframe or "15m")
+    reasons = [f"{tf} {side.lower()} cascade" + (" confirmed" if hybrid and confirmed_active else " live")]
     if vol_ratio_pct is not None:
         score += min(20.0, max(0.0, (vol_ratio_pct - min_vol) * 0.15))
         reasons.append(f"Vol {vol_ratio_pct:.0f}%")
@@ -450,7 +452,7 @@ def score_cascade_scan(
         "rsi": round(rsi, 1),
         "reasons": reasons,
         "armed": armed,
-        "timeframe": "15m",
+        "timeframe": tf,
         close_key: snap.get("close"),
         ema_key: snap.get("ema9"),
         "cascade_age_bars": age,

@@ -187,6 +187,7 @@ def test_spark_scan_scores_cascade():
     assert row is not None
     assert row["bias"] == "LONG"
     assert row["score"] >= 65
+    assert row["timeframe"] == "5m"
     assert row["armed"] is False
 
 

@@ -80,8 +80,8 @@ class ScannerJob:
             try:
                 settings = getattr(self.bot, "scanner_settings", {}) or {}
                 enabled = bool(settings.get("enabled", False))
-                # Global poll cadence (min); each strategy lane has its own interval
-                poll_minutes = float(settings.get("interval", 5) or 5)
+                # Global poll cadence (min); capped by fastest enabled strategy lane
+                poll_minutes = self._effective_poll_minutes(settings)
                 min_score = float(settings.get("min_score", 60) or 60)
                 auto_switch = bool(settings.get("auto_switch", False))
 
@@ -169,6 +169,52 @@ class ScannerJob:
             if isinstance(state, dict) and state.get("looking_for_entry"):
                 return True
         return False
+
+    def _any_sticky_armed_for(self, strategy_name: str) -> bool:
+        """True if any symbol is sticky-armed for this strategy lane."""
+        sticky = getattr(self.bot, "_strategy_sticky", None) or {}
+        for key, state in sticky.items():
+            if not isinstance(key, tuple) or len(key) != 2:
+                continue
+            sname, _sym = key
+            if str(sname) != strategy_name:
+                continue
+            if isinstance(state, dict) and state.get("looking_for_entry"):
+                return True
+        try:
+            engine = getattr(self.bot, "strategy_engine", None)
+            strat = (getattr(engine, "strategies", None) or {}).get(strategy_name)
+            if strat is not None and bool(getattr(strat, "looking_for_entry", False)):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _min_lane_interval_minutes(self) -> float:
+        """Shortest scan interval across enabled lanes (honours sticky acceleration)."""
+        intervals: List[float] = []
+        for name, strat in self._active_strategies():
+            if not hasattr(strat, "get_scan_interval_minutes"):
+                continue
+            ctx = {"sticky_armed": self._any_sticky_armed_for(name)}
+            try:
+                intervals.append(
+                    float(strat.get_scan_interval_minutes(scan_context=ctx))
+                )
+            except TypeError:
+                intervals.append(float(strat.get_scan_interval_minutes()))
+            except Exception:
+                continue
+        return min(intervals) if intervals else 15.0
+
+    def _effective_poll_minutes(self, settings: Dict[str, Any]) -> float:
+        """Cap global scanner poll by the fastest active strategy lane."""
+        try:
+            base = float(settings.get("interval", 5) or 5)
+        except (TypeError, ValueError):
+            base = 5.0
+        min_lane = self._min_lane_interval_minutes()
+        return max(1.0, min(base, min_lane))
 
     @staticmethod
     def apply_lane_percentile_scores(
@@ -265,9 +311,7 @@ class ScannerJob:
         active_sym = getattr(self.bot, "active_symbol", None)
         scan_context = {
             "active_symbol": active_sym,
-            "sticky_armed": (
-                self._sticky_armed_for(name, active_sym) if active_sym else False
-            ),
+            "sticky_armed": self._any_sticky_armed_for(name),
         }
         try:
             interval_m = float(
