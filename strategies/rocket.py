@@ -27,62 +27,12 @@ from strategies.cascade_rider import (
     DEFAULT_MAX_EXTENSION_ATR,
     DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
     active_scan_interval_minutes,
+    detect_bull_cascade,
     extension_within_limit,
     score_cascade_scan,
 )
 
-
-def detect_rocket(
-    df: pd.DataFrame,
-    *,
-    use_live: bool = True,
-) -> Tuple[bool, Dict[str, float]]:
-    """
-    Bullish cascade on 15m (mirror of detect_waterfall): live bar by default.
-
-    Returns (active, snapshot) with ema9/ema20/close/prev_high when active.
-    """
-    empty: Dict[str, float] = {}
-    if df is None or getattr(df, "empty", True) or len(df) < 3:
-        return False, empty
-
-    work = df
-    if "EMA_9" not in work.columns or "EMA_20" not in work.columns:
-        work = work.copy()
-        work["EMA_9"] = ta.ema(work["close"], length=9)
-        work["EMA_20"] = ta.ema(work["close"], length=20)
-
-    curr_i = -1 if use_live else -2
-    prev_i = -2 if use_live else -3
-
-    try:
-        curr_close = float(work["close"].iloc[curr_i])
-        curr_open = float(work["open"].iloc[curr_i])
-        curr_ema9 = float(work["EMA_9"].iloc[curr_i])
-        curr_ema20 = float(work["EMA_20"].iloc[curr_i])
-        prev_close = float(work["close"].iloc[prev_i])
-        prev_open = float(work["open"].iloc[prev_i])
-        prev_high = float(work["high"].iloc[prev_i])
-    except (IndexError, TypeError, ValueError):
-        return False, empty
-
-    is_curr_green = curr_close > curr_open
-    is_prev_green = prev_close > prev_open
-    active = (
-        curr_close > curr_ema9 > curr_ema20
-        and is_curr_green
-        and is_prev_green
-        and curr_close > prev_high
-    )
-    if not active:
-        return False, empty
-
-    return True, {
-        "close": curr_close,
-        "ema9": curr_ema9,
-        "ema20": curr_ema20,
-        "prev_high": prev_high,
-    }
+detect_rocket = detect_bull_cascade
 
 
 class StrategyRocket(BaseStrategy):
@@ -296,15 +246,6 @@ REJECT range climax traps:
 
     def get_scan_timeframe(self) -> str:
         return "15m"
-
-    def get_scan_interval_minutes(self) -> float:
-        try:
-            raw = self.get_param("scan_interval_minutes", None)
-            if raw is not None:
-                return max(1.0, float(raw))
-        except (TypeError, ValueError):
-            pass
-        return 5.0
 
     def get_scan_interval_minutes(
         self,

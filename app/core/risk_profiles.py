@@ -29,6 +29,8 @@ _PROFILE_EXTENSIONS: Dict[str, Dict[str, float]] = {
 STRATEGY_DEFAULT_PROFILES: Dict[str, str] = {
     "rocket": "High Volatility Hunter",
     "waterfall": "High Volatility Hunter",
+    "spark": "High Volatility Hunter",
+    "ember": "High Volatility Hunter",
     "supertrend": "Balanced Growth",
     "trend_lt": "Balanced Growth",
     "range_lt": "Capital Preservation First",
