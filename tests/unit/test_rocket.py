@@ -96,6 +96,7 @@ _HAPPY_PARAMS = {
     # Rising synthetic series sits on its own highs — disable structure gate for happy path
     "struct_lookback": 500,
     "veto_vol_slope_min": -100,
+    "max_extension_atr": 10,
 }
 
 
@@ -114,16 +115,17 @@ def test_rocket_rejects_prior_resistance_without_spike():
     """Revisit of an earlier swing high without volume spike (double-top)."""
     s = StrategyRocket(
         {
-            "params": {
-                "cooldown_minutes": 0,
-                "veto_rsi_overbought": 100,
-                "veto_vol_slope_min": -100,
-                "struct_lookback": 40,
-                "struct_exclude_bars": 3,
-                "ceiling_proximity_pct": 0.5,
-                "breakout_clear_pct": 0.15,
-                "volume_spike_pct": 120,
-            }
+                "params": {
+                    "cooldown_minutes": 0,
+                    "veto_rsi_overbought": 100,
+                    "veto_vol_slope_min": -100,
+                    "struct_lookback": 40,
+                    "struct_exclude_bars": 3,
+                    "ceiling_proximity_pct": 0.5,
+                    "breakout_clear_pct": 0.15,
+                    "volume_spike_pct": 120,
+                    "max_extension_atr": 10,
+                }
         }
     )
     df_15m = _bull_cascade_15m()
@@ -153,12 +155,13 @@ def test_rocket_at_prior_ceiling_helper():
 def test_rocket_rejects_dying_volume_on_signal():
     s = StrategyRocket(
         {
-            "params": {
-                "cooldown_minutes": 0,
-                "veto_rsi_overbought": 100,
-                "struct_lookback": 500,
-                "veto_vol_slope_min": -30,
-            }
+                "params": {
+                    "cooldown_minutes": 0,
+                    "veto_rsi_overbought": 100,
+                    "struct_lookback": 500,
+                    "veto_vol_slope_min": -30,
+                    "max_extension_atr": 10,
+                }
         }
     )
     df_15m = _bull_cascade_15m()
@@ -173,12 +176,55 @@ def test_rocket_rejects_dying_volume_on_signal():
 
 
 def test_rocket_scan_scores_cascade():
-    s = StrategyRocket({"params": {"veto_rsi_overbought": 100, "struct_lookback": 500, "veto_vol_slope_min": -100}})
+    s = StrategyRocket({"params": {"veto_rsi_overbought": 100, "struct_lookback": 500, "veto_vol_slope_min": -100, "max_extension_atr": 10}})
     df = s.add_indicators(_bull_cascade_15m())
     row = s.score_scan_candidate(df, symbol="TEST")
     assert row is not None
     assert row["bias"] == "LONG"
     assert row["score"] >= 65
+    assert row["armed"] is False
+
+
+def test_rocket_scan_armed_when_sticky():
+    s = StrategyRocket({"params": {"veto_rsi_overbought": 100, "struct_lookback": 500, "veto_vol_slope_min": -100, "max_extension_atr": 10}})
+    df = s.add_indicators(_bull_cascade_15m())
+    row = s.score_scan_candidate(df, symbol="TEST", meta={"sticky_armed": True})
+    assert row is not None
+    assert row["armed"] is True
+
+
+def test_rocket_arms_on_missing_1m_confirm():
+    s = StrategyRocket({"params": dict(_HAPPY_PARAMS)})
+    df_15m = _bull_cascade_15m()
+    bad_1m = _bull_1m_confirm()
+    bad_1m.loc[bad_1m.index[-2], "close"] = bad_1m["open"].iloc[-2] - 0.01
+    sig = s.generate_signal(df_15m, extra_data={"1m": bad_1m})
+    assert sig is None
+    assert s.looking_for_entry is True
+    assert s.entry_direction == "LONG"
+
+
+def test_rocket_rejects_extended_cascade():
+    s = StrategyRocket({"params": {**_HAPPY_PARAMS, "max_extension_atr": 0.5}})
+    df_15m = _bull_cascade_15m()
+    df_15m = s.add_indicators(df_15m)
+    atr = float(df_15m["ATR_14"].iloc[-1])
+    ema9 = float(df_15m["EMA_9"].iloc[-1])
+    prev_high = float(df_15m["high"].iloc[-2])
+    df_15m.loc[df_15m.index[-1], "close"] = max(prev_high + 0.05, ema9 + 2.0 * atr)
+    df_15m.loc[df_15m.index[-1], "open"] = ema9 + 1.5 * atr
+    df_15m.loc[df_15m.index[-1], "high"] = float(df_15m["close"].iloc[-1]) + 0.01
+    df_1m = _bull_1m_confirm()
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.looking_for_entry is False
+    assert "extended" in (s.last_rejection_reason or "").lower()
+
+
+def test_rocket_accelerated_scan_interval_when_armed():
+    s = StrategyRocket({"params": {}})
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 2.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 5.0
 
 
 def test_rocket_thesis_dead_on_ema_loss():

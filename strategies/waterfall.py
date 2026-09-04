@@ -21,6 +21,15 @@ from strategies.cascade_exhaustion import (
     clear_breakdown_below,
     wick_trap_reason_short,
 )
+from strategies.cascade_rider import (
+    DEFAULT_CASCADE_FRESH_BARS_MAX,
+    DEFAULT_CASCADE_FRESH_BONUS,
+    DEFAULT_MAX_EXTENSION_ATR,
+    DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
+    active_scan_interval_minutes,
+    extension_within_limit,
+    score_cascade_scan,
+)
 
 
 def detect_waterfall(
@@ -141,6 +150,8 @@ REJECT range climax traps:
 
     def __init__(self, config=None):
         super().__init__(config)
+        self.looking_for_entry = False
+        self.entry_direction = None
         self._last_entry_time = None
         self._last_signal_bar = None
 
@@ -184,6 +195,16 @@ REJECT range climax traps:
             "wick_trap_min_ratio": self._float_param("wick_trap_min_ratio", DEFAULT_WICK_TRAP_MIN_RATIO),
             "wick_trap_close_extreme_pct": self._float_param(
                 "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT
+            ),
+            "max_extension_atr": self._float_param("max_extension_atr", DEFAULT_MAX_EXTENSION_ATR),
+            "extension_ema_period": int(self.get_param("extension_ema_period", 9) or 9),
+            "cascade_fresh_bars_max": int(self.get_param("cascade_fresh_bars_max", DEFAULT_CASCADE_FRESH_BARS_MAX) or DEFAULT_CASCADE_FRESH_BARS_MAX),
+            "cascade_fresh_bonus": self._float_param("cascade_fresh_bonus", DEFAULT_CASCADE_FRESH_BONUS),
+            "scan_interval_active_minutes": self._float_param(
+                "scan_interval_active_minutes", DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES
+            ),
+            "scan_score_use_confirmed_bar": bool(
+                self.get_param("scan_score_use_confirmed_bar", True)
             ),
         }
 
@@ -284,87 +305,42 @@ REJECT range climax traps:
             pass
         return 5.0
 
-    def score_scan_candidate(self, df, *, symbol: str, meta=None):
-        active, snap = detect_waterfall(df, use_live=True)
-        if not active:
-            return None
-
+    def get_scan_interval_minutes(
+        self,
+        *,
+        scan_context: Optional[Dict[str, Any]] = None,
+    ) -> float:
         p = self._params_snapshot()
-        work = df.copy()
-        if "RSI_14" not in work.columns:
-            work["RSI_14"] = ta.rsi(work["close"], length=14)
-        if "ATR_14" not in work.columns:
-            work["ATR_14"] = ta.atr(work["high"], work["low"], work["close"], length=14)
-
-        rsi = float(work["RSI_14"].iloc[-1]) if len(work) else 50.0
-        if rsi < float(p["veto_rsi_oversold"]):
-            return None
-
-        vol_slope = self._vol_slope_from_df(work)
-        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
-            return None
-
-        vol_ratio_pct = None
-        if "volume" in work.columns and len(work) >= 3:
-            try:
-                vol_now = float(work["volume"].iloc[-1])
-                vol_ma = float(work["volume"].iloc[:-1].rolling(50).mean().iloc[-1])
-                if vol_ma > 0:
-                    vol_ratio_pct = (vol_now / vol_ma) * 100.0
-            except Exception:
-                vol_ratio_pct = None
-
-        min_vol = float(p["min_volume_ratio_pct"])
-        spike = float(p["volume_spike_pct"])
-        if vol_ratio_pct is not None and vol_ratio_pct < min_vol and vol_ratio_pct < spike:
-            return None
-
         try:
-            px = float(work["close"].iloc[-1])
-        except Exception:
-            px = 0.0
-        prior_low = self._prior_structure_low(work, p)
-        if (
-            prior_low is not None
-            and px > 0
-            and self._at_prior_floor(px, prior_low, p)
-            and (vol_ratio_pct is None or vol_ratio_pct < spike)
-        ):
-            return None
-
-        wick_reason = wick_trap_reason_short(
-            work,
-            bar_index=-1,
-            min_wick_ratio=float(p["wick_trap_min_ratio"]),
-            close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
+            raw = self.get_param("scan_interval_minutes", None)
+            base = max(1.0, float(raw)) if raw is not None else 5.0
+        except (TypeError, ValueError):
+            base = 5.0
+        ctx = scan_context or {}
+        return active_scan_interval_minutes(
+            base,
+            sticky_armed=bool(ctx.get("sticky_armed")),
+            scan_interval_active_minutes=float(p["scan_interval_active_minutes"]),
         )
-        if wick_reason:
-            return None
 
-        score = 70.0
-        reasons = ["15m waterfall cascade live"]
-        if vol_ratio_pct is not None:
-            score += min(20.0, max(0.0, (vol_ratio_pct - min_vol) * 0.15))
-            reasons.append(f"Vol {vol_ratio_pct:.0f}%")
-        score += min(10.0, max(0.0, (35.0 - rsi) * 0.2))
-        reasons.append(f"RSI {rsi:.1f}")
-
-        armed = self._scan_armed_from_meta(meta)
-        if armed:
-            score += 15.0
-            reasons.append("Sticky armed near-entry")
-
-        return {
-            "score": min(100.0, score),
-            "bias": "SHORT",
-            "symbol": symbol,
-            "rsi": round(rsi, 1),
-            "reasons": reasons,
-            "armed": armed or True,
-            "timeframe": "15m",
-            "waterfall_close": snap.get("close"),
-            "waterfall_ema9": snap.get("ema9"),
-        }
+    def score_scan_candidate(self, df, *, symbol: str, meta=None):
+        p = self._params_snapshot()
+        return score_cascade_scan(
+            df,
+            side="SHORT",
+            symbol=symbol,
+            detect_fn=detect_waterfall,
+            params=p,
+            vol_slope_from_df=self._vol_slope_from_df,
+            prior_structure_level=self._prior_structure_low,
+            at_prior_level=self._at_prior_floor,
+            wick_trap_reason=wick_trap_reason_short,
+            rsi_veto=lambda rsi, params: rsi < float(params["veto_rsi_oversold"]),
+            rsi_score_bonus=lambda rsi: min(10.0, max(0.0, (35.0 - rsi) * 0.2)),
+            meta=meta,
+            close_key="waterfall_close",
+            ema_key="waterfall_ema9",
+        )
 
     def post_ai_adjust(
         self,
@@ -470,13 +446,32 @@ REJECT range climax traps:
         df_15m = self.add_indicators(df)
         active, cascade = detect_waterfall(df_15m, use_live=True)
         if not active:
+            self.looking_for_entry = False
+            self.entry_direction = None
             return self._reject("No active 15m waterfall cascade")
+
+        self.entry_direction = "SHORT"
+
+        ext_ok, ext_atr = extension_within_limit(
+            df_15m,
+            "SHORT",
+            float(p["max_extension_atr"]),
+            ema_period=int(p.get("extension_ema_period", 9) or 9),
+            use_live=True,
+        )
+        if not ext_ok:
+            self.looking_for_entry = False
+            return self._reject(
+                f"Extended from 15m EMA{p.get('extension_ema_period', 9)} "
+                f"({ext_atr:.2f}x ATR > {p['max_extension_atr']:.1f}x) — late waterfall"
+            )
 
         try:
             rsi_15m = float(df_15m["RSI_14"].iloc[-1])
         except Exception:
             rsi_15m = 50.0
         if rsi_15m < float(p["veto_rsi_oversold"]):
+            self.looking_for_entry = False
             return self._reject(
                 f"15m RSI {rsi_15m:.1f} < {p['veto_rsi_oversold']:.0f} — cascade exhausted"
             )
@@ -488,21 +483,25 @@ REJECT range climax traps:
             close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
         )
         if wick_reason:
+            self.looking_for_entry = False
             return self._reject(wick_reason)
 
         df_1m = extra.get("1m")
         if df_1m is None or getattr(df_1m, "empty", True):
+            self.looking_for_entry = True
             return self._reject("Missing 1m data for waterfall entry")
 
         if p["require_1m_confirm"]:
             ok_1m, entry = self._confirm_1m(df_1m)
             if not ok_1m or entry is None:
+                self.looking_for_entry = True
                 return self._reject("1m confirm failed — need red candle + lower low")
         else:
             entry = float(df_1m["close"].iloc[-2])
 
         vol_slope = self._vol_slope_from_df(df_15m)
         if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            self.looking_for_entry = False
             return self._reject(
                 f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
                 "— soft cascade, skip waterfall"
@@ -528,6 +527,7 @@ REJECT range climax traps:
                 spike = float(p["volume_spike_pct"])
                 if vol_ratio_pct is None or vol_ratio_pct < spike:
                     vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
+                    self.looking_for_entry = False
                     return self._reject(
                         f"Prior swing support {prior_low:.6g} — entry without "
                         f"clear 15m close breakdown / volume spike (vol {vr} < {spike:.0f}%)"
@@ -545,6 +545,7 @@ REJECT range climax traps:
             return self._reject("Failed to calculate valid SL/TP for waterfall short")
 
         self._mark_signal_bar(now_ts)
+        self.looking_for_entry = False
         sl_pct = (sl - entry) / entry * 100.0
         rr = abs(entry - tp) / abs(sl - entry)
 

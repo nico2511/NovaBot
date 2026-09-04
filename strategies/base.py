@@ -226,10 +226,15 @@ class BaseStrategy(ABC):
         except Exception:
             return "15m"
 
-    def get_scan_interval_minutes(self) -> float:
+    def get_scan_interval_minutes(
+        self,
+        *,
+        scan_context: Optional[Dict[str, Any]] = None,
+    ) -> float:
         """
         How often this strategy's scan lane should refresh.
         Prefer params.scan_interval_minutes; else derive from timeframe (1h→60).
+        Optional scan_context may carry sticky_armed / active_symbol for lane tuning.
         """
         try:
             raw = self.get_param("scan_interval_minutes", None)
