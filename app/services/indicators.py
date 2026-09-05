@@ -124,11 +124,12 @@ class Indicators:
         Moving Average Convergence Divergence
         Returns DataFrame with columns: 'MACD', 'MACDh', 'MACDs'
         """
-        fast_ema = Indicators.ema(close, length=fast)
-        slow_ema = Indicators.ema(close, length=slow)
-        
+        # Standard MACD (TradingView / Hyperliquid): span-based EMA, not Wilder alpha=1/N.
+        fast_ema = Indicators.ema_std(close, length=fast)
+        slow_ema = Indicators.ema_std(close, length=slow)
+
         macd_line = fast_ema - slow_ema
-        signal_line = Indicators.ema(macd_line, length=signal)
+        signal_line = Indicators.ema_std(macd_line, length=signal)
         histogram = macd_line - signal_line
         
         return pd.DataFrame({
