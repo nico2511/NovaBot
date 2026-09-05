@@ -280,8 +280,15 @@ class BotContext:
                     )
                     self.max_positions = requested_max
                     try:
+                        dsl = float(
+                            self.global_settings["risk_defaults"].get(
+                                "daily_stop_loss", config.DEFAULT_DAILY_STOP_LOSS
+                            )
+                            or config.DEFAULT_DAILY_STOP_LOSS
+                        )
                         self.risk_manager.update_settings(
-                            max_positions=int(requested_max or 2)
+                            max_positions=int(requested_max or 2),
+                            daily_stop_loss=dsl,
                         )
                     except Exception:
                         pass
@@ -1503,6 +1510,7 @@ class BotContext:
                 self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
 
+            self._sync_daily_risk_pnl()
             can_trade, risk_reason = self.risk_manager.check_can_trade()
             if not can_trade:
                 self.add_log(f"⛔ ENTRY BLOCKED by risk: {risk_reason}")
@@ -2587,6 +2595,22 @@ class BotContext:
         profile = self._resolve_risk_profile(strategy_name)
         return clamp_leverage(get_max_leverage(profile), account_cap=self._account_leverage_cap())
 
+    def _sync_daily_risk_pnl(self, min_interval_sec: int = 60) -> None:
+        """Refresh daily PnL from Hyperliquid so stop-mode reflects real drawdown."""
+        now = time.time()
+        last = float(getattr(self, "_last_daily_risk_pnl_sync", 0) or 0)
+        if now - last < min_interval_sec:
+            return
+        self._last_daily_risk_pnl_sync = now
+        try:
+            exchange_pnl = hyperliquid_service.get_daily_pnl()
+            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                self.add_log(
+                    f"⛔ Daily stop triggered from exchange PnL: ${exchange_pnl:.2f}"
+                )
+        except Exception as sync_err:
+            logger.debug("Daily risk PnL sync skipped: %s", sync_err)
+
     def _enforce_leverage(self, strategy_name: str | None = None):
         """Enforce leverage based on strategy risk profile (or account default)."""
         try:
@@ -2681,6 +2705,7 @@ class BotContext:
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
+                    self._sync_daily_risk_pnl(min_interval_sec=60)
                     self._last_state_sync_time = now
                 try:
                     ia_service.maybe_refresh_credits()
@@ -2718,8 +2743,12 @@ class BotContext:
                     self.add_log("🔄 Triggering Daily PnL Sync Task...")
                     def sync_pnl():
                         try:
-                            # 1. Dynamic PnL Log
-                            hyperliquid_service.get_daily_pnl()
+                            # 1. Dynamic PnL Log + risk stop-mode (exchange = source of truth)
+                            exchange_pnl = hyperliquid_service.get_daily_pnl()
+                            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                                self.add_log(
+                                    f"⛔ Daily stop triggered from exchange PnL: ${exchange_pnl:.2f}"
+                                )
                             
                             # 2. Daily Snapshot
                             acc = hyperliquid_service.get_account_balance()
@@ -3330,9 +3359,8 @@ class BotContext:
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
                         
-                            # POSITION SIZING: risk_pct from strategy risk profile;
+                            # POSITION SIZING: risk_pct from strategy risk profile on full equity;
                             # leverage = profile max clamped to account default_leverage.
-                            # Budget is split across max_positions; exchange lev reduces margin.
                             try:
                                 self.risk_manager.update_settings(
                                     max_positions=int(self.max_positions or 1)
@@ -3346,15 +3374,13 @@ class BotContext:
 
                             risk_pct = get_risk_pct(risk_profile)
                             current_leverage = self._resolve_trade_leverage(strat_name)
-                            split = max(1, int(self.max_positions or 1))
-                            per_trade_pct = risk_pct / split
+                            max_pos = max(1, int(self.max_positions or 1))
                             has_sl = sl_price is not None and float(sl_price) > 0 and float(entry_price) != float(sl_price)
 
                             if has_sl:
                                 self.add_log(
-                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} budget "
-                                    f"{risk_pct:.1f}% equity → {per_trade_pct:.2f}%/trade "
-                                    f"(÷{split} max_positions) | lev={current_leverage}x"
+                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} "
+                                    f"{risk_pct:.1f}% equity | lev={current_leverage}x | max_pos={max_pos}"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
@@ -3368,8 +3394,7 @@ class BotContext:
                                 # No usable SL → fall back to fixed margin × profile leverage
                                 self.add_log(
                                     f"📏 SIZING: {strat_name or '?'} / {risk_profile} "
-                                    f"no SL → fixed margin ${DEFAULT_SIZE_USDC:.0f} "
-                                    f"→ ${DEFAULT_SIZE_USDC / split:.1f}/slot @ {current_leverage}x"
+                                    f"no SL → fixed margin ${DEFAULT_SIZE_USDC:.0f} @ {current_leverage}x"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
@@ -3393,19 +3418,19 @@ class BotContext:
                                     f"📏 SIZING {sig.get('signal')} {self.active_symbol} | "
                                     f"equity=${equity:.2f} | notional≈${sized_notional:.0f} | "
                                     f"margin≈${margin_est:.0f} | size={size:.4f} | "
-                                    f"lev={current_leverage}x | risk={per_trade_pct:.2f}%/trade | "
-                                    f"max_pos={split} | strat={strat_name} | profile={risk_profile}"
+                                    f"lev={current_leverage}x | risk={risk_pct:.1f}% | "
+                                    f"max_pos={max_pos} | strat={strat_name} | profile={risk_profile}"
                                 )
                             except Exception:
                                 pass
 
                             if size <= 0:
                                 cap_mult = self.risk_manager.max_notional_cap_multiplier
-                                slot_cap = (equity * cap_mult) / split if equity > 0 else 0.0
+                                notional_cap = equity * cap_mult if equity > 0 else 0.0
                                 reason = (
                                     f"Position size is zero (equity=${equity:.2f}). "
                                     f"Need equity ≥ ~${MIN_POSITION_NOTIONAL_USD / cap_mult:.2f} for min order, "
-                                    f"per-slot cap ≈${slot_cap:.0f} (×{cap_mult:.0f} / max_pos={split})."
+                                    f"notional cap ≈${notional_cap:.0f} (×{cap_mult:.0f})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
                                 self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
@@ -3414,7 +3439,7 @@ class BotContext:
                                     reason=reason,
                                     equity=equity,
                                     sized_notional=sized_notional,
-                                    slot_cap=slot_cap,
+                                    slot_cap=notional_cap,
                                     cap_multiplier=cap_mult,
                                     leverage=current_leverage,
                                     strategy=sig.get("strategy"),
