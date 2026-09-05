@@ -62,9 +62,7 @@ class RiskManager:
                 return False, f"Max positions reached ({self.state.open_positions}/{self.max_positions})"
             
             # Additional check: if we are already fast approaching the limit
-            if self.state.daily_pnl <= -self.daily_stop_loss:
-                self.state.is_stop_mode = True
-                self.state.stop_reason = "Daily Stop Loss Exceeded (Pre-check)"
+            if self._maybe_trigger_daily_stop():
                 return False, self.state.stop_reason
 
             return True, "OK"
@@ -77,10 +75,31 @@ class RiskManager:
         with self._lock:
             self.state.open_positions = max(0, self.state.open_positions - 1)
             self.state.daily_pnl += pnl
-            
-            if self.state.daily_pnl <= -self.daily_stop_loss:
+            self._maybe_trigger_daily_stop()
+
+    def apply_exchange_daily_pnl(self, pnl: float) -> bool:
+        """
+        Replace daily PnL with the exchange snapshot (realized + unrealized).
+
+        Hyperliquid is the source of truth for portfolio drawdown; this catches
+        manual trades, fees, and open-position losses that record_trade_close misses.
+        Returns True when stop mode was newly triggered.
+        """
+        self._check_reset()
+        with self._lock:
+            self.state.daily_pnl = float(pnl)
+            return self._maybe_trigger_daily_stop()
+
+    def _maybe_trigger_daily_stop(self) -> bool:
+        """Activate stop mode when daily PnL breaches the configured ceiling."""
+        if self.state.daily_pnl <= -self.daily_stop_loss:
+            if not self.state.is_stop_mode:
                 self.state.is_stop_mode = True
-                self.state.stop_reason = f"Daily Stop Loss Hit: {self.state.daily_pnl:.2f} <= -{self.daily_stop_loss}"
+                self.state.stop_reason = (
+                    f"Daily Stop Loss Hit: {self.state.daily_pnl:.2f} <= -{self.daily_stop_loss}"
+                )
+                return True
+        return False
 
     def update_settings(
         self,
@@ -247,7 +266,6 @@ class RiskManager:
 
         except Exception as e:
             logger.error("Error calculating position size: %s", e)
-            # Fallback safe size ($12 min)
-            return 12.0 / price if price > 0 else 0.0
+            return 0.0
 
 

@@ -280,8 +280,15 @@ class BotContext:
                     )
                     self.max_positions = requested_max
                     try:
+                        dsl = float(
+                            self.global_settings["risk_defaults"].get(
+                                "daily_stop_loss", config.DEFAULT_DAILY_STOP_LOSS
+                            )
+                            or config.DEFAULT_DAILY_STOP_LOSS
+                        )
                         self.risk_manager.update_settings(
-                            max_positions=int(requested_max or 2)
+                            max_positions=int(requested_max or 2),
+                            daily_stop_loss=dsl,
                         )
                     except Exception:
                         pass
@@ -1503,6 +1510,7 @@ class BotContext:
                 self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
 
+            self._sync_daily_risk_pnl()
             can_trade, risk_reason = self.risk_manager.check_can_trade()
             if not can_trade:
                 self.add_log(f"⛔ ENTRY BLOCKED by risk: {risk_reason}")
@@ -2587,6 +2595,22 @@ class BotContext:
         profile = self._resolve_risk_profile(strategy_name)
         return clamp_leverage(get_max_leverage(profile), account_cap=self._account_leverage_cap())
 
+    def _sync_daily_risk_pnl(self, min_interval_sec: int = 60) -> None:
+        """Refresh daily PnL from Hyperliquid so stop-mode reflects real drawdown."""
+        now = time.time()
+        last = float(getattr(self, "_last_daily_risk_pnl_sync", 0) or 0)
+        if now - last < min_interval_sec:
+            return
+        self._last_daily_risk_pnl_sync = now
+        try:
+            exchange_pnl = hyperliquid_service.get_daily_pnl()
+            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                self.add_log(
+                    f"⛔ Daily stop triggered from exchange PnL: ${exchange_pnl:.2f}"
+                )
+        except Exception as sync_err:
+            logger.debug("Daily risk PnL sync skipped: %s", sync_err)
+
     def _enforce_leverage(self, strategy_name: str | None = None):
         """Enforce leverage based on strategy risk profile (or account default)."""
         try:
@@ -2681,6 +2705,7 @@ class BotContext:
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
+                    self._sync_daily_risk_pnl(min_interval_sec=60)
                     self._last_state_sync_time = now
                 try:
                     ia_service.maybe_refresh_credits()
@@ -2718,8 +2743,12 @@ class BotContext:
                     self.add_log("🔄 Triggering Daily PnL Sync Task...")
                     def sync_pnl():
                         try:
-                            # 1. Dynamic PnL Log
-                            hyperliquid_service.get_daily_pnl()
+                            # 1. Dynamic PnL Log + risk stop-mode (exchange = source of truth)
+                            exchange_pnl = hyperliquid_service.get_daily_pnl()
+                            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                                self.add_log(
+                                    f"⛔ Daily stop triggered from exchange PnL: ${exchange_pnl:.2f}"
+                                )
                             
                             # 2. Daily Snapshot
                             acc = hyperliquid_service.get_account_balance()
