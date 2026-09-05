@@ -3359,9 +3359,8 @@ class BotContext:
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
                         
-                            # POSITION SIZING: risk_pct from strategy risk profile;
+                            # POSITION SIZING: risk_pct from strategy risk profile on full equity;
                             # leverage = profile max clamped to account default_leverage.
-                            # Budget is split across max_positions; exchange lev reduces margin.
                             try:
                                 self.risk_manager.update_settings(
                                     max_positions=int(self.max_positions or 1)
@@ -3375,15 +3374,13 @@ class BotContext:
 
                             risk_pct = get_risk_pct(risk_profile)
                             current_leverage = self._resolve_trade_leverage(strat_name)
-                            split = max(1, int(self.max_positions or 1))
-                            per_trade_pct = risk_pct / split
+                            max_pos = max(1, int(self.max_positions or 1))
                             has_sl = sl_price is not None and float(sl_price) > 0 and float(entry_price) != float(sl_price)
 
                             if has_sl:
                                 self.add_log(
-                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} budget "
-                                    f"{risk_pct:.1f}% equity → {per_trade_pct:.2f}%/trade "
-                                    f"(÷{split} max_positions) | lev={current_leverage}x"
+                                    f"📏 SIZING: {strat_name or '?'} / {risk_profile} "
+                                    f"{risk_pct:.1f}% equity | lev={current_leverage}x | max_pos={max_pos}"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
@@ -3397,8 +3394,7 @@ class BotContext:
                                 # No usable SL → fall back to fixed margin × profile leverage
                                 self.add_log(
                                     f"📏 SIZING: {strat_name or '?'} / {risk_profile} "
-                                    f"no SL → fixed margin ${DEFAULT_SIZE_USDC:.0f} "
-                                    f"→ ${DEFAULT_SIZE_USDC / split:.1f}/slot @ {current_leverage}x"
+                                    f"no SL → fixed margin ${DEFAULT_SIZE_USDC:.0f} @ {current_leverage}x"
                                 )
                                 size = self.risk_manager.calculate_position_size(
                                     price=entry_price,
@@ -3422,19 +3418,19 @@ class BotContext:
                                     f"📏 SIZING {sig.get('signal')} {self.active_symbol} | "
                                     f"equity=${equity:.2f} | notional≈${sized_notional:.0f} | "
                                     f"margin≈${margin_est:.0f} | size={size:.4f} | "
-                                    f"lev={current_leverage}x | risk={per_trade_pct:.2f}%/trade | "
-                                    f"max_pos={split} | strat={strat_name} | profile={risk_profile}"
+                                    f"lev={current_leverage}x | risk={risk_pct:.1f}% | "
+                                    f"max_pos={max_pos} | strat={strat_name} | profile={risk_profile}"
                                 )
                             except Exception:
                                 pass
 
                             if size <= 0:
                                 cap_mult = self.risk_manager.max_notional_cap_multiplier
-                                slot_cap = (equity * cap_mult) / split if equity > 0 else 0.0
+                                notional_cap = equity * cap_mult if equity > 0 else 0.0
                                 reason = (
                                     f"Position size is zero (equity=${equity:.2f}). "
                                     f"Need equity ≥ ~${MIN_POSITION_NOTIONAL_USD / cap_mult:.2f} for min order, "
-                                    f"per-slot cap ≈${slot_cap:.0f} (×{cap_mult:.0f} / max_pos={split})."
+                                    f"notional cap ≈${notional_cap:.0f} (×{cap_mult:.0f})."
                                 )
                                 self.add_log(f"⛔ Entry skipped: {reason}")
                                 self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
@@ -3443,7 +3439,7 @@ class BotContext:
                                     reason=reason,
                                     equity=equity,
                                     sized_notional=sized_notional,
-                                    slot_cap=slot_cap,
+                                    slot_cap=notional_cap,
                                     cap_multiplier=cap_mult,
                                     leverage=current_leverage,
                                     strategy=sig.get("strategy"),

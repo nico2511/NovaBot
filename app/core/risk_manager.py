@@ -31,18 +31,6 @@ class RiskManager:
     def _max_notional(self, equity: float) -> float:
         return equity * self.max_notional_cap_multiplier
 
-    def _position_budget_split(self) -> int:
-        """
-        Split portfolio risk/margin across concurrent slots.
-
-        With max_positions=N, each new entry uses ~1/N of the profile budget so
-        filling all slots does not N× the intended portfolio risk.
-        """
-        try:
-            return max(1, int(self.max_positions or 1))
-        except (TypeError, ValueError):
-            return 1
-
     def _check_reset(self):
         today = datetime.date.today()
         if today > self.last_reset_date:
@@ -165,17 +153,16 @@ class RiskManager:
             size_type: "margin" (Fixed $ cost) | "notional" (Total position size $) | "risk_pct" (% of equity)
             size_value: value associated with method
 
-        Multi-position: risk_pct / fixed margin / notional budgets and the per-trade
-        notional cap are divided by max_positions so N concurrent entries ≈ 1× profile risk.
+        Each trade is sized on full portfolio equity; the risk profile (risk_pct,
+        leverage) and max_notional cap define exposure. max_positions only limits
+        how many concurrent entries are allowed — it does not divide the budget.
         """
         try:
             if price <= 0:
                 return 0.0
 
             MIN_POSITION_SIZE_USD = MIN_POSITION_NOTIONAL_USD
-            split = self._position_budget_split()
-            # Account-level cap, then per-slot share
-            max_allowed_notional = self._max_notional(equity) / split
+            max_allowed_notional = self._max_notional(equity)
 
             if equity <= 0:
                 logger.error(
@@ -186,11 +173,11 @@ class RiskManager:
 
             size_coins = 0.0
             
-            # 1. Risk % Based (Equity %) — portfolio budget / max_positions
+            # 1. Risk % Based (Equity %) — full portfolio, profile defines %
             if method == "risk_pct" and sl_price is not None and sl_price > 0 and price != sl_price:
                 # size_value is treated as % (e.g. 1% = 0.01)
                 risk_per_trade_pct = size_value / 100.0 if size_value > 1 else size_value
-                risk_amount = (equity * risk_per_trade_pct) / split
+                risk_amount = equity * risk_per_trade_pct
                 price_diff = abs(price - sl_price)
                 if price_diff <= 0:
                     logger.warning("Risk sizing skipped: entry price equals stop-loss.")
@@ -199,22 +186,17 @@ class RiskManager:
                 
             # 2. Fixed Notional ($ Value)
             elif size_type == "notional":
-                 # size_value is Total Position Value (e.g. $1000), split across slots
-                 size_coins = (size_value / split) / price
+                 size_coins = size_value / price
                  
             # 3. Fixed Margin (Cost $) - DEFAULT
             else:
-                # size_value is Margin Cost (e.g. $20), split across slots
-                slot_margin = size_value / split
-                # Position Value = Margin * Leverage, capped to per-slot notional
-                position_value = min(slot_margin * leverage, max_allowed_notional)
-                if position_value < slot_margin * leverage:
+                position_value = min(size_value * leverage, max_allowed_notional)
+                if position_value < size_value * leverage:
                     logger.info(
-                        "Sizing scaled to $%.2f notional (target $%.2f, equity $%.2f, split=%s).",
+                        "Sizing scaled to $%.2f notional (target $%.2f, equity $%.2f).",
                         position_value,
-                        slot_margin * leverage,
+                        size_value * leverage,
                         equity,
-                        split,
                     )
                 size_coins = position_value / price
 
@@ -223,13 +205,12 @@ class RiskManager:
 
             if position_notional > max_allowed_notional + 1e-6:
                 logger.warning(
-                    "Position size $%.2f exceeds per-slot cap $%.2f "
-                    "(equity $%.2f × %.0f / max_positions=%s). Clamping.",
+                    "Position size $%.2f exceeds notional cap $%.2f "
+                    "(equity $%.2f × %.0f). Clamping.",
                     position_notional,
                     max_allowed_notional,
                     equity,
                     self.max_notional_cap_multiplier,
-                    split,
                 )
                 position_notional = max_allowed_notional
                 size_coins = max_allowed_notional / price
@@ -237,22 +218,11 @@ class RiskManager:
             if position_notional < MIN_POSITION_SIZE_USD:
                 if max_allowed_notional < MIN_POSITION_SIZE_USD:
                     logger.error(
-                        "Position blocked: max affordable notional $%.2f (equity $%.2f, split=%s) "
+                        "Position blocked: max affordable notional $%.2f (equity $%.2f) "
                         "is below Hyperliquid minimum $%.2f.",
                         max_allowed_notional,
                         equity,
-                        split,
                         MIN_POSITION_SIZE_USD,
-                    )
-                    return 0.0
-                # Multi-pos: refuse upsize that would defeat the ÷N budget
-                if split > 1:
-                    logger.error(
-                        "Position blocked: per-slot size $%.2f < HL min $%.2f with max_positions=%s "
-                        "(refusing upsize that would stack risk above the split budget).",
-                        position_notional,
-                        MIN_POSITION_SIZE_USD,
-                        split,
                     )
                     return 0.0
                 logger.warning(

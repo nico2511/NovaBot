@@ -135,7 +135,7 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
             # Assign the NESTED structure (not the flat model dump)
             bot.global_settings = full_settings
 
-            # Keep runtime quota + money-management split in sync
+            # Keep runtime quota + risk limits in sync
             try:
                 mp = int(full_settings.get("risk_defaults", {}).get("max_positions", 2) or 2)
                 dsl = float(full_settings.get("risk_defaults", {}).get("daily_stop_loss", 50.0) or 50.0)
