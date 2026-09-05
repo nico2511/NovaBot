@@ -142,7 +142,7 @@
             "veto_rsi_oversold": 28,
             "veto_vol_slope_min": -30,
             "floor_proximity_pct": 0.35,
-            "breakdown_clear_pct": 0.20,
+            "breakdown_clear_pct": 0.60,
             "struct_lookback": 96,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -157,7 +157,7 @@
             "cascade_fresh_bonus": 10
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-09-cascade-rider-v3",
+        "version": "2026-09-cascade-rider-v4",
         "expected_freq": "Rare (bear cascade only)"
     },
     "rocket": {
@@ -181,7 +181,7 @@
             "veto_rsi_overbought": 72,
             "veto_vol_slope_min": -30,
             "ceiling_proximity_pct": 0.35,
-            "breakout_clear_pct": 0.20,
+            "breakout_clear_pct": 0.60,
             "struct_lookback": 96,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -196,7 +196,7 @@
             "cascade_fresh_bonus": 10
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-09-cascade-rider-v3",
+        "version": "2026-09-cascade-rider-v4",
         "expected_freq": "Rare (bull cascade only)"
     },
     "spark": {
@@ -220,7 +220,7 @@
             "veto_rsi_overbought": 74,
             "veto_vol_slope_min": -30,
             "ceiling_proximity_pct": 0.35,
-            "breakout_clear_pct": 0.20,
+            "breakout_clear_pct": 0.60,
             "struct_lookback": 48,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -235,7 +235,7 @@
             "cascade_fresh_bonus": 10
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-09-spark-v1",
+        "version": "2026-09-spark-v2",
         "expected_freq": "Rare (5m bull cascade only)"
     },
     "ember": {
@@ -259,7 +259,7 @@
             "veto_rsi_oversold": 26,
             "veto_vol_slope_min": -30,
             "floor_proximity_pct": 0.35,
-            "breakdown_clear_pct": 0.20,
+            "breakdown_clear_pct": 0.60,
             "struct_lookback": 48,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -274,7 +274,7 @@
             "cascade_fresh_bonus": 10
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
-        "version": "2026-09-ember-v1",
+        "version": "2026-09-ember-v2",
         "expected_freq": "Rare (5m bear cascade only)"
     }
 }

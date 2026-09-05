@@ -82,7 +82,7 @@ class ScannerJob:
                 enabled = bool(settings.get("enabled", False))
                 # Global poll cadence (min); capped by fastest enabled strategy lane
                 poll_minutes = self._effective_poll_minutes(settings)
-                min_score = float(settings.get("min_score", 60) or 60)
+                min_score = float(settings.get("min_score", 55) or 55)
                 auto_switch = bool(settings.get("auto_switch", False))
 
                 if not enabled:
@@ -121,7 +121,7 @@ class ScannerJob:
         if self.is_scanning:
             return {"status": "busy", "message": "Scan already in progress"}
         settings = getattr(self.bot, "scanner_settings", {}) or {}
-        min_score = float(settings.get("min_score", 60) or 60)
+        min_score = float(settings.get("min_score", 55) or 55)
         do_switch = settings.get("auto_switch", False) if auto_switch is None else bool(auto_switch)
         self.bot.add_log("🕵️ Manual strategy scan started")
         return self._execute_scan(

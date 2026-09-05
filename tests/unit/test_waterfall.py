@@ -129,7 +129,7 @@ def test_waterfall_rejects_dying_volume_on_signal():
 
 
 def test_waterfall_rejects_prior_support_without_spike():
-    """Revisit of an earlier swing low without volume spike (double-bottom fade)."""
+    """Revisit of an earlier swing low without a close-through (double-bottom fade)."""
     s = StrategyWaterfall(
         {
                 "params": {
@@ -153,7 +153,37 @@ def test_waterfall_rejects_prior_support_without_spike():
     sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
     assert sig is None
     low = (s.last_rejection_reason or "").lower()
-    assert "support" in low or "spike" in low
+    assert "support" in low
+    assert "breakdown" in low or "absorption" in low
+
+
+def test_waterfall_rejects_support_even_with_volume_spike():
+    """ADA-like: 1m pierces a prior shelf, 15m still on it, huge volume = absorption."""
+    s = StrategyWaterfall(
+        {
+            "params": {
+                **_HAPPY_PARAMS,
+                "struct_lookback": 40,
+                "struct_exclude_bars": 3,
+                "floor_proximity_pct": 0.35,
+                "breakdown_clear_pct": 0.60,
+                "volume_spike_pct": 120,
+            }
+        }
+    )
+    df_15m = _bear_cascade_15m()
+    tip = float(df_15m["close"].iloc[-1])
+    df_1m = _bear_1m_confirm(anchor=tip)
+    entry = float(df_1m["close"].iloc[-2])
+    shelf = entry * 1.0031
+    df_15m.loc[df_15m.index[30:40], "low"] = shelf
+    df_15m.loc[df_15m.index[-2], "volume"] = 50000.0
+    df_15m.loc[df_15m.index[-1], "volume"] = 50000.0
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    low = (s.last_rejection_reason or "").lower()
+    assert "support" in low
+    assert "spike" not in low
 
 
 def test_waterfall_scan_scores_cascade():

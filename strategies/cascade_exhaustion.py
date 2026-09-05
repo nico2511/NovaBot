@@ -10,6 +10,8 @@ DEFAULT_RANGE_RSI_LONG_MIN = 72.0
 DEFAULT_RANGE_RSI_SHORT_MAX = 28.0
 DEFAULT_WICK_TRAP_MIN_RATIO = 0.45
 DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT = 0.75
+DEFAULT_STRUCTURE_PROXIMITY_PCT = 0.35
+DEFAULT_STRUCTURE_CLEAR_PCT = 0.60
 
 
 def _ctx_float(ctx: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
@@ -159,3 +161,91 @@ def clear_breakdown_below(close: float, prior_low: float, clear_pct: float) -> b
     if close <= 0 or prior_low <= 0:
         return False
     return close < prior_low * (1.0 - float(clear_pct) / 100.0)
+
+
+def at_prior_floor(
+    price: float,
+    prior_low: float,
+    proximity_pct: float = DEFAULT_STRUCTURE_PROXIMITY_PCT,
+    clear_pct: float = DEFAULT_STRUCTURE_CLEAR_PCT,
+) -> bool:
+    """True when price is still sitting on prior support (including a noise pierce)."""
+    if price <= 0 or prior_low <= 0:
+        return False
+    prox = float(proximity_pct) / 100.0
+    clear = float(clear_pct) / 100.0
+    if price < prior_low * (1.0 - clear):
+        return False
+    return price <= prior_low * (1.0 + prox)
+
+
+def at_prior_ceiling(
+    price: float,
+    prior_high: float,
+    proximity_pct: float = DEFAULT_STRUCTURE_PROXIMITY_PCT,
+    clear_pct: float = DEFAULT_STRUCTURE_CLEAR_PCT,
+) -> bool:
+    """True when price is still sitting on prior resistance (including a noise pierce)."""
+    if price <= 0 or prior_high <= 0:
+        return False
+    prox = float(proximity_pct) / 100.0
+    clear = float(clear_pct) / 100.0
+    if price > prior_high * (1.0 + clear):
+        return False
+    return price >= prior_high * (1.0 - prox)
+
+
+def unbroken_structure_reason(
+    side: str,
+    *,
+    entry: float,
+    cascade_close: float,
+    prior_level: Optional[float],
+    proximity_pct: float,
+    clear_pct: float,
+    tf_label: str,
+) -> Optional[str]:
+    """
+    Reject cascade entries that press into prior structure without a close-through.
+
+    Volume at the level is ignored — absorption spikes look like cascade fuel.
+    A 1m wick/pierce through support is not a break; only cascade_close through
+    clear_pct qualifies.
+    """
+    if prior_level is None:
+        return None
+    try:
+        prior = float(prior_level)
+        entry_f = float(entry)
+        close_f = float(cascade_close)
+    except (TypeError, ValueError):
+        return None
+    if prior <= 0 or entry_f <= 0 or close_f <= 0:
+        return None
+
+    side_u = str(side or "").upper()
+    if side_u in ("SHORT", "SELL"):
+        if clear_breakdown_below(close_f, prior, clear_pct):
+            return None
+        if at_prior_floor(entry_f, prior, proximity_pct, clear_pct) or at_prior_floor(
+            close_f, prior, proximity_pct, clear_pct
+        ):
+            return (
+                f"Prior swing support {prior:.6g} — need a clear {tf_label} close "
+                "breakdown (volume at the floor is absorption, not continuation)"
+            )
+        return None
+
+    if side_u in ("LONG", "BUY"):
+        if clear_breakout_above(close_f, prior, clear_pct):
+            return None
+        if at_prior_ceiling(entry_f, prior, proximity_pct, clear_pct) or at_prior_ceiling(
+            close_f, prior, proximity_pct, clear_pct
+        ):
+            return (
+                f"Prior swing resistance {prior:.6g} — need a clear {tf_label} close "
+                "breakout (volume at the ceiling is absorption, not continuation)"
+            )
+        return None
+
+    return None

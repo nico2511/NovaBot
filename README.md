@@ -183,7 +183,7 @@ Le bot peut scorer l'universe Hyperliquid avec les **mêmes params** que la stra
 # Activer (persisté dans data/config/user_settings.json)
 curl -X POST -H "X-API-Key: ..." -H "Content-Type: application/json" \
   https://.../api/settings/update \
-  -d '{"section":"scanner","data":{"enabled":true,"auto_switch":true,"interval":15,"min_score":60}}'
+  -d '{"section":"scanner","data":{"enabled":true,"auto_switch":true,"interval":15,"min_score":55}}'
 
 # Scan manuel
 curl -X POST -H "X-API-Key: ..." https://.../api/scanner/scan

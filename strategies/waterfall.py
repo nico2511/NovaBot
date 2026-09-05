@@ -15,10 +15,12 @@ from strategies.base import BaseStrategy
 from strategies.cascade_exhaustion import (
     DEFAULT_RANGE_ADX_MAX,
     DEFAULT_RANGE_RSI_SHORT_MAX,
+    DEFAULT_STRUCTURE_CLEAR_PCT,
     DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
     DEFAULT_WICK_TRAP_MIN_RATIO,
+    at_prior_floor,
     check_range_exhaustion_veto,
-    clear_breakdown_below,
+    unbroken_structure_reason,
     wick_trap_reason_short,
 )
 from strategies.cascade_rider import (
@@ -63,7 +65,9 @@ class StrategyWaterfall(BaseStrategy):
     5. Do NOT reject because SL is above entry (normal for shorts).
     6. REJECT if volume_ratio < 120% (WEAK_VOLUME) unless a clear volume spike on the cascade.
     7. REJECT if volume is dying (vol_slope DROP / soft cascade) — no fuel for continuation.
-    8. REJECT if entry is into prior swing-low support without a clear breakdown + volume spike.
+    8. REJECT if entry is into prior swing-low support without a clear 15m CLOSE through that level.
+       A volume spike at the floor is often absorption (buyers defending), not cascade fuel.
+       A 1m wick/pierce through support is not a breakdown.
     9. REJECT if higher-TF (1h/4h) is strongly bullish AND price reclaimed 1h EMA20.
     10. When cascade evidence is weak or mixed, REJECT — do not rubber-stamp.
     """
@@ -77,14 +81,15 @@ APPROVE when ALL of:
 2. R:R meets capital risk-profile minimum (after any TP trim)
 3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
-5. Entry is NOT a double-bottom into prior swing support without clear breakdown
+5. Entry is NOT sitting on prior swing support — require a clear 15m close-through (volume spike does NOT override)
 6. No obvious 1h bullish reclaim (price back above 1h EMA20 with green momentum)
 
 REJECT when ANY of:
 - Signal is BUY (wrong direction)
 - volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
-- Entry pressed into prior swing-low support without clear breakdown + spike
+- Entry pressed into prior swing-low support without a clear 15m close breakdown
+  (volume spike at the floor does NOT override)
 - Computed R:R below profile minimum (BAD_RR)
 - Clear 1h counter-trend reclaim against the short
 
@@ -136,7 +141,7 @@ REJECT range climax traps:
             "volume_spike_pct": self._float_param("volume_spike_pct", 120.0),
             "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
             "floor_proximity_pct": self._float_param("floor_proximity_pct", 0.35),
-            "breakdown_clear_pct": self._float_param("breakdown_clear_pct", 0.20),
+            "breakdown_clear_pct": self._float_param("breakdown_clear_pct", DEFAULT_STRUCTURE_CLEAR_PCT),
             "struct_lookback": int(self.get_param("struct_lookback", 96) or 96),
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
             "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
@@ -187,13 +192,12 @@ REJECT range climax traps:
         self, entry: float, prior_low: float, p: Dict[str, Any]
     ) -> bool:
         """True when entry revisits prior swing low without a clear breakdown."""
-        if entry <= 0 or prior_low <= 0:
-            return False
-        prox = float(p["floor_proximity_pct"]) / 100.0
-        clear = float(p["breakdown_clear_pct"]) / 100.0
-        if entry < prior_low * (1.0 - clear):
-            return False
-        return entry <= prior_low * (1.0 + prox)
+        return at_prior_floor(
+            entry,
+            prior_low,
+            float(p["floor_proximity_pct"]),
+            float(p["breakdown_clear_pct"]),
+        )
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
         ctx = market_context or {}
@@ -451,29 +455,18 @@ REJECT range climax traps:
 
         prior_low = self._prior_structure_low(df_15m, p)
         cascade_close = float(cascade.get("close") or entry)
-        if prior_low is not None:
-            broke_down = clear_breakdown_below(
-                cascade_close, prior_low, float(p["breakdown_clear_pct"])
-            )
-            at_floor = self._at_prior_floor(float(entry), prior_low, p)
-            if at_floor and not broke_down:
-                vol_ratio_pct = None
-                if "volume" in df_15m.columns and len(df_15m) >= 3:
-                    try:
-                        vol_now = float(df_15m["volume"].iloc[-2])
-                        vol_ma = float(df_15m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
-                        if vol_ma > 0:
-                            vol_ratio_pct = (vol_now / vol_ma) * 100.0
-                    except Exception:
-                        vol_ratio_pct = None
-                spike = float(p["volume_spike_pct"])
-                if vol_ratio_pct is None or vol_ratio_pct < spike:
-                    vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
-                    self.looking_for_entry = False
-                    return self._reject(
-                        f"Prior swing support {prior_low:.6g} — entry without "
-                        f"clear 15m close breakdown / volume spike (vol {vr} < {spike:.0f}%)"
-                    )
+        structure_reason = unbroken_structure_reason(
+            "SHORT",
+            entry=float(entry),
+            cascade_close=cascade_close,
+            prior_level=prior_low,
+            proximity_pct=float(p["floor_proximity_pct"]),
+            clear_pct=float(p["breakdown_clear_pct"]),
+            tf_label="15m",
+        )
+        if structure_reason:
+            self.looking_for_entry = False
+            return self._reject(structure_reason)
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):

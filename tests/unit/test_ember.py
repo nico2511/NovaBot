@@ -135,7 +135,8 @@ def test_ember_rejects_prior_support_without_spike():
     assert sig is None
     assert s.last_rejection_reason
     low = s.last_rejection_reason.lower()
-    assert "support" in low or "spike" in low
+    assert "support" in low
+    assert "breakdown" in low or "absorption" in low
 
 
 def test_ember_at_prior_floor_helper():

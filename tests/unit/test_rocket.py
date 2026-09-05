@@ -138,7 +138,8 @@ def test_rocket_rejects_prior_resistance_without_spike():
     assert sig is None
     assert s.last_rejection_reason
     low = s.last_rejection_reason.lower()
-    assert "resistance" in low or "spike" in low
+    assert "resistance" in low
+    assert "breakout" in low or "absorption" in low
 
 
 def test_rocket_at_prior_ceiling_helper():

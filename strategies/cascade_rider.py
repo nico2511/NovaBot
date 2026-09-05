@@ -391,12 +391,8 @@ def score_cascade_scan(
         px = 0.0
 
     prior = prior_structure_level(work, params)
-    if (
-        prior is not None
-        and px > 0
-        and at_prior_level(px, prior, params)
-        and (vol_ratio_pct is None or vol_ratio_pct < spike)
-    ):
+    # Volume at a prior shelf is often absorption — it does not override structure.
+    if prior is not None and px > 0 and at_prior_level(px, prior, params):
         return None
 
     wick_idx = bar_index(use_live=filter_live)

@@ -5,8 +5,10 @@ import numpy as np
 import pandas as pd
 
 from strategies.cascade_exhaustion import (
+    at_prior_floor,
     check_range_exhaustion_veto,
     clear_breakout_above,
+    unbroken_structure_reason,
     wick_trap_reason_long,
     wick_trap_reason_short,
 )
@@ -89,6 +91,40 @@ def test_wick_trap_short_rejects_spike_wick():
 def test_clear_breakout_requires_close_not_wick_only():
     assert clear_breakout_above(81234.0, 81000.0, 0.20) is True
     assert clear_breakout_above(81100.0, 81000.0, 0.20) is False
+
+
+def test_at_prior_floor_noise_pierce_still_at_support():
+    # ADA 2026-09-05: 0.20935 vs 0.21000 = 0.31% pierce
+    assert at_prior_floor(0.20935, 0.21000, 0.35, 0.60) is True
+    assert at_prior_floor(0.20935, 0.21000, 0.35, 0.20) is False
+
+
+def test_unbroken_structure_blocks_ada_like_support_sell():
+    reason = unbroken_structure_reason(
+        "SHORT",
+        entry=0.20935,
+        cascade_close=0.20981,
+        prior_level=0.21000,
+        proximity_pct=0.35,
+        clear_pct=0.60,
+        tf_label="15m",
+    )
+    assert reason is not None
+    assert "support" in reason.lower()
+    assert "absorption" in reason.lower()
+
+
+def test_unbroken_structure_allows_clear_15m_breakdown():
+    reason = unbroken_structure_reason(
+        "SHORT",
+        entry=0.20800,
+        cascade_close=0.20800,
+        prior_level=0.21000,
+        proximity_pct=0.35,
+        clear_pct=0.60,
+        tf_label="15m",
+    )
+    assert reason is None
 
 
 def test_rocket_hard_veto_blocks_btc_like_range_blowoff():

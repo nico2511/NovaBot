@@ -15,10 +15,12 @@ from strategies.base import BaseStrategy
 from strategies.cascade_exhaustion import (
     DEFAULT_RANGE_ADX_MAX,
     DEFAULT_RANGE_RSI_LONG_MIN,
+    DEFAULT_STRUCTURE_CLEAR_PCT,
     DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
     DEFAULT_WICK_TRAP_MIN_RATIO,
+    at_prior_ceiling,
     check_range_exhaustion_veto,
-    clear_breakout_above,
+    unbroken_structure_reason,
     wick_trap_reason_long,
 )
 from strategies.cascade_rider import (
@@ -61,7 +63,8 @@ class StrategySpark(BaseStrategy):
     4. REJECT range blow-offs: RANGE + weak ADX + (upper BB OR RSI>74) = climax trap.
     5. REJECT if volume_ratio < 120% without a clear cascade spike.
     6. REJECT if volume is dying (vol_slope DROP).
-    7. REJECT if entry is into prior swing-high resistance without breakout + spike.
+    7. REJECT if entry is into prior swing-high resistance without a clear 5m CLOSE through that level.
+       A volume spike at the ceiling is often absorption, not cascade fuel.
     8. REJECT if 1h is strongly bearish AND price lost 1h EMA20.
     9. When evidence is weak, REJECT — do not rubber-stamp a late chase.
     """
@@ -75,14 +78,15 @@ APPROVE when ALL of:
 2. R:R meets capital risk-profile minimum (after any TP trim)
 3. Volume ratio >= 120% OR clear cascade volume spike (> 120%)
 4. Volume is NOT dying (vol_slope not in hard DROP)
-5. Entry is NOT a double-top into prior swing resistance without clear breakout
+5. Entry is NOT sitting on prior swing resistance — require a clear 5m close-through (volume spike does NOT override)
 6. No obvious 1h bearish breakdown (price below 1h EMA20 with red momentum)
 
 REJECT when ANY of:
 - Signal is SELL (wrong direction)
 - volume_ratio < 120% without spike (WEAK_VOLUME)
 - vol_slope strongly negative / volume dying into the move
-- Entry pressed into prior swing-high resistance without clear breakout + spike
+- Entry pressed into prior swing-high resistance without a clear 5m close breakout
+  (volume spike at the ceiling does NOT override)
 - Computed R:R below profile minimum (BAD_RR)
 - Clear 1h counter-trend breakdown against the long
 
@@ -134,7 +138,7 @@ REJECT range climax traps:
             "veto_rsi_overbought": self._float_param("veto_rsi_overbought", 74.0),
             "veto_vol_slope_min": self._float_param("veto_vol_slope_min", -30.0),
             "ceiling_proximity_pct": self._float_param("ceiling_proximity_pct", 0.35),
-            "breakout_clear_pct": self._float_param("breakout_clear_pct", 0.20),
+            "breakout_clear_pct": self._float_param("breakout_clear_pct", DEFAULT_STRUCTURE_CLEAR_PCT),
             "struct_lookback": int(self.get_param("struct_lookback", 48) or 48),
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
             "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
@@ -185,13 +189,12 @@ REJECT range climax traps:
     def _at_prior_ceiling(
         self, entry: float, prior_high: float, p: Dict[str, Any]
     ) -> bool:
-        if entry <= 0 or prior_high <= 0:
-            return False
-        prox = float(p["ceiling_proximity_pct"]) / 100.0
-        clear = float(p["breakout_clear_pct"]) / 100.0
-        if entry > prior_high * (1.0 + clear):
-            return False
-        return entry >= prior_high * (1.0 - prox)
+        return at_prior_ceiling(
+            entry,
+            prior_high,
+            float(p["ceiling_proximity_pct"]),
+            float(p["breakout_clear_pct"]),
+        )
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
         ctx = market_context or {}
@@ -450,29 +453,18 @@ REJECT range climax traps:
 
         prior_high = self._prior_structure_high(df_5m, p)
         cascade_close = float(cascade.get("close") or entry)
-        if prior_high is not None:
-            broke_out = clear_breakout_above(
-                cascade_close, prior_high, float(p["breakout_clear_pct"])
-            )
-            at_ceiling = self._at_prior_ceiling(float(entry), prior_high, p)
-            if at_ceiling and not broke_out:
-                vol_ratio_pct = None
-                if "volume" in df_5m.columns and len(df_5m) >= 3:
-                    try:
-                        vol_now = float(df_5m["volume"].iloc[-2])
-                        vol_ma = float(df_5m["volume"].iloc[:-2].rolling(50).mean().iloc[-1])
-                        if vol_ma > 0:
-                            vol_ratio_pct = (vol_now / vol_ma) * 100.0
-                    except Exception:
-                        vol_ratio_pct = None
-                spike = float(p["volume_spike_pct"])
-                if vol_ratio_pct is None or vol_ratio_pct < spike:
-                    vr = f"{vol_ratio_pct:.0f}%" if vol_ratio_pct is not None else "n/a"
-                    self.looking_for_entry = False
-                    return self._reject(
-                        f"Prior swing resistance {prior_high:.6g} — entry without "
-                        f"clear 5m close breakout / volume spike (vol {vr} < {spike:.0f}%)"
-                    )
+        structure_reason = unbroken_structure_reason(
+            "LONG",
+            entry=float(entry),
+            cascade_close=cascade_close,
+            prior_level=prior_high,
+            proximity_pct=float(p["ceiling_proximity_pct"]),
+            clear_pct=float(p["breakout_clear_pct"]),
+            tf_label="5m",
+        )
+        if structure_reason:
+            self.looking_for_entry = False
+            return self._reject(structure_reason)
 
         now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):

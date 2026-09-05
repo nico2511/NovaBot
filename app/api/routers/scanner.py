@@ -71,7 +71,7 @@ def get_opportunities(bot=Depends(get_bot_context)):
         "status": "success",
         "enabled": bool(settings.get("enabled", False)),
         "auto_switch": bool(settings.get("auto_switch", False)),
-        "min_score": settings.get("min_score", 60),
+        "min_score": settings.get("min_score", 55),
         "active_symbol": bot.active_symbol,
         "is_scanning": job.is_scanning,
         "count": len(results),

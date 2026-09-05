@@ -266,6 +266,7 @@ class BotContext:
                     self.add_log(
                         f"🕵️ Scanner settings loaded (enabled={self.scanner_settings.get('enabled')}, "
                         f"auto_switch={self.scanner_settings.get('auto_switch')}, "
+                        f"min_score={self.scanner_settings.get('min_score')}, "
                         f"whitelist={len(self.scanner_settings.get('whitelist') or [])})"
                     )
                 disk_risk = disk_settings.get("risk_defaults") or {}
@@ -334,9 +335,9 @@ class BotContext:
         k = max(1, min(k, 10))
 
         try:
-            min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
+            min_score = float((self.scanner_settings or {}).get("min_score", 55) or 55)
         except (TypeError, ValueError):
-            min_score = 65.0
+            min_score = 55.0
 
         ordered: list = []
         job = getattr(self, "scanner_job", None)
@@ -397,9 +398,9 @@ class BotContext:
 
         if not on_radar:
             try:
-                min_score = float((self.scanner_settings or {}).get("min_score", 65) or 65)
+                min_score = float((self.scanner_settings or {}).get("min_score", 55) or 55)
             except (TypeError, ValueError):
-                min_score = 65.0
+                min_score = 55.0
 
             for rows in boards.values():
                 for row in rows or []:
