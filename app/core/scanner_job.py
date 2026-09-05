@@ -325,6 +325,46 @@ class ScannerJob:
         last = float(self._lane_last_run.get(name) or 0)
         return (now - last) >= interval_s
 
+    @staticmethod
+    def _enrich_scan_opp(
+        opp: Dict[str, Any],
+        *,
+        symbol: str,
+        strategy_name: str,
+        universe_row: Dict[str, Any],
+        df: pd.DataFrame,
+    ) -> Dict[str, Any]:
+        """Attach universe + scan-TF context for Discord alerts and merge boards."""
+        from app.services.indicators import ta
+
+        row = dict(opp)
+        row["strategy"] = strategy_name
+        row.setdefault("symbol", symbol)
+
+        try:
+            mark = float(universe_row.get("mark_price") or 0)
+            if mark > 0:
+                row.setdefault("current_price", mark)
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            vol24 = float(universe_row.get("volume_24h") or 0)
+            if vol24 > 0:
+                row.setdefault("volume_24h", vol24)
+        except (TypeError, ValueError):
+            pass
+
+        if row.get("adx") in (None, 0) and df is not None and not getattr(df, "empty", True):
+            if len(df) >= 20 and {"high", "low", "close"}.issubset(df.columns):
+                try:
+                    adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
+                    row["adx"] = round(float(adx_df["ADX"].iloc[-2]), 1)
+                except (TypeError, ValueError, IndexError, KeyError):
+                    pass
+
+        return row
+
     def _score_lane(
         self,
         name: str,
@@ -351,9 +391,13 @@ class ScannerJob:
                 self.bot.add_log(f"⚠️ Scan score {name}/{symbol}: {e}")
                 opp = None
             if opp and opp.get("score") is not None:
-                opp = dict(opp)
-                opp["strategy"] = name
-                opp.setdefault("symbol", symbol)
+                opp = self._enrich_scan_opp(
+                    opp,
+                    symbol=symbol,
+                    strategy_name=name,
+                    universe_row=data,
+                    df=df,
+                )
                 results.append(opp)
             if i < len(universe) - 1:
                 time.sleep(self.universe.INTER_SYMBOL_SLEEP)
