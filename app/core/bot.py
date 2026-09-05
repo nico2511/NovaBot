@@ -1038,10 +1038,20 @@ class BotContext:
             except Exception:
                 atr = 0.0
         
-        # EMAs
-        ema_20 = float(df['close'].ewm(span=20).mean().iloc[-1])
-        ema_50 = float(df['close'].ewm(span=50).mean().iloc[-1])
-        ema_200 = float(df['close'].ewm(span=200).mean().iloc[-1]) if len(df) >= 200 else None
+        # EMAs — confirmed candle; prefer engine columns (Wilder EMA) when present
+        if "EMA_20" in df.columns:
+            ema_20 = float(df["EMA_20"].iloc[idx])
+        else:
+            ema_20 = float(Indicators.ema(df["close"], length=20).iloc[idx])
+        if "EMA_50" in df.columns:
+            ema_50 = float(df["EMA_50"].iloc[idx])
+        else:
+            ema_50 = float(Indicators.ema(df["close"], length=50).iloc[idx])
+        ema_200 = (
+            float(Indicators.ema(df["close"], length=200).iloc[idx])
+            if len(df) >= 200
+            else None
+        )
         
         # Price levels — confirmed candle (avoid live-bar wick noise for TP structure)
         hi_idx = -2 if len(df) >= 2 else -1
@@ -1078,16 +1088,16 @@ class BotContext:
         except Exception:
             pass
             
-        # === ENHANCED CONTEXT: MACD ===
+        # === ENHANCED CONTEXT: MACD (confirmed candle, span-based EMA) ===
         macd_line = 0
         macd_signal = 0
         macd_hist = 0
         try:
-             macd_df = Indicators.macd(df['close'])
-             macd_line = float(macd_df['MACD'].iloc[-1])
-             macd_signal = float(macd_df['MACDs'].iloc[-1])
-             macd_hist = float(macd_df['MACDh'].iloc[-1])
-        except Exception: 
+            macd_df = Indicators.macd(df["close"])
+            macd_line = float(macd_df["MACD"].iloc[idx])
+            macd_signal = float(macd_df["MACDs"].iloc[idx])
+            macd_hist = float(macd_df["MACDh"].iloc[idx])
+        except Exception:
             pass
 
         # Regime on the strategy timeframe (not hardcoded 15m).
@@ -1167,10 +1177,26 @@ class BotContext:
             # Use confirmed candle (-2) vs its previous (-3) where possible
             ema_now_idx = -2 if len(df) >= 2 else -1
             ema_prev_idx = -3 if len(df) >= 3 else -2
-            ema_20_now = float(df['close'].ewm(span=20).mean().iloc[ema_now_idx])
-            ema_50_now = float(df['close'].ewm(span=50).mean().iloc[ema_now_idx])
-            ema_20_prev = float(df['close'].ewm(span=20).mean().iloc[ema_prev_idx])
-            ema_50_prev = float(df['close'].ewm(span=50).mean().iloc[ema_prev_idx])
+            ema_20_now = float(
+                df["EMA_20"].iloc[ema_now_idx]
+                if "EMA_20" in df.columns
+                else Indicators.ema(df["close"], length=20).iloc[ema_now_idx]
+            )
+            ema_50_now = float(
+                df["EMA_50"].iloc[ema_now_idx]
+                if "EMA_50" in df.columns
+                else Indicators.ema(df["close"], length=50).iloc[ema_now_idx]
+            )
+            ema_20_prev = float(
+                df["EMA_20"].iloc[ema_prev_idx]
+                if "EMA_20" in df.columns
+                else Indicators.ema(df["close"], length=20).iloc[ema_prev_idx]
+            )
+            ema_50_prev = float(
+                df["EMA_50"].iloc[ema_prev_idx]
+                if "EMA_50" in df.columns
+                else Indicators.ema(df["close"], length=50).iloc[ema_prev_idx]
+            )
             
             ema_20_slope = ((ema_20_now - ema_20_prev) / ema_20_prev) if ema_20_prev > 0 else 0
             ema_50_slope = ((ema_50_now - ema_50_prev) / ema_50_prev) if ema_50_prev > 0 else 0

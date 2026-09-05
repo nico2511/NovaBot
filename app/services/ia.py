@@ -885,6 +885,7 @@ Structure:
 - Fib zone: {ctx.get('fib_zone', 'N/A')} (61.8% ${ctx.get('fib_618', 'N/A')})
 
 Trend:
+- EMA20: ${ctx.get('ema_20', 'N/A')} | EMA50: ${ctx.get('ema_50', 'N/A')}
 - EMA20 slope: {ctx.get('ema_20_slope', 0):.6f}
 - EMA50 slope: {ctx.get('ema_50_slope', 0):.6f} [{ctx.get('ema_50_slope_label', 'N/A')}]
 

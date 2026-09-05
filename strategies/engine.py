@@ -245,13 +245,17 @@ class StrategyEngine:
                 is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
                 
                 symbol = extra_data.get("symbol") if extra_data else None
+                confirmed_idx = -2 if len(df) >= 2 else -1
                 if isinstance(sig, dict):
                     # Strategy returned rich object
                     signal_data = sig
                     signal_data["strategy"] = strat.name
                     signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
-                    signal_data["price"] = float(sig.get("price", df['close'].iloc[-1]))
-                    signal_data["timestamp"] = str(df.index[-1])
+                    signal_data["price"] = float(
+                        sig.get("price", df["close"].iloc[confirmed_idx])
+                    )
+                    # Signal metrics use the confirmed candle (-2); label that bar, not the live one.
+                    signal_data["timestamp"] = str(df.index[confirmed_idx])
                     if is_manual:
                         signal_data["manual_approval"] = True
                     
@@ -268,8 +272,8 @@ class StrategyEngine:
                         "strategy": strat.name,
                         "signal": sig, 
                         "symbol": symbol or "UNKNOWN",
-                        "price": float(df['close'].iloc[-1]),
-                        "timestamp": str(df.index[-1])
+                        "price": float(df["close"].iloc[confirmed_idx]),
+                        "timestamp": str(df.index[confirmed_idx]),
                     }
                 
                 # --- GLOBAL DIRECTION FILTER ---
