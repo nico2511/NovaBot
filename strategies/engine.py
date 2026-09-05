@@ -104,6 +104,42 @@ class StrategyEngine:
         except (TypeError, ValueError):
             return 22.0
 
+    @staticmethod
+    def _normalize_timeframe(tf) -> str:
+        t = str(tf or "15m").strip().lower()
+        aliases = {
+            "1h": "1h",
+            "60m": "1h",
+            "1hour": "1h",
+            "60": "1h",
+            "5m": "5m",
+            "5": "5m",
+            "1m": "1m",
+            "1min": "1m",
+            "15m": "15m",
+            "15": "15m",
+        }
+        return aliases.get(t, t or "15m")
+
+    @classmethod
+    def _ohlcv_for_strategy_timeframe(cls, strat_config, primary_df, extra_data=None):
+        """Pick the OHLCV frame that matches a strategy's declared timeframe."""
+        tf = cls._normalize_timeframe((strat_config or {}).get("timeframe"))
+        extra = extra_data or {}
+        if tf == "1h":
+            df_1h = extra.get("1h")
+            if df_1h is not None and not getattr(df_1h, "empty", True):
+                return df_1h
+        if tf == "5m":
+            df_5m = extra.get("5m")
+            if df_5m is not None and not getattr(df_5m, "empty", True):
+                return df_5m
+        if tf == "1m":
+            df_1m = extra.get("1m")
+            if df_1m is not None and not getattr(df_1m, "empty", True):
+                return df_1m
+        return primary_df
+
     def analyze(self, df: pd.DataFrame, extra_data=None):
         """
         Analyze market data and generate signals.
@@ -245,17 +281,19 @@ class StrategyEngine:
                 is_manual = params.get("execution_type") == "manual" or params.get("requires_confirmation") == True
                 
                 symbol = extra_data.get("symbol") if extra_data else None
-                confirmed_idx = -2 if len(df) >= 2 else -1
+                strat_cfg = (self.config or {}).get(strat.name) or getattr(strat, "config", None) or {}
+                ts_df = self._ohlcv_for_strategy_timeframe(strat_cfg, df, extra_data)
+                confirmed_idx = -2 if len(ts_df) >= 2 else -1
                 if isinstance(sig, dict):
                     # Strategy returned rich object
                     signal_data = sig
                     signal_data["strategy"] = strat.name
                     signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
                     signal_data["price"] = float(
-                        sig.get("price", df["close"].iloc[confirmed_idx])
+                        sig.get("price", ts_df["close"].iloc[confirmed_idx])
                     )
-                    # Signal metrics use the confirmed candle (-2); label that bar, not the live one.
-                    signal_data["timestamp"] = str(df.index[confirmed_idx])
+                    # Label the confirmed bar on the strategy's own timeframe.
+                    signal_data["timestamp"] = str(ts_df.index[confirmed_idx])
                     if is_manual:
                         signal_data["manual_approval"] = True
                     
@@ -272,8 +310,8 @@ class StrategyEngine:
                         "strategy": strat.name,
                         "signal": sig, 
                         "symbol": symbol or "UNKNOWN",
-                        "price": float(df["close"].iloc[confirmed_idx]),
-                        "timestamp": str(df.index[confirmed_idx]),
+                        "price": float(ts_df["close"].iloc[confirmed_idx]),
+                        "timestamp": str(ts_df.index[confirmed_idx]),
                     }
                 
                 # --- GLOBAL DIRECTION FILTER ---

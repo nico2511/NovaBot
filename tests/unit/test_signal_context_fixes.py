@@ -39,7 +39,7 @@ def test_engine_signal_timestamp_uses_confirmed_candle():
     engine.strategies = {"SignalProbe": strat}
     engine.config = {
         "market_regime": {"adx_threshold": 25},
-        "SignalProbe": {"enabled": True, "type": "always_active"},
+        "SignalProbe": {"enabled": True, "type": "always_active", "timeframe": "15m"},
     }
     df = _ohlcv_df()
     result = engine.analyze(df, extra_data={"symbol": "LTC"})
@@ -47,6 +47,26 @@ def test_engine_signal_timestamp_uses_confirmed_candle():
     assert signals, "expected a probe signal"
     assert signals[0]["timestamp"] == str(df.index[-2])
     assert signals[0]["timestamp"] != str(df.index[-1])
+
+
+def test_engine_signal_timestamp_uses_strategy_timeframe():
+    engine = StrategyEngine()
+    strat = _SignalStrategy(name="TrendProbe")
+    engine.strategies = {"TrendProbe": strat}
+    engine.config = {
+        "market_regime": {"adx_threshold": 25},
+        "TrendProbe": {"enabled": True, "type": "always_active", "timeframe": "1h"},
+    }
+    df_15m = _ohlcv_df(freq="15min")
+    df_1h = _ohlcv_df(n=80, freq="1h")
+    result = engine.analyze(
+        df_15m,
+        extra_data={"symbol": "LTC", "1h": df_1h},
+    )
+    signals = result.get("signals") or []
+    assert signals, "expected a probe signal"
+    assert signals[0]["timestamp"] == str(df_1h.index[-2])
+    assert signals[0]["timestamp"] != str(df_15m.index[-2])
 
 
 def test_normalize_strategy_context_includes_ema_values():
