@@ -862,6 +862,8 @@ class BotContext:
     ):
         """Send a Discord notification when a strategy signal is detected (pre-AI)."""
         try:
+            from app.utils.ai_context import format_signal_discord_description
+
             symbol = sig.get("symbol", self.active_symbol)
             side = str(sig.get("signal", "UNKNOWN")).upper()
             strategy = sig.get("strategy", "unknown")
@@ -887,60 +889,33 @@ class BotContext:
 
             self._last_signal_discord = {"signature": signature, "time": now_ts}
 
-            regime = technical_context.get("regime", "UNKNOWN")
-            adx = technical_context.get("adx_val", technical_context.get("adx", 0))
-            adx_slope = technical_context.get("adx_slope", 0)
-            rsi = technical_context.get("rsi_val", technical_context.get("rsi", 0))
-            ema20 = technical_context.get("ema_20", 0)
-            ema50 = technical_context.get("ema_50", 0)
-            vol_ratio = technical_context.get("volume_ratio", 0)
-            ema_trend = "↗" if ema20 and ema50 and ema20 > ema50 else (
-                "↘" if ema20 and ema50 and ema20 < ema50 else "→"
-            )
+            market_ctx = technical_context
+            if ai_payload_preview and isinstance(ai_payload_preview.get("market_context_focus"), dict):
+                market_ctx = ai_payload_preview["market_context_focus"]
 
-            debug_payload = {
-                "symbol": symbol,
-                "strategy": strategy,
-                "signal": side,
-                "price": round(price, 8),
-                "sl": round(float(sl), 8) if sl is not None else None,
-                "tp": round(float(tp), 8) if tp is not None else None,
-                "regime": regime,
-                "adx": adx,
-                "adx_slope": adx_slope,
-                "rsi": rsi,
-                "ema_20": ema20,
-                "ema_50": ema50,
-                "ema_trend": ema_trend,
-                "volume_ratio": vol_ratio,
-                "timestamp": sig_ts,
-            }
-            payload_str = json.dumps(debug_payload, ensure_ascii=False)
+            description, overflow = format_signal_discord_description(
+                symbol=symbol,
+                strategy=strategy,
+                side=side,
+                price=price,
+                sl=sl,
+                tp=tp,
+                sig_ts=sig_ts,
+                market_context=market_ctx,
+                ai_trace_id=ai_trace_id,
+            )
 
             color = "00FF00" if side == "BUY" else "FF0000" if side == "SELL" else "FFD166"
             trace_part = f" (trace={ai_trace_id})" if ai_trace_id else ""
             title = f"📡 SIGNAL DETECTED (Pre-AI): {side} {symbol}{trace_part}"
 
-            ai_payload_str = ""
-            if ai_payload_preview:
-                try:
-                    ai_payload_str = json.dumps(ai_payload_preview, ensure_ascii=False, default=str)
-                except Exception:
-                    ai_payload_str = str(ai_payload_preview)
-            description = (
-                f"Strategy: {strategy}\n"
-                f"Entry: {price:.8f}\n"
-                f"SL/TP: {sl if sl is not None else 'N/A'} / {tp if tp is not None else 'N/A'}\n"
-                f"Regime: {regime} | ADX: {adx} ({adx_slope:+.2f}) | RSI: {rsi}\n"
-                f"EMA20/50: {ema_trend} | Vol: {vol_ratio}%\n"
-                f"Payload: `{payload_str[:1200]}`"
-                + (f"\nAI Data Sent (preview): `{ai_payload_str[:1200]}`" if ai_payload_str else "")
-            )
             discord_service.send_alert(title, description, color=color)
+            if overflow:
+                discord_service.send_log(overflow)
 
             self.add_log(
                 f"📨 Discord signal notification sent for {side} {symbol} ({strategy})",
-                metadata=debug_payload
+                metadata={"trace_id": ai_trace_id, "symbol": symbol, "strategy": strategy},
             )
         except Exception as notify_err:
             self.add_log(f"⚠️ Failed to send Discord signal notification: {notify_err}")
