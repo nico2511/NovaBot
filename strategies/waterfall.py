@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
+from app.core.veto_checker import check_macd_momentum_veto
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
 from strategies.cascade_exhaustion import (
@@ -244,6 +245,11 @@ REJECT range climax traps:
             )
             if reason:
                 return reason
+
+        if bool(self.get_param("veto_macd_momentum", True)):
+            macd_reason = check_macd_momentum_veto(side, ctx)
+            if macd_reason:
+                return macd_reason
 
         return None
 

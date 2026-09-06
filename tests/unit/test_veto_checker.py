@@ -13,6 +13,7 @@ from app.core.veto_checker import (
     RSI_OVERBOUGHT,
     RSI_OVERSOLD,
     check_hard_veto,
+    check_macd_momentum_veto,
 )
 
 
@@ -111,3 +112,31 @@ def test_volume_ratio_key_is_honored():
     reason = check_hard_veto("BUY", ctx)
     assert reason is not None
     assert "Low Volume" in reason
+
+
+def test_macd_momentum_veto_blocks_long_without_bullish_hist():
+    reason = check_macd_momentum_veto("BUY", {"macd_hist": -0.0042})
+    assert reason is not None
+    assert "bullish momentum" in reason
+
+
+def test_macd_momentum_veto_blocks_short_without_bearish_hist():
+    reason = check_macd_momentum_veto("SELL", {"macd_hist": 0.001})
+    assert reason is not None
+    assert "bearish momentum" in reason
+
+
+def test_macd_momentum_veto_allows_aligned_hist():
+    assert check_macd_momentum_veto("BUY", {"macd_hist": 0.01}) is None
+    assert check_macd_momentum_veto("SELL", {"macd_hist": -0.01}) is None
+
+
+def test_macd_momentum_veto_missing_hist_is_permissive():
+    assert check_macd_momentum_veto("BUY", {}) is None
+
+
+def test_supertrend_helper_vetoes_bearish_macd_on_buy():
+    ctx = _base_context(macd_hist=-0.0002)
+    reason = check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "MACD" in reason

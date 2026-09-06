@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from app.core.veto_checker import check_macd_momentum_veto
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
 
@@ -125,6 +126,12 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
                 vol_f = None
             if vol_f is not None and vol_f > 0.5 and vol_f < vol_floor:
                 return f"HARD VETO (LT): Low Volume ({vol_f:.1f}% < {vol_floor:.0f}%) @ {price:.4f}"
+
+            if bool(self.get_param("veto_macd_momentum", True)):
+                macd_reason = check_macd_momentum_veto(side, ctx)
+                if macd_reason:
+                    return f"HARD VETO (LT): {macd_reason} @ {price:.4f}"
+
             return None
         except Exception as e:
             logger.warning("Trend LT veto error: %s", e)

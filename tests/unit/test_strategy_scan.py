@@ -99,9 +99,9 @@ def test_lt_scan_hooks_and_score_path():
 def test_lt_veto_is_not_blind_st_copy():
     s = StrategyTrendLT({"params": {"veto_rsi_overbought": 85, "min_volume_ratio_pct": 50}})
     # RSI 82 would veto ST helper (80) but not LT default 85
-    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 82, "adx": 30, "volume_ratio": 80}) is None
-    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 90, "adx": 30, "volume_ratio": 80}) is not None
-    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 50, "adx": 30, "volume_ratio": 10}) is not None
+    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 82, "adx": 30, "volume_ratio": 80, "macd_hist": 0.01}) is None
+    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 90, "adx": 30, "volume_ratio": 80, "macd_hist": 0.01}) is not None
+    assert s.check_hard_veto("BUY", {"current_price": 1.0, "rsi": 50, "adx": 30, "volume_ratio": 10, "macd_hist": 0.01}) is not None
 
 
 def test_merge_strategy_boards_union_max_score():

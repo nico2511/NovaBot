@@ -38,6 +38,7 @@ def test_supertrend_hard_veto_same_thresholds_as_helper():
         "rsi": 50.0,
         "adx": 25.0,
         "volume_ratio": 80.0,
+        "macd_hist": 0.01,
     }
     assert s.check_hard_veto("BUY", ctx) is None
     assert s.check_hard_veto("BUY", {**ctx, "rsi": 85.0}) is not None
