@@ -22,6 +22,36 @@ ADX_RUNAWAY = 75.0
 LOW_VOLUME_RATIO_PCT = 50.0
 
 
+def check_macd_momentum_veto(signal: str, market_context: dict) -> Optional[str]:
+    """
+    Block momentum entries when MACD histogram disagrees with direction.
+
+    - BUY/LONG: require macd_hist > 0
+    - SELL/SHORT: require macd_hist < 0
+
+    Missing or unparsable macd_hist → no veto (same as other optional context).
+    """
+    ctx = market_context or {}
+    side = str(signal or "").upper()
+    raw = ctx.get("macd_hist")
+    if raw is None:
+        return None
+    try:
+        hist = float(raw)
+    except (TypeError, ValueError):
+        return None
+
+    if side in ("BUY", "LONG") and hist <= 0:
+        return (
+            f"MACD histogram {hist:.4f} <= 0 — no bullish momentum on strategy TF"
+        )
+    if side in ("SELL", "SHORT") and hist >= 0:
+        return (
+            f"MACD histogram {hist:.4f} >= 0 — no bearish momentum on strategy TF"
+        )
+    return None
+
+
 def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
     """Return a veto reason string, or None if the trade can proceed.
 
@@ -63,6 +93,10 @@ def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
             vol_ratio_pct = None
         if vol_ratio_pct is not None and vol_ratio_pct > 0.5 and vol_ratio_pct < LOW_VOLUME_RATIO_PCT:
             return f"HARD VETO: Low Volume ({vol_ratio_pct:.1f}% avg) @ {price:.2f}"
+
+        macd_reason = check_macd_momentum_veto(signal, market_context)
+        if macd_reason:
+            return f"HARD VETO: {macd_reason} @ {price:.2f}"
 
         return None
     except Exception as e:  # pragma: no cover — defensive only

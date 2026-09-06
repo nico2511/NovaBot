@@ -71,8 +71,16 @@ def test_rocket_hard_veto_blocks_dying_volume():
 
 def test_rocket_hard_veto_allows_stable_volume():
     s = StrategyRocket({"params": {}})
-    ctx = {"volume_ratio": 130, "rsi": 66, "vol_slope": -10.0}
+    ctx = {"volume_ratio": 130, "rsi": 66, "vol_slope": -10.0, "macd_hist": 0.01}
     assert s.check_hard_veto("BUY", ctx) is None
+
+
+def test_rocket_hard_veto_blocks_bearish_macd():
+    s = StrategyRocket({"params": {}})
+    ctx = {"volume_ratio": 180, "rsi": 62, "vol_slope": 25.0, "macd_hist": -0.0042}
+    reason = s.check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "MACD" in reason
 
 
 def test_rocket_rejects_insufficient_data():

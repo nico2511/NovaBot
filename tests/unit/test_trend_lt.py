@@ -35,8 +35,16 @@ def test_trend_lt_rejects_without_1h():
 
 def test_trend_lt_hard_veto_volume():
     s = StrategyTrendLT({"params": {}})
-    ctx = {"current_price": 100.0, "rsi": 50.0, "adx": 25.0, "volume_ratio": 10.0}
+    ctx = {"current_price": 100.0, "rsi": 50.0, "adx": 25.0, "volume_ratio": 10.0, "macd_hist": 0.01}
     assert s.check_hard_veto("BUY", ctx) is not None
+
+
+def test_trend_lt_hard_veto_blocks_bearish_macd():
+    s = StrategyTrendLT({"params": {}})
+    ctx = {"current_price": 100.0, "rsi": 50.0, "adx": 25.0, "volume_ratio": 80.0, "macd_hist": -0.002}
+    reason = s.check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "MACD" in reason
 
 
 def test_trend_lt_rejects_short_history():

@@ -71,8 +71,16 @@ def test_ember_hard_veto_blocks_dying_volume():
 
 def test_ember_hard_veto_allows_stable_volume():
     s = StrategyEmber({"params": {}})
-    ctx = {"volume_ratio": 130, "rsi": 35, "vol_slope": -10.0}
+    ctx = {"volume_ratio": 130, "rsi": 35, "vol_slope": -10.0, "macd_hist": -0.01}
     assert s.check_hard_veto("SELL", ctx) is None
+
+
+def test_ember_hard_veto_blocks_bullish_macd():
+    s = StrategyEmber({"params": {}})
+    ctx = {"volume_ratio": 180, "rsi": 38, "vol_slope": 25.0, "macd_hist": 0.0033}
+    reason = s.check_hard_veto("SELL", ctx)
+    assert reason is not None
+    assert "MACD" in reason
 
 
 def test_ember_rejects_insufficient_data():
