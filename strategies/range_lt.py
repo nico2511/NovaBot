@@ -190,7 +190,7 @@ Do NOT reject solely because:
 
             if not bool(self.get_param("log_veto_report", True)):
                 self.last_veto_report = None
-            return blocking[0] if blocking else None
+            return " | ".join(blocking) if blocking else None
         except Exception as e:
             logger.warning("Range LT veto error: %s", e)
             self.last_veto_report = None
@@ -763,7 +763,7 @@ Do NOT reject solely because:
 
         side = str(trade.get("side") or "BUY").upper()
         entry = float(trade.get("entry") or trade.get("entry_price") or 0)
-        adx_trend = float(p.get("adx_trend_veto", 22) or 22)
+        adx_trend = float(p.get("veto_adx_trend", 28.0) or 28.0)
 
         return evaluate_range_lt_thesis(
             side=side,

@@ -61,6 +61,12 @@ def test_rocket_hard_veto_blocks_low_volume():
     assert s.check_hard_veto("BUY", ctx) is not None
 
 
+def test_rocket_hard_veto_allows_missing_volume_ratio():
+    s = StrategyRocket({"params": {}})
+    ctx = {"rsi": 60, "macd_hist": 0.01, "vol_slope": -10.0}
+    assert s.check_hard_veto("BUY", ctx) is None
+
+
 def test_rocket_hard_veto_blocks_dying_volume():
     s = StrategyRocket({"params": {}})
     ctx = {"volume_ratio": 130, "rsi": 66, "vol_slope": -39.0}

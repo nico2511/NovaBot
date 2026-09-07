@@ -11,6 +11,13 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import pandas as pd
 
 from app.services.indicators import ta
+from app.core.veto_checker import check_macd_momentum_veto
+from strategies.cascade_exhaustion import (
+    DEFAULT_RANGE_ADX_MAX,
+    DEFAULT_RANGE_RSI_LONG_MIN,
+    DEFAULT_RANGE_RSI_SHORT_MAX,
+    check_range_exhaustion_veto,
+)
 
 DEFAULT_MAX_EXTENSION_ATR = 3.5
 DEFAULT_SPARK_MAX_EXTENSION_ATR = 2.5
@@ -454,3 +461,102 @@ def score_cascade_scan(
         "cascade_age_bars": age,
         "extension_atr": round(ext_atr, 3) if ext_atr is not None else None,
     }
+
+
+def _resolve_volume_ratio_pct(ctx: Dict[str, Any]) -> Optional[float]:
+    """Confirmed volume ratio from context; None when data is incomplete (permissive)."""
+    vol_ratio = ctx.get("volume_ratio")
+    if vol_ratio is not None:
+        try:
+            return float(vol_ratio)
+        except (TypeError, ValueError):
+            pass
+    cur = ctx.get("current_volume")
+    avg = ctx.get("avg_volume")
+    if cur is not None and avg and float(avg) > 0:
+        try:
+            return (float(cur) / float(avg)) * 100.0
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def check_cascade_hard_veto(
+    signal: str,
+    market_context: Optional[Dict[str, Any]],
+    *,
+    direction: str,
+    blocked_side_message: str,
+    rsi_threshold: float,
+    rsi_mode: str,
+    exhaustion_message: str,
+    min_volume_ratio_pct: float,
+    volume_spike_pct: float,
+    veto_vol_slope_min: float,
+    continuation_label: str,
+    range_exhaustion_enabled: bool = True,
+    range_adx_max: float = DEFAULT_RANGE_ADX_MAX,
+    range_rsi_long_min: float = DEFAULT_RANGE_RSI_LONG_MIN,
+    range_rsi_short_max: float = DEFAULT_RANGE_RSI_SHORT_MAX,
+    veto_macd_momentum: bool = True,
+) -> Optional[str]:
+    """
+    Shared pre-AI hard veto for rocket / waterfall / spark / ember cascade riders.
+
+    ``direction`` is ``long`` or ``short`` (strategy-owned side filter).
+    ``rsi_mode`` is ``above`` (block long when RSI too high) or ``below`` (block short).
+    """
+    ctx = market_context or {}
+    side = str(signal or "").upper()
+    direction = str(direction or "").lower()
+
+    if direction == "long" and side == "SELL":
+        return blocked_side_message
+    if direction == "short" and side == "BUY":
+        return blocked_side_message
+
+    try:
+        rsi = float(ctx.get("rsi_val", ctx.get("rsi")) or 50)
+    except (TypeError, ValueError):
+        rsi = 50.0
+
+    if rsi_mode == "above" and rsi > float(rsi_threshold):
+        return f"RSI {rsi:.1f} > {rsi_threshold:.0f} — {exhaustion_message}"
+    if rsi_mode == "below" and rsi < float(rsi_threshold):
+        return f"RSI {rsi:.1f} < {rsi_threshold:.0f} — {exhaustion_message}"
+
+    vol_ratio = _resolve_volume_ratio_pct(ctx)
+    min_vol = float(min_volume_ratio_pct)
+    spike = float(volume_spike_pct)
+    if vol_ratio is not None and vol_ratio < min_vol and vol_ratio < spike:
+        return f"Volume {vol_ratio:.0f}% < {min_vol:.0f}% (no cascade spike)"
+
+    slope_floor = float(veto_vol_slope_min)
+    try:
+        raw_slope = ctx.get("vol_slope")
+        if raw_slope is not None:
+            vol_slope = float(raw_slope)
+            if vol_slope < slope_floor:
+                return (
+                    f"Volume dying (slope {vol_slope:+.1f}% < {slope_floor:.0f}%) "
+                    f"— no fuel for {continuation_label} continuation"
+                )
+    except (TypeError, ValueError):
+        pass
+
+    if range_exhaustion_enabled:
+        range_kwargs: Dict[str, Any] = {"adx_max": float(range_adx_max)}
+        if direction == "long":
+            range_kwargs["rsi_long_min"] = float(range_rsi_long_min)
+        else:
+            range_kwargs["rsi_short_max"] = float(range_rsi_short_max)
+        reason = check_range_exhaustion_veto(side, ctx, **range_kwargs)
+        if reason:
+            return reason
+
+    if veto_macd_momentum:
+        macd_reason = check_macd_momentum_veto(side, ctx)
+        if macd_reason:
+            return macd_reason
+
+    return None
