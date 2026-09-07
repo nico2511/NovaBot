@@ -45,6 +45,21 @@ def test_supertrend_hard_veto_same_thresholds_as_helper():
     assert s.check_hard_veto("BUY", {**ctx, "volume_ratio": 12.0}) is not None
 
 
+def test_supertrend_hard_veto_uses_min_volume_ratio_pct():
+    s = StrategySupertrend({"params": {"min_volume_ratio_pct": 80}})
+    ctx = {
+        "current_price": 100.0,
+        "rsi": 50.0,
+        "adx": 25.0,
+        "volume_ratio": 70.0,
+        "macd_hist": 0.01,
+    }
+    reason = s.check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "Low Volume" in reason
+    assert s.check_hard_veto("BUY", {**ctx, "volume_ratio": 80.0}) is None
+
+
 def test_supertrend_post_ai_adjust_trims_buy_tp():
     s = StrategySupertrend({"params": {}})
     signal = {"signal": "BUY", "price": 100.0, "tp": 110.0, "sl": 99.0}

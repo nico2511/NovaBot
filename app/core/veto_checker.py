@@ -52,7 +52,16 @@ def check_macd_momentum_veto(signal: str, market_context: dict) -> Optional[str]
     return None
 
 
-def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
+def check_hard_veto(
+    signal: str,
+    market_context: dict,
+    *,
+    rsi_overbought: float = RSI_OVERBOUGHT,
+    rsi_oversold: float = RSI_OVERSOLD,
+    adx_runaway: float = ADX_RUNAWAY,
+    low_volume_ratio_pct: float = LOW_VOLUME_RATIO_PCT,
+    veto_macd_momentum: bool = True,
+) -> Optional[str]:
     """Return a veto reason string, or None if the trade can proceed.
 
     Args:
@@ -61,6 +70,11 @@ def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
                           are ``current_price``, ``rsi``, ``adx``,
                           ``current_volume`` and ``avg_volume``. Any key may
                           be missing — the checker stays conservative.
+        rsi_overbought:   Block BUY above this RSI (strategy-owned override).
+        rsi_oversold:     Block SELL below this RSI.
+        adx_runaway:      Block both sides when ADX exceeds this level.
+        low_volume_ratio_pct: Minimum confirmed volume vs MA50 (%).
+        veto_macd_momentum: When True, block when MACD histogram disagrees.
     """
     try:
         price = market_context.get("current_price", 0) or 0
@@ -68,15 +82,22 @@ def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
         # 1. RSI Veto (relaxed: blocks only extreme readings)
         rsi = market_context.get("rsi")
         if rsi is not None:
-            if signal == "BUY" and rsi > RSI_OVERBOUGHT:
-                return f"HARD VETO: RSI Overbought ({rsi:.1f} > {RSI_OVERBOUGHT:.0f}) @ {price:.2f}"
-            if signal == "SELL" and rsi < RSI_OVERSOLD:
-                return f"HARD VETO: RSI Oversold ({rsi:.1f} < {RSI_OVERSOLD:.0f}) @ {price:.2f}"
+            if signal == "BUY" and rsi > rsi_overbought:
+                return (
+                    f"HARD VETO: RSI Overbought ({rsi:.1f} > {rsi_overbought:.0f}) @ {price:.2f}"
+                )
+            if signal == "SELL" and rsi < rsi_oversold:
+                return (
+                    f"HARD VETO: RSI Oversold ({rsi:.1f} < {rsi_oversold:.0f}) @ {price:.2f}"
+                )
 
         # 2. ADX runaway (trend already parabolic — reversal risk high)
         adx = market_context.get("adx")
-        if adx is not None and adx > ADX_RUNAWAY:
-            return f"HARD VETO: ADX Extreme ({adx:.1f} > {ADX_RUNAWAY:.0f}) - Trend runaway @ {price:.2f}"
+        if adx is not None and adx > adx_runaway:
+            return (
+                f"HARD VETO: ADX Extreme ({adx:.1f} > {adx_runaway:.0f}) "
+                f"- Trend runaway @ {price:.2f}"
+            )
 
         # 3. Dead-volume veto (no liquidity → slippage / fake signal risk)
         # Prefer precomputed confirmed-candle ratio. Skip if volume looks incomplete
@@ -91,12 +112,17 @@ def check_hard_veto(signal: str, market_context: dict) -> Optional[str]:
             vol_ratio_pct = float(vol_ratio_pct) if vol_ratio_pct is not None else None
         except (TypeError, ValueError):
             vol_ratio_pct = None
-        if vol_ratio_pct is not None and vol_ratio_pct > 0.5 and vol_ratio_pct < LOW_VOLUME_RATIO_PCT:
+        if (
+            vol_ratio_pct is not None
+            and vol_ratio_pct > 0.5
+            and vol_ratio_pct < low_volume_ratio_pct
+        ):
             return f"HARD VETO: Low Volume ({vol_ratio_pct:.1f}% avg) @ {price:.2f}"
 
-        macd_reason = check_macd_momentum_veto(signal, market_context)
-        if macd_reason:
-            return f"HARD VETO: {macd_reason} @ {price:.2f}"
+        if veto_macd_momentum:
+            macd_reason = check_macd_momentum_veto(signal, market_context)
+            if macd_reason:
+                return f"HARD VETO: {macd_reason} @ {price:.2f}"
 
         return None
     except Exception as e:  # pragma: no cover — defensive only

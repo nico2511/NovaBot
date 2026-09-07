@@ -132,6 +132,23 @@ def test_range_lt_veto_report_all_pass():
     assert "BLOCK" not in report
 
 
+def test_range_lt_thesis_uses_veto_adx_trend_param():
+    from app.core.trade_thesis import THESIS_VALID, THESIS_WEAK, evaluate_range_lt_thesis
+
+    kwargs = dict(
+        side="SELL",
+        entry=104.0,
+        current_price=104.0,
+        close_1h=105.0,
+        range_high=108.0,
+        range_low=100.0,
+        adx=26.0,
+        adx_slope=0.5,
+    )
+    assert evaluate_range_lt_thesis(**kwargs, adx_trend_threshold=22).status == THESIS_WEAK
+    assert evaluate_range_lt_thesis(**kwargs, adx_trend_threshold=28).status == THESIS_VALID
+
+
 def test_range_lt_veto_report_can_be_silenced():
     s = StrategyRangeLT({"params": {"log_veto_report": False}})
     ctx = {"current_price": 100.0, "rsi": 50.0, "adx": 40.0, "volume_ratio": 80.0}

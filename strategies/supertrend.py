@@ -102,7 +102,19 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         """Strategy-owned hard veto — SuperTrend 15m thresholds via shared helper."""
         from app.core.veto_checker import check_hard_veto as _helper
 
-        return _helper(signal, market_context or {})
+        vol_floor = float(self.get_min_volume_ratio_pct() or 80.0)
+        try:
+            return _helper(
+                signal,
+                market_context or {},
+                rsi_overbought=float(self.get_param("veto_rsi_overbought", 80.0) or 80.0),
+                rsi_oversold=float(self.get_param("veto_rsi_oversold", 30.0) or 30.0),
+                adx_runaway=float(self.get_param("veto_adx_runaway", 75.0) or 75.0),
+                low_volume_ratio_pct=vol_floor,
+                veto_macd_momentum=bool(self.get_param("veto_macd_momentum", True)),
+            )
+        except (TypeError, ValueError):
+            return _helper(signal, market_context or {}, low_volume_ratio_pct=vol_floor)
 
     def get_scan_timeframe(self) -> str:
         return "15m"

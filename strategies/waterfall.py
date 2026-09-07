@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
-from app.core.veto_checker import check_macd_momentum_veto
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
 from strategies.cascade_exhaustion import (
@@ -20,7 +19,6 @@ from strategies.cascade_exhaustion import (
     DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
     DEFAULT_WICK_TRAP_MIN_RATIO,
     at_prior_floor,
-    check_range_exhaustion_veto,
     unbroken_structure_reason,
     wick_trap_reason_short,
 )
@@ -30,6 +28,7 @@ from strategies.cascade_rider import (
     DEFAULT_MAX_EXTENSION_ATR,
     DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
     active_scan_interval_minutes,
+    check_cascade_hard_veto,
     detect_bear_cascade,
     extension_within_limit,
     score_cascade_scan,
@@ -201,57 +200,24 @@ REJECT range climax traps:
         )
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
-        ctx = market_context or {}
-        side = str(signal or "").upper()
-        if side == "BUY":
-            return "Waterfall is short-only (BUY blocked)"
-
-        try:
-            rsi = float(ctx.get("rsi_val", ctx.get("rsi")) or 50)
-        except (TypeError, ValueError):
-            rsi = 50.0
-        floor = self._float_param("veto_rsi_oversold", 28.0)
-        if rsi < floor:
-            return f"RSI {rsi:.1f} < {floor:.0f} — cascade may be exhausted (knife catch)"
-
-        try:
-            vol = float(ctx.get("volume_ratio") or 100)
-        except (TypeError, ValueError):
-            vol = 100.0
-        min_vol = self._float_param("min_volume_ratio_pct", 120.0)
-        spike = self._float_param("volume_spike_pct", 120.0)
-        if vol < min_vol and vol < spike:
-            return f"Volume {vol:.0f}% < {min_vol:.0f}% (no cascade spike)"
-
-        slope_floor = self._float_param("veto_vol_slope_min", -30.0)
-        try:
-            raw_slope = ctx.get("vol_slope")
-            if raw_slope is not None:
-                vol_slope = float(raw_slope)
-                if vol_slope < slope_floor:
-                    return (
-                        f"Volume dying (slope {vol_slope:+.1f}% < {slope_floor:.0f}%) "
-                        "— no fuel for waterfall continuation"
-                    )
-        except (TypeError, ValueError):
-            pass
-
-        if bool(self.get_param("range_exhaustion_enabled", True)):
-            reason = check_range_exhaustion_veto(
-                side,
-                ctx,
-                adx_max=self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
-                rsi_short_max=self._float_param("range_rsi_short_max", DEFAULT_RANGE_RSI_SHORT_MAX),
-            )
-            if reason:
-                return reason
-
-        if bool(self.get_param("veto_macd_momentum", True)):
-            macd_reason = check_macd_momentum_veto(side, ctx)
-            if macd_reason:
-                return macd_reason
-
-        return None
+        p = self._params_snapshot()
+        return check_cascade_hard_veto(
+            signal,
+            market_context,
+            direction="short",
+            blocked_side_message="Waterfall is short-only (BUY blocked)",
+            rsi_threshold=float(p["veto_rsi_oversold"]),
+            rsi_mode="below",
+            exhaustion_message="cascade may be exhausted (knife catch)",
+            min_volume_ratio_pct=float(p["min_volume_ratio_pct"]),
+            volume_spike_pct=float(p["volume_spike_pct"]),
+            veto_vol_slope_min=float(p["veto_vol_slope_min"]),
+            continuation_label="waterfall",
+            range_exhaustion_enabled=bool(p["range_exhaustion_enabled"]),
+            range_adx_max=float(p["range_adx_max"]),
+            range_rsi_short_max=float(p["range_rsi_short_max"]),
+            veto_macd_momentum=bool(self.get_param("veto_macd_momentum", True)),
+        )
 
     def get_scan_timeframe(self) -> str:
         return "15m"
