@@ -1,12 +1,64 @@
 import csv
 import logging
 import os
+import shutil
 import threading
-import pandas as pd
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def _entry_value(entry_indicators: Optional[Dict[str, Any]], *keys: str, default: Any = ""):
+    """Read first present key from entry snapshot (supports ai_context aliases)."""
+    src = entry_indicators or {}
+    for key in keys:
+        if key not in src:
+            continue
+        val = src[key]
+        if val is None:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        return val
+    return default
+
+
+def normalize_entry_indicators(entry_indicators: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Map strategy ai_context keys to trade journal columns.
+
+    ai_context uses rsi_val/adx_val; legacy callers may still pass rsi/adx.
+    """
+    src = dict(entry_indicators or {})
+    out: Dict[str, Any] = {
+        "regime": _entry_value(src, "regime"),
+        "adx": _entry_value(src, "adx_val", "adx"),
+        "rsi": _entry_value(src, "rsi_val", "rsi"),
+        "ema_20": _entry_value(src, "ema_20"),
+        "ema_50": _entry_value(src, "ema_50"),
+        "volume_ratio": _entry_value(src, "volume_ratio"),
+        "bb_position": _entry_value(src, "bb_position"),
+        "adx_slope": _entry_value(src, "adx_slope"),
+        "vol_slope": _entry_value(src, "vol_slope"),
+        "macd_hist": _entry_value(src, "macd_hist"),
+        "market_bias": _entry_value(src, "market_bias"),
+        "strategy_timeframe": _entry_value(src, "strategy_timeframe"),
+        "ai_confidence": _entry_value(src, "ai_confidence"),
+        "ai_reasoning": _entry_value(src, "ai_reasoning"),
+    }
+    for num_key in ("adx", "rsi", "ema_20", "ema_50", "volume_ratio", "adx_slope", "vol_slope", "macd_hist", "ai_confidence"):
+        raw = out.get(num_key)
+        if raw == "" or raw is None:
+            continue
+        try:
+            out[num_key] = float(raw)
+        except (TypeError, ValueError):
+            out[num_key] = ""
+    return out
 
 class TradeRecorder:
     """
@@ -27,11 +79,15 @@ class TradeRecorder:
             "entry_volume_ratio", "ai_confidence", "ai_reasoning",
             # Timeline / multi-trade ids
             "entry_time", "trade_id", "trace_id",
+            # Extended instant-T snapshot (v2 journal schema)
+            "entry_bb_position", "entry_adx_slope", "entry_vol_slope",
+            "entry_macd_hist", "entry_market_bias", "entry_strategy_tf",
         ]
         self._numeric_columns = (
             "entry_price", "exit_price", "size", "pnl", "leverage",
             "entry_adx", "entry_rsi", "entry_ema20", "entry_ema50",
             "entry_volume_ratio", "ai_confidence",
+            "entry_adx_slope", "entry_vol_slope", "entry_macd_hist",
         )
         
         self._ensure_storage()
@@ -45,12 +101,31 @@ class TradeRecorder:
     def _collapse_csv_row(self, row: list) -> list:
         """Merge overflow columns (unquoted commas in ai_reasoning) back into schema."""
         n = len(self.headers)
-        if len(row) <= n:
-            return row + [""] * (n - len(row))
         idx = self.headers.index("ai_reasoning")
-        tail_count = n - idx - 1
-        merged = ",".join(row[idx : len(row) - tail_count])
-        return row[:idx] + [merged] + row[-tail_count:]
+        legacy_tail = 3  # entry_time, trade_id, trace_id
+        ext_cols = max(0, n - idx - 1 - legacy_tail)
+        min_fields = idx + 1 + legacy_tail
+
+        if len(row) == n:
+            return row
+
+        if len(row) < min_fields:
+            return row + [""] * (n - len(row))
+
+        # Missing trailing extension columns, or reasoning commas without extra tail fields.
+        if min_fields <= len(row) < n:
+            if len(row) > min_fields:
+                tail_start = len(row) - legacy_tail
+                merged = ",".join(row[idx:tail_start])
+                tail = row[tail_start:] + [""] * ext_cols
+                return row[:idx] + [merged] + tail
+            return row + [""] * (n - len(row))
+
+        # len(row) > n OR unquoted commas expanded the reasoning field count.
+        tail_start = len(row) - legacy_tail
+        merged = ",".join(row[idx:tail_start])
+        tail = row[tail_start:] + [""] * ext_cols
+        return row[:idx] + [merged] + tail
 
     def _read_csv_rows(self) -> list[list[str]]:
         with open(self.csv_file, encoding="utf-8", newline="") as f:
@@ -66,6 +141,22 @@ class TradeRecorder:
             normalized.append(self._collapse_csv_row(row))
         return normalized
 
+    def _backup_csv(self, reason: str = "schema_migration") -> Optional[str]:
+        """Copy trade_history.csv to data/backups/ before schema changes."""
+        if not os.path.exists(self.csv_file):
+            return None
+        try:
+            backup_dir = Path(self.data_dir) / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            dest = backup_dir / f"trade_history_{stamp}_{reason}.csv"
+            shutil.copy2(self.csv_file, dest)
+            logger.info("Trade history backup: %s", dest)
+            return str(dest)
+        except Exception as e:
+            logger.warning("Trade history backup skipped: %s", e)
+            return None
+
     def _maybe_migrate_csv_header(self) -> None:
         if not os.path.exists(self.csv_file):
             return
@@ -74,6 +165,7 @@ class TradeRecorder:
                 header = next(csv.reader(f), None)
             if header == self.headers:
                 return
+            self._backup_csv()
             rows = self._read_csv_rows()
             with open(self.csv_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
@@ -133,9 +225,8 @@ class TradeRecorder:
             timestamp = trade_data.get("timestamp") or trade_data.get("exit_time") or datetime.now().isoformat()
             pnl = trade_data.get("pnl") if trade_data.get("pnl") is not None else trade_data.get("pnl_usdc", 0.0)
             
-            # Extract entry indicators (with defaults for backward compatibility)
-            entry_indicators = trade_data.get("entry_indicators", {})
-            
+            snap = normalize_entry_indicators(trade_data.get("entry_indicators", {}))
+
             row = [
                 timestamp,
                 trade_data.get("symbol", "UNKNOWN"),
@@ -147,16 +238,14 @@ class TradeRecorder:
                 trade_data.get("strategy", "Manual"),
                 trade_data.get("exit_reason", "Signal"),
                 float(trade_data.get("leverage", 1.0)),
-                # NEW: Entry indicators columns
-                entry_indicators.get("regime", ""),
-                entry_indicators.get("adx", ""),
-                entry_indicators.get("rsi", ""),
-                entry_indicators.get("ema_20", ""),
-                entry_indicators.get("ema_50", ""),
-                entry_indicators.get("volume_ratio", ""),
-                entry_indicators.get("ai_confidence", ""),
-                # Truncate reasoning to avoid CSV issues
-                str(entry_indicators.get("ai_reasoning", ""))[:200],
+                snap.get("regime", ""),
+                snap.get("adx", ""),
+                snap.get("rsi", ""),
+                snap.get("ema_20", ""),
+                snap.get("ema_50", ""),
+                snap.get("volume_ratio", ""),
+                snap.get("ai_confidence", ""),
+                str(snap.get("ai_reasoning", ""))[:200],
                 trade_data.get("entry_time")
                 or trade_data.get("entry_timestamp")
                 or (trade_data.get("metadata") or {}).get("entry_time")
@@ -165,6 +254,12 @@ class TradeRecorder:
                 trade_data.get("trace_id")
                 or (trade_data.get("metadata") or {}).get("trace_id")
                 or "",
+                snap.get("bb_position", ""),
+                snap.get("adx_slope", ""),
+                snap.get("vol_slope", ""),
+                snap.get("macd_hist", ""),
+                snap.get("market_bias", ""),
+                snap.get("strategy_timeframe", ""),
             ]
             
             with self._lock:
@@ -172,7 +267,7 @@ class TradeRecorder:
                     writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
                     writer.writerow(row)
             
-            reasoning_snippet = str(entry_indicators.get("ai_reasoning", "N/A"))[:100]
+            reasoning_snippet = str(snap.get("ai_reasoning", "N/A"))[:100]
             logger.info(
                 "Trade recorded: %s | PnL: $%.2f | Reasoning: %s...",
                 trade_data.get("symbol"), pnl, reasoning_snippet,
