@@ -327,12 +327,13 @@ class BotContext:
         )
 
     def _get_analysis_symbols(self) -> list:
-        """Scanner top-K (≥ min_score), then sticky armed symbols (append, no displacement)."""
+        """Scanner qualified symbols (≥ min_score), then sticky armed symbols (append)."""
         try:
             k = int((self.scanner_settings or {}).get("analyze_top_k", 3) or 3)
         except (TypeError, ValueError):
             k = 3
         k = max(1, min(k, 10))
+        cap = max(k, 10)
 
         try:
             min_score = float((self.scanner_settings or {}).get("min_score", 55) or 55)
@@ -357,7 +358,7 @@ class BotContext:
                     continue
                 if sym not in ordered:
                     ordered.append(sym)
-                if len(ordered) >= k:
+                if len(ordered) >= cap:
                     break
 
         sticky = getattr(self, "_strategy_sticky", {}) or {}
@@ -417,6 +418,14 @@ class BotContext:
                     break
 
         if on_radar:
+            return None
+
+        tick = getattr(self, "_analysis_symbols_this_tick", None)
+        if tick and symbol in tick:
+            return None
+
+        active = getattr(self, "active_symbol", None)
+        if symbol and active and symbol == active:
             return None
 
         return set()
@@ -2782,6 +2791,7 @@ class BotContext:
                      self.add_log(f"📍 Active trade on {self.active_symbol}. Running analysis for new opportunities...")
 
                 analysis_symbols = self._get_analysis_symbols()
+                self._analysis_symbols_this_tick = frozenset(analysis_symbols)
                 self.add_log(
                     f"🔄 Entering strategy analysis for {len(analysis_symbols)} symbol(s): "
                     f"{', '.join(analysis_symbols)}"

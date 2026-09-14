@@ -505,21 +505,19 @@ Do NOT reject solely because:
         # SHORT: H1 high must not pierce the hourly box top (breakout wick ≠ fade).
         h1_top_intact = bar_high <= range_high
         h1_bottom_intact = bar_low >= range_low
+        # Rejection = wick tags the box edge and the H1 close finishes back inside
+        # (no bearish/bullish candle requirement — pin bars often close off the open).
         reject_high = (
             tagged_high
             and h1_top_intact
             and close < (range_high - inner)
-            and close <= float(last["open"])
             and close > range_low
-            and near_high
         )
         reject_low = (
             tagged_low
             and h1_bottom_intact
             and close > (range_low + inner)
-            and close >= float(last["open"])
             and close < range_high
-            and near_low
         )
 
         bias = None
@@ -667,9 +665,19 @@ Do NOT reject solely because:
             return self._reject("Not armed for range_lt entry")
 
         rejected = (
-            (self.entry_direction == "LONG" and setup.get("reject_low") and loc <= 0.5)
-            or (self.entry_direction == "SHORT" and setup.get("reject_high") and loc >= 0.5)
+            (self.entry_direction == "LONG" and setup.get("reject_low"))
+            or (self.entry_direction == "SHORT" and setup.get("reject_high"))
         )
+        edge = float(p["edge_frac"])
+        if self.looking_for_entry and not rejected:
+            if self.entry_direction == "SHORT" and loc < (1.0 - edge - 0.12):
+                self.looking_for_entry = False
+                self.entry_direction = None
+                return self._reject("Price left upper range zone — reset SHORT watch")
+            if self.entry_direction == "LONG" and loc > (edge + 0.12):
+                self.looking_for_entry = False
+                self.entry_direction = None
+                return self._reject("Price left lower range zone — reset LONG watch")
         if not rejected:
             if self.entry_direction == "SHORT":
                 if setup.get("ceiling_expanding"):

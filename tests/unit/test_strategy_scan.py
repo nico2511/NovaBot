@@ -228,6 +228,8 @@ def test_strategies_for_analysis_runs_all_when_lane_qualifies():
     bot = BotContext.__new__(BotContext)
     bot.scanner_settings = {"min_score": 65}
     bot._strategy_sticky = {}
+    bot._analysis_symbols_this_tick = frozenset()
+    bot.active_symbol = "SOL"
     bot.scanner_job = SimpleNamespace(
         last_results_by_strategy={
             "rocket": [{"symbol": "HYPE", "score": 85}],
@@ -236,6 +238,23 @@ def test_strategies_for_analysis_runs_all_when_lane_qualifies():
         }
     )
     assert bot._strategies_for_analysis("HYPE") is None
+    assert bot._strategies_for_analysis("BTC") == set()
+
+
+def test_strategies_for_analysis_full_eval_on_active_symbol():
+    from app.core.bot import BotContext
+
+    bot = BotContext.__new__(BotContext)
+    bot.scanner_settings = {"min_score": 65}
+    bot._strategy_sticky = {}
+    bot.active_symbol = "ETH"
+    bot._analysis_symbols_this_tick = frozenset()
+    bot.scanner_job = SimpleNamespace(
+        last_results_by_strategy={
+            "supertrend": [{"symbol": "SOL", "score": 80}],
+        }
+    )
+    assert bot._strategies_for_analysis("ETH") is None
     assert bot._strategies_for_analysis("BTC") == set()
 
 
@@ -284,7 +303,7 @@ def test_analysis_symbols_match_scanner_top_k():
             {"symbol": "UNI", "score": 82},
         ]
     )
-    assert bot._get_analysis_symbols() == ["SOL", "NEAR", "XRP", "SUI"]
+    assert bot._get_analysis_symbols() == ["SOL", "NEAR", "XRP", "UNI", "SUI"]
 
 
 def test_analysis_symbols_armed_deduped_when_on_scan():
