@@ -62,8 +62,7 @@ Do **not** fade 15m chop against a 1h trend — Range LT owns the 1h box only.
 - `max_positions` configurable (live default **2**). Same-symbol concurrent stays off (HL nets one position per coin).
 - `allow_same_symbol_concurrent=false` by default — Hyperliquid nets **one position per coin**.
 - Same symbol + ST/LT: first entry wins the symbol slot; the other waits for flat.
-- **Money management**: profile risk % / fixed margin / notional cap are **÷ `max_positions`**
-  so N concurrent slots ≈ 1× the intended portfolio budget (not N×).
+- **Money management**: each trade is sized on **full equity**; the risk profile (`risk_pct`, leverage, notional cap) defines exposure. `max_positions` only caps concurrent entries.
 
 ---
 
