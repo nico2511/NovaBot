@@ -2999,7 +2999,9 @@ class BotContext:
                             and technical_context.get("volume_ratio") is not None
                         ):
                             market_context["volume_ratio"] = technical_context["volume_ratio"]
-                        market_context['mtf_sentiment'] = self._fetch_mtf_sentiment(self.active_symbol)
+                        market_context["mtf_sentiment"] = self._fetch_mtf_sentiment(
+                            sig_symbol
+                        )
                         market_context["strategy_timeframe"] = sig_tf
                         ai_context = self._ai_context_snapshot(market_context)
 

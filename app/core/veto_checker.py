@@ -52,6 +52,82 @@ def check_macd_momentum_veto(signal: str, market_context: dict) -> Optional[str]
     return None
 
 
+def check_mtf_sentiment_veto(
+    signal: str,
+    mtf_text: str,
+    *,
+    block_1h_bias_conflict: bool = True,
+    block_1h_mixed: bool = True,
+    block_4h_bias_conflict: bool = True,
+) -> Optional[str]:
+    """
+    Block entries when parsed 1h/4h MTF summary fights the trade direction.
+
+    Expects text like:
+    ``1h: bias=BEARISH ST=BULLISH (MIXED) ADX=24.9 ... | 4h: bias=BULLISH ...``
+    """
+    text = str(mtf_text or "").strip()
+    if not text or "unavailable" in text.lower():
+        return None
+
+    side = str(signal or "").upper()
+    want_long = side in ("BUY", "LONG")
+    want_short = side in ("SELL", "SHORT")
+    if not want_long and not want_short:
+        return None
+
+    for segment in text.split("|"):
+        seg = segment.strip()
+        if not seg.startswith(("1h:", "4h:")):
+            continue
+        tf = seg.split(":", 1)[0].strip().lower()
+        if tf not in ("1h", "4h"):
+            continue
+        if block_1h_mixed and tf == "1h" and "(MIXED)" in seg.upper():
+            return (
+                f"1h MTF MIXED (EMA bias vs SuperTrend conflict) — no clean {side} confluence"
+            )
+        if "bias=BEARISH" in seg and want_long:
+            if tf == "1h" and block_1h_bias_conflict:
+                return f"1h MTF bias BEARISH conflicts with {side}"
+            if tf == "4h" and block_4h_bias_conflict:
+                return f"4h MTF bias BEARISH conflicts with {side}"
+        if "bias=BULLISH" in seg and want_short:
+            if tf == "1h" and block_1h_bias_conflict:
+                return f"1h MTF bias BULLISH conflicts with {side}"
+            if tf == "4h" and block_4h_bias_conflict:
+                return f"4h MTF bias BULLISH conflicts with {side}"
+    return None
+
+
+def check_rsi_slope_veto(
+    signal: str,
+    market_context: dict,
+    *,
+    min_slope_long: float = -4.0,
+    max_slope_short: float = 4.0,
+) -> Optional[str]:
+    """Block when RSI slope on the strategy TF disagrees with momentum for the side."""
+    ctx = market_context or {}
+    raw = ctx.get("rsi_slope")
+    if raw is None:
+        return None
+    try:
+        slope = float(raw)
+    except (TypeError, ValueError):
+        return None
+    side = str(signal or "").upper()
+    if side in ("BUY", "LONG") and slope < min_slope_long:
+        return (
+            f"RSI slope {slope:+.1f} < {min_slope_long:+.1f} — momentum fading on LONG"
+        )
+    if side in ("SELL", "SHORT") and slope > max_slope_short:
+        return (
+            f"RSI slope {slope:+.1f} > {max_slope_short:+.1f} — momentum fading on SHORT"
+        )
+    return None
+
+
 def check_hard_veto(
     signal: str,
     market_context: dict,

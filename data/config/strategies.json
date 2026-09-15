@@ -86,7 +86,18 @@
       "veto_rsi_overbought": 85,
       "veto_rsi_oversold": 20,
       "veto_adx_runaway": 85,
-      "veto_macd_momentum": true
+      "veto_macd_momentum": true,
+      "veto_mtf_sentiment": true,
+      "veto_mtf_1h_bias_conflict": true,
+      "veto_mtf_1h_mixed": true,
+      "veto_mtf_4h_bias_conflict": true,
+      "veto_rsi_slope": true,
+      "veto_rsi_slope_min_long": -4.0,
+      "veto_rsi_slope_max_short": 4.0,
+      "near_tp_min_progress_pct": 55,
+      "near_tp_lock_fraction": 0.65,
+      "profit_lock_arm_pct": 2.0,
+      "profit_lock_floor_pct": 0.75
     },
     "display_conditions": [
       "Supertrend",

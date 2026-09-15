@@ -330,6 +330,37 @@ def test_apply_near_tp_exhaustion_skips_dead():
     assert out.tighten_sl is None
 
 
+def test_apply_swing_profit_lock_tightens_on_green():
+    from app.core.trade_thesis import (
+        THESIS_VALID,
+        ThesisVerdict,
+        apply_swing_profit_lock,
+    )
+
+    trade = {"side": "BUY", "entry": 2514.5, "tp": 2603.0, "sl": 2470.0}
+    verdict = ThesisVerdict(
+        status=THESIS_VALID,
+        action="HOLD",
+        reasons=("ok",),
+        adx=25.0,
+        adx_slope=0.1,
+        st_direction=1,
+        close=2550.0,
+        supertrend=2480.0,
+        pnl_pct=2.5,
+    )
+    out = apply_swing_profit_lock(
+        verdict,
+        trade=trade,
+        current_price=2550.0,
+        arm_pnl_pct=2.0,
+        lock_pnl_pct=0.75,
+    )
+    assert out.tighten_sl is not None
+    assert out.tighten_sl > trade["entry"]
+    assert any("SWING_PROFIT_LOCK" in r for r in out.reasons)
+
+
 def test_apply_near_tp_exhaustion_skips_red():
     df = _stall_df()
     base = _valid_verdict(pnl_pct=-0.5)

@@ -11,7 +11,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-from app.core.veto_checker import check_macd_momentum_veto
+from app.core.veto_checker import (
+    check_macd_momentum_veto,
+    check_mtf_sentiment_veto,
+    check_rsi_slope_veto,
+)
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
 
@@ -46,8 +50,9 @@ class StrategyTrendLT(BaseStrategy):
     4. TP should respect local structure (trim to swing when proposed TP is optimistic).
     5. REJECT if volume_ratio < 50% of average (WEAK_VOLUME).
     6. REJECT chase: BUY RSI > 65 or SELL RSI < 35 without volume > 150%.
-    7. If MTF 4h clearly fights the 1h signal, REJECT as COUNTER_TREND.
-    8. When confluence is mixed, REJECT — do not rubber-stamp.
+    7. If MTF 1h bias or MIXED status fights the signal, REJECT as COUNTER_TREND.
+    8. If MTF 4h clearly fights the 1h signal, REJECT as COUNTER_TREND.
+    9. When confluence is mixed, REJECT — do not rubber-stamp.
     """
 
     AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (TREND LT / 1h) ===
@@ -64,8 +69,10 @@ APPROVE when ALL of:
 REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
 - BUY RSI > 65 or SELL RSI < 35 without volume > 150% (OVEREXTENDED)
+- 1h MTF bias opposite to signal OR 1h status MIXED (COUNTER_TREND / NO_CONFLUENCE)
 - Clear 4h counter-trend
 - Computed R:R below profile minimum (BAD_RR)
+- RSI slope strongly against direction (already hard-vetoed before you see this)
 
 Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
 
@@ -131,6 +138,40 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
                 macd_reason = check_macd_momentum_veto(side, ctx)
                 if macd_reason:
                     return f"HARD VETO (LT): {macd_reason} @ {price:.4f}"
+
+            if bool(self.get_param("veto_mtf_sentiment", True)):
+                mtf_reason = check_mtf_sentiment_veto(
+                    side,
+                    str(ctx.get("mtf_sentiment") or ""),
+                    block_1h_bias_conflict=bool(
+                        self.get_param("veto_mtf_1h_bias_conflict", True)
+                    ),
+                    block_1h_mixed=bool(self.get_param("veto_mtf_1h_mixed", True)),
+                    block_4h_bias_conflict=bool(
+                        self.get_param("veto_mtf_4h_bias_conflict", True)
+                    ),
+                )
+                if mtf_reason:
+                    return f"HARD VETO (LT): {mtf_reason} @ {price:.4f}"
+
+            if bool(self.get_param("veto_rsi_slope", True)):
+                try:
+                    min_long = float(
+                        self.get_param("veto_rsi_slope_min_long", -4.0) or -4.0
+                    )
+                    max_short = float(
+                        self.get_param("veto_rsi_slope_max_short", 4.0) or 4.0
+                    )
+                except (TypeError, ValueError):
+                    min_long, max_short = -4.0, 4.0
+                slope_reason = check_rsi_slope_veto(
+                    side,
+                    ctx,
+                    min_slope_long=min_long,
+                    max_slope_short=max_short,
+                )
+                if slope_reason:
+                    return f"HARD VETO (LT): {slope_reason} @ {price:.4f}"
 
             return None
         except Exception as e:
@@ -468,6 +509,23 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             if self.entry_direction == "SHORT" and rsi < float(p["min_rsi_short"]):
                 self.looking_for_entry = False
                 return self._reject(f"Chase filter: 1h RSI {rsi:.1f} < {p['min_rsi_short']:.0f}")
+            try:
+                rsi_prev = float(df_1h["RSI_14"].iloc[-3])
+                rsi_delta = rsi - rsi_prev
+                slope_floor = float(self.get_param("veto_rsi_slope_min_long", -4.0) or -4.0)
+                slope_ceil = float(self.get_param("veto_rsi_slope_max_short", 4.0) or 4.0)
+                if self.entry_direction == "LONG" and rsi_delta < slope_floor:
+                    self.looking_for_entry = False
+                    return self._reject(
+                        f"1h RSI momentum fading ({rsi_delta:+.1f} on last bar) — skip LONG"
+                    )
+                if self.entry_direction == "SHORT" and rsi_delta > slope_ceil:
+                    self.looking_for_entry = False
+                    return self._reject(
+                        f"1h RSI momentum fading ({rsi_delta:+.1f} on last bar) — skip SHORT"
+                    )
+            except Exception:
+                pass
 
         if atr > 0 and st_line > 0:
             extension = abs(close - st_line) / atr
@@ -583,4 +641,48 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             adx_threshold=float(p.get("adx_threshold", 20) or 20),
             min_adx_slope=dead_adx_slope,
             weak_adx_slope=weak_adx_slope,
+        )
+
+    def finalize_thesis_verdict(
+        self,
+        trade,
+        current_price: float,
+        df: pd.DataFrame,
+        verdict,
+    ):
+        from app.core.trade_thesis import (
+            apply_dead_drift,
+            apply_near_tp_exhaustion,
+            apply_swing_profit_lock,
+        )
+
+        if verdict is None:
+            return None
+        try:
+            near_min = float(self.get_param("near_tp_min_progress_pct", 55) or 55)
+            near_lock = float(self.get_param("near_tp_lock_fraction", 0.65) or 0.65)
+            arm_pnl = float(self.get_param("profit_lock_arm_pct", 2.0) or 2.0)
+            lock_pnl = float(self.get_param("profit_lock_floor_pct", 0.75) or 0.75)
+        except (TypeError, ValueError):
+            near_min, near_lock, arm_pnl, lock_pnl = 55.0, 0.65, 2.0, 0.75
+
+        verdict = apply_near_tp_exhaustion(
+            verdict,
+            trade=trade,
+            current_price=float(current_price),
+            df=df,
+            min_progress_pct=near_min,
+            lock_fraction=near_lock,
+        )
+        verdict = apply_swing_profit_lock(
+            verdict,
+            trade=trade,
+            current_price=float(current_price),
+            arm_pnl_pct=arm_pnl,
+            lock_pnl_pct=lock_pnl,
+        )
+        return apply_dead_drift(
+            verdict,
+            trade=trade,
+            current_sl=float(trade.get("sl") or 0),
         )

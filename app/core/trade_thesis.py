@@ -257,6 +257,82 @@ def apply_near_tp_exhaustion(
     )
 
 
+def swing_profit_lock_sl(
+    side: str,
+    entry: float,
+    *,
+    lock_pnl_pct: float,
+) -> Optional[float]:
+    """Stop price that locks at least ``lock_pnl_pct`` profit vs entry."""
+    side = (side or "").upper()
+    if entry <= 0 or lock_pnl_pct <= 0:
+        return None
+    move = lock_pnl_pct / 100.0
+    if side == "BUY":
+        return entry * (1.0 + move)
+    if side == "SELL":
+        return entry * (1.0 - move)
+    return None
+
+
+def apply_swing_profit_lock(
+    verdict: ThesisVerdict,
+    *,
+    trade: Dict[str, Any],
+    current_price: float,
+    arm_pnl_pct: float = 2.0,
+    lock_pnl_pct: float = 0.75,
+) -> ThesisVerdict:
+    """
+    After a swing reaches ``arm_pnl_pct`` unrealized, ratchet SL to lock
+    ``lock_pnl_pct`` (helps 1h trades that spike then give back before TP).
+    """
+    if verdict.status == THESIS_DEAD or verdict.pnl_pct < arm_pnl_pct:
+        return verdict
+
+    side = str(trade.get("side") or "BUY").upper()
+    entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+    if entry <= 0:
+        return verdict
+
+    target_sl = swing_profit_lock_sl(side, entry, lock_pnl_pct=lock_pnl_pct)
+    if target_sl is None:
+        return verdict
+
+    cur_sl = float(trade.get("sl") or 0)
+    if side == "BUY":
+        if cur_sl > 0 and target_sl <= cur_sl:
+            return verdict
+        if float(current_price) <= target_sl:
+            return verdict
+        best_sl = target_sl
+        if verdict.tighten_sl is not None:
+            best_sl = max(float(verdict.tighten_sl), target_sl)
+    elif side == "SELL":
+        if cur_sl > 0 and target_sl >= cur_sl:
+            return verdict
+        if float(current_price) >= target_sl:
+            return verdict
+        best_sl = target_sl
+        if verdict.tighten_sl is not None:
+            best_sl = min(float(verdict.tighten_sl), target_sl)
+    else:
+        return verdict
+
+    merged = tuple(verdict.reasons) + (
+        f"SWING_PROFIT_LOCK: PnL {verdict.pnl_pct:+.2f}% ≥ {arm_pnl_pct:.1f}% "
+        f"→ lock +{lock_pnl_pct:.2f}%",
+    )
+    status = THESIS_WEAK if verdict.status == THESIS_VALID else verdict.status
+    return replace(
+        verdict,
+        status=status,
+        action=ACTION_TIGHTEN_SL,
+        reasons=merged,
+        tighten_sl=float(best_sl),
+    )
+
+
 def compute_thesis_dead_streak(
     prev_status: Optional[str],
     verdict_status: str,
