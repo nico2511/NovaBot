@@ -61,42 +61,20 @@ class StrategyEngine:
             print(f"Error loading data/config/strategies.json: {e}")
             self.config = {}
 
-    @staticmethod
-    def _live_5m_cascade(strategy_name: str, extra_data: Optional[dict]) -> bool:
-        """True when a fast 5m rider has a live cascade on extra_data['5m']."""
-        if not extra_data:
-            return False
-        df_5m = extra_data.get("5m")
-        if df_5m is None or getattr(df_5m, "empty", True):
-            return False
-        if strategy_name == "spark":
-            active, _ = detect_bull_cascade(df_5m, use_live=True)
-            return active
-        if strategy_name == "ember":
-            active, _ = detect_bear_cascade(df_5m, use_live=True)
-            return active
-        return False
-
     def _regime_adx_threshold(self) -> float:
         """
-        TREND regime ADX floor — owned by active trend strategies' adx_threshold.
+        TREND regime ADX floor — owned by SuperTrend (15m), not always_active 1h plans.
+
         Falls back to market_regime.adx_threshold, then 22.
         """
-        thresholds = []
-        for name, strat in (self.strategies or {}).items():
-            cfg = (self.config or {}).get(name) or {}
-            if cfg.get("enabled") is False or cfg.get("active") is False:
-                continue
-            stype = str(cfg.get("type") or "").lower()
-            if stype and stype not in ("trend", "always_active"):
-                continue
+        cfg = (self.config or {}).get("supertrend") or {}
+        if cfg.get("enabled") is not False:
+            strat = (self.strategies or {}).get("supertrend")
             try:
                 if strat is not None and hasattr(strat, "get_param"):
-                    thresholds.append(float(strat.get_param("adx_threshold", 22) or 22))
+                    return float(strat.get_param("adx_threshold", 22) or 22)
             except (TypeError, ValueError):
-                continue
-        if thresholds:
-            return max(thresholds)
+                pass
         try:
             return float(
                 (self.config or {}).get("market_regime", {}).get("adx_threshold", 22) or 22
@@ -196,10 +174,10 @@ class StrategyEngine:
         work_15m = df.copy()
         work_15m["EMA_9"] = ema_9
         work_15m["EMA_20"] = ema_20
-        bear_active, _ = detect_bear_cascade(work_15m, use_live=True)
+        bear_active, _ = detect_bear_cascade(work_15m, use_live=False)
         if bear_active:
             regime = "TREND_BEAR_STRONG"
-        elif detect_bull_cascade(work_15m, use_live=True)[0]:
+        elif detect_bull_cascade(work_15m, use_live=False)[0]:
             regime = "TREND_BULL_STRONG"
         extra_data["regime"] = regime
         extra_data["regime_adx"] = regime_adx
@@ -242,10 +220,7 @@ class StrategyEngine:
                     "TREND_BEAR_STRONG",
                     "TREND_BULL_STRONG",
                 )
-                fast_5m = name in ("spark", "ember") and self._live_5m_cascade(
-                    name, extra_data
-                )
-                if trend_regime or fast_5m:
+                if trend_regime:
                     active_strategies.append(self.strategies[name])
 
         only = None

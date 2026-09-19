@@ -24,7 +24,7 @@ def test_resolve_explicit_strategy_profile():
 
 def test_resolve_strategy_key_default_when_missing():
     assert resolve_strategy_risk_profile({}, "Balanced Growth", strategy_key="rocket") == (
-        "High Volatility Hunter"
+        "Balanced Growth"
     )
     assert resolve_strategy_risk_profile({}, "Balanced Growth", strategy_key="supertrend") == (
         "Balanced Growth"

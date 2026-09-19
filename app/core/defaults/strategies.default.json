@@ -2,14 +2,14 @@
     "market_regime": {
         "adx_threshold": 22
     },
-    "weekend_pause": {
-        "enabled": false,
+        "weekend_pause": {
+        "enabled": true,
         "timezone": "Europe/Paris",
         "start_weekday": 5,
         "start_hour": 6,
         "end_weekday": 0,
         "end_hour": 6,
-        "strategies": ["supertrend", "trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember"]
+        "strategies": ["trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember"]
     },
     "supertrend": {
         "enabled": true,
@@ -155,14 +155,14 @@
     "waterfall": {
         "enabled": true,
         "type": "trend",
-        "risk_profile": "High Volatility Hunter",
+        "risk_profile": "Balanced Growth",
         "description": "Short-only 15m cascade rider: double red, lower lows, price < EMA9 < EMA20.",
         "active": true,
         "timeframe": "15m",
         "signal_score_bonus": 120,
         "skip_bb_anti_chase": true,
         "params": {
-            "min_rr": 1.0,
+            "min_rr": 1.5,
             "sl_atr_mult": 0.5,
             "min_sl_pct": 0.4,
             "sl_swing_lookback": 8,
@@ -182,7 +182,7 @@
             "scan_interval_minutes": 5,
             "scan_interval_active_minutes": 2,
             "scan_score_use_confirmed_bar": true,
-            "max_extension_atr": 3.5,
+            "max_extension_atr": 1.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 4,
             "cascade_fresh_bonus": 10,
@@ -199,14 +199,14 @@
     "rocket": {
         "enabled": true,
         "type": "trend",
-        "risk_profile": "High Volatility Hunter",
+        "risk_profile": "Balanced Growth",
         "description": "Long-only 15m pump rider: double green, higher highs, price > EMA9 > EMA20.",
         "active": true,
         "timeframe": "15m",
         "signal_score_bonus": 120,
         "skip_bb_anti_chase": true,
         "params": {
-            "min_rr": 1.0,
+            "min_rr": 1.5,
             "sl_atr_mult": 0.5,
             "min_sl_pct": 0.4,
             "sl_swing_lookback": 8,
@@ -228,7 +228,7 @@
             "scan_interval_minutes": 5,
             "scan_interval_active_minutes": 2,
             "scan_score_use_confirmed_bar": true,
-            "max_extension_atr": 3.5,
+            "max_extension_atr": 1.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 4,
             "cascade_fresh_bonus": 10,
@@ -243,16 +243,16 @@
         "expected_freq": "Rare (bull cascade only)"
     },
     "spark": {
-        "enabled": true,
+        "enabled": false,
         "type": "trend",
-        "risk_profile": "High Volatility Hunter",
+        "risk_profile": "Balanced Growth",
         "description": "Long-only 5m fast pump rider: double green, higher highs, price > EMA9 > EMA20.",
         "active": true,
         "timeframe": "5m",
         "signal_score_bonus": 115,
         "skip_bb_anti_chase": true,
         "params": {
-            "min_rr": 1.0,
+            "min_rr": 1.5,
             "sl_atr_mult": 0.45,
             "min_sl_pct": 0.35,
             "sl_swing_lookback": 6,
@@ -274,7 +274,7 @@
             "scan_interval_minutes": 3,
             "scan_interval_active_minutes": 1.5,
             "scan_score_use_confirmed_bar": true,
-            "max_extension_atr": 2.5,
+            "max_extension_atr": 1.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 3,
             "cascade_fresh_bonus": 10,
@@ -289,16 +289,16 @@
         "expected_freq": "Rare (5m bull cascade only)"
     },
     "ember": {
-        "enabled": true,
+        "enabled": false,
         "type": "trend",
-        "risk_profile": "High Volatility Hunter",
+        "risk_profile": "Balanced Growth",
         "description": "Short-only 5m fast dump rider: double red, lower lows, price < EMA9 < EMA20.",
         "active": true,
         "timeframe": "5m",
         "signal_score_bonus": 115,
         "skip_bb_anti_chase": true,
         "params": {
-            "min_rr": 1.0,
+            "min_rr": 1.5,
             "sl_atr_mult": 0.45,
             "min_sl_pct": 0.35,
             "sl_swing_lookback": 6,
@@ -318,7 +318,7 @@
             "scan_interval_minutes": 3,
             "scan_interval_active_minutes": 1.5,
             "scan_score_use_confirmed_bar": true,
-            "max_extension_atr": 2.5,
+            "max_extension_atr": 1.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 3,
             "cascade_fresh_bonus": 10,

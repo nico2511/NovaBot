@@ -27,10 +27,10 @@ _PROFILE_EXTENSIONS: Dict[str, Dict[str, float]] = {
 
 # Recommended defaults when a strategy omits risk_profile in config.
 STRATEGY_DEFAULT_PROFILES: Dict[str, str] = {
-    "rocket": "High Volatility Hunter",
-    "waterfall": "High Volatility Hunter",
-    "spark": "High Volatility Hunter",
-    "ember": "High Volatility Hunter",
+    "rocket": "Balanced Growth",
+    "waterfall": "Balanced Growth",
+    "spark": "Balanced Growth",
+    "ember": "Balanced Growth",
     "supertrend": "Balanced Growth",
     "trend_lt": "Balanced Growth",
     "range_lt": "Capital Preservation First",

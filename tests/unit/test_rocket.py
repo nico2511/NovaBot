@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.core.trade_thesis import THESIS_DEAD, evaluate_rocket_thesis
+from app.core.trade_thesis import ACTION_CLOSE, THESIS_DEAD, evaluate_rocket_thesis
 from strategies.rocket import StrategyRocket, detect_rocket
 
 
@@ -20,6 +20,7 @@ def _bull_cascade_15m(n=80, start=10.0):
     high[-2] = close[-2] + 0.02
     low = np.minimum(open_, close) - 0.02
     vol = np.full(n, 5000.0)
+    vol[-2] = 12000.0
     vol[-1] = 12000.0
     return pd.DataFrame(
         {"open": open_, "high": high, "low": low, "close": close, "volume": vol},
@@ -99,9 +100,11 @@ def test_detect_rocket_on_synthetic():
     df = _bull_cascade_15m()
     s = StrategyRocket({"params": {}})
     df = s.add_indicators(df)
-    active, snap = detect_rocket(df, use_live=True)
-    assert active is True
-    assert snap.get("ema9", 0) > 0
+    live_active, live_snap = detect_rocket(df, use_live=True)
+    confirmed_active, confirmed_snap = detect_rocket(df, use_live=False)
+    assert live_active is True
+    assert confirmed_active is True
+    assert confirmed_snap.get("ema9", 0) > 0
 
 
 _HAPPY_PARAMS = {
@@ -234,12 +237,13 @@ def test_rocket_rejects_extended_cascade():
     s = StrategyRocket({"params": {**_HAPPY_PARAMS, "max_extension_atr": 0.5}})
     df_15m = _bull_cascade_15m()
     df_15m = s.add_indicators(df_15m)
-    atr = float(df_15m["ATR_14"].iloc[-1])
-    ema9 = float(df_15m["EMA_9"].iloc[-1])
-    prev_high = float(df_15m["high"].iloc[-2])
-    df_15m.loc[df_15m.index[-1], "close"] = max(prev_high + 0.05, ema9 + 2.0 * atr)
-    df_15m.loc[df_15m.index[-1], "open"] = ema9 + 1.5 * atr
-    df_15m.loc[df_15m.index[-1], "high"] = float(df_15m["close"].iloc[-1]) + 0.01
+    atr = float(df_15m["ATR_14"].iloc[-2])
+    ema9 = float(df_15m["EMA_9"].iloc[-2])
+    prev_high = float(df_15m["high"].iloc[-3])
+    stretched = max(prev_high + 0.05, ema9 + 2.0 * atr)
+    df_15m.loc[df_15m.index[-2], "close"] = stretched
+    df_15m.loc[df_15m.index[-2], "open"] = ema9 + 1.5 * atr
+    df_15m.loc[df_15m.index[-2], "high"] = stretched + 0.01
     df_1m = _bull_1m_confirm()
     sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
     assert sig is None
@@ -266,6 +270,7 @@ def test_rocket_thesis_dead_on_ema_loss():
         prev_low=9.9,
     )
     assert verdict.status == THESIS_DEAD
+    assert verdict.action == ACTION_CLOSE
 
 
 def test_rocket_supports_trade_thesis():

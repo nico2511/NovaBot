@@ -26,9 +26,8 @@ from app.core.state_manager import StateManager
 from app.core.trade_book import TradeBook
 from app.core.trailing_logic import compute_trailing_decision
 from app.core.trade_thesis import (
-    ACTION_CLOSE_IF_PROFIT,
     ACTION_TIGHTEN_SL,
-    MIN_SOFT_CLOSE_PNL_PCT,
+    DEAD_FLATTEN_ACTIONS,
     THESIS_DEAD,
     THESIS_WEAK,
     break_even_sl,
@@ -105,7 +104,7 @@ class BotContext:
             "min_volume_24h": 2_000_000,
             "min_open_interest": 1_000_000,
             "max_tokens": 50,
-            "funding_filter_enabled": False,
+            "funding_filter_enabled": True,
             "scan_while_in_trade": True,
             "analyze_top_k": 5,
             "switch_cooldown_minutes": 30,
@@ -2297,15 +2296,14 @@ class BotContext:
                     f"🧠 Thesis {symbol}: {verdict.status} → {verdict.action} "
                     f"(PnL {verdict.pnl_pct:+.2f}%) | {'; '.join(verdict.reasons)}"
                 )
-                # Discord only on WEAK/DEAD (skip VALID chatter + DEAD soft-close
+                # Discord only on WEAK/DEAD (skip VALID chatter + DEAD flatten
                 # which has its own alert below).
-                will_soft_close = (
+                will_flatten_dead = (
                     verdict.status == THESIS_DEAD
-                    and verdict.action == ACTION_CLOSE_IF_PROFIT
-                    and verdict.pnl_pct >= MIN_SOFT_CLOSE_PNL_PCT
+                    and verdict.action in DEAD_FLATTEN_ACTIONS
                 )
                 if verdict.status == THESIS_WEAK or (
-                    verdict.status == THESIS_DEAD and not will_soft_close
+                    verdict.status == THESIS_DEAD and not will_flatten_dead
                 ):
                     try:
                         discord_service.send_alert(
@@ -2364,25 +2362,20 @@ class BotContext:
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                             StateManager.save_state(self)
 
-            elif verdict.action == ACTION_CLOSE_IF_PROFIT:
-                if verdict.pnl_pct >= MIN_SOFT_CLOSE_PNL_PCT:
-                    self.add_log(
-                        f"🚪 Thesis DEAD + green ({verdict.pnl_pct:+.2f}%) — closing {symbol}"
-                    )
-                    try:
-                        discord_service.send_alert(
-                            f"🚪 Soft close (thesis dead): {side} {symbol}",
-                            f"PnL {verdict.pnl_pct:+.2f}%\n" + "\n".join(verdict.reasons),
-                            color="e74c3c",
-                        )
-                    except Exception:
-                        pass
-                    self.execute_exit_atomically(symbol, reason="THESIS_DEAD")
-                    return True
+            elif verdict.action in DEAD_FLATTEN_ACTIONS:
                 self.add_log(
-                    f"🧠 Thesis DEAD but PnL {verdict.pnl_pct:+.2f}% "
-                    f"< {MIN_SOFT_CLOSE_PNL_PCT:.2f}% min — leave SL on {symbol}"
+                    f"🚪 Thesis DEAD ({verdict.pnl_pct:+.2f}%) — flattening {symbol}"
                 )
+                try:
+                    discord_service.send_alert(
+                        f"🚪 Flatten (thesis dead): {side} {symbol}",
+                        f"PnL {verdict.pnl_pct:+.2f}%\n" + "\n".join(verdict.reasons),
+                        color="e74c3c",
+                    )
+                except Exception:
+                    pass
+                self.execute_exit_atomically(symbol, reason="THESIS_DEAD")
+                return True
 
         except Exception as e:
             self.add_log(f"⚠️ Thesis check failed for {symbol}: {e}")

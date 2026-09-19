@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 
 from strategies.cascade_rider import (
+    CASCADE_ENTRY_USE_LIVE,
+    DEFAULT_MAX_EXTENSION_ATR,
     active_scan_interval_minutes,
     cascade_age_bars,
     compare_detection_timeframes,
@@ -26,6 +28,11 @@ def _series_with_extension(ext_atr: float = 3.0) -> pd.DataFrame:
     work.loc[work.index[-1], "open"] = ema9 + (ext_atr - 0.2) * atr
     work.loc[work.index[-1], "high"] = work["close"].iloc[-1] + 0.01
     return work
+
+
+def test_cascade_entry_uses_confirmed_bar():
+    assert CASCADE_ENTRY_USE_LIVE is False
+    assert DEFAULT_MAX_EXTENSION_ATR == 1.5
 
 
 def test_extension_vs_ema20_positive_for_long():
