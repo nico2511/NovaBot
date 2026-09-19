@@ -133,7 +133,7 @@ def test_reconciler_adopts_orphan_positions(position_reconciler, mock_hl_service
     # Exchange has ETH position not in local state
     mock_hl_service.get_positions.return_value = [
         {"symbol": "BTC", "size": 1.0},
-        {"symbol": "ETH", "size": 5.0, "entry_price": 3200.0}
+        {"symbol": "ETH", "size": 5.0, "entry_price": 3200.0, "side": "BUY"}
     ]
     
     # Act

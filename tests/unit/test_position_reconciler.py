@@ -171,6 +171,24 @@ def test_orphan_side_inferred_from_signed_szi(mocks):
     assert bot.active_trades["SOL"]["side"] == "SELL"
 
 
+def test_orphan_unknown_side_is_not_adopted(mocks):
+    """Never default a mystery position to BUY — that would invert SL/TP on a short."""
+    reconciler, hl, _ = mocks
+    bot = _BotStub()
+    reconciler.bot_context = bot
+
+    hl.get_positions.return_value = [{
+        "symbol": "DOGE",
+        "size": 100.0,
+        "entry_price": 0.1,
+    }]
+    hl.get_open_orders.return_value = []
+
+    reconciler.reconcile()
+    assert "DOGE" not in bot.active_trades
+    assert bot.adopt_calls == []
+
+
 def test_orphan_preserves_existing_sl_tp_from_exchange(mocks):
     reconciler, hl, _ = mocks
     bot = _BotStub()

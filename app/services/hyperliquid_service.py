@@ -5,6 +5,7 @@ from hyperliquid.utils import types
 from app.core.config import config
 import pandas as pd
 import time
+import uuid
 
 from hyperliquid.utils.constants import MAINNET_API_URL
 
@@ -19,14 +20,37 @@ from app.utils.websocket_manager import WebSocketPriceManager
 from app.utils.rate_limiter import rate_limiter
 
 class HyperliquidService:
-    # Market order slippage simulation (5%)
-    MARKET_SLIPPAGE = 0.05
+    # Fallback IOC offset when symbol-specific slip cannot be resolved (alts).
+    MARKET_SLIPPAGE = 0.015
 
     @staticmethod
     def _api_base_url() -> str:
         """REST/WS signing base. Honors HYPERLIQUID_API_URL; defaults to mainnet."""
         raw = (getattr(config, "HYPERLIQUID_API_URL", None) or "").strip()
         return raw or MAINNET_API_URL
+
+    @staticmethod
+    def _assert_not_master_wallet(key_address: str, account_address: str, allow: bool) -> str | None:
+        """Refuse a master-wallet private key unless HL_ALLOW_MASTER_KEY is set.
+
+        Returns a warning string when the override is on; raises RuntimeError otherwise.
+        """
+        master = (account_address or "").strip()
+        key_addr = (key_address or "").strip()
+        if not master or not key_addr:
+            return None
+        if key_addr.lower() != master.lower():
+            return None
+        msg = (
+            "HL_PRIVATE_KEY is the MASTER wallet key (same address as "
+            "HL_ACCOUNT_ADDRESS). Use a Hyperliquid API Agent key without "
+            "withdraw permissions."
+        )
+        if not allow:
+            raise RuntimeError(
+                msg + " Set HL_ALLOW_MASTER_KEY=true to override (not recommended)."
+            )
+        return msg
 
     @staticmethod
     def _ws_url_from_rest(rest_url: str) -> str:
@@ -118,19 +142,23 @@ class HyperliquidService:
                     sanitized_key = sanitized_key[2:]
                     
                 account = eth_account.Account.from_key(sanitized_key)
-                master = (config.HL_ACCOUNT_ADDRESS or "").strip()
-                if master and account.address.lower() == master.lower():
-                    self.log(
-                        "🚨 HL_PRIVATE_KEY is the MASTER wallet key (same address as "
-                        "HL_ACCOUNT_ADDRESS). Use a Hyperliquid API Agent key without "
-                        "withdraw permissions — a leaked master key can drain the wallet.",
-                        "ERROR",
-                    )
+                warn = self._assert_not_master_wallet(
+                    account.address,
+                    config.HL_ACCOUNT_ADDRESS,
+                    bool(getattr(config, "HL_ALLOW_MASTER_KEY", False)),
+                )
+                if warn:
+                    self.log("🚨 " + warn + " Override HL_ALLOW_MASTER_KEY=true is set.", "ERROR")
                 self.exchange = Exchange(
                     account,
                     base_url=self._api_base_url(),
                     account_address=config.HL_ACCOUNT_ADDRESS,
                 )
+            except RuntimeError as e:
+                if "MASTER wallet" in str(e):
+                    raise
+                self.log(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
+                self.exchange = None
             except Exception as e:
                 self.log(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
                 self.exchange = None
@@ -832,6 +860,175 @@ class HyperliquidService:
             return None
         return False
 
+    @staticmethod
+    def _new_cloid():
+        """16-byte client order id — reuse on retry of the *same* unsent intent only."""
+        try:
+            from hyperliquid.utils.types import Cloid
+
+            return Cloid.from_str("0x" + uuid.uuid4().hex)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _entry_slippage(symbol: str) -> float:
+        from app.core.live_guards import entry_slippage_for_symbol
+
+        return entry_slippage_for_symbol(symbol)
+
+    @staticmethod
+    def _avg_px_from_fills(filled: list) -> float:
+        if not filled:
+            return 0.0
+        first = filled[0]
+        if isinstance(first, dict):
+            try:
+                return float(first.get("avgPx") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
+    @staticmethod
+    def _sz_from_fills(filled: list, fallback: float) -> float:
+        if not filled:
+            return float(fallback or 0)
+        first = filled[0]
+        if isinstance(first, dict):
+            try:
+                sz = float(first.get("totalSz") or first.get("sz") or 0)
+                if sz > 0:
+                    return sz
+            except (TypeError, ValueError):
+                pass
+        return float(fallback or 0)
+
+    def _trigger_order_fields(
+        self, symbol: str, close_is_buy: bool, quantity: float, trigger_px: float, tpsl: str
+    ) -> dict:
+        sz_decimals, _ = self._get_precision(symbol)
+        trigger_px = self._round_price(trigger_px, sz_decimals)
+        limit_px = self._round_price(
+            trigger_px * 1.05 if close_is_buy else trigger_px * 0.95,
+            sz_decimals,
+        )
+        quantity = float(f"{quantity:.{sz_decimals}f}")
+        return {
+            "coin": symbol,
+            "is_buy": close_is_buy,
+            "sz": quantity,
+            "limit_px": limit_px,
+            "order_type": {"trigger": {"triggerPx": trigger_px, "isMarket": True, "tpsl": tpsl}},
+            "reduce_only": True,
+        }
+
+    def _order_tpsl_kind(self, order: dict, side: str, entry: float) -> str | None:
+        """Return 'sl', 'tp', or None for a reduce-only order."""
+        if not order.get("reduceOnly") and not order.get("reduce_only"):
+            return None
+        raw_type = str(
+            order.get("orderType")
+            or (order.get("order_type") or {}).get("trigger", {}).get("tpsl")
+            or ""
+        ).lower()
+        if "stop" in raw_type or raw_type == "sl":
+            return "sl"
+        if "take" in raw_type or raw_type == "tp":
+            return "tp"
+        trigger_px = float(order.get("triggerPx") or order.get("limitPx") or 0)
+        if trigger_px <= 0 or entry <= 0:
+            return None
+        is_buy = str(side or "BUY").upper() in ("BUY", "LONG")
+        if is_buy:
+            return "sl" if trigger_px < entry else "tp"
+        return "sl" if trigger_px > entry else "tp"
+
+    def find_protection_orders(self, symbol: str, side: str, entry: float) -> dict:
+        """Locate exchange SL/TP. fetch_failed=True means the book must not be trusted."""
+        orders = self.get_open_orders(symbol)
+        failed = getattr(self, "_open_orders_fetch_failed", False) is True
+        sl_o = tp_o = None
+        for o in orders or []:
+            kind = self._order_tpsl_kind(o, side, entry)
+            if kind == "sl" and sl_o is None:
+                sl_o = o
+            elif kind == "tp" and tp_o is None:
+                tp_o = o
+        return {"sl": sl_o, "tp": tp_o, "fetch_failed": failed, "orders": orders or []}
+
+    def confirm_or_place_sl(
+        self,
+        symbol: str,
+        is_buy: bool,
+        quantity: float,
+        sl_price: float,
+        tp_price: float = None,
+        entry: float = 0.0,
+    ) -> bool | None:
+        """Ensure an SL trigger exists for this position.
+
+        True = SL present (placed or already there).
+        False = confirmed missing after a successful book read + place attempt.
+        None = book unreadable — caller must NOT panic-close.
+        """
+        side = "BUY" if is_buy else "SELL"
+        found = self.find_protection_orders(symbol, side, entry or 0.0)
+        if found["fetch_failed"]:
+            self.log(
+                f"⚠️ Cannot confirm SL for {symbol}: open-orders fetch failed — leaving position",
+                "WARNING",
+            )
+            return None
+        sl_order = found["sl"]
+        if sl_order:
+            try:
+                existing_sz = float(sl_order.get("sz") or sl_order.get("origSz") or 0)
+            except (TypeError, ValueError):
+                existing_sz = 0.0
+            if quantity and existing_sz > 0 and abs(existing_sz - float(quantity)) / max(quantity, 1e-12) > 0.05:
+                self.log(
+                    f"🔄 SL size {existing_sz} ≠ position {quantity} on {symbol} — modifying in place"
+                )
+                self._modify_protection_order(sl_order, is_buy, quantity, sl_price, "sl")
+            return True
+
+        self.log(f"🛡️ SL missing on {symbol} after fill — placing now (sz={quantity})", "ERROR")
+        self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price if not found["tp"] else None)
+        found2 = self.find_protection_orders(symbol, side, entry or 0.0)
+        if found2["fetch_failed"]:
+            return None
+        return found2["sl"] is not None
+
+    def _modify_protection_order(
+        self, existing: dict, is_buy: bool, quantity: float, trigger_px: float, tpsl: str
+    ) -> bool:
+        if not self.exchange or not hasattr(self.exchange, "modify_order"):
+            return False
+        oid = existing.get("oid")
+        if oid is None:
+            return False
+        symbol = existing.get("coin") or existing.get("symbol")
+        close_is_buy = not is_buy
+        fields = self._trigger_order_fields(symbol, close_is_buy, quantity, trigger_px, tpsl)
+        try:
+            resp = self.exchange.modify_order(
+                oid,
+                fields["coin"],
+                fields["is_buy"],
+                fields["sz"],
+                fields["limit_px"],
+                fields["order_type"],
+                True,
+            )
+            parsed = self._classify_order_statuses(resp)
+            if parsed["errors"] and not parsed["ok_envelope"]:
+                self.log(f"❌ modify {tpsl.upper()} failed: {parsed['errors']}", "ERROR")
+                return False
+            self.log(f"✅ Modified {tpsl.upper()} oid={oid} → {trigger_px} sz={fields['sz']}")
+            return True
+        except Exception as e:
+            self.log(f"❌ modify {tpsl.upper()} exception: {e}", "ERROR")
+            return False
+
     def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None, sl_price: float = None, tp_price: float = None):
         """
         Execute an order on Hyperliquid.
@@ -863,6 +1060,9 @@ class HyperliquidService:
         # RETRY CONFIG
         max_retries = 3
         retry_delay = 1
+        # One cloid per *intent*. Reuse after timeout (HL rejects duplicates).
+        # Mint a new one only after a confirmed cancel/reject with no fill.
+        entry_cloid = self._new_cloid()
         
         for attempt in range(max_retries):
             try:
@@ -879,12 +1079,13 @@ class HyperliquidService:
                     current_px = self.get_current_price(symbol)
                     if current_px <= 0:
                         return {"status": "error", "message": f"No valid market price for {symbol}"}
-                    simulated_limit_px = current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE)
+                    slip = self._entry_slippage(symbol)
+                    simulated_limit_px = current_px * (1 + slip) if is_buy else current_px * (1 - slip)
                     entry_limit_px = self._round_price(simulated_limit_px, sz_decimals)
                     signal_px = float(price) if price else None
                     self.log(
                         f"🎯 Atomic entry pricing: signal_px={signal_px}, current_px={current_px}, "
-                        f"limit_px={entry_limit_px}, slippage={self.MARKET_SLIPPAGE:.1%}"
+                        f"limit_px={entry_limit_px}, slippage={slip:.1%}"
                     )
 
                     entry_order = {
@@ -892,16 +1093,11 @@ class HyperliquidService:
                         "is_buy": is_buy,
                         "sz": quantity,
                         "limit_px": entry_limit_px,
-                        # For Market, usually we pass a safe limit offset, but 'limit' type means Limit. 
-                        # To do Market Entry, we use "limit": {"tif": "Ioc"} or similar? 
-                        # Wait, basic_tpsl.py uses "limit": {"tif": "Gtc"} for entry. It doesn't show Market Entry with SL/TP.
-                        # SDK `market_open` enables market. 
-                        # For bulk, we need explicit type.
-                        # If price is None, we want MARKET.
-                        # Using a very aggressive limit price simulates Market.
                         "order_type": {"limit": {"tif": "Ioc"}},
-                        "reduce_only": False
+                        "reduce_only": False,
                     }
+                    if entry_cloid is not None:
+                        entry_order["cloid"] = entry_cloid
 
                     orders.append(entry_order)
 
@@ -951,9 +1147,17 @@ class HyperliquidService:
                          self.log(f"🚀 SUBMITTING LIMIT {'BUY' if is_buy else 'SELL'} {quantity} {symbol} @ {limit_px}")
                          result = self.exchange.order(symbol, is_buy, quantity, limit_px, {"limit": {"tif": "Gtc"}})
                     else:
-                         # MARKET
-                         self.log(f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} {quantity} {symbol}")
-                         result = self.exchange.market_open(symbol, is_buy, quantity)
+                         slip = self._entry_slippage(symbol)
+                         self.log(
+                             f"🚀 SUBMITTING MARKET {'BUY' if is_buy else 'SELL'} "
+                             f"{quantity} {symbol} (slippage={slip:.1%})"
+                         )
+                         mo_kwargs = {"slippage": slip}
+                         if entry_cloid is not None:
+                             mo_kwargs["cloid"] = entry_cloid
+                         result = self.exchange.market_open(
+                             symbol, is_buy, quantity, **mo_kwargs
+                         )
 
                 # VERIFICATION LOGIC (Shared)
                 self.log(f"✅ Exec Result: {result}")
@@ -969,7 +1173,15 @@ class HyperliquidService:
                             "NOT retrying (would double the position). Reconciler must attach SL/TP.",
                             "ERROR",
                         )
-                    return {"status": "success", "result": result}
+                    avg_px = self._avg_px_from_fills(filled_orders)
+                    filled_sz = self._sz_from_fills(filled_orders, quantity)
+                    return {
+                        "status": "success",
+                        "result": result,
+                        "avg_px": avg_px,
+                        "filled_sz": filled_sz,
+                        "cloid": str(entry_cloid) if entry_cloid else None,
+                    }
 
                 if parsed["resting"]:
                     self.log(f"ℹ️ Entry resting on book (not yet filled): {parsed['resting']}")
@@ -994,6 +1206,8 @@ class HyperliquidService:
                             "message": f"Rejected (ambiguous, no retry): {errors}",
                         }
                     if attempt < max_retries - 1:
+                        # Confirmed reject, no fill — this cloid is spent.
+                        entry_cloid = self._new_cloid()
                         time.sleep(retry_delay)
                         continue
                     return {"status": "error", "message": f"Rejected: {errors}"}
@@ -1001,6 +1215,8 @@ class HyperliquidService:
                 if parsed["canceled"] and not filled_orders:
                     self.log(f"❌ IOC/entry canceled without fill: {parsed['canceled']}")
                     if attempt < max_retries - 1:
+                        # IOC miss consumed the cloid; mint a new intent id.
+                        entry_cloid = self._new_cloid()
                         time.sleep(retry_delay)
                         continue
                     return {"status": "error", "message": "Entry IOC canceled without fill"}
@@ -1118,34 +1334,56 @@ class HyperliquidService:
         }
 
     @standard_operation
-    def sync_sl_tp(self, symbol: str, is_buy: bool, quantity: float, sl_price: float, tp_price: float):
+    def sync_sl_tp(self, symbol: str, is_buy: bool, quantity: float, sl_price: float, tp_price: float, entry_price: float = 0.0):
         """
-        Sync SL/TP orders for an existing position.
-        First cancels ALL open orders for the symbol, then places new SL/TP.
+        Move SL/TP for an existing position by modifying reduce-only triggers
+        in place. Never cancel-all first (naked window).
         """
         if not self.exchange:
             return {"status": "error", "message": "No private key configured"}
             
         self.log(f"🔄 SYNCING SL/TP for {symbol} (SL: {sl_price}, TP: {tp_price})...")
         try:
-            existing = self.get_open_orders(symbol)
-            if getattr(self, "_open_orders_fetch_failed", False):
+            side = "BUY" if is_buy else "SELL"
+            found = self.find_protection_orders(symbol, side, float(entry_price or 0))
+            if found["fetch_failed"]:
                 self.log(
                     f"⛔ Refusing SL/TP sync for {symbol}: open-orders fetch failed "
-                    "(cancel-then-replace would leave a naked window on a guessed book)",
+                    "(will not cancel protection on a guessed book)",
                     "ERROR",
                 )
                 return {"status": "error", "message": "open orders unavailable"}
 
-            # 1. Cancel existing orders to avoid duplicates/conflicts
-            if existing:
-                self.cancel_all_orders(symbol)
-            
-            # 2. Place new protection orders
-            if sl_price or tp_price:
-                self._place_protection_orders(symbol, is_buy, quantity, sl_price, tp_price)
-                
-            return {"status": "success"}
+            # Modify existing reduce-only SL/TP in place — never cancel-all first
+            # (that leaves a naked window). Non-reduce-only orders are left untouched.
+            sl_ok = True
+            tp_ok = True
+            if sl_price:
+                if found["sl"]:
+                    sl_ok = self._modify_protection_order(
+                        found["sl"], is_buy, quantity, sl_price, "sl"
+                    )
+                    if not sl_ok:
+                        self.log(
+                            f"⚠️ SL modify failed for {symbol} — keeping existing SL (not naked)",
+                            "ERROR",
+                        )
+                else:
+                    self._place_protection_orders(symbol, is_buy, quantity, sl_price, None)
+            if tp_price:
+                if found["tp"]:
+                    tp_ok = self._modify_protection_order(
+                        found["tp"], is_buy, quantity, tp_price, "tp"
+                    )
+                    if not tp_ok:
+                        self.log(
+                            f"⚠️ TP modify failed for {symbol} — keeping existing TP",
+                            "ERROR",
+                        )
+                else:
+                    self._place_protection_orders(symbol, is_buy, quantity, None, tp_price)
+
+            return {"status": "success" if sl_ok else "partial"}
         except Exception as e:
             self.log(f"❌ Failed to sync SL/TP: {e}")
             return {"status": "error", "message": str(e)}

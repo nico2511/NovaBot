@@ -70,6 +70,8 @@ class Config:
     HL_PRIVATE_KEY: str = os.getenv("HL_PRIVATE_KEY")
     HL_ACCOUNT_ADDRESS: str = os.getenv("HL_ACCOUNT_ADDRESS")
     HYPERLIQUID_API_URL: str = os.getenv("HYPERLIQUID_API_URL", "https://api.hyperliquid.xyz")
+    # If true, allow HL_PRIVATE_KEY == HL_ACCOUNT_ADDRESS (master wallet). Default refuse.
+    HL_ALLOW_MASTER_KEY: bool = os.getenv("HL_ALLOW_MASTER_KEY", "false").lower() == "true"
     
     # Notifications (from bot_state.json or .env fallback)
     DISCORD_WEBHOOK_ALERTS: str = _state_settings.get('notifications', {}).get('discord_webhook_alerts') or os.getenv("DISCORD_WEBHOOK_URL_ALERTS", "")

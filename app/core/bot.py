@@ -20,7 +20,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 logger = logging.getLogger(__name__)
 
 from app.core.config import config, bootstrap_active_symbol
-from app.core.risk_manager import RiskManager
+from app.core.live_guards import (
+    clamp_sl_inside_liquidation,
+    entry_slippage_for_symbol,
+    fill_slippage_breached,
+)
 from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.core.trade_book import TradeBook
@@ -1671,6 +1675,50 @@ class BotContext:
                 )
                 return False
 
+            if sl is None or float(sl or 0) <= 0:
+                reason = "Live entry requires an exchange SL"
+                self.add_log(f"⛔ ENTRY BLOCKED: {reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
+
+            try:
+                lev = self._resolve_trade_leverage(None if strategy == "Unknown" else strategy)
+                new_sl, sl_note = clamp_sl_inside_liquidation(
+                    side=side,
+                    entry=float(current_price or 0),
+                    sl=float(sl),
+                    leverage=int(lev or 1),
+                )
+                if new_sl is None:
+                    reason = sl_note or "SL failed liquidation guard"
+                    self.add_log(f"⛔ ENTRY BLOCKED: {reason}")
+                    self._log_execution_error(
+                        f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                        reason=reason,
+                        equity=equity,
+                        **{k: v for k, v in ctx.items() if k != "equity"},
+                    )
+                    return False
+                if sl_note:
+                    self.add_log(f"🛡️ LIQUIDATION GUARD: {sl_note}")
+                    sl = new_sl
+                    ctx["sl"] = sl
+            except Exception as liq_err:
+                reason = f"Liquidation guard error: {liq_err}"
+                self.add_log(f"⛔ ENTRY BLOCKED: {reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
+
             self.add_log(f"🔒 ATOMIC ENTRY START: {side} {symbol} ({size}) via {strategy}")
             self.add_log(f"🧹 Cleaning pre-trade orphans on {symbol}...")
             hyperliquid_service.cancel_all_orders(symbol)
@@ -1712,7 +1760,57 @@ class BotContext:
                     filled = True
                     entry_px = float(pos['entry_price'])
                     self.add_log(f"✅ ENTRY CONFIRMED: {symbol} Size: {pos['size']} Entry: {entry_px}")
-                    
+                    filled_sz = float(pos["size"])
+
+                    avg_px = float(result.get("avg_px") or entry_px or 0)
+                    slip_cfg = entry_slippage_for_symbol(symbol)
+                    breached, slip_frac = fill_slippage_breached(current_price, avg_px, slip_cfg)
+                    if breached:
+                        reason = (
+                            f"Fill slippage {slip_frac:.2%} exceeds cap "
+                            f"(signal={current_price}, avg={avg_px})"
+                        )
+                        self.add_log(f"⛔ SLIPPAGE ABORT: {reason} — closing {symbol}")
+                        try:
+                            hyperliquid_service.close_position(symbol)
+                        except Exception as close_err:
+                            self.add_log(f"❌ Slippage abort close failed: {close_err}")
+                        self._log_execution_error(
+                            f"⛔ SLIPPAGE ABORT: {side} {symbol}",
+                            reason=reason,
+                            equity=equity,
+                            **{k: v for k, v in ctx.items() if k != "equity"},
+                        )
+                        return False
+
+                    sl_state = hyperliquid_service.confirm_or_place_sl(
+                        symbol,
+                        is_buy,
+                        filled_sz,
+                        float(sl),
+                        tp_price=float(tp) if tp else None,
+                        entry=entry_px,
+                    )
+                    if sl_state is False:
+                        reason = "SL missing on exchange after fill — closing to avoid naked position"
+                        self.add_log(f"⛔ {reason}")
+                        try:
+                            hyperliquid_service.close_position(symbol)
+                        except Exception as close_err:
+                            self.add_log(f"❌ Missing-SL close failed: {close_err}")
+                        self._log_execution_error(
+                            f"⛔ MISSING SL: {side} {symbol}",
+                            reason=reason,
+                            equity=equity,
+                            **{k: v for k, v in ctx.items() if k != "equity"},
+                        )
+                        return False
+                    if sl_state is None:
+                        self.add_log(
+                            f"⚠️ SL unconfirmed for {symbol} (orders API down) — "
+                            "leaving position; reconciler will retry"
+                        )
+
                     with self.trade_lock:
                         # CRITICAL: Always sync active_symbol before setting active_trade
                         # otherwise the setter will use the WRONG key in active_trades
@@ -2113,7 +2211,8 @@ class BotContext:
                     trade_data.get("side") == "BUY", 
                     float(trade_data.get("size", 0)), 
                     desired_sl, 
-                    desired_tp
+                    desired_tp,
+                    entry_price=float(trade_data.get("entry") or trade_data.get("entry_price") or 0),
                 )
                 tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
                 self.add_log("✅ Audit: SL/TP enforced via Sync." + (f" | id={tid}" if tid else ""))
@@ -3502,6 +3601,47 @@ class BotContext:
                                         sig["sl"] = adjusted_sl  # Update signal too
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
+
+                            # Tightening after ATR floor: SL must stay inside Isolated liq.
+                            try:
+                                if sl_price and entry_price:
+                                    lev_for_sl = self._resolve_trade_leverage(sig.get("strategy"))
+                                    clamped, liq_note = clamp_sl_inside_liquidation(
+                                        side=sig.get("signal"),
+                                        entry=float(entry_price),
+                                        sl=float(sl_price),
+                                        leverage=int(lev_for_sl or 1),
+                                    )
+                                    if clamped is None:
+                                        self.add_log(
+                                            f"⛔ ENTRY SKIPPED: liquidation guard ({liq_note})"
+                                        )
+                                        self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                        self._log_execution_error(
+                                            f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
+                                            reason=liq_note or "liquidation guard",
+                                            strategy=sig.get("strategy"),
+                                            entry=entry_price,
+                                            sl=sl_price,
+                                        )
+                                        continue
+                                    if liq_note:
+                                        self.add_log(f"🛡️ LIQUIDATION GUARD: {liq_note}")
+                                        sl_price = clamped
+                                        sig["sl"] = clamped
+                            except Exception as liq_err:
+                                self.add_log(
+                                    f"⛔ ENTRY SKIPPED: liquidation guard failed ({liq_err})"
+                                )
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                self._log_execution_error(
+                                    f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
+                                    reason=str(liq_err),
+                                    strategy=sig.get("strategy"),
+                                    entry=entry_price,
+                                    sl=sl_price,
+                                )
+                                continue
                         
                             # POSITION SIZING: risk_pct from strategy risk profile;
                             # leverage = profile max clamped to account default_leverage.
