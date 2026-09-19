@@ -23,6 +23,22 @@ class HyperliquidService:
     MARKET_SLIPPAGE = 0.05
 
     @staticmethod
+    def _api_base_url() -> str:
+        """REST/WS signing base. Honors HYPERLIQUID_API_URL; defaults to mainnet."""
+        raw = (getattr(config, "HYPERLIQUID_API_URL", None) or "").strip()
+        return raw or MAINNET_API_URL
+
+    @staticmethod
+    def _ws_url_from_rest(rest_url: str) -> str:
+        """Map REST origin to Hyperliquid WS path (mainnet or testnet)."""
+        u = (rest_url or "").strip().rstrip("/")
+        if u.startswith("https://"):
+            return "wss://" + u[len("https://") :] + "/ws"
+        if u.startswith("http://"):
+            return "ws://" + u[len("http://") :] + "/ws"
+        return "wss://api.hyperliquid.xyz/ws"
+
+    @staticmethod
     def _sanitize_spot_meta(spot_meta: dict) -> dict:
         """Drop spot pairs whose token indices are missing from the tokens map.
 
@@ -46,8 +62,9 @@ class HyperliquidService:
 
     def _build_info_client(self) -> Info:
         """Create Info with a sanitized spot_meta fallback for sparse indices."""
+        base_url = self._api_base_url()
         try:
-            return Info(base_url=MAINNET_API_URL, skip_ws=True)
+            return Info(base_url=base_url, skip_ws=True)
         except (IndexError, KeyError) as e:
             print(
                 f"⚠️ [HyperliquidService] Info init hit spot meta index issue ({e}). "
@@ -55,12 +72,12 @@ class HyperliquidService:
             )
             from hyperliquid.api import API
 
-            raw_spot = API(MAINNET_API_URL).post("/info", {"type": "spotMeta"})
+            raw_spot = API(base_url).post("/info", {"type": "spotMeta"})
             clean_spot = self._sanitize_spot_meta(raw_spot)
             dropped = len(raw_spot.get("universe") or []) - len(clean_spot["universe"])
             if dropped:
                 print(f"⚠️ [HyperliquidService] Dropped {dropped} malformed spot pairs from meta")
-            return Info(base_url=MAINNET_API_URL, skip_ws=True, spot_meta=clean_spot)
+            return Info(base_url=base_url, skip_ws=True, spot_meta=clean_spot)
     
     def __init__(self):
         # Initialize Info API (WebSocket will be managed separately)
@@ -88,6 +105,7 @@ class HyperliquidService:
              # Raise to crash process but hopefully PM2 restart delay helps if we waited long enough
              raise Exception("Rate Limit Exceeded during Startup")
         self.exchange = None
+        self.log_callback = None
         
         # Initialize WebSocket Price Manager (will be started externally)
         self.ws_manager: WebSocketPriceManager = None
@@ -100,7 +118,19 @@ class HyperliquidService:
                     sanitized_key = sanitized_key[2:]
                     
                 account = eth_account.Account.from_key(sanitized_key)
-                self.exchange = Exchange(account, base_url=MAINNET_API_URL, account_address=config.HL_ACCOUNT_ADDRESS)
+                master = (config.HL_ACCOUNT_ADDRESS or "").strip()
+                if master and account.address.lower() == master.lower():
+                    self.log(
+                        "🚨 HL_PRIVATE_KEY is the MASTER wallet key (same address as "
+                        "HL_ACCOUNT_ADDRESS). Use a Hyperliquid API Agent key without "
+                        "withdraw permissions — a leaked master key can drain the wallet.",
+                        "ERROR",
+                    )
+                self.exchange = Exchange(
+                    account,
+                    base_url=self._api_base_url(),
+                    account_address=config.HL_ACCOUNT_ADDRESS,
+                )
             except Exception as e:
                 self.log(f"⚠️ [WARNING] Failed to initialize Hyperliquid Exchange: {e}")
                 self.exchange = None
@@ -121,9 +151,12 @@ class HyperliquidService:
         # True when last positions read failed (rate-limit/error) with no usable cache.
         # Callers MUST NOT treat an empty list as "flat book" while this is set.
         self._positions_fetch_failed = False
+        # True when the returned list is a stale cache (API failed). Never size a
+        # market open/close from this snapshot — it can flip a flat book into a reverse.
+        self._positions_stale = False
+        self._open_orders_cache = {"time": 0, "data": None}
+        self._open_orders_fetch_failed = False
     
-        # Log callback for UI integration
-        self.log_callback = None
         self._ws_fallback_last_log: dict[str, float] = {}
     
     def _normalize_ws_symbols(self, symbols: list[str]) -> list[str]:
@@ -231,7 +264,11 @@ class HyperliquidService:
                 def debug(self, msg, *args):
                     self.service.log(msg, "DEBUG")
             
-            self.ws_manager = WebSocketPriceManager(tracked, logger=LogBridge(self))
+            self.ws_manager = WebSocketPriceManager(
+                tracked,
+                logger=LogBridge(self),
+                ws_url=self._ws_url_from_rest(self._api_base_url()),
+            )
             self.ws_manager.start()
             self._seed_ws_prices(tracked)
             self.log(f"WebSocket price feeds started for: {', '.join(tracked)}")
@@ -527,28 +564,70 @@ class HyperliquidService:
         self._update_market_context_cache()
         return self._market_context_cache.get("funding", {}).get(symbol, 0.0)
 
-    @standard_operation
     def get_open_orders(self, symbol: str = None) -> list:
-        """Get open orders (including Triggers), optionally filtered by symbol"""
-        # Rate limiting protection
-        if not rate_limiter.can_call("open_orders"):
-            self.log("⚠️ Rate limit protection: skipping get_open_orders")
+        """Get open orders (including Triggers), optionally filtered by symbol.
+
+        On rate-limit / API errors, returns the last successful snapshot and sets
+        ``_open_orders_fetch_failed``. Callers MUST NOT treat an empty list as
+        "no protection orders" while that flag is set — placing SL/TP on a
+        false empty book creates duplicates.
+        """
+        self._open_orders_fetch_failed = False
+        if not config.HL_ACCOUNT_ADDRESS:
             return []
+
+        if not rate_limiter.can_call("open_orders"):
+            self.log("⚠️ Rate limit protection: skipping get_open_orders", "WARNING")
+            return self._stale_open_orders_fallback("rate limit", symbol)
+
         rate_limiter.record_call("open_orders")
-        
+
         try:
             # Use frontend_open_orders to get everything (triggers, SL/TP)
             # Standard open_orders only returns book orders
-            orders = self.info.frontend_open_orders(config.HL_ACCOUNT_ADDRESS)
-            
-            if symbol:
-                # Canonicalize symbol
-                symbol = self.get_canonical_symbol(symbol)
-                return [o for o in orders if o["coin"] == symbol]
-            return orders
+            orders = self.info.frontend_open_orders(config.HL_ACCOUNT_ADDRESS) or []
+            self._open_orders_cache = {"time": time.time(), "data": list(orders)}
+            self._open_orders_fetch_failed = False
+            return self._filter_open_orders(orders, symbol)
         except Exception as e:
             self.log(f"⚠️ Failed to fetch open orders: {e}")
-            return []
+            return self._stale_open_orders_fallback(f"error: {e}", symbol)
+
+    def _filter_open_orders(self, orders: list, symbol: str = None) -> list:
+        if not symbol:
+            return list(orders)
+        want = str(symbol).strip()
+        want_upper = want.upper()
+        matched = []
+        for o in orders:
+            coin = str(o.get("coin") or "")
+            if coin == want or coin.upper() == want_upper:
+                matched.append(o)
+        if matched:
+            return matched
+        try:
+            canon = self.get_canonical_symbol(symbol)
+            return [o for o in orders if o.get("coin") == canon]
+        except Exception:
+            return matched
+
+    def _stale_open_orders_fallback(self, reason: str, symbol: str = None) -> list:
+        """Return last-known open orders on API failure — never invent an empty book."""
+        cache_time = float(self._open_orders_cache.get("time", 0) or 0)
+        cached = self._open_orders_cache.get("data")
+        self._open_orders_fetch_failed = True
+        if cache_time > 0 and cached is not None:
+            age = time.time() - cache_time
+            self.log(
+                f"⚠️ Returning stale open orders ({age:.0f}s old) due to {reason}",
+                "WARNING",
+            )
+            return self._filter_open_orders(list(cached), symbol)
+        self.log(
+            f"⚠️ Open orders unavailable ({reason}) and no cache — skip SL/TP placement",
+            "WARNING",
+        )
+        return []
 
     @standard_operation
     def _place_protection_orders(self, symbol: str, is_buy: bool, quantity: float, sl_price: float = None, tp_price: float = None):
@@ -678,6 +757,81 @@ class HyperliquidService:
             
         return symbol
 
+    @staticmethod
+    def _classify_order_statuses(result) -> dict:
+        """Parse a Hyperliquid order/bulk_orders payload.
+
+        Returns counts used to decide retry vs success vs failure. A fill must
+        never be retried (would double the position). An IOC cancel is a miss,
+        not success.
+        """
+        filled = []
+        errors = []
+        canceled = []
+        resting = []
+        waiting = []
+        if not isinstance(result, dict):
+            return {
+                "ok_envelope": False,
+                "filled": filled,
+                "errors": [f"non-dict result: {result}"],
+                "canceled": canceled,
+                "resting": resting,
+                "waiting": waiting,
+            }
+        if result.get("status") != "ok":
+            return {
+                "ok_envelope": False,
+                "filled": filled,
+                "errors": [str(result.get("response") or result.get("status") or result)],
+                "canceled": canceled,
+                "resting": resting,
+                "waiting": waiting,
+            }
+        statuses = (
+            result.get("response", {}).get("data", {}).get("statuses", []) or []
+        )
+        for status in statuses:
+            if isinstance(status, str):
+                if "waiting" in status.lower():
+                    waiting.append(status)
+                elif "cancel" in status.lower():
+                    canceled.append(status)
+                else:
+                    waiting.append(status)
+                continue
+            if not isinstance(status, dict):
+                continue
+            if status.get("error"):
+                errors.append(str(status["error"]))
+            if status.get("filled"):
+                filled.append(status["filled"])
+            if status.get("canceled") or status.get("cancelled"):
+                canceled.append(status.get("canceled") or status.get("cancelled"))
+            if status.get("resting"):
+                resting.append(status["resting"])
+        return {
+            "ok_envelope": True,
+            "filled": filled,
+            "errors": errors,
+            "canceled": canceled,
+            "resting": resting,
+            "waiting": waiting,
+        }
+
+    def _position_open_on_exchange(self, symbol: str) -> bool | None:
+        """True/False if book is known; None if positions cannot be trusted."""
+        symbol = self.get_canonical_symbol(symbol)
+        positions = self.get_positions()
+        if self._positions_fetch_failed:
+            return None
+        for p in positions or []:
+            if p.get("symbol") == symbol and abs(float(p.get("size") or 0)) > 0:
+                return True
+        if getattr(self, "_positions_stale", False):
+            return None
+        return False
+
     def execute_order(self, symbol: str, is_buy: bool, quantity: float, price: float = None, sl_price: float = None, tp_price: float = None):
         """
         Execute an order on Hyperliquid.
@@ -803,72 +957,97 @@ class HyperliquidService:
 
                 # VERIFICATION LOGIC (Shared)
                 self.log(f"✅ Exec Result: {result}")
-                
-                # CRITICAL FIX: Handle case where SDK returns a string (error message) instead of dict
-                if not isinstance(result, dict):
-                    self.log(f"❌ API returned non-dict result: {result}")
+                parsed = self._classify_order_statuses(result)
+                filled_orders = parsed["filled"]
+                errors = parsed["errors"]
+
+                if filled_orders:
+                    self.log(f"✅ Order Filled: {filled_orders[0]}")
+                    if errors:
+                        self.log(
+                            f"⚠️ Entry filled but protection/other legs rejected: {errors}. "
+                            "NOT retrying (would double the position). Reconciler must attach SL/TP.",
+                            "ERROR",
+                        )
+                    return {"status": "success", "result": result}
+
+                if parsed["resting"]:
+                    self.log(f"ℹ️ Entry resting on book (not yet filled): {parsed['resting']}")
+                    return {"status": "success", "result": result}
+
+                if errors:
+                    self.log(f"❌ Order Rejected: {errors}")
+                    existing = self._position_open_on_exchange(symbol)
+                    if existing is True:
+                        self.log(
+                            "⚠️ Rejection after submit but position is open — treating as filled, not retrying",
+                            "ERROR",
+                        )
+                        return {"status": "success", "result": result}
+                    if existing is None:
+                        self.log(
+                            "⛔ Ambiguous fill state (positions API down). NOT retrying entry.",
+                            "ERROR",
+                        )
+                        return {
+                            "status": "error",
+                            "message": f"Rejected (ambiguous, no retry): {errors}",
+                        }
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         continue
-                    return {"status": "error", "message": f"API Error: {str(result)}"}
+                    return {"status": "error", "message": f"Rejected: {errors}"}
 
-                if result.get("status") == "ok":
-                    response = result.get("response", {})
-                    data = response.get("data", {})
-                    statuses = data.get("statuses", [])
-                    
-                    # CRITICAL FIX: Parse statuses safely (can be dict or string)
-                    # Hyperliquid returns strings like 'waitingForTrigger' for SL/TP
-                    errors = []
-                    filled_orders = []
-                    
-                    for status in statuses:
-                        if isinstance(status, dict):
-                            # Dict status (filled, error, etc.)
-                            if status.get("error"):
-                                errors.append(status["error"])
-                            elif status.get("filled"):
-                                filled_orders.append(status["filled"])
-                        elif isinstance(status, str):
-                            # String status ('waitingForTrigger', etc.) - this is OK
-                            pass
-                        else:
-                            self.log(f"⚠️ Unknown status type: {type(status)} = {status}")
-                    
-                    # Check for errors
-                    if errors:
-                        self.log(f"❌ Order Rejected: {errors}")
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                            continue
-                        return {"status": "error", "message": f"Rejected: {errors}"}
-                    
-                    # Check if entry was filled
-                    if filled_orders:
-                        self.log(f"✅ Order Filled: {filled_orders[0]}")
-                        
-                    # Success
-                    return {"status": "success", "result": result}
-                    
-                else:
-                     self.log(f"❌ API Error: {result}")
-                     if attempt < max_retries - 1:
-                         time.sleep(retry_delay)
-                         continue
-            
+                if parsed["canceled"] and not filled_orders:
+                    self.log(f"❌ IOC/entry canceled without fill: {parsed['canceled']}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    return {"status": "error", "message": "Entry IOC canceled without fill"}
+
+                if not parsed["ok_envelope"]:
+                    self.log(f"❌ API Error: {result}")
+                    existing = self._position_open_on_exchange(symbol)
+                    if existing is True:
+                        return {"status": "success", "result": result}
+                    if existing is None:
+                        return {
+                            "status": "error",
+                            "message": "Ambiguous fill state after non-ok response — not retrying",
+                        }
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+
             except Exception as e:
                 error_msg = str(e)
                 self.log(f"❌ Exception in execute_order (Attempt {attempt+1}): {error_msg}")
-                
-                # Smart Backoff for Rate Limits
+
+                existing = self._position_open_on_exchange(symbol)
+                if existing is True:
+                    self.log(
+                        "⚠️ Exception after submit but position is open — not retrying entry",
+                        "ERROR",
+                    )
+                    return {"status": "success", "message": "position exists after exception"}
+                if existing is None:
+                    self.log(
+                        "⛔ Ambiguous fill state after exception (positions API down). NOT retrying.",
+                        "ERROR",
+                    )
+                    return {
+                        "status": "error",
+                        "message": f"Ambiguous after exception: {error_msg}",
+                    }
+
                 wait_time = retry_delay
                 if "429" in error_msg or "Too Many Requests" in error_msg:
                     self.log("🚫 Rate Limit Hit (429). Cooling down for 10s...")
                     wait_time = 10
-                
+
                 if attempt < max_retries - 1:
-                     time.sleep(wait_time)
-                     continue
+                    time.sleep(wait_time)
+                    continue
                 return {"status": "error", "message": error_msg}
 
         return {"status": "error", "message": "Max retries exceeded"}
@@ -949,8 +1128,18 @@ class HyperliquidService:
             
         self.log(f"🔄 SYNCING SL/TP for {symbol} (SL: {sl_price}, TP: {tp_price})...")
         try:
+            existing = self.get_open_orders(symbol)
+            if getattr(self, "_open_orders_fetch_failed", False):
+                self.log(
+                    f"⛔ Refusing SL/TP sync for {symbol}: open-orders fetch failed "
+                    "(cancel-then-replace would leave a naked window on a guessed book)",
+                    "ERROR",
+                )
+                return {"status": "error", "message": "open orders unavailable"}
+
             # 1. Cancel existing orders to avoid duplicates/conflicts
-            self.cancel_all_orders(symbol)
+            if existing:
+                self.cancel_all_orders(symbol)
             
             # 2. Place new protection orders
             if sl_price or tp_price:
@@ -1092,12 +1281,14 @@ class HyperliquidService:
         if cache_time > 0 and cached is not None:
             age = time.time() - cache_time
             self._positions_fetch_failed = False  # stale list is still usable for sync
+            self._positions_stale = True
             self.log(
                 f"⚠️ Returning stale positions ({age:.0f}s old) due to {reason}",
                 "WARNING",
             )
             return list(cached)
         self._positions_fetch_failed = True
+        self._positions_stale = False
         self.log(
             f"⚠️ Positions unavailable ({reason}) and no cache — sync must skip closures",
             "WARNING",
@@ -1165,6 +1356,7 @@ class HyperliquidService:
             # Update cache (even if empty, it reflects truth at this time)
             self._positions_cache = {"time": time.time(), "data": positions}
             self._positions_fetch_failed = False
+            self._positions_stale = False
             return positions
         except Exception as e:
             self.log(f"Error fetching positions: {e}")
@@ -1194,71 +1386,94 @@ class HyperliquidService:
     def close_position(self, symbol: str):
         """
         Close an open position on Hyperliquid with robust retry logic.
-        
-        This method has the highest priority for retry logic as failing to close
-        a position during volatile markets can result in significant losses.
-        
-        The @critical_operation decorator provides:
-        - 5 retry attempts with exponential backoff
-        - Special handling for 429 rate limit errors
-        - Automatic delay increase: 2s → 4s → 8s → 16s → 32s
-        
-        Args:
-            symbol: Trading pair symbol (e.g., "BTC")
-        
-        Returns:
-            dict: {"status": "success"|"error", "message": str, "closed_size": float}
-        
-        Raises:
-            Exception: After max retries exhausted (will be caught by decorator)
+
+        Uses reduce-only so a retry / stale snapshot cannot open a reverse
+        position. Protection orders are cancelled AFTER a confirmed close so a
+        failed close does not leave the trade naked.
         """
         if not self.exchange:
             raise Exception("No private key configured")
-        
-        # Step 1: Cancel all pending orders (TP/SL)
-        self.log(f"🧹 Cancelling pending orders for {symbol}...")
+
+        symbol = self.get_canonical_symbol(symbol)
+
+        positions = self.get_positions()
+        if self._positions_fetch_failed or getattr(self, "_positions_stale", False):
+            msg = (
+                f"Positions snapshot untrusted for {symbol} "
+                f"(failed={self._positions_fetch_failed}, "
+                f"stale={getattr(self, '_positions_stale', False)}) — "
+                "refusing market close (exchange SL/TP stay in place)"
+            )
+            self.log(f"⛔ {msg}", "ERROR")
+            return {"status": "error", "message": msg}
+
+        position = next((p for p in positions if p["symbol"] == symbol), None)
+        if not position or abs(float(position.get("size") or 0)) <= 0:
+            self.log(f"ℹ️ No position found for {symbol} (already flat)")
+            try:
+                self.cancel_all_orders(symbol)
+            except Exception as e:
+                self.log(f"⚠️ Failed to cancel leftover orders for {symbol}: {e}")
+            return {"status": "success", "closed_size": 0, "message": "already flat"}
+
+        size = float(position["size"])
+        side = position["side"]
+        is_buy = (side == "SELL")  # Close SHORT with BUY
+
+        sz_decimals, _ = self._get_precision(symbol)
+        quantity = float(f"{size:.{sz_decimals}f}")
+        if quantity <= 0:
+            raise Exception("Position size too small to close")
+
+        self.log(f"🔴 CLOSING {side} position: {quantity} {symbol} (reduce-only)")
+
+        result = None
+        if hasattr(self.exchange, "market_close"):
+            result = self.exchange.market_close(symbol, sz=quantity)
+        else:
+            current_px = self.get_current_price(symbol)
+            if current_px <= 0:
+                raise Exception(f"No valid market price to close {symbol}")
+            limit_px = self._round_price(
+                current_px * (1 + self.MARKET_SLIPPAGE) if is_buy else current_px * (1 - self.MARKET_SLIPPAGE),
+                sz_decimals,
+            )
+            result = self.exchange.order(
+                symbol,
+                is_buy,
+                quantity,
+                limit_px,
+                {"limit": {"tif": "Ioc"}},
+                True,  # reduce_only — never flip a flat book into a reverse
+            )
+
+        parsed = self._classify_order_statuses(result)
+        if parsed["errors"] and not parsed["filled"]:
+            raise Exception(f"Close rejected: {parsed['errors']}")
+
+        self.log(f"✅ Close order submitted: {symbol} {quantity}")
+
+        time.sleep(2)
+        new_positions = self.get_positions()
+        if self._positions_fetch_failed:
+            # Close may have filled; do not retry a second market order.
+            self.log(
+                "⚠️ Close submitted but positions API down — not retrying (reduce-only already sent)",
+                "WARNING",
+            )
+            return {"status": "success", "closed_size": size, "result": result, "unverified": True}
+
+        remaining = next((p for p in new_positions if p["symbol"] == symbol), None)
+        if remaining and remaining["size"] > quantity * 0.1:
+            raise Exception(f"Position not fully closed, {remaining['size']} remaining")
+        elif remaining:
+            self.log(f"ℹ️ Close incomplete: Dust remaining ({remaining['size']})")
+
         try:
             self.cancel_all_orders(symbol)
         except Exception as e:
-            self.log(f"⚠️ Failed to cancel orders (continuing anyway): {e}")
-        
-        # Step 2: Get current position
-        positions = self.get_positions()
-        position = next((p for p in positions if p["symbol"] == symbol), None)
-        
-        if not position:
-            raise Exception(f"No position found for {symbol}")
-        
-        size = position["size"]
-        side = position["side"]
-        is_buy = (side == "SELL")  # Close SHORT with BUY
-        
-        # Step 3: Calculate precise quantity
-        sz_decimals, _ = self._get_precision(symbol)
-        quantity = float(f"{size:.{sz_decimals}f}")
-        
-        if quantity <= 0:
-            raise Exception("Position size too small to close")
-        
-        self.log(f"🔴 CLOSING {side} position: {quantity} {symbol}")
-        
-        # Step 4: Execute market close order
-        # This will raise exception if it fails, triggering decorator retry
-        result = self.exchange.market_open(symbol, is_buy, quantity)
-        self.log(f"✅ Close order submitted: {symbol} {quantity}")
-        
-        # Step 5: Verify closure
-        time.sleep(2)  # Wait for fill
-        new_positions = self.get_positions()
-        remaining = next((p for p in new_positions if p["symbol"] == symbol), None)
-        
-        if remaining and remaining["size"] > quantity * 0.1:
-            # Significant position remains - this is an error
-            raise Exception(f"Position not fully closed, {remaining['size']} remaining")
-        elif remaining:
-            # Just dust remaining - acceptable
-            self.log(f"ℹ️ Close incomplete: Dust remaining ({remaining['size']})")
-        
+            self.log(f"⚠️ Failed to cancel leftover orders after close: {e}")
+
         self.log(f"✅ Position closed successfully: {symbol}")
         return {"status": "success", "closed_size": size, "result": result}
 

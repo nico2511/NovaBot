@@ -32,6 +32,12 @@ class SafeOrderManager:
 
         # 1. Check existing orders - SIMPLIFIED DETECTION
         open_orders = self.hl.get_open_orders(symbol)
+        if getattr(self.hl, "_open_orders_fetch_failed", False) is True:
+            self.logger.warning(
+                f"⚠️ {symbol}: open-orders fetch failed — skipping SL/TP placement "
+                f"(will not invent a naked book)"
+            )
+            return False
         
         sl_orders = []
         tp_orders = []
@@ -154,7 +160,8 @@ class SafeOrderManager:
             # Get current user state for margin check
             user_state = self.hl.info.user_state(config.HL_ACCOUNT_ADDRESS) if hasattr(self.hl, 'info') else None
             if not user_state:
-                return True  # Cannot validate, allow with warning
+                self.logger.error(f"❌ Pre-validation blocked {symbol}: user_state unavailable")
+                return False  # fail closed — do not size/send blindly
                 
             # Basic margin check (simplified)
             available_margin = float(user_state.get("marginSummary", {}).get("accountValue", 0))
@@ -165,5 +172,5 @@ class SafeOrderManager:
             self.logger.debug(f"✅ Pre-validation passed for {symbol} ({side} {size})")
             return True
         except Exception as e:
-            self.logger.warning(f"⚠️ Pre-validation failed for {symbol}: {e}")
-            return True  # Fail open for safety (better to try than block completely)
+            self.logger.error(f"❌ Pre-validation failed for {symbol}: {e} — blocking order")
+            return False  # fail closed: unknown margin is not permission to trade

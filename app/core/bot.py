@@ -318,6 +318,11 @@ class BotContext:
         """Create a stable internal identifier for a trade lifecycle."""
         return TradeBook.new_trade_id(symbol or "UNKNOWN")
 
+    def _is_live_execution(self) -> bool:
+        """True only for EXECUTION_MODE=Live. Dry Run / Paper must never hit the exchange."""
+        mode = str(getattr(self, "execution_mode", "Live") or "Live").strip().lower()
+        return mode == "live"
+
     @property
     def active_trades(self):
         """Symbol-keyed view over trade_book (legacy call sites / reconciler)."""
@@ -1580,6 +1585,13 @@ class BotContext:
                 self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
 
+            mode = str(getattr(self, "execution_mode", "Live") or "Live").strip()
+            if not self._is_live_execution():
+                reason = f"Execution mode is {mode} (not Live)"
+                self.add_log(f"🧪 DRY-RUN: would {side} {symbol} size={size} — live order blocked")
+                self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
+                return {"status": "ignored", "reason": reason}
+
             self._sync_daily_risk_pnl(min_interval_sec=0)
             can_trade, risk_reason = self.risk_manager.check_can_trade()
             if not can_trade:
@@ -1614,6 +1626,26 @@ class BotContext:
             
             # REAL EXECUTION
             real_positions = hyperliquid_service.get_positions()
+            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
+                reason = "Positions API unavailable — refusing new entry"
+                self.add_log(f"⛔ {reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
+            if getattr(hyperliquid_service, "_positions_stale", False) is True:
+                reason = "Positions snapshot is stale — refusing new entry"
+                self.add_log(f"⛔ {reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
             active_count = len([p for p in real_positions if float(p["size"]) > 0])
             
             if active_count >= self.max_positions:
@@ -1754,6 +1786,12 @@ class BotContext:
                     f"aborting market close (exchange SL/TP stay in place)"
                 )
                 return False
+            if getattr(hyperliquid_service, "_positions_stale", False) is True:
+                self.add_log(
+                    f"⛔ Cannot close {symbol}: positions snapshot is stale — "
+                    f"aborting market close (exchange SL/TP stay in place)"
+                )
+                return False
             position_exists = any(p.get("symbol") == symbol and float(p.get("size", 0)) > 0 for p in positions)
             
             if not position_exists:
@@ -1786,6 +1824,13 @@ class BotContext:
         if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
             self.add_log(
                 f"⛔ ATOMIC EXIT aborted for {symbol}: positions API unavailable — "
+                f"will not market-close (exchange SL/TP remain in place)"
+                + (f" | id={tid}" if tid else "")
+            )
+            return False
+        if getattr(hyperliquid_service, "_positions_stale", False) is True:
+            self.add_log(
+                f"⛔ ATOMIC EXIT aborted for {symbol}: positions snapshot is stale — "
                 f"will not market-close (exchange SL/TP remain in place)"
                 + (f" | id={tid}" if tid else "")
             )
@@ -2154,6 +2199,12 @@ class BotContext:
             if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
                 self.add_log(
                     f"⚠️ Local {reason} for {symbol} ignored — positions API down; "
+                    f"exchange SL/TP remain in charge" + (f" | id={tid}" if tid else "")
+                )
+                return
+            if getattr(hyperliquid_service, "_positions_stale", False) is True:
+                self.add_log(
+                    f"⚠️ Local {reason} for {symbol} ignored — positions snapshot stale; "
                     f"exchange SL/TP remain in charge" + (f" | id={tid}" if tid else "")
                 )
                 return

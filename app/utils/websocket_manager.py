@@ -32,7 +32,8 @@ class WebSocketPriceManager:
         symbols: List[str],
         on_price_update: Optional[Callable[[str, float], None]] = None,
         staleness_threshold: int = 30,
-        logger: Any = None
+        logger: Any = None,
+        ws_url: Optional[str] = None,
     ):
         """
         Initialize WebSocket Price Manager.
@@ -61,8 +62,8 @@ class WebSocketPriceManager:
         self._websocket = None  # active connection; closed from stop() to unblock recv
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         
-        # Hyperliquid WebSocket endpoint
-        self._ws_url = "wss://api.hyperliquid.xyz/ws"
+        # Hyperliquid WebSocket endpoint (derived from REST base so testnet stays consistent)
+        self._ws_url = ws_url or "wss://api.hyperliquid.xyz/ws"
         
         self._log_info(f"📡 WebSocket Manager initialized for symbols: {', '.join(symbols)}")
 

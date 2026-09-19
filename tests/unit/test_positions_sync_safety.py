@@ -17,6 +17,9 @@ def service():
     svc._positions_cache = {"time": 0, "data": None}
     svc._positions_cache_ttl = 10
     svc._positions_fetch_failed = False
+    svc._positions_stale = False
+    svc._open_orders_cache = {"time": 0, "data": None}
+    svc._open_orders_fetch_failed = False
     return svc
 
 
@@ -34,6 +37,7 @@ def test_stale_positions_returned_on_error(service):
             positions = service.get_positions()
 
     assert service._positions_fetch_failed is False
+    assert service._positions_stale is True
     assert positions[0]["symbol"] == "BTC"
 
 
@@ -46,6 +50,7 @@ def test_no_cache_marks_fetch_failed(service):
 
     assert positions == []
     assert service._positions_fetch_failed is True
+    assert service._positions_stale is False
 
 
 def test_trade_history_returns_none_after_exhausted_504(service):

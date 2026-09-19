@@ -11,6 +11,9 @@ def mock_hl_service():
     # Default mocks
     service.get_positions.return_value = []
     service.get_open_orders.return_value = []
+    service._open_orders_fetch_failed = False
+    service._positions_fetch_failed = False
+    service._positions_stale = False
     return service
 
 @pytest.fixture
@@ -47,17 +50,33 @@ def test_ensure_sl_tp_idempotent(safe_order_manager, mock_hl_service):
     position = {"symbol": "BTC", "entry_price": 50000.0, "side": "BUY", "size": 1.0}
     # Mock existing orders
     mock_hl_service.get_open_orders.return_value = [
-        {"coin": "BTC", "order_type": {"trigger": {"tpsl": "sl"}}},
-        {"coin": "BTC", "order_type": {"trigger": {"tpsl": "tp"}}}
+        {
+            "coin": "BTC",
+            "reduceOnly": True,
+            "triggerPx": 49000,
+            "order_type": {"trigger": {"tpsl": "sl"}},
+        },
+        {
+            "coin": "BTC",
+            "reduceOnly": True,
+            "triggerPx": 52000,
+            "order_type": {"trigger": {"tpsl": "tp"}},
+        },
     ]
     
     # Act
     safe_order_manager.ensure_sl_tp(position)
     
     # Assert
-    mock_hl_service.place_protection_orders.assert_not_called()
+    mock_hl_service._place_protection_orders.assert_not_called()
 
-# === PositionReconciler Tests ===
+def test_ensure_sl_tp_skips_when_orders_fetch_failed(safe_order_manager, mock_hl_service):
+    mock_hl_service.get_open_orders.return_value = []
+    mock_hl_service._open_orders_fetch_failed = True
+    position = {"symbol": "BTC", "entry_price": 50000.0, "side": "BUY", "size": 1.0}
+
+    assert safe_order_manager.ensure_sl_tp(position) is False
+    mock_hl_service._place_protection_orders.assert_not_called()
 
 def test_reconcile_detects_orphans(position_reconciler, mock_hl_service, safe_order_manager):
     """Test that reconcile identifies positions without SL/TP and delegates to SafeOrderManager"""
