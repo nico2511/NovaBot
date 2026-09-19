@@ -1,59 +1,76 @@
 """
 Trailing-Stop Decision Logic.
 
-Pure function that, given a trade dict and the current price, decides whether
-the stop-loss should be moved up (BUY) or down (SELL) and returns the new
-value plus a short reason label. The caller — typically BotContext — is
-responsible for applying the decision (persisting state, notifying Discord,
-updating the exchange…). Keeping this module pure makes the stop-management
-rules testable and explicit.
+R-multiple ladder (strategy-agnostic). Initial risk is |entry − initial_sl|
+(falls back to current SL). Progress toward TP is no longer the trigger.
 
-Rules (calibrated for SuperTrend pullback-then-extend trades):
-  - Smart Break-Even  at 75% progress (or >2.0% PnL on LONG) → lock 0.2% profit
-  - Trailing Profit   at 80% progress → secure 20% of gains
-  - Aggressive Lock   at 90% progress → secure 40% of gains
+  - 1.0R  → break-even (lock a hair of profit)
+  - 1.5R  → lock 0.5R
+  - 2.0R  → lock 1.0R
 
-Previously BE fired at 60% / 1.2% PnL which stopped LINK-style winners on the
-first healthy retrace before TP.
+Per-trade overrides: ``trail_be_at_r``, ``trail_lock_at_r``, ``trail_lock_r``,
+``trail_lock2_at_r``, ``trail_lock2_r``.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
 
-# Thresholds (progress toward TP). Kept as named constants for tests/docs.
-SMART_BE_PROGRESS_PCT = 75.0
-SMART_BE_PNL_PCT = 2.0  # LONG shortcut only
-TRAIL_20_PROGRESS_PCT = 80.0
-TRAIL_40_PROGRESS_PCT = 90.0
+BE_AT_R = 1.0
+LOCK_AT_R = 1.5
+LOCK_R = 0.5
+LOCK2_AT_R = 2.0
+LOCK2_R = 1.0
+BE_LOCK_FRAC = 0.002  # 0.2% beyond entry so fees don't flip a BE stop red
 
 
 @dataclass(frozen=True)
 class TrailingDecision:
     """Outcome of a trailing evaluation."""
     new_sl: float
-    reason: str          # short human-readable label (e.g. "Smart BE", "Trailing 80%")
+    reason: str
     progress_pct: float
     pnl_pct: float
+    r_multiple: float = 0.0
+
+
+def _initial_risk(trade: dict, entry: float, side: str) -> Optional[float]:
+    raw = trade.get("initial_sl", trade.get("sl"))
+    try:
+        sl0 = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if sl0 <= 0:
+        return None
+    if side == "BUY":
+        risk = entry - sl0
+    else:
+        risk = sl0 - entry
+    if risk <= 0:
+        return None
+    return risk
+
+
+def _float_param(trade: dict, key: str, default: float) -> float:
+    try:
+        raw = trade.get(key)
+        if raw is None:
+            return default
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 def compute_trailing_decision(trade: dict, current_price: float) -> Optional[TrailingDecision]:
-    """Return the best trailing-stop upgrade, or None if nothing should change.
-
-    "Best" here means the tightest SL that is still an improvement over the
-    current one — the Aggressive Lock wins over the Trailing Profit if both
-    apply, because we evaluate in order and keep the last/highest value.
-    """
+    """Return the tightest R-ladder SL upgrade, or None if nothing should change."""
     entry_price = trade.get("entry")
     tp_price = trade.get("tp")
     sl_price = trade.get("sl")
     side = trade.get("side")
 
-    if not (entry_price and tp_price and sl_price) or side not in ("BUY", "SELL"):
+    if not (entry_price and sl_price) or side not in ("BUY", "SELL"):
         return None
 
-    # Stale/missing quotes must never drive trailing (price=0 on a SHORT
-    # looks like 100%+ progress toward TP and falsely tightens SL).
     try:
         if float(current_price) <= 0:
             return None
@@ -61,73 +78,73 @@ def compute_trailing_decision(trade: dict, current_price: float) -> Optional[Tra
         return None
 
     entry_price = float(entry_price)
-    tp_price = float(tp_price)
     sl_price = float(sl_price)
+    try:
+        tp_price = float(tp_price) if tp_price else 0.0
+    except (TypeError, ValueError):
+        tp_price = 0.0
 
-    # Guard against degenerate configurations (entry == tp) that would divide by zero.
-    if side == "BUY":
-        total_dist = tp_price - entry_price
-        current_dist = current_price - entry_price
-    else:
-        total_dist = entry_price - tp_price
-        current_dist = entry_price - current_price
-
-    if total_dist <= 0:
+    risk = _initial_risk(trade, entry_price, side)
+    if risk is None:
         return None
 
-    progress_pct = (current_dist / total_dist) * 100
+    if side == "BUY":
+        r_mult = (current_price - entry_price) / risk
+        current_dist = current_price - entry_price
+        total_dist = (tp_price - entry_price) if tp_price > entry_price else risk
+    else:
+        r_mult = (entry_price - current_price) / risk
+        current_dist = entry_price - current_price
+        total_dist = (entry_price - tp_price) if 0 < tp_price < entry_price else risk
+
+    progress_pct = (current_dist / total_dist) * 100 if total_dist > 0 else 0.0
     pnl_pct = (
         ((current_price - entry_price) / entry_price) * 100
         if side == "BUY"
         else ((entry_price - current_price) / entry_price) * 100
     )
 
+    be_at = _float_param(trade, "trail_be_at_r", BE_AT_R)
+    lock_at = _float_param(trade, "trail_lock_at_r", LOCK_AT_R)
+    lock_r = _float_param(trade, "trail_lock_r", LOCK_R)
+    lock2_at = _float_param(trade, "trail_lock2_at_r", LOCK2_AT_R)
+    lock2_r = _float_param(trade, "trail_lock2_r", LOCK2_R)
+
     new_sl: Optional[float] = None
     reason = ""
 
     if side == "BUY":
-        # 1. Smart BE — late enough to survive a normal SuperTrend retrace
-        if progress_pct > SMART_BE_PROGRESS_PCT or pnl_pct > SMART_BE_PNL_PCT:
-            be_price = entry_price * 1.002
+        if r_mult >= be_at:
+            be_price = entry_price * (1.0 + BE_LOCK_FRAC)
             if sl_price < be_price and current_price > (be_price * 1.003):
                 new_sl = be_price
-                reason = "Smart BE"
-
-        # 2. Trailing 20%
-        if progress_pct > TRAIL_20_PROGRESS_PCT:
-            secure_price = entry_price + (total_dist * 0.20)
-            if sl_price < secure_price and (new_sl is None or secure_price > new_sl):
-                new_sl = secure_price
-                reason = "Trailing 80%"
-
-        # 3. Aggressive Lock 40%
-        if progress_pct > TRAIL_40_PROGRESS_PCT:
-            lock_price = entry_price + (total_dist * 0.40)
+                reason = "BE 1R"
+        if r_mult >= lock_at:
+            lock_price = entry_price + lock_r * risk
             if sl_price < lock_price and (new_sl is None or lock_price > new_sl):
                 new_sl = lock_price
-                reason = "Aggressive Lock 90%"
-
-    else:  # SELL — mirror logic
-        # 1. Smart BE
-        if progress_pct > SMART_BE_PROGRESS_PCT or pnl_pct > SMART_BE_PNL_PCT:
-            be_price = entry_price * 0.998
+                reason = f"Lock {lock_r:g}R @ {lock_at:g}R"
+        if r_mult >= lock2_at:
+            lock_price = entry_price + lock2_r * risk
+            if sl_price < lock_price and (new_sl is None or lock_price > new_sl):
+                new_sl = lock_price
+                reason = f"Lock {lock2_r:g}R @ {lock2_at:g}R"
+    else:
+        if r_mult >= be_at:
+            be_price = entry_price * (1.0 - BE_LOCK_FRAC)
             if sl_price > be_price and current_price < (be_price * 0.997):
                 new_sl = be_price
-                reason = "Smart BE"
-
-        # 2. Trailing 20%
-        if progress_pct > TRAIL_20_PROGRESS_PCT:
-            secure_price = entry_price - (total_dist * 0.20)
-            if sl_price > secure_price and (new_sl is None or secure_price < new_sl):
-                new_sl = secure_price
-                reason = "Trailing 80%"
-
-        # 3. Aggressive Lock 40%
-        if progress_pct > TRAIL_40_PROGRESS_PCT:
-            lock_price = entry_price - (total_dist * 0.40)
+                reason = "BE 1R"
+        if r_mult >= lock_at:
+            lock_price = entry_price - lock_r * risk
             if sl_price > lock_price and (new_sl is None or lock_price < new_sl):
                 new_sl = lock_price
-                reason = "Aggressive Lock 90%"
+                reason = f"Lock {lock_r:g}R @ {lock_at:g}R"
+        if r_mult >= lock2_at:
+            lock_price = entry_price - lock2_r * risk
+            if sl_price > lock_price and (new_sl is None or lock_price < new_sl):
+                new_sl = lock_price
+                reason = f"Lock {lock2_r:g}R @ {lock2_at:g}R"
 
     if new_sl is None:
         return None
@@ -137,4 +154,5 @@ def compute_trailing_decision(trade: dict, current_price: float) -> Optional[Tra
         reason=reason,
         progress_pct=float(progress_pct),
         pnl_pct=float(pnl_pct),
+        r_multiple=float(r_mult),
     )

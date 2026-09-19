@@ -12,6 +12,7 @@ from app.core.veto_checker import (
     LOW_VOLUME_RATIO_PCT,
     RSI_OVERBOUGHT,
     RSI_OVERSOLD,
+    check_funding_veto,
     check_hard_veto,
     check_macd_momentum_veto,
 )
@@ -140,3 +141,17 @@ def test_supertrend_helper_vetoes_bearish_macd_on_buy():
     reason = check_hard_veto("BUY", ctx)
     assert reason is not None
     assert "MACD" in reason
+
+
+def test_funding_veto_blocks_long_when_longs_pay():
+    assert check_funding_veto("BUY", {"funding_rate": 0.0002}) is not None
+    assert check_funding_veto("BUY", {"funding_rate": 0.00005}) is None
+    assert check_funding_veto("SELL", {"funding_rate": -0.0002}) is not None
+    assert check_funding_veto("SELL", {"funding_rate": -0.00005}) is None
+    assert check_funding_veto("BUY", {}) is None
+
+
+def test_hard_veto_helper_blocks_extreme_funding():
+    reason = check_hard_veto("BUY", _base_context(funding_rate=0.0005))
+    assert reason is not None
+    assert "funding" in reason.lower()

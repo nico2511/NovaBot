@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from strategies.range_lt import StrategyRangeLT
 
@@ -110,7 +111,7 @@ def test_range_lt_veto_report_shows_pass_and_block():
     reason = s.check_hard_veto("BUY", ctx)
     assert reason is not None
     names = [row["name"] for row in s.last_veto_report]
-    assert names == ["ADX", "RSI", "VOL"]
+    assert names == ["ADX", "RSI", "VOL", "FUNDING"]
     by_name = {row["name"]: row for row in s.last_veto_report}
     assert by_name["ADX"]["blocked"] is True
     assert by_name["RSI"]["blocked"] is False
@@ -188,7 +189,8 @@ def test_range_lt_post_ai_adjust_caps_buy_tp_at_box():
     }
     ai = {"approved": True, "reasoning": "x", "suggested_adjustments": {}}
     out = s.post_ai_adjust(signal, ai, {})
-    assert out["suggested_adjustments"]["tp"] < 105.0
+    mid = 102.0
+    assert out["suggested_adjustments"]["tp"] == pytest.approx(mid)
     assert out["suggested_adjustments"]["tp"] > 100.0
 
 
@@ -255,6 +257,8 @@ def test_range_lt_can_fade_synthetic_range_low():
     assert sig["signal"] == "BUY"
     assert sig["sl"] < sig["price"] < sig["tp"]
     assert sig["range_low"] < sig["price"] < sig["range_high"]
+    mid = (float(sig["range_high"]) + float(sig["range_low"])) / 2.0
+    assert sig["tp"] == pytest.approx(mid, rel=1e-6)
 
 
 def test_range_lt_registered_always_active_on_engine():
@@ -265,3 +269,25 @@ def test_range_lt_registered_always_active_on_engine():
     cfg = engine.config.get("range_lt") or {}
     assert cfg.get("timeframe") == "1h"
     assert cfg.get("type") == "always_active"
+    assert float((cfg.get("params") or {}).get("min_rr") or 0) == 1.0
+
+
+def test_range_lt_box_stays_anchored_when_rolling_high_expands():
+    df = _ohlcv_range(n=140)
+    s = StrategyRangeLT({"params": _relaxed_params(lookback=40)})
+    setup1 = s._evaluate_setup(df, s._params_snapshot(), require_rejection=False, symbol="AAA")
+    assert setup1 is not None
+    frozen_high = float(setup1["range_high"])
+    # Push a new high on recent confirmed bars — rolling Donchian would follow.
+    df.loc[df.index[-8:-2], "high"] = frozen_high + 1.5
+    setup2 = s._evaluate_setup(df, s._params_snapshot(), require_rejection=False, symbol="AAA")
+    assert setup2 is not None
+    assert setup2["anchored"] is True
+    assert float(setup2["range_high"]) == pytest.approx(frozen_high)
+
+
+def test_range_lt_funding_veto():
+    s = StrategyRangeLT({"params": {}})
+    ctx = {"current_price": 100.0, "rsi": 28.0, "adx": 16.0, "volume_ratio": 90.0}
+    assert s.check_hard_veto("BUY", ctx) is None
+    assert s.check_hard_veto("BUY", {**ctx, "funding_rate": 0.0005}) is not None

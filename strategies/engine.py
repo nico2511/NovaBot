@@ -130,19 +130,17 @@ class StrategyEngine:
         if len(df) < 50:
             return {"action": "WAIT", "reason": "Not enough data"}
 
-        # Use new custom indicators service
-        # FIX: ADX returns a DataFrame, access specific column properly
-        adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
-        rsi_series = ta.rsi(df['close'], length=14)
-        ema_9 = ta.ema(df['close'], length=9)
-        ema_20 = ta.ema(df['close'], length=20)
-        ema_50 = ta.ema(df['close'], length=50)
+        # Use confirmed bars only — live OHLC must not repaint ADX/RSI/EMA at iloc[-2].
+        closed = df.iloc[:-1] if len(df) >= 2 else df
+        adx_df = ta.adx(closed['high'], closed['low'], closed['close'], length=14)
+        rsi_series = ta.rsi(closed['close'], length=14)
+        ema_9 = ta.ema(closed['close'], length=9)
+        ema_20 = ta.ema(closed['close'], length=20)
+        ema_50 = ta.ema(closed['close'], length=50)
 
-        # 1. Standard Regime (ADX based on confirmed candle iloc[-2] for stability)
-        # FIX: Access 'ADX' column explicitly from adx_df
-        current_adx = adx_df['ADX'].iloc[-2] 
-        # Calculate Slope using iloc [-2] and [-3] (Previous confirmed candles)
-        prev_adx = adx_df['ADX'].iloc[-3]
+        # Last closed bar is iloc[-1] of `closed` (= original iloc[-2]).
+        current_adx = adx_df['ADX'].iloc[-1]
+        prev_adx = adx_df['ADX'].iloc[-2]
         adx_slope = current_adx - prev_adx
         
         threshold = self._regime_adx_threshold()
@@ -172,8 +170,8 @@ class StrategyEngine:
 
         # 2. WATERFALL / ROCKET DETECTION (Anti-Lag) — shared cascade helpers on 15m
         work_15m = df.copy()
-        work_15m["EMA_9"] = ema_9
-        work_15m["EMA_20"] = ema_20
+        work_15m["EMA_9"] = ema_9.reindex(work_15m.index, method="ffill")
+        work_15m["EMA_20"] = ema_20.reindex(work_15m.index, method="ffill")
         bear_active, _ = detect_bear_cascade(work_15m, use_live=False)
         if bear_active:
             regime = "TREND_BEAR_STRONG"
@@ -182,12 +180,12 @@ class StrategyEngine:
         extra_data["regime"] = regime
         extra_data["regime_adx"] = regime_adx
 
-        # Add indicators to df for strategies
-        df['ADX_14'] = adx_df['ADX'] # Save specific column
-        df['RSI_14'] = rsi_series
-        df['EMA_9'] = ema_9
-        df['EMA_20'] = ema_20
-        df['EMA_50'] = ema_50
+        # Add indicators to df for strategies (live bar inherits last closed value)
+        df['ADX_14'] = adx_df['ADX'].reindex(df.index, method='ffill')
+        df['RSI_14'] = rsi_series.reindex(df.index, method='ffill')
+        df['EMA_9'] = ema_9.reindex(df.index, method='ffill')
+        df['EMA_20'] = ema_20.reindex(df.index, method='ffill')
+        df['EMA_50'] = ema_50.reindex(df.index, method='ffill')
         
         # 3. Select Strategies
         active_strategies = []
@@ -412,10 +410,10 @@ class StrategyEngine:
             "regime_adx": regime_adx,
             "adx": float(current_adx),
             "adx_slope": float(adx_slope),
-            "rsi": float(rsi_series.iloc[-2]),
-            "ema_9": float(ema_9.iloc[-2]),
-            "ema_20": float(ema_20.iloc[-2]),
-            "ema_50": float(ema_50.iloc[-2]),
+            "rsi": float(rsi_series.iloc[-1]),
+            "ema_9": float(ema_9.iloc[-1]),
+            "ema_20": float(ema_20.iloc[-1]),
+            "ema_50": float(ema_50.iloc[-1]),
             "sma_20": float(sma_20),
             "bb_upper": float(bb_upper),
             "bb_lower": float(bb_lower),

@@ -2,6 +2,7 @@ from app.services.indicators import ta
 import pandas as pd
 import numpy as np
 from strategies.base import BaseStrategy
+from strategies.closed_indicators import overlay_closed_indicators
 from strategies.trend_regime import (
     adx_regime_hint,
     effective_max_rsi_long,
@@ -175,16 +176,20 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         if df is None or getattr(df, "empty", True) or len(df) < min_bars:
             return None
 
-        work = df.copy()
-        work["EMA_FILTER"] = ta.ema(work["close"], length=ema_len)
-        work["ADX_14"] = ta.adx(work["high"], work["low"], work["close"])["ADX"]
-        st = ta.supertrend(
-            work["high"], work["low"], work["close"], period=period, multiplier=multiplier
-        )
-        work["Supertrend"] = st["Supertrend"]
-        work["ST_Direction"] = np.where(work["close"] >= work["Supertrend"], 1, -1)
-        work["RSI_14"] = ta.rsi(work["close"], length=14)
-        work["ATR_14"] = ta.atr(work["high"], work["low"], work["close"], length=14)
+        def _build(src):
+            src = src.copy()
+            src["EMA_FILTER"] = ta.ema(src["close"], length=ema_len)
+            src["ADX_14"] = ta.adx(src["high"], src["low"], src["close"])["ADX"]
+            st = ta.supertrend(
+                src["high"], src["low"], src["close"], period=period, multiplier=multiplier
+            )
+            src["Supertrend"] = st["Supertrend"]
+            src["ST_Direction"] = np.where(src["close"] >= src["Supertrend"], 1, -1)
+            src["RSI_14"] = ta.rsi(src["close"], length=14)
+            src["ATR_14"] = ta.atr(src["high"], src["low"], src["close"], length=14)
+            return src
+
+        work = overlay_closed_indicators(df, _build)
 
         last = work.iloc[-2]
         close = float(last["close"])
@@ -500,23 +505,28 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             return False
 
     def add_indicators(self, df, p=None):
-        """Add indicators to 15m dataframe"""
+        """Add 15m indicators computed on confirmed bars only (no live-bar repaint)."""
         p = p or self._params_snapshot()
-        # Param is named ema_filter_period — use EMA (not SMA) so docs/UI match behavior.
-        # Column kept as EMA_200 for display_conditions compatibility.
-        df["EMA_200"] = ta.ema(df["close"], length=p["ema_filter"])
-        df['ADX_14'] = ta.adx(df['high'], df['low'], df['close'])['ADX']
-        st_data = ta.supertrend(df['high'], df['low'], df['close'], period=p["st_period"], multiplier=p["st_multiplier"])
-        df['Supertrend'] = st_data['Supertrend']
-        # Normalize direction from price vs ST line to avoid convention drift
-        # across Supertrend implementations (some invert +1/-1 labels).
-        df['ST_Direction'] = np.where(df['close'] >= df['Supertrend'], 1, -1)
-        df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-        # Alias for bot AI/SL-floor paths that historically looked for pandas_ta's ATRr_14
-        df['ATRr_14'] = df['ATR_14']
-        # RSI used as a lightweight momentum sanity check (anti stop-hunt in ranges)
-        df['RSI_14'] = ta.rsi(df['close'], length=14)
-        return df
+
+        def _build(src):
+            src = src.copy()
+            src["EMA_200"] = ta.ema(src["close"], length=p["ema_filter"])
+            src["ADX_14"] = ta.adx(src["high"], src["low"], src["close"])["ADX"]
+            st_data = ta.supertrend(
+                src["high"],
+                src["low"],
+                src["close"],
+                period=p["st_period"],
+                multiplier=p["st_multiplier"],
+            )
+            src["Supertrend"] = st_data["Supertrend"]
+            src["ST_Direction"] = np.where(src["close"] >= src["Supertrend"], 1, -1)
+            src["ATR_14"] = ta.atr(src["high"], src["low"], src["close"], length=14)
+            src["ATRr_14"] = src["ATR_14"]
+            src["RSI_14"] = ta.rsi(src["close"], length=14)
+            return src
+
+        return overlay_closed_indicators(df, _build)
 
     def generate_signal(self, df, extra_data=None):
         """
@@ -535,8 +545,8 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         if df_1m.empty or len(df_1m) < 20:
             return self._reject("Insufficient 1m candles for trigger")
 
-        # 1. Add 15m indicators
-        self.add_indicators(df, p)
+        # 1. Add 15m indicators (confirmed bars only)
+        df = self.add_indicators(df, p)
 
         # Latest 15m values (completed candle)
         last_15m = df.iloc[-2]
@@ -639,11 +649,20 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
 
         # --- 1m TRIGGER ---
         if self.looking_for_entry:
-            st_data_1m = ta.supertrend(df_1m['high'], df_1m['low'], df_1m['close'], period=p["st_period"], multiplier=p["st_multiplier"])
-            df_1m = df_1m.copy()
-            df_1m['Supertrend'] = st_data_1m['Supertrend']
-            # Same normalization on trigger timeframe for consistent flip logic.
-            df_1m['ST_Direction'] = np.where(df_1m['close'] >= df_1m['Supertrend'], 1, -1)
+            def _build_1m(src):
+                src = src.copy()
+                st_data_1m = ta.supertrend(
+                    src["high"],
+                    src["low"],
+                    src["close"],
+                    period=p["st_period"],
+                    multiplier=p["st_multiplier"],
+                )
+                src["Supertrend"] = st_data_1m["Supertrend"]
+                src["ST_Direction"] = np.where(src["close"] >= src["Supertrend"], 1, -1)
+                return src
+
+            df_1m = overlay_closed_indicators(df_1m, _build_1m)
 
             last_1m = df_1m.iloc[-2]
             entry = float(last_1m["close"])
@@ -750,7 +769,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         if len(df) < ema_need:
             return None
 
-        self.add_indicators(df, p)
+        df = self.add_indicators(df, p)
 
         last_15m = df.iloc[-2]
         adx = float(last_15m.get("ADX_14", 0) or 0)
