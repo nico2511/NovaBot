@@ -28,6 +28,26 @@ def strong_trend_relax_enabled(get_param: GetParam) -> bool:
     return bool(get_param("strong_trend_relax_enabled", True))
 
 
+def adx_regime_hint(payload: Optional[dict]) -> Optional[str]:
+    """
+    ADX RANGE/TREND only.
+
+    Engine cascade labels (TREND_BULL_STRONG / TREND_BEAR_STRONG) are a 15m
+    overlay for strategy *selection*, not a 1h/scan quality hint. Feeding them
+    into strong-trend relax would either hide a real RANGE or leak 15m into LT.
+    """
+    if not isinstance(payload, dict):
+        return None
+    for key in ("regime_adx", "regime"):
+        raw = payload.get(key)
+        if not isinstance(raw, str):
+            continue
+        label = raw.strip().upper()
+        if label in ("RANGE", "TREND"):
+            return label
+    return None
+
+
 def is_strong_trend_from_setup(
     direction: str,
     *,

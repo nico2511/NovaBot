@@ -14,7 +14,6 @@ from app.services.indicators import ta
 from strategies.base import BaseStrategy
 from strategies.cascade_exhaustion import (
     DEFAULT_RANGE_ADX_MAX,
-    DEFAULT_RANGE_RSI_LONG_MIN,
     DEFAULT_STRUCTURE_CLEAR_PCT,
     DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT,
     DEFAULT_WICK_TRAP_MIN_RATIO,
@@ -144,7 +143,7 @@ REJECT range climax traps:
             "struct_exclude_bars": int(self.get_param("struct_exclude_bars", 3) or 3),
             "range_exhaustion_enabled": bool(self.get_param("range_exhaustion_enabled", True)),
             "range_adx_max": self._float_param("range_adx_max", DEFAULT_RANGE_ADX_MAX),
-            "range_rsi_long_min": self._float_param("range_rsi_long_min", DEFAULT_RANGE_RSI_LONG_MIN),
+            "range_rsi_long_min": self._float_param("range_rsi_long_min", 74.0),
             "wick_trap_min_ratio": self._float_param("wick_trap_min_ratio", DEFAULT_WICK_TRAP_MIN_RATIO),
             "wick_trap_close_extreme_pct": self._float_param(
                 "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT

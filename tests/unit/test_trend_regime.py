@@ -5,6 +5,7 @@ from strategies.rocket import StrategyRocket
 from strategies.supertrend import StrategySupertrend
 from strategies.trend_lt import StrategyTrendLT
 from strategies.trend_regime import (
+    adx_regime_hint,
     effective_min_adx_slope,
     effective_veto_volume_pct,
     is_strong_trend_from_context,
@@ -97,6 +98,29 @@ def test_supertrend_hard_veto_still_blocks_weak_volume_outside_strong():
     reason = s.check_hard_veto("BUY", ctx)
     assert reason is not None
     assert "Low Volume" in reason
+
+
+def test_adx_regime_hint_ignores_cascade_overlay():
+    assert adx_regime_hint({"regime": "TREND_BULL_STRONG", "regime_adx": "RANGE"}) == "RANGE"
+    assert adx_regime_hint({"regime": "TREND_BEAR_STRONG"}) is None
+    assert adx_regime_hint({"regime": "TREND"}) == "TREND"
+    assert adx_regime_hint({"regime": "RANGE"}) == "RANGE"
+    assert adx_regime_hint(None) is None
+
+
+def test_strong_trend_setup_blocks_adx_range_not_cascade_label():
+    gp = _get_param_factory()
+    kwargs = dict(
+        adx=40,
+        adx_threshold=22,
+        close=110,
+        ema=100,
+        st_dir=1,
+        get_param=gp,
+    )
+    assert is_strong_trend_from_setup("LONG", regime="RANGE", **kwargs) is False
+    assert is_strong_trend_from_setup("LONG", regime="TREND_BULL_STRONG", **kwargs) is True
+    assert is_strong_trend_from_setup("LONG", regime=None, **kwargs) is True
 
 
 def test_trend_lt_context_strong_trend():

@@ -61,7 +61,7 @@ Sanity-check only.
 
 APPROVE when ALL of:
 1. Direction is a fade (BUY at/near range low, SELL at/near range high)
-2. R:R meets the capital risk-profile minimum (after any TP trim)
+2. R:R meets the strategy min_rr (default 2.0) after any TP trim — not the looser capital-profile floor
 3. Volume ratio >= 50%
 4. No clear 4h fight vs the fade (if MTF unavailable, ignore HTF)
 5. TP stays inside the box (trim optimistic breakout TPs to the opposite bound)
@@ -70,7 +70,7 @@ REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
 - Close already outside the box / range clearly broken (BREAKOUT)
 - BUY from the upper half or SELL from the lower half (WRONG_SIDE)
-- Computed R:R below profile minimum (BAD_RR)
+- Computed R:R below strategy min_rr (BAD_RR)
 - 1h ADX expanding into a trend (RANGE_DEAD)
 
 Do NOT reject solely because:

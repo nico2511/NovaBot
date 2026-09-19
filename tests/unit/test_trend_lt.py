@@ -22,9 +22,14 @@ def _ohlcv(n=250, start=100.0, drift=0.05):
 
 def test_trend_lt_persona_and_criteria():
     s = StrategyTrendLT({"params": {}})
-    assert "LT" in s.get_ai_persona().upper() or "SWING" in s.get_ai_persona().upper()
-    assert s.get_ai_validation_criteria()
-    assert "1h" in s.get_ai_validation_criteria().lower() or "LT" in s.get_ai_validation_criteria().upper()
+    persona = s.get_ai_persona()
+    criteria = s.get_ai_validation_criteria()
+    assert "LT" in persona.upper() or "SWING" in persona.upper()
+    assert criteria
+    assert "1h" in criteria.lower() or "LT" in criteria.upper()
+    assert "72" in persona
+    assert "150%" not in persona
+    assert "150%" not in criteria
 
 
 def test_trend_lt_rejects_without_1h():
@@ -91,3 +96,33 @@ def test_trend_lt_geometry_rejects_trimmed_rr_below_min():
     assert reason is not None
     assert "min_rr" in reason
     assert s._last_signal_bar is None
+
+
+def test_trend_lt_generate_ignores_15m_engine_regime(monkeypatch):
+    captured = {}
+    import strategies.trend_lt as mod
+
+    orig = mod.is_strong_trend_from_setup
+
+    def spy(*args, **kwargs):
+        captured["regime"] = kwargs.get("regime", "MISSING")
+        return orig(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "is_strong_trend_from_setup", spy)
+    s = StrategyTrendLT(
+        {
+            "params": {
+                "cooldown_minutes": 0,
+                "require_pullback": False,
+                "adx_threshold": 1,
+                "min_adx_slope": -50,
+                "max_rsi_long": 100,
+                "min_volume_ratio_pct": 0,
+                "max_extension_atr": 99,
+            }
+        }
+    )
+    df = _ohlcv(n=250, start=100.0, drift=0.08)
+    s.generate_signal(df, extra_data={"1h": df, "regime": "RANGE", "regime_adx": "RANGE"})
+    assert "regime" in captured
+    assert captured["regime"] is None

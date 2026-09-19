@@ -178,12 +178,17 @@ class StrategyEngine:
             regime = "TREND"
         else:
             regime = "RANGE"
+
+        # ADX tape before cascade overlay — 15m strategy selection may still
+        # upgrade to TREND_*_STRONG, but LT/ST strong-trend must see RANGE/TREND.
+        regime_adx = regime
             
         # Log if trend rejected due to slope
         if current_adx > threshold and adx_slope < -3:
             print(f"📉 Trend Rejected: ADX {current_adx:.1f} but Slope {adx_slope:.2f} (dropping too fast)")
 
         extra_data = dict(extra_data or {})
+        extra_data["regime_adx"] = regime_adx
         extra_data["regime"] = regime
         extra_data["regime_adx_threshold"] = float(threshold)
 
@@ -197,6 +202,7 @@ class StrategyEngine:
         elif detect_bull_cascade(work_15m, use_live=True)[0]:
             regime = "TREND_BULL_STRONG"
         extra_data["regime"] = regime
+        extra_data["regime_adx"] = regime_adx
 
         # Add indicators to df for strategies
         df['ADX_14'] = adx_df['ADX'] # Save specific column
@@ -428,6 +434,7 @@ class StrategyEngine:
         # Live values are still exposed separately for debugging.
         return {
             "regime": regime,
+            "regime_adx": regime_adx,
             "adx": float(current_adx),
             "adx_slope": float(adx_slope),
             "rsi": float(rsi_series.iloc[-2]),

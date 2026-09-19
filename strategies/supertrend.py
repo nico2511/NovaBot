@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from strategies.base import BaseStrategy
 from strategies.trend_regime import (
+    adx_regime_hint,
     effective_max_rsi_long,
     effective_min_adx_slope,
     effective_min_rsi_short,
@@ -55,7 +56,7 @@ class StrategySupertrend(BaseStrategy):
        For SELL, Proposed TP should be >= Swing Low (trim above it if needed). Prefer a realistic structural TP
        over a purely mechanical min_rr extension beyond local swing. Put the trimmed TP in suggested_adjustments.tp.
     5. REJECT if volume_ratio < strategy min_volume_ratio_pct of average (default 80%; 55% in strong trend).
-    6. REJECT chase entries: BUY with RSI > 60 or SELL with RSI < 40 (70/30 when ADX ≥ strong_trend_adx_min), unless volume > 150% avg.
+    6. REJECT chase entries: BUY with RSI > 60 or SELL with RSI < 40 (70/30 when ADX ≥ strong_trend_adx_min). Volume does NOT override this gate — generate already applied it.
     7. If MTF sentiment is unavailable, do NOT invent higher-TF structure — stay neutral on HTF and judge 15m + volume only.
     8. If MTF 1h/4h clearly conflicts with the 15m signal direction, REJECT as COUNTER_TREND.
     9. When structure is only "almost ok", REJECT or ask for better location — do not default to APPROVE.
@@ -68,20 +69,20 @@ Your job is a sanity check with hard reject rules — not a rubber stamp.
 
 APPROVE when ALL of:
 1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
-2. Computed R:R meets the risk-profile minimum (after any TP trim below)
+2. Computed R:R meets the strategy min_rr (default 2.0) after any TP trim — not the looser capital-profile floor
 3. Volume ratio >= strategy min_volume_ratio_pct of average (default 80%)
 4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
 5. TP is structurally realistic vs Key Levels:
    - BUY: Proposed TP must be <= Swing High. If Proposed TP > Swing High, TRIM TP slightly below Swing High
      via suggested_adjustments.tp (do not keep an optimistic breakout TP by default).
    - SELL: Proposed TP must be >= Swing Low. If Proposed TP < Swing Low, TRIM TP slightly above Swing Low.
-   - If after a required trim the R:R falls below profile minimum, REJECT as BAD_RR (do not approve an undersized target).
+   - If after a required trim the R:R falls below strategy min_rr, REJECT as BAD_RR (do not approve an undersized target).
 
 REJECT when ANY of:
 - volume_ratio < strategy min_volume_ratio_pct (WEAK_VOLUME)
-- BUY with RSI > 60 or SELL with RSI < 40 without volume > 150% (OVEREXTENDED chase; 70/30 in strong trend)
+- BUY with RSI > 60 or SELL with RSI < 40 (OVEREXTENDED chase; 70/30 in strong trend). No volume override.
 - 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
-- Computed R:R below profile minimum (BAD_RR)
+- Computed R:R below strategy min_rr (BAD_RR)
 - TP requires a breakout beyond Swing High/Low and you did not trim (OPTIMISTIC_TP)
 
 Do NOT reject solely because:
@@ -215,9 +216,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         else:
             extension_atr = 99.0
 
-        regime_hint = None
-        if isinstance(meta, dict) and isinstance(meta.get("regime"), str):
-            regime_hint = meta.get("regime")
+        regime_hint = adx_regime_hint(meta if isinstance(meta, dict) else None)
         strong_trend = is_strong_trend_from_setup(
             bias,
             adx=adx,
@@ -574,9 +573,7 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
                 f"15m trend filter not aligned (EMA{p['ema_filter']}/Supertrend)"
             )
 
-        regime_hint = None
-        if extra_data and isinstance(extra_data.get("regime"), str):
-            regime_hint = extra_data.get("regime")
+        regime_hint = adx_regime_hint(extra_data)
         strong_trend = is_strong_trend_from_setup(
             self.entry_direction,
             adx=float(adx_15m),

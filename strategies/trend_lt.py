@@ -61,8 +61,8 @@ class StrategyTrendLT(BaseStrategy):
     2. ATR/SuperTrend stops of ~2%-8% on 1h perps can be normal — not auto-reject.
     3. Prefer pullback-to-1h-ST then reclaim. Reject mid-impulse chase.
     4. TP should respect local structure (trim to swing when proposed TP is optimistic).
-    5. REJECT if volume_ratio < 50% of average (WEAK_VOLUME).
-    6. REJECT chase: BUY RSI > 65 or SELL RSI < 35 without volume > 150%.
+    5. REJECT if volume_ratio < 50% of average (45% in strong trend) (WEAK_VOLUME).
+    6. REJECT chase: BUY RSI > 65 or SELL RSI < 35 (72/28 when 1h ADX ≥ strong_trend_adx_min). Volume does NOT override.
     7. If MTF 1h bias or MIXED status fights the signal, REJECT as COUNTER_TREND.
     8. If MTF 4h clearly fights the 1h signal, REJECT as COUNTER_TREND.
     9. When confluence is mixed, REJECT — do not rubber-stamp.
@@ -74,17 +74,17 @@ and a 1h pullback-to-ST reclaim. Sanity-check only.
 
 APPROVE when ALL of:
 1. Direction aligns with 1h trend / available higher-TF bias
-2. R:R meets the capital risk-profile minimum (after any TP trim)
-3. Volume ratio >= 50%
+2. R:R meets the strategy min_rr (default 2.0) after any TP trim — not the looser capital-profile floor
+3. Volume ratio >= 50% (45% in strong trend)
 4. No clear 4h fight vs signal (if MTF unavailable, ignore HTF)
 5. TP is structurally realistic vs Key Levels (trim optimistic breakout TPs)
 
 REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
-- BUY RSI > 65 or SELL RSI < 35 without volume > 150% (OVEREXTENDED)
+- BUY RSI > 65 or SELL RSI < 35 (OVEREXTENDED; 72/28 in strong trend). No volume override.
 - 1h MTF bias opposite to signal OR 1h status MIXED (COUNTER_TREND / NO_CONFLUENCE)
 - Clear 4h counter-trend
-- Computed R:R below profile minimum (BAD_RR)
+- Computed R:R below strategy min_rr (BAD_RR)
 - RSI slope strongly against direction (already hard-vetoed before you see this)
 
 Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
@@ -519,9 +519,8 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             self.looking_for_entry = False
             return self._reject("1h trend filter not aligned (EMA200 vs 1h SuperTrend line)")
 
-        regime_hint = None
-        if extra_data and isinstance(extra_data.get("regime"), str):
-            regime_hint = extra_data.get("regime")
+        # Strong-trend is 1h ADX/EMA/ST only. Engine extra_data.regime is the
+        # 15m tape (RANGE / TREND_*_STRONG) and must not block or inflate 1h relax.
         strong_trend = is_strong_trend_from_setup(
             self.entry_direction,
             adx=float(adx),
@@ -530,7 +529,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             ema=float(ema_filter),
             st_dir=int(st_dir),
             get_param=self.get_param,
-            regime=regime_hint,
+            regime=None,
         )
 
         try:

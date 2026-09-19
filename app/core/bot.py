@@ -601,6 +601,7 @@ class BotContext:
 
             technical_context = {
                 "regime": result.get("regime"),
+                "regime_adx": result.get("regime_adx"),
                 "adx": round(result.get("adx", 0), 2),
                 "adx_slope": round(result.get("adx_slope", 0), 2),
                 "rsi": round(result.get("rsi", 0), 2),
@@ -993,6 +994,48 @@ class BotContext:
             return " | ".join(parts)
         
         return "N/A (Analysis pending)"
+
+    @staticmethod
+    def _apply_strategy_tape_overlay(
+        market_context: dict,
+        *,
+        sig_tf: str,
+        technical_context: dict = None,
+        ai_df=None,
+        strat_name: str = None,
+    ) -> dict:
+        """
+        Align AI / hard-veto tape with generate_signal without leaking TFs.
+
+        Cascades: overlay max(confirmed, live) volume on the strategy TF so a
+        forming spike that armed the signal is not killed by confirmed-only vol.
+        SuperTrend 15m: overlay engine confirmed volume + ADX RANGE/TREND.
+        Never overlay TREND_*_STRONG — that label would hide ADX RANGE and
+        disable range_exhaustion_veto.
+        1h plans: no 15m overlay.
+        """
+        ctx = market_context if isinstance(market_context, dict) else {}
+        name = str(strat_name or "").strip().lower()
+        from app.utils.market_metrics import is_missing_volume_ratio, volume_ratio_for_gate
+
+        if name in CASCADE_STRATEGY_NAMES:
+            gated = volume_ratio_for_gate(ai_df, live_cascade=True)
+            if not is_missing_volume_ratio(gated):
+                ctx["volume_ratio"] = round(float(gated), 1)
+            return ctx
+
+        tf = str(sig_tf or "").strip().lower()
+        if tf in ("15m", "15") and isinstance(technical_context, dict):
+            if technical_context.get("volume_ratio") is not None:
+                ctx["volume_ratio"] = technical_context["volume_ratio"]
+            adx_reg = technical_context.get("regime_adx")
+            if isinstance(adx_reg, str) and adx_reg.strip().upper() in ADX_REGIME_LABELS:
+                ctx["regime"] = adx_reg.strip().upper()
+            else:
+                raw = technical_context.get("regime")
+                if isinstance(raw, str) and raw.strip().upper() in ADX_REGIME_LABELS:
+                    ctx["regime"] = raw.strip().upper()
+        return ctx
 
     def _prepare_ai_context(self, position_data: dict = None, df=None, timeframe: str = None) -> dict:
         """Prepare market context for the AI gate on the strategy's declared timeframe."""
@@ -2839,6 +2882,10 @@ class BotContext:
                     self.active_strategies = sym_result.get("strategies", [])
 
                     regime = sym_result.get("regime", "UNKNOWN")
+                    regime_adx = sym_result.get("regime_adx")
+                    adx_regime_tag = ""
+                    if regime_adx and str(regime_adx) != str(regime):
+                        adx_regime_tag = f" (ADX {regime_adx})"
                     adx = sym_result.get("adx", 0)
                     rsi = sym_result.get("rsi", 0)
                     ema_20 = sym_result.get("ema_20", 0)
@@ -2865,6 +2912,7 @@ class BotContext:
                         cascade_ema = f" | EMA9/20 {cascade_arrow}"
                     analysis_metrics = {
                         "regime": regime,
+                        "regime_adx": regime_adx,
                         "adx": round(adx, 1),
                         "rsi": round(rsi, 1),
                         "volume_ratio": round(volume_ratio, 0),
@@ -2872,7 +2920,7 @@ class BotContext:
                         "symbol": analysis_symbol,
                     }
                     self.add_log(
-                        f"📊 {analysis_symbol} 15m Regime: {regime} | Price: {current_price:.4f} | "
+                        f"📊 {analysis_symbol} 15m Regime: {regime}{adx_regime_tag} | Price: {current_price:.4f} | "
                         f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
                         f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
                         metadata=analysis_metrics,
@@ -3015,17 +3063,15 @@ class BotContext:
                             df_5m=df_5m,
                         )
                         market_context = self._prepare_ai_context(df=ai_df, timeframe=sig_tf)
-                        # Engine snapshot is 15m — overlay volume + regime for 15m strategies
-                        # so hard veto / IA see the same tape as generate_signal + logs.
-                        if self._normalize_timeframe(sig_tf) == "15m" and isinstance(
-                            technical_context, dict
-                        ):
-                            if technical_context.get("volume_ratio") is not None:
-                                market_context["volume_ratio"] = technical_context[
-                                    "volume_ratio"
-                                ]
-                            if technical_context.get("regime"):
-                                market_context["regime"] = technical_context["regime"]
+                        market_context = self._apply_strategy_tape_overlay(
+                            market_context,
+                            sig_tf=sig_tf,
+                            technical_context=technical_context
+                            if isinstance(technical_context, dict)
+                            else None,
+                            ai_df=ai_df,
+                            strat_name=strat_name,
+                        )
                         market_context["mtf_sentiment"] = self._fetch_mtf_sentiment(
                             sig_symbol
                         )

@@ -25,10 +25,14 @@ def test_trend_lt_supports_trade_thesis():
     assert s.get_thesis_timeframe() == "1h"
 def test_supertrend_exposes_persona_and_criteria():
     s = StrategySupertrend({"params": {}})
-    assert s.get_ai_persona()
-    assert "SUPERTREND" in s.get_ai_persona().upper() or "TREND" in s.get_ai_persona().upper()
-    assert s.get_ai_validation_criteria()
-    assert "SUPERTREND" in s.get_ai_validation_criteria().upper()
+    persona = s.get_ai_persona()
+    criteria = s.get_ai_validation_criteria()
+    assert persona
+    assert "SUPERTREND" in persona.upper() or "TREND" in persona.upper()
+    assert criteria
+    assert "SUPERTREND" in criteria.upper()
+    assert "150%" not in persona
+    assert "150%" not in criteria
 
 
 def test_supertrend_hard_veto_same_thresholds_as_helper():

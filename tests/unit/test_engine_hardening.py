@@ -92,6 +92,7 @@ def test_engine_passes_regime_into_extra_data():
 
         def generate_signal(self, df, extra_data=None):
             seen["regime"] = (extra_data or {}).get("regime")
+            seen["regime_adx"] = (extra_data or {}).get("regime_adx")
             seen["thr"] = (extra_data or {}).get("regime_adx_threshold")
             return {"signal": "BUY", "price": float(df["close"].iloc[-2])}
 
@@ -113,13 +114,15 @@ def test_engine_passes_regime_into_extra_data():
         },
         index=dates,
     )
-    engine.analyze(df, extra_data={"symbol": "BTC"})
+    result = engine.analyze(df, extra_data={"symbol": "BTC"})
     assert seen.get("regime") in {
         "TREND",
         "RANGE",
         "TREND_BULL_STRONG",
         "TREND_BEAR_STRONG",
     }
+    assert seen.get("regime_adx") in {"TREND", "RANGE"}
+    assert result.get("regime_adx") in {"TREND", "RANGE"}
     assert seen.get("thr") == 22.0
 
 
