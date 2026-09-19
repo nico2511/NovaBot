@@ -18,6 +18,15 @@ from app.core.veto_checker import (
 )
 from app.services.indicators import ta
 from strategies.base import BaseStrategy
+from strategies.trend_regime import (
+    effective_max_rsi_long,
+    effective_min_adx_slope,
+    effective_min_rsi_short,
+    effective_veto_macd_momentum,
+    effective_veto_volume_pct,
+    is_strong_trend_from_context,
+    is_strong_trend_from_setup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +115,15 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             rsi_ob = float(self.get_param("veto_rsi_overbought", 85.0) or 85.0)
             rsi_os = float(self.get_param("veto_rsi_oversold", 20.0) or 20.0)
             adx_runaway = float(self.get_param("veto_adx_runaway", 85.0) or 85.0)
-            vol_floor = float(self.get_min_volume_ratio_pct() or 50.0)
+            adx_thr = float(self.get_param("adx_threshold", 18) or 18)
+            strong = is_strong_trend_from_context(
+                side, ctx, self.get_param, adx_threshold=adx_thr
+            )
+            base_vol = float(self.get_min_volume_ratio_pct() or 50.0)
+            vol_floor = effective_veto_volume_pct(base_vol, strong, self.get_param)
+            veto_macd = effective_veto_macd_momentum(
+                bool(self.get_param("veto_macd_momentum", True)), strong, self.get_param
+            )
 
             if rsi is not None:
                 rsi_f = float(rsi)
@@ -134,12 +151,15 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             if vol_f is not None and vol_f > 0.5 and vol_f < vol_floor:
                 return f"HARD VETO (LT): Low Volume ({vol_f:.1f}% < {vol_floor:.0f}%) @ {price:.4f}"
 
-            if bool(self.get_param("veto_macd_momentum", True)):
+            if veto_macd:
                 macd_reason = check_macd_momentum_veto(side, ctx)
                 if macd_reason:
                     return f"HARD VETO (LT): {macd_reason} @ {price:.4f}"
 
-            if bool(self.get_param("veto_mtf_sentiment", True)):
+            relax_mtf = strong and bool(
+                self.get_param("strong_trend_relax_mtf_veto", True)
+            )
+            if bool(self.get_param("veto_mtf_sentiment", True)) and not relax_mtf:
                 mtf_reason = check_mtf_sentiment_veto(
                     side,
                     str(ctx.get("mtf_sentiment") or ""),
@@ -481,17 +501,6 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             self.looking_for_entry = False
             return self._reject(f"1h ADX below threshold ({adx:.1f} < {p['adx_threshold']})")
 
-        try:
-            adx_prev = float(df_1h["ADX_14"].iloc[-3])
-            adx_slope = adx - adx_prev
-            if adx_slope < float(p["min_adx_slope"]):
-                self.looking_for_entry = False
-                return self._reject(
-                    f"1h ADX slope dying ({adx_slope:+.2f} < {p['min_adx_slope']:+.2f})"
-                )
-        except Exception:
-            adx_slope = 0.0
-
         if close > ema_filter and st_dir == 1:
             self.entry_direction = "LONG"
             self.looking_for_entry = True
@@ -502,13 +511,47 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             self.looking_for_entry = False
             return self._reject("1h trend filter not aligned (EMA200 vs 1h SuperTrend line)")
 
+        regime_hint = None
+        if extra_data and isinstance(extra_data.get("regime"), str):
+            regime_hint = extra_data.get("regime")
+        strong_trend = is_strong_trend_from_setup(
+            self.entry_direction,
+            adx=float(adx),
+            adx_threshold=float(p["adx_threshold"]),
+            close=float(close),
+            ema=float(ema_filter),
+            st_dir=int(st_dir),
+            get_param=self.get_param,
+            regime=regime_hint,
+        )
+
+        try:
+            adx_prev = float(df_1h["ADX_14"].iloc[-3])
+            adx_slope = adx - adx_prev
+            min_slope = effective_min_adx_slope(
+                float(p["min_adx_slope"]), strong_trend, self.get_param
+            )
+            if adx_slope < min_slope:
+                self.looking_for_entry = False
+                return self._reject(
+                    f"1h ADX slope dying ({adx_slope:+.2f} < {min_slope:+.2f})"
+                )
+        except Exception:
+            adx_slope = 0.0
+
         if not np.isnan(rsi):
-            if self.entry_direction == "LONG" and rsi > float(p["max_rsi_long"]):
+            max_rsi_long = effective_max_rsi_long(
+                float(p["max_rsi_long"]), strong_trend, self.get_param
+            )
+            min_rsi_short = effective_min_rsi_short(
+                float(p["min_rsi_short"]), strong_trend, self.get_param
+            )
+            if self.entry_direction == "LONG" and rsi > max_rsi_long:
                 self.looking_for_entry = False
-                return self._reject(f"Chase filter: 1h RSI {rsi:.1f} > {p['max_rsi_long']:.0f}")
-            if self.entry_direction == "SHORT" and rsi < float(p["min_rsi_short"]):
+                return self._reject(f"Chase filter: 1h RSI {rsi:.1f} > {max_rsi_long:.0f}")
+            if self.entry_direction == "SHORT" and rsi < min_rsi_short:
                 self.looking_for_entry = False
-                return self._reject(f"Chase filter: 1h RSI {rsi:.1f} < {p['min_rsi_short']:.0f}")
+                return self._reject(f"Chase filter: 1h RSI {rsi:.1f} < {min_rsi_short:.0f}")
             try:
                 rsi_prev = float(df_1h["RSI_14"].iloc[-3])
                 rsi_delta = rsi - rsi_prev
@@ -572,9 +615,11 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             "sl": float(sl),
             "tp": float(tp),
             "price": float(entry),
+            "strong_trend": bool(strong_trend),
             "comment": (
                 f"Trend LT: 1h {self.entry_direction} + pullback-to-ST reclaim. "
                 f"ADX: {adx:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 1h ST/ATR"
+                f"{', strong-trend relax' if strong_trend else ''}"
             ),
         }
 

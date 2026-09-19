@@ -197,23 +197,35 @@ REJECT range climax traps:
         )
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
+        from strategies.trend_regime import cascade_relaxed_limits
+
         p = self._params_snapshot()
+        ctx = market_context or {}
+        rsi_thr, min_vol, veto_macd = cascade_relaxed_limits(
+            signal,
+            ctx,
+            self.get_param,
+            default_rsi=float(p["veto_rsi_overbought"]),
+            default_min_vol=float(p["min_volume_ratio_pct"]),
+            default_veto_macd=bool(self.get_param("veto_macd_momentum", True)),
+            rsi_mode="above",
+        )
         return check_cascade_hard_veto(
             signal,
-            market_context,
+            ctx,
             direction="long",
             blocked_side_message="Spark is long-only (SELL blocked)",
-            rsi_threshold=float(p["veto_rsi_overbought"]),
+            rsi_threshold=rsi_thr,
             rsi_mode="above",
             exhaustion_message="5m spark may be exhausted",
-            min_volume_ratio_pct=float(p["min_volume_ratio_pct"]),
+            min_volume_ratio_pct=min_vol,
             volume_spike_pct=float(p["volume_spike_pct"]),
             veto_vol_slope_min=float(p["veto_vol_slope_min"]),
             continuation_label="spark",
             range_exhaustion_enabled=bool(p["range_exhaustion_enabled"]),
             range_adx_max=float(p["range_adx_max"]),
             range_rsi_long_min=float(p["range_rsi_long_min"]),
-            veto_macd_momentum=bool(self.get_param("veto_macd_momentum", True)),
+            veto_macd_momentum=veto_macd,
         )
 
     def get_scan_timeframe(self) -> str:

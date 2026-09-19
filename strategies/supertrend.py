@@ -2,6 +2,16 @@ from app.services.indicators import ta
 import pandas as pd
 import numpy as np
 from strategies.base import BaseStrategy
+from strategies.trend_regime import (
+    effective_max_rsi_long,
+    effective_min_adx_slope,
+    effective_min_rsi_short,
+    effective_min_volume_ratio_pct,
+    effective_veto_macd_momentum,
+    effective_veto_volume_pct,
+    is_strong_trend_from_context,
+    is_strong_trend_from_setup,
+)
 
 class StrategySupertrend(BaseStrategy):
     """
@@ -102,19 +112,30 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         """Strategy-owned hard veto — SuperTrend 15m thresholds via shared helper."""
         from app.core.veto_checker import check_hard_veto as _helper
 
-        vol_floor = float(self.get_min_volume_ratio_pct() or 80.0)
+        ctx = market_context or {}
+        adx_thr = float(self.get_param("adx_threshold", 22) or 22)
+        strong = is_strong_trend_from_context(
+            signal, ctx, self.get_param, adx_threshold=adx_thr
+        )
+        base_vol = float(self.get_min_volume_ratio_pct() or 80.0)
+        vol_floor = effective_veto_volume_pct(base_vol, strong, self.get_param)
+        veto_macd = effective_veto_macd_momentum(
+            bool(self.get_param("veto_macd_momentum", True)), strong, self.get_param
+        )
         try:
             return _helper(
                 signal,
-                market_context or {},
+                ctx,
                 rsi_overbought=float(self.get_param("veto_rsi_overbought", 80.0) or 80.0),
                 rsi_oversold=float(self.get_param("veto_rsi_oversold", 30.0) or 30.0),
                 adx_runaway=float(self.get_param("veto_adx_runaway", 75.0) or 75.0),
                 low_volume_ratio_pct=vol_floor,
-                veto_macd_momentum=bool(self.get_param("veto_macd_momentum", True)),
+                veto_macd_momentum=veto_macd,
             )
         except (TypeError, ValueError):
-            return _helper(signal, market_context or {}, low_volume_ratio_pct=vol_floor)
+            return _helper(
+                signal, ctx, low_volume_ratio_pct=vol_floor, veto_macd_momentum=veto_macd
+            )
 
     def get_scan_timeframe(self) -> str:
         return "15m"
@@ -506,43 +527,10 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         if self._same_bar_already_signaled(now_ts):
             return self._reject("Already evaluated this bar — waiting for next close")
 
-        # --- ANTI STOP-HUNT GUARD (Thin liquidity + neutral RSI) ---
-        # In thin markets, stop-hunts are common; avoid taking trend entries with no momentum edge.
-        try:
-            vol_now = float(df["volume"].iloc[-2]) if "volume" in df.columns else None
-            vol_ma = float(df["volume"].iloc[:-1].rolling(50).mean().iloc[-2]) if "volume" in df.columns else None
-            vol_ratio_pct = (vol_now / vol_ma) * 100.0 if vol_now is not None and vol_ma and vol_ma > 0 else None
-
-            if (
-                vol_ratio_pct is not None
-                and vol_ratio_pct < float(p["min_volume_ratio_pct"])
-                and not np.isnan(rsi_15m)
-                and float(p["rsi_neutral_low"]) <= rsi_15m <= float(p["rsi_neutral_high"])
-            ):
-                return self._reject(
-                    f"Thin liquidity + RSI neutral (vol={vol_ratio_pct:.1f}% < {p['min_volume_ratio_pct']:.0f}%, "
-                    f"RSI={rsi_15m:.1f}) — stop-hunt risk"
-                )
-        except Exception:
-            # If we can't compute the guard reliably, stay permissive (do not block).
-            pass
-
         # --- 15m SETUP ---
         if adx_15m < p["adx_threshold"]:
             self.looking_for_entry = False
             return self._reject(f"ADX below threshold ({adx_15m:.1f} < {p['adx_threshold']})")
-
-        # Reject dying trends (AAVE/UNI style: ADX still high but slope negative)
-        try:
-            adx_prev = float(df["ADX_14"].iloc[-3])
-            adx_slope = float(adx_15m) - adx_prev
-            if adx_slope < float(p["min_adx_slope"]):
-                self.looking_for_entry = False
-                return self._reject(
-                    f"ADX slope dying ({adx_slope:+.2f} < {p['min_adx_slope']:+.2f}) — skip late trend entry"
-                )
-        except Exception:
-            adx_slope = 0.0
 
         atr_15m = float(last_15m.get("ATR_14", 0) or 0)
         st_15m = float(last_15m.get("Supertrend", 0) or 0)
@@ -559,17 +547,74 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
                 f"15m trend filter not aligned (EMA{p['ema_filter']}/Supertrend)"
             )
 
+        regime_hint = None
+        if extra_data and isinstance(extra_data.get("regime"), str):
+            regime_hint = extra_data.get("regime")
+        strong_trend = is_strong_trend_from_setup(
+            self.entry_direction,
+            adx=float(adx_15m),
+            adx_threshold=float(p["adx_threshold"]),
+            close=float(close_15m),
+            ema=float(ema_filter_15m),
+            st_dir=int(st_dir_15m),
+            get_param=self.get_param,
+            regime=regime_hint,
+        )
+
+        try:
+            adx_prev = float(df["ADX_14"].iloc[-3])
+            adx_slope = float(adx_15m) - adx_prev
+            min_slope = effective_min_adx_slope(
+                float(p["min_adx_slope"]), strong_trend, self.get_param
+            )
+            if adx_slope < min_slope:
+                self.looking_for_entry = False
+                return self._reject(
+                    f"ADX slope dying ({adx_slope:+.2f} < {min_slope:+.2f}) — skip late trend entry"
+                )
+        except Exception:
+            adx_slope = 0.0
+
+        thin_vol_floor = effective_min_volume_ratio_pct(
+            float(p["min_volume_ratio_pct"]),
+            strong_trend,
+            self.get_param,
+            thin_guard=True,
+        )
+        try:
+            vol_now = float(df["volume"].iloc[-2]) if "volume" in df.columns else None
+            vol_ma = float(df["volume"].iloc[:-1].rolling(50).mean().iloc[-2]) if "volume" in df.columns else None
+            vol_ratio_pct = (vol_now / vol_ma) * 100.0 if vol_now is not None and vol_ma and vol_ma > 0 else None
+            if (
+                vol_ratio_pct is not None
+                and vol_ratio_pct < thin_vol_floor
+                and not np.isnan(rsi_15m)
+                and float(p["rsi_neutral_low"]) <= rsi_15m <= float(p["rsi_neutral_high"])
+            ):
+                return self._reject(
+                    f"Thin liquidity + RSI neutral (vol={vol_ratio_pct:.1f}% < {thin_vol_floor:.0f}%, "
+                    f"RSI={rsi_15m:.1f}) — stop-hunt risk"
+                )
+        except Exception:
+            pass
+
         # Chase / extension filters on 15m context (before spending 1m trigger work)
         if not np.isnan(rsi_15m):
-            if self.entry_direction == "LONG" and rsi_15m > float(p["max_rsi_long"]):
+            max_rsi_long = effective_max_rsi_long(
+                float(p["max_rsi_long"]), strong_trend, self.get_param
+            )
+            min_rsi_short = effective_min_rsi_short(
+                float(p["min_rsi_short"]), strong_trend, self.get_param
+            )
+            if self.entry_direction == "LONG" and rsi_15m > max_rsi_long:
                 self.looking_for_entry = False
                 return self._reject(
-                    f"Chase filter: 15m RSI {rsi_15m:.1f} > {p['max_rsi_long']:.0f} — wait pullback"
+                    f"Chase filter: 15m RSI {rsi_15m:.1f} > {max_rsi_long:.0f} — wait pullback"
                 )
-            if self.entry_direction == "SHORT" and rsi_15m < float(p["min_rsi_short"]):
+            if self.entry_direction == "SHORT" and rsi_15m < min_rsi_short:
                 self.looking_for_entry = False
                 return self._reject(
-                    f"Chase filter: 15m RSI {rsi_15m:.1f} < {p['min_rsi_short']:.0f} — wait bounce"
+                    f"Chase filter: 15m RSI {rsi_15m:.1f} < {min_rsi_short:.0f} — wait bounce"
                 )
 
         if atr_15m > 0 and st_15m > 0:
@@ -654,9 +699,11 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
                 "sl": float(sl),
                 "tp": float(tp),
                 "price": float(entry),
+                "strong_trend": bool(strong_trend),
                 "comment": (
                     f"Supertrend: 15m {self.entry_direction} + pullback-to-ST + {trigger_note}. "
                     f"ADX: {adx_15m:.1f} (slope {adx_slope:+.2f}), SL {sl_pct:.2f}% via 15m ST/ATR"
+                    f"{', strong-trend relax' if strong_trend else ''}"
                 ),
             }
 

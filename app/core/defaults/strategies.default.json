@@ -45,10 +45,18 @@
             "veto_rsi_overbought": 80,
             "veto_rsi_oversold": 30,
             "veto_adx_runaway": 75,
-            "veto_macd_momentum": true
+            "veto_macd_momentum": true,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 35,
+            "strong_trend_max_rsi_long": 70,
+            "strong_trend_min_rsi_short": 30,
+            "strong_trend_min_adx_slope": -1.2,
+            "strong_trend_veto_volume_pct": 55,
+            "strong_trend_thin_liquidity_pct": 55,
+            "strong_trend_veto_macd_momentum": false
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
-        "version": "2026-08-reclaim-v1",
+        "version": "2026-09-strong-trend-v1",
         "expected_freq": "Medium (pullback + ST reclaim)"
     },
     "trend_lt": {
@@ -82,10 +90,25 @@
             "veto_rsi_overbought": 85,
             "veto_rsi_oversold": 20,
             "veto_adx_runaway": 85,
-            "veto_macd_momentum": true
+            "veto_macd_momentum": true,
+            "veto_mtf_sentiment": true,
+            "veto_mtf_1h_bias_conflict": true,
+            "veto_mtf_1h_mixed": true,
+            "veto_mtf_4h_bias_conflict": true,
+            "veto_rsi_slope": true,
+            "veto_rsi_slope_min_long": -4.0,
+            "veto_rsi_slope_max_short": 4.0,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 32,
+            "strong_trend_max_rsi_long": 72,
+            "strong_trend_min_rsi_short": 28,
+            "strong_trend_min_adx_slope": -1.0,
+            "strong_trend_veto_volume_pct": 45,
+            "strong_trend_veto_macd_momentum": false,
+            "strong_trend_relax_mtf_veto": true
         },
         "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
-        "version": "2026-08-lt-v1",
+        "version": "2026-09-strong-trend-v1",
         "expected_freq": "Low (1h pullback + reclaim)"
     },
     "range_lt": {
@@ -162,7 +185,12 @@
             "max_extension_atr": 3.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 4,
-            "cascade_fresh_bonus": 10
+            "cascade_fresh_bonus": 10,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 28,
+            "strong_trend_rsi_oversold": 22,
+            "strong_trend_min_volume_ratio_pct": 80,
+            "strong_trend_veto_macd_momentum": false
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
         "version": "2026-09-cascade-rider-v4",
@@ -201,7 +229,12 @@
             "max_extension_atr": 3.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 4,
-            "cascade_fresh_bonus": 10
+            "cascade_fresh_bonus": 10,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 28,
+            "strong_trend_rsi_overbought": 78,
+            "strong_trend_min_volume_ratio_pct": 80,
+            "strong_trend_veto_macd_momentum": false
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
         "version": "2026-09-cascade-rider-v4",
@@ -240,7 +273,12 @@
             "max_extension_atr": 2.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 3,
-            "cascade_fresh_bonus": 10
+            "cascade_fresh_bonus": 10,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 28,
+            "strong_trend_rsi_overbought": 78,
+            "strong_trend_min_volume_ratio_pct": 80,
+            "strong_trend_veto_macd_momentum": false
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
         "version": "2026-09-spark-v2",
@@ -279,7 +317,12 @@
             "max_extension_atr": 2.5,
             "extension_ema_period": 9,
             "cascade_fresh_bars_max": 3,
-            "cascade_fresh_bonus": 10
+            "cascade_fresh_bonus": 10,
+            "strong_trend_relax_enabled": true,
+            "strong_trend_adx_min": 28,
+            "strong_trend_rsi_oversold": 22,
+            "strong_trend_min_volume_ratio_pct": 80,
+            "strong_trend_veto_macd_momentum": false
         },
         "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
         "version": "2026-09-ember-v2",

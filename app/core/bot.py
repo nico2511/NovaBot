@@ -3003,6 +3003,8 @@ class BotContext:
                             sig_symbol
                         )
                         market_context["strategy_timeframe"] = sig_tf
+                        if sig.get("strong_trend") is True:
+                            market_context["strong_trend"] = True
                         ai_context = self._ai_context_snapshot(market_context)
 
                         # --- HARD VETO (strategy-owned) before spending AI tokens ---

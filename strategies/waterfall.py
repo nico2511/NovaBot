@@ -200,23 +200,35 @@ REJECT range climax traps:
         )
 
     def check_hard_veto(self, signal: str, market_context: dict) -> Optional[str]:
+        from strategies.trend_regime import cascade_relaxed_limits
+
         p = self._params_snapshot()
+        ctx = market_context or {}
+        rsi_thr, min_vol, veto_macd = cascade_relaxed_limits(
+            signal,
+            ctx,
+            self.get_param,
+            default_rsi=float(p["veto_rsi_oversold"]),
+            default_min_vol=float(p["min_volume_ratio_pct"]),
+            default_veto_macd=bool(self.get_param("veto_macd_momentum", True)),
+            rsi_mode="below",
+        )
         return check_cascade_hard_veto(
             signal,
-            market_context,
+            ctx,
             direction="short",
             blocked_side_message="Waterfall is short-only (BUY blocked)",
-            rsi_threshold=float(p["veto_rsi_oversold"]),
+            rsi_threshold=rsi_thr,
             rsi_mode="below",
             exhaustion_message="cascade may be exhausted (knife catch)",
-            min_volume_ratio_pct=float(p["min_volume_ratio_pct"]),
+            min_volume_ratio_pct=min_vol,
             volume_spike_pct=float(p["volume_spike_pct"]),
             veto_vol_slope_min=float(p["veto_vol_slope_min"]),
             continuation_label="waterfall",
             range_exhaustion_enabled=bool(p["range_exhaustion_enabled"]),
             range_adx_max=float(p["range_adx_max"]),
             range_rsi_short_max=float(p["range_rsi_short_max"]),
-            veto_macd_momentum=bool(self.get_param("veto_macd_momentum", True)),
+            veto_macd_momentum=veto_macd,
         )
 
     def get_scan_timeframe(self) -> str:
