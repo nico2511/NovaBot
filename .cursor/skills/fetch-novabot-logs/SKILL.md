@@ -64,6 +64,28 @@ python .cursor/skills/fetch-novabot-logs/scripts/fetch_logs.py \
   --api-key "$API_KEY"
 ```
 
+## Récupération après formatage PC (plus de sync)
+
+La sync **push** (`sync_config.py`) part du repo local. Après un formatage, il manque
+souvent `.env`, `data/config/user_settings.json` et parfois une config stratégies à jour.
+
+1. Cloner le repo, `cp .env.example .env`
+2. Renseigner **au minimum** :
+   - `API_KEY` = même valeur que dans Coolify (variable du conteneur)
+   - `NOVABOT_API_URL` = URL publique du bot (ex. `https://…`, sans slash final)
+3. **Tirer** la config prod vers le disque :
+   ```bash
+   python .cursor/skills/fetch-novabot-logs/scripts/pull_config.py --apply
+   ```
+   Webhooks Discord : par défaut ils sont récupérés ; pour ne pas les écrire en local,
+   ajouter `--redact-webhooks`.
+4. Vérifier : `python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py` (doit être vide)
+5. Ensuite seulement, edits locaux + `sync_config.py --apply` pour repousser.
+
+Sans `API_KEY` / URL, les scripts échouent en 401 ou connection refused — ce n’est pas un bug git.
+
+Secrets **hors** git : `.env`, `user_settings.json` (gitignored). HL / OpenRouter restent dans Coolify `.env`.
+
 ## Agent workflow
 
 When the user asks to analyze logs:
@@ -84,6 +106,7 @@ If API is unreachable, report it and analyze `scratch/local/` only.
 |--------|---------|
 | `python .cursor/skills/fetch-novabot-logs/scripts/bot_report.py --fetch` | Fetch API + write `scratch/report.md` |
 | `python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py` | Compare local `data/config/` vs live API |
+| `python .cursor/skills/fetch-novabot-logs/scripts/pull_config.py --apply` | Pull live config → `data/config/` (recovery) |
 | `python .cursor/skills/fetch-novabot-logs/scripts/sync_config.py --apply` | Push local config to live via API |
 
 Deploy check workflow:
