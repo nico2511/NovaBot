@@ -145,7 +145,7 @@ def test_rocket_hard_veto_blocks_btc_like_range_blowoff():
 def test_rocket_generate_signal_rejects_wick_trap():
     s = StrategyRocket({"params": dict(_HAPPY_PARAMS)})
     df_15m = _bull_cascade_15m()
-    i = df_15m.index[-1]
+    i = df_15m.index[-2]
     close = float(df_15m.loc[i, "close"])
     df_15m.loc[i, "open"] = close - 0.08
     df_15m.loc[i, "high"] = close + 0.55
