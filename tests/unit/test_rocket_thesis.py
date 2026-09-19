@@ -1,5 +1,11 @@
 """Unit tests for evaluate_rocket_thesis."""
-from app.core.trade_thesis import THESIS_VALID, THESIS_WEAK, evaluate_rocket_thesis
+from app.core.trade_thesis import (
+    ACTION_HOLD,
+    ACTION_TIGHTEN_SL,
+    THESIS_VALID,
+    THESIS_WEAK,
+    evaluate_rocket_thesis,
+)
 
 
 def test_rocket_thesis_valid_while_cascade_active():
@@ -44,5 +50,44 @@ def test_rocket_thesis_weak_on_exhausted_rsi():
         prev_open=10.85,
         prev_close=10.95,
         prev_low=10.8,
+        rsi_exhaustion=80.0,
     )
     assert v.status == THESIS_WEAK
+    assert v.action == ACTION_TIGHTEN_SL
+
+
+def test_rocket_thesis_avax_like_no_instant_be_lock():
+    """RSI 72 right after entry (+0.02%) must not TIGHTEN_SL (AVAX 2026-09-19)."""
+    v = evaluate_rocket_thesis(
+        side="BUY",
+        entry=8.8537,
+        current_price=8.8555,
+        close_15m=8.855,
+        ema9=8.84,
+        rsi=72.1,
+        prev_open=8.84,
+        prev_close=8.85,
+        prev_low=8.82,
+        rsi_exhaustion=80.0,
+        weak_tighten_min_pnl_pct=0.35,
+    )
+    assert v.status == THESIS_VALID
+    assert v.action == ACTION_HOLD
+
+
+def test_rocket_rsi_weak_holds_sl_until_min_pnl():
+    v = evaluate_rocket_thesis(
+        side="BUY",
+        entry=10.0,
+        current_price=10.02,
+        close_15m=10.01,
+        ema9=9.95,
+        rsi=82.5,
+        prev_open=10.0,
+        prev_close=10.01,
+        prev_low=9.98,
+        rsi_exhaustion=80.0,
+        weak_tighten_min_pnl_pct=0.35,
+    )
+    assert v.status == THESIS_WEAK
+    assert v.action == ACTION_HOLD

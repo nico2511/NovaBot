@@ -650,12 +650,16 @@ def evaluate_rocket_thesis(
     prev_low: float = 0.0,
     cascade_low: Optional[float] = None,
     rsi_exhaustion: float = 82.0,
+    weak_tighten_min_pnl_pct: float = 0.35,
+    adx: float = 0.0,
+    adx_slope: float = 0.0,
     timeframe_label: str = "15m",
 ) -> ThesisVerdict:
     """Classify whether an open rocket long thesis still holds.
 
-    ``rsi_exhaustion`` mirrors strategy ``veto_rsi_overbought`` so BE-lock does
-    not fire inside the RSI band that was valid at entry.
+    ``rsi_exhaustion`` is intentionally **above** entry ``veto_rsi_overbought`` so
+    a fresh cascade is not BE-locked the tick RSI crosses the entry veto band.
+    ``weak_tighten_min_pnl_pct`` avoids TIGHTEN_SL on RSI-only weakness at +0.0x%.
     """
     side = (side or "").upper()
     if side != "BUY":
@@ -711,10 +715,20 @@ def evaluate_rocket_thesis(
         reasons = reasons or (f"{tf} rocket cascade still active",)
 
     pnl = _pnl_pct(side, entry, current_price)
+    rsi_only_weak = (
+        weak
+        and len(reasons) == 1
+        and reasons[0].startswith("RSI ")
+        and "fade risk" in reasons[0]
+    )
     if status == THESIS_DEAD:
         action = ACTION_CLOSE_IF_PROFIT
     elif status == THESIS_WEAK and pnl > 0:
-        action = ACTION_TIGHTEN_SL
+        min_pnl = float(weak_tighten_min_pnl_pct or 0.0)
+        if rsi_only_weak and pnl < min_pnl:
+            action = ACTION_HOLD
+        else:
+            action = ACTION_TIGHTEN_SL
     else:
         action = ACTION_HOLD
 
@@ -722,8 +736,8 @@ def evaluate_rocket_thesis(
         status=status,
         action=action,
         reasons=tuple(reasons),
-        adx=0.0,
-        adx_slope=0.0,
+        adx=float(adx or 0.0),
+        adx_slope=float(adx_slope or 0.0),
         st_direction=1,
         close=close_15m,
         supertrend=ema9,

@@ -311,6 +311,8 @@ REJECT range climax traps:
             work["ATR_14"] = ta.atr(work["high"], work["low"], work["close"], length=14)
         if "RSI_14" not in work.columns:
             work["RSI_14"] = ta.rsi(work["close"], length=14)
+        if "ADX_14" not in work.columns:
+            work["ADX_14"] = ta.adx(work["high"], work["low"], work["close"], 14)["ADX"]
         return work
 
     def _build_sl_tp(
@@ -507,8 +509,14 @@ REJECT range climax traps:
             close = float(last["close"])
             ema9 = float(last["EMA_9"])
             rsi = float(last["RSI_14"])
+            adx = float(last.get("ADX_14", 0) or 0)
         except (TypeError, ValueError):
             return None
+        try:
+            adx_prev = float(work["ADX_14"].iloc[-2])
+            adx_slope = adx - adx_prev
+        except (IndexError, TypeError, ValueError):
+            adx_slope = 0.0
 
         try:
             prev = work.iloc[-2]
@@ -521,6 +529,11 @@ REJECT range climax traps:
         side = str(trade.get("side") or "BUY").upper()
         entry = float(trade.get("entry") or trade.get("entry_price") or 0)
 
+        entry_veto_rsi = self._float_param("veto_rsi_overbought", 72.0)
+        thesis_rsi = self._float_param(
+            "thesis_rsi_exhaustion",
+            max(float(entry_veto_rsi) + 8.0, 80.0),
+        )
         return evaluate_rocket_thesis(
             side=side,
             entry=entry,
@@ -532,5 +545,10 @@ REJECT range climax traps:
             prev_close=prev_close,
             prev_low=prev_low,
             cascade_low=float(cascade_low) if cascade_low is not None else None,
-            rsi_exhaustion=self._float_param("veto_rsi_overbought", 72.0),
+            rsi_exhaustion=float(thesis_rsi),
+            weak_tighten_min_pnl_pct=self._float_param(
+                "thesis_weak_tighten_min_pnl_pct", 0.35
+            ),
+            adx=adx,
+            adx_slope=adx_slope,
         )
