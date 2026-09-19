@@ -219,6 +219,17 @@ def test_rocket_arms_on_missing_1m_confirm():
     assert s.entry_direction == "LONG"
 
 
+def test_rocket_does_not_arm_on_dead_volume():
+    s = StrategyRocket({"params": dict(_HAPPY_PARAMS)})
+    df_15m = _bull_cascade_15m()
+    df_15m["volume"] = 100.0
+    df_1m = _bull_1m_confirm()
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.looking_for_entry is False
+    assert "Volume" in (s.last_rejection_reason or "")
+
+
 def test_rocket_rejects_extended_cascade():
     s = StrategyRocket({"params": {**_HAPPY_PARAMS, "max_extension_atr": 0.5}})
     df_15m = _bull_cascade_15m()

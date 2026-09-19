@@ -67,3 +67,27 @@ def test_trend_lt_supports_trade_thesis():
     assert s.supports_trade_thesis() is True
     assert s.get_thesis_timeframe() == "1h"
     assert s.evaluate_trade_thesis({}, 100.0, df=None) is None
+
+
+def test_trend_lt_geometry_rejects_trimmed_rr_below_min():
+    s = StrategyTrendLT({"params": {"min_rr": 2.0}})
+    n = 40
+    close = np.full(n, 100.0)
+    high = np.full(n, 101.0)
+    high[-2] = 100.8  # nearest swing inside mechanical 2R target
+    df = pd.DataFrame(
+        {
+            "open": close - 0.1,
+            "high": high,
+            "low": np.full(n, 99.0),
+            "close": close,
+            "volume": np.full(n, 1000.0),
+        }
+    )
+    reason = s.geometry_reject_reason(
+        {"signal": "BUY", "price": 100.0, "sl": 97.0, "tp": 106.0},
+        df,
+    )
+    assert reason is not None
+    assert "min_rr" in reason
+    assert s._last_signal_bar is None

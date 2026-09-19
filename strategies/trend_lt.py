@@ -17,6 +17,10 @@ from app.core.veto_checker import (
     check_rsi_slope_veto,
 )
 from app.services.indicators import ta
+from app.utils.market_metrics import (
+    confirmed_volume_ratio_pct,
+    is_missing_volume_ratio,
+)
 from strategies.base import BaseStrategy
 from strategies.trend_regime import (
     effective_max_rsi_long,
@@ -266,17 +270,27 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
         else:
             extension_atr = 99.0
 
-        vol_ratio_pct = None
-        if "volume" in work.columns:
-            try:
-                vol_now = float(work["volume"].iloc[-2])
-                vol_ma = float(work["volume"].iloc[:-1].rolling(50).mean().iloc[-2])
-                if vol_ma > 0:
-                    vol_ratio_pct = (vol_now / vol_ma) * 100.0
-            except Exception:
-                vol_ratio_pct = None
+        max_rsi_long = float(p["max_rsi_long"])
+        min_rsi_short = float(p["min_rsi_short"])
+        strong = is_strong_trend_from_setup(
+            bias,
+            adx=adx,
+            adx_threshold=adx_threshold,
+            close=close,
+            ema=ema,
+            st_dir=st_dir,
+            get_param=self.get_param,
+        )
+        max_rsi_long = effective_max_rsi_long(max_rsi_long, strong, self.get_param)
+        min_rsi_short = effective_min_rsi_short(min_rsi_short, strong, self.get_param)
+        if bias == "LONG" and rsi > max_rsi_long:
+            return None
+        if bias == "SHORT" and rsi < min_rsi_short:
+            return None
 
-        if vol_ratio_pct is not None and vol_ratio_pct < min_vol_pct:
+        vol_ratio_pct = confirmed_volume_ratio_pct(work)
+        vol_floor = effective_veto_volume_pct(min_vol_pct, strong, self.get_param)
+        if not is_missing_volume_ratio(vol_ratio_pct) and vol_ratio_pct < vol_floor:
             return None
 
         reasons = []
@@ -290,21 +304,15 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
         if vol_ratio_pct is None:
             score += 5.0
         else:
-            score += min(15.0, 8.0 + (vol_ratio_pct - min_vol_pct) * 0.05)
+            score += min(15.0, 8.0 + (vol_ratio_pct - vol_floor) * 0.05)
             reasons.append(f"Vol {vol_ratio_pct:.0f}% of MA50")
 
-        # Prefer progressive RSI (not chase extremes on 1h scan)
-        max_rsi_long = float(p["max_rsi_long"])
-        min_rsi_short = float(p["min_rsi_short"])
         if bias == "LONG" and rsi <= max_rsi_long:
             score += 10.0
             reasons.append(f"RSI {rsi:.0f} ≤ chase cap {max_rsi_long:.0f}")
         elif bias == "SHORT" and rsi >= min_rsi_short:
             score += 10.0
             reasons.append(f"RSI {rsi:.0f} ≥ chase floor {min_rsi_short:.0f}")
-        else:
-            score += 2.0
-            reasons.append(f"RSI {rsi:.0f} near chase edge")
 
         if extension_atr <= 1.0:
             score += 15.0
@@ -600,15 +608,38 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
         if self.entry_direction == "SHORT" and close > st_line:
             return self._reject("Pullback not resumed — 1h still above ST")
 
+        vol_floor = effective_veto_volume_pct(
+            float(self.get_min_volume_ratio_pct() or 50.0),
+            strong_trend,
+            self.get_param,
+        )
+        vol_ratio_pct = confirmed_volume_ratio_pct(df_1h)
+        if not is_missing_volume_ratio(vol_ratio_pct) and vol_ratio_pct < vol_floor:
+            return self._reject(
+                f"Low Volume ({vol_ratio_pct:.1f}% < {vol_floor:.0f}%) — skip LT entry"
+            )
+
         entry = close
         sl, tp = self._build_sl_tp(self.entry_direction, entry, st_line, atr, p)
         if sl is None or tp is None:
             return self._reject("Failed to calculate valid LT SL/TP")
 
+        side = "BUY" if self.entry_direction == "LONG" else "SELL"
+        geo_reason = self.geometry_reject_reason(
+            {
+                "signal": side,
+                "price": float(entry),
+                "sl": float(sl),
+                "tp": float(tp),
+            },
+            df_1h,
+        )
+        if geo_reason:
+            self.looking_for_entry = False
+            return self._reject(geo_reason)
+
         self.looking_for_entry = False
         self._mark_signal_bar(now_ts)
-
-        side = "BUY" if self.entry_direction == "LONG" else "SELL"
         sl_pct = abs(entry - sl) / entry * 100.0
         return {
             "signal": side,

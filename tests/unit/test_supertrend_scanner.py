@@ -33,6 +33,9 @@ def test_score_dataframe_finds_aligned_uptrend():
             "min_volume_ratio_pct": 50,
             "rsi_neutral_low": 45,
             "rsi_neutral_high": 55,
+            "max_rsi_long": 100,
+            "min_rsi_short": 0,
+            "min_adx_slope": -50,
             # Synthetic linspace trend is intentionally steep vs ST — allow for unit test
             "max_extension_atr": 50,
         }

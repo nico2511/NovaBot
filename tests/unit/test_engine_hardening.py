@@ -81,6 +81,48 @@ def test_engine_isolates_crashing_strategy():
     print("✅ Engine correctly isolated the crashing strategy")
 
 
+def test_engine_passes_regime_into_extra_data():
+    seen = {}
+
+    class Probe:
+        def __init__(self):
+            self.name = "Probe"
+            self.config = {"params": {"skip_bb_anti_chase": True}}
+            self.last_rejection_reason = None
+
+        def generate_signal(self, df, extra_data=None):
+            seen["regime"] = (extra_data or {}).get("regime")
+            seen["thr"] = (extra_data or {}).get("regime_adx_threshold")
+            return {"signal": "BUY", "price": float(df["close"].iloc[-2])}
+
+    engine = StrategyEngine()
+    engine.strategies = {"Probe": Probe()}
+    engine.config = {
+        "market_regime": {"adx_threshold": 22},
+        "Probe": {"enabled": True, "type": "always_active", "timeframe": "15m"},
+    }
+    dates = pd.date_range(start="2023-01-01", periods=100, freq="15min")
+    close_prices = [100.0] * 80 + list(np.linspace(100, 90, 20))
+    df = pd.DataFrame(
+        {
+            "close": close_prices,
+            "high": [p + 0.5 for p in close_prices],
+            "low": [p - 0.5 for p in close_prices],
+            "open": close_prices,
+            "volume": [1000] * 100,
+        },
+        index=dates,
+    )
+    engine.analyze(df, extra_data={"symbol": "BTC"})
+    assert seen.get("regime") in {
+        "TREND",
+        "RANGE",
+        "TREND_BULL_STRONG",
+        "TREND_BEAR_STRONG",
+    }
+    assert seen.get("thr") == 22.0
+
+
 def _engine_df():
     dates = pd.date_range(start="2023-01-01", periods=100, freq="15min")
     close_prices = [100.0] * 80 + list(np.linspace(100, 90, 20))

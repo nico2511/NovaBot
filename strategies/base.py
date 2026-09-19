@@ -190,6 +190,23 @@ class BaseStrategy(ABC):
             )
         return out, None
 
+    def geometry_context_from_df(self, df) -> Dict[str, float]:
+        """Swing high/low on confirmed bars — same window the AI context uses."""
+        from app.utils.market_metrics import structural_swings
+
+        swing_high, swing_low = structural_swings(df)
+        return {
+            "swing_high": float(swing_high or 0.0),
+            "swing_low": float(swing_low or 0.0),
+        }
+
+    def geometry_reject_reason(self, signal: Dict[str, Any], df) -> Optional[str]:
+        """Return a veto reason if post-trim R:R is below min_rr, else None."""
+        _adjusted, reason = self.pre_ai_geometry_veto(
+            signal, self.geometry_context_from_df(df)
+        )
+        return reason
+
     def get_min_volume_ratio_pct(self) -> Optional[float]:
         """
         Optional volume floor (%) for post-AI WEAK_VOLUME hard gate.

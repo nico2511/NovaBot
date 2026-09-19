@@ -6,11 +6,14 @@ from strategies.trend_regime import (
     effective_max_rsi_long,
     effective_min_adx_slope,
     effective_min_rsi_short,
-    effective_min_volume_ratio_pct,
     effective_veto_macd_momentum,
     effective_veto_volume_pct,
     is_strong_trend_from_context,
     is_strong_trend_from_setup,
+)
+from app.utils.market_metrics import (
+    confirmed_volume_ratio_pct,
+    is_missing_volume_ratio,
 )
 
 class StrategySupertrend(BaseStrategy):
@@ -51,8 +54,8 @@ class StrategySupertrend(BaseStrategy):
     4. TP MUST RESPECT STRUCTURE: For BUY, Proposed TP should be <= Swing High (trim below it if needed).
        For SELL, Proposed TP should be >= Swing Low (trim above it if needed). Prefer a realistic structural TP
        over a purely mechanical min_rr extension beyond local swing. Put the trimmed TP in suggested_adjustments.tp.
-    5. REJECT if volume_ratio < 50% of average (WEAK_VOLUME) — no exceptions.
-    6. REJECT chase entries: BUY with RSI > 70 or SELL with RSI < 30 unless a clear breakout with volume > 150% avg.
+    5. REJECT if volume_ratio < strategy min_volume_ratio_pct of average (default 80%; 55% in strong trend).
+    6. REJECT chase entries: BUY with RSI > 60 or SELL with RSI < 40 (70/30 when ADX ≥ strong_trend_adx_min), unless volume > 150% avg.
     7. If MTF sentiment is unavailable, do NOT invent higher-TF structure — stay neutral on HTF and judge 15m + volume only.
     8. If MTF 1h/4h clearly conflicts with the 15m signal direction, REJECT as COUNTER_TREND.
     9. When structure is only "almost ok", REJECT or ask for better location — do not default to APPROVE.
@@ -66,7 +69,7 @@ Your job is a sanity check with hard reject rules — not a rubber stamp.
 APPROVE when ALL of:
 1. Direction aligns with market bias / 15m trend (or TREND_BEAR_STRONG for shorts)
 2. Computed R:R meets the risk-profile minimum (after any TP trim below)
-3. Volume ratio >= 50% of average
+3. Volume ratio >= strategy min_volume_ratio_pct of average (default 80%)
 4. No clear fight vs available higher-TF sentiment (1h/4h). If MTF says Unavailable, ignore HTF (do not invent it)
 5. TP is structurally realistic vs Key Levels:
    - BUY: Proposed TP must be <= Swing High. If Proposed TP > Swing High, TRIM TP slightly below Swing High
@@ -75,15 +78,15 @@ APPROVE when ALL of:
    - If after a required trim the R:R falls below profile minimum, REJECT as BAD_RR (do not approve an undersized target).
 
 REJECT when ANY of:
-- volume_ratio < 50% (WEAK_VOLUME)
-- BUY with RSI > 70 or SELL with RSI < 30 without volume > 150% (OVEREXTENDED chase)
+- volume_ratio < strategy min_volume_ratio_pct (WEAK_VOLUME)
+- BUY with RSI > 60 or SELL with RSI < 40 without volume > 150% (OVEREXTENDED chase; 70/30 in strong trend)
 - 1h/4h MTF clearly opposite to signal direction (COUNTER_TREND)
 - Computed R:R below profile minimum (BAD_RR)
 - TP requires a breakout beyond Swing High/Low and you did not trim (OPTIMISTIC_TP)
 
 Do NOT reject solely because:
 - SL width is wider than scalp norms (ATR/SuperTrend stops of ~1.5%-6% are normal on perps)
-- RSI is moderately extended (50-70 long / 30-50 short) in a trending regime
+- RSI is moderately extended (50-60 long / 40-50 short) in a trending regime
 - Price is not sitting exactly on a Fib level
 - Entry used ST reclaim instead of a fresh 1m SuperTrend flip
 
@@ -212,20 +215,47 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         else:
             extension_atr = 99.0
 
-        vol_ratio_pct = None
-        if "volume" in work.columns:
-            try:
-                vol_now = float(work["volume"].iloc[-2])
-                vol_ma = float(work["volume"].iloc[:-1].rolling(50).mean().iloc[-2])
-                if vol_ma > 0:
-                    vol_ratio_pct = (vol_now / vol_ma) * 100.0
-            except Exception:
-                vol_ratio_pct = None
+        regime_hint = None
+        if isinstance(meta, dict) and isinstance(meta.get("regime"), str):
+            regime_hint = meta.get("regime")
+        strong_trend = is_strong_trend_from_setup(
+            bias,
+            adx=adx,
+            adx_threshold=adx_threshold,
+            close=close,
+            ema=ema,
+            st_dir=st_dir,
+            get_param=self.get_param,
+            regime=regime_hint,
+        )
 
+        try:
+            adx_prev = float(work["ADX_14"].iloc[-3])
+            adx_slope = adx - adx_prev
+        except Exception:
+            adx_slope = 0.0
+        min_slope = effective_min_adx_slope(
+            float(p["min_adx_slope"]), strong_trend, self.get_param
+        )
+        if adx_slope < min_slope:
+            return None
+
+        max_rsi_long = effective_max_rsi_long(
+            float(p["max_rsi_long"]), strong_trend, self.get_param
+        )
+        min_rsi_short = effective_min_rsi_short(
+            float(p["min_rsi_short"]), strong_trend, self.get_param
+        )
+        if bias == "LONG" and rsi > max_rsi_long:
+            return None
+        if bias == "SHORT" and rsi < min_rsi_short:
+            return None
+
+        vol_ratio_pct = confirmed_volume_ratio_pct(work)
+        vol_floor = effective_veto_volume_pct(min_vol_pct, strong_trend, self.get_param)
         if (
-            vol_ratio_pct is not None
-            and vol_ratio_pct < min_vol_pct
-            and rsi_lo <= rsi <= rsi_hi
+            not is_missing_volume_ratio(vol_ratio_pct)
+            and vol_ratio_pct < vol_floor
         ):
             return None
 
@@ -233,22 +263,19 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         score = 0.0
         adx_edge = max(0.0, adx - adx_threshold)
         score += min(40.0, 20.0 + adx_edge * 2.0)
-        reasons.append(f"ADX {adx:.1f} (≥{adx_threshold:.0f})")
+        reasons.append(f"ADX {adx:.1f} (≥{adx_threshold:.0f}, slope {adx_slope:+.2f})")
         score += 30.0
         reasons.append(f"15m {bias}: price vs EMA{ema_len} + ST")
 
         if vol_ratio_pct is None:
             score += 5.0
-        elif vol_ratio_pct >= min_vol_pct:
-            score += min(15.0, 8.0 + (vol_ratio_pct - min_vol_pct) * 0.05)
-            reasons.append(f"Vol {vol_ratio_pct:.0f}% of MA50")
         else:
-            score += 3.0
-            reasons.append(f"Vol thin ({vol_ratio_pct:.0f}%) but RSI not neutral")
+            score += min(15.0, 8.0 + (vol_ratio_pct - vol_floor) * 0.05)
+            reasons.append(f"Vol {vol_ratio_pct:.0f}% of MA50")
 
         if rsi < rsi_lo or rsi > rsi_hi:
             score += 10.0
-            reasons.append(f"RSI {rsi:.0f} outside neutral band")
+            reasons.append(f"RSI {rsi:.0f} outside neutral band (not chase)")
         else:
             score += 3.0
 
@@ -575,28 +602,16 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
         except Exception:
             adx_slope = 0.0
 
-        thin_vol_floor = effective_min_volume_ratio_pct(
+        vol_floor = effective_veto_volume_pct(
             float(p["min_volume_ratio_pct"]),
             strong_trend,
             self.get_param,
-            thin_guard=True,
         )
-        try:
-            vol_now = float(df["volume"].iloc[-2]) if "volume" in df.columns else None
-            vol_ma = float(df["volume"].iloc[:-1].rolling(50).mean().iloc[-2]) if "volume" in df.columns else None
-            vol_ratio_pct = (vol_now / vol_ma) * 100.0 if vol_now is not None and vol_ma and vol_ma > 0 else None
-            if (
-                vol_ratio_pct is not None
-                and vol_ratio_pct < thin_vol_floor
-                and not np.isnan(rsi_15m)
-                and float(p["rsi_neutral_low"]) <= rsi_15m <= float(p["rsi_neutral_high"])
-            ):
-                return self._reject(
-                    f"Thin liquidity + RSI neutral (vol={vol_ratio_pct:.1f}% < {thin_vol_floor:.0f}%, "
-                    f"RSI={rsi_15m:.1f}) — stop-hunt risk"
-                )
-        except Exception:
-            pass
+        vol_ratio_pct = confirmed_volume_ratio_pct(df)
+        if not is_missing_volume_ratio(vol_ratio_pct) and vol_ratio_pct < vol_floor:
+            return self._reject(
+                f"Low Volume ({vol_ratio_pct:.1f}% < {vol_floor:.0f}%) — skip entry"
+            )
 
         # Chase / extension filters on 15m context (before spending 1m trigger work)
         if not np.isnan(rsi_15m):
@@ -684,10 +699,22 @@ If confluence is weak or mixed, prefer approved=false over forcing a trade."""
             if sl is None or tp is None:
                 return self._reject("Failed to calculate valid SL/TP (15m ST / ATR)")
 
+            side = "BUY" if self.entry_direction == "LONG" else "SELL"
+            geo_reason = self.geometry_reject_reason(
+                {
+                    "signal": side,
+                    "price": float(entry),
+                    "sl": float(sl),
+                    "tp": float(tp),
+                },
+                df,
+            )
+            if geo_reason:
+                self.looking_for_entry = False
+                return self._reject(geo_reason)
+
             self.looking_for_entry = False
             self._mark_signal_bar(now_ts)
-
-            side = "BUY" if self.entry_direction == "LONG" else "SELL"
             sl_pct = abs(entry - sl) / entry * 100.0
             trigger_note = (
                 f"1m flip (lb={p['trigger_flip_lookback']})"

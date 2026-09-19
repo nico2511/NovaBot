@@ -124,9 +124,10 @@ See [`base.py`](./base.py).
 - `get_ai_persona()` → string merged as **STRATEGY PERSONA (PRIMARY)** in AI validation.
 - `get_ai_validation_criteria()` → criteria block in the user prompt (or `None` for generic).
 - `check_hard_veto(side, ctx)` → reason string or `None`. Called **before** AI spend. **1 strategy = 1 veto plan** (do not blindly reuse ST 15m helpers for a 1h swing).
-- `get_scan_timeframe()` / `get_scan_interval_minutes()` / `score_scan_candidate(df, symbol=, meta=)` → strategy-owned universe ranking (default: no scan).
+- `get_scan_timeframe()` / `get_scan_interval_minutes()` / `score_scan_candidate(df, symbol=, meta=)` → strategy-owned universe ranking (default: no scan). Scan gates (chase RSI, ADX slope, volume floor) must match `generate_signal`.
 - `post_ai_adjust(signal, ai_result, ctx)` → mutate AI result (e.g. trim TP) **before** R:R / volume hard gates.
-- `get_min_volume_ratio_pct()` → post-AI WEAK_VOLUME floor (optional).
+- `geometry_reject_reason(signal, df)` / `pre_ai_geometry_veto` → refuse a mechanical min_rr TP that structural trim cannot keep.
+- `get_min_volume_ratio_pct()` → post-AI WEAK_VOLUME floor (optional). Volume % uses `app.utils.market_metrics.confirmed_volume_ratio_pct` (closed bar / MA50 of closed bars).
 - `get_rr_epsilon()` → default `0.02` when comparing post-trim R:R to capital profile min.
 - `supports_trade_thesis()` / `get_thesis_timeframe()` / `evaluate_trade_thesis(trade, price, *, df)` → in-trade plan invalidation (bot fetches OHLCV, strategy decides). Put plan bounds on the signal dict; bot persists them in `trade.metadata` at entry.
 

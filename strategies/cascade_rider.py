@@ -12,6 +12,10 @@ import pandas as pd
 
 from app.services.indicators import ta
 from app.core.veto_checker import check_macd_momentum_veto
+from app.utils.market_metrics import (
+    is_missing_volume_ratio,
+    volume_ratio_for_gate,
+)
 from strategies.cascade_exhaustion import (
     DEFAULT_RANGE_ADX_MAX,
     DEFAULT_RANGE_RSI_LONG_MIN,
@@ -374,22 +378,15 @@ def score_cascade_scan(
     if vol_slope is not None and vol_slope < float(params["veto_vol_slope_min"]):
         return None
 
-    vol_ratio_pct = None
-    # Volume spike is a live-cascade fuel signal; structure filters use confirmed bar.
-    vol_idx = bar_index(use_live=bool(live_active))
-    if "volume" in work.columns and len(work) >= 3:
-        try:
-            vol_now = float(work["volume"].iloc[vol_idx])
-            hist_end = -2 if vol_idx == -1 else vol_idx
-            vol_ma = float(work["volume"].iloc[:hist_end].rolling(50).mean().iloc[-1])
-            if vol_ma > 0:
-                vol_ratio_pct = (vol_now / vol_ma) * 100.0
-        except Exception:
-            vol_ratio_pct = None
-
+    vol_ratio_pct = volume_ratio_for_gate(work, live_cascade=bool(live_active))
     min_vol = float(params["min_volume_ratio_pct"])
     spike = float(params["volume_spike_pct"])
-    if vol_ratio_pct is not None and vol_ratio_pct < min_vol and vol_ratio_pct < spike:
+    if (
+        vol_ratio_pct is not None
+        and not is_missing_volume_ratio(vol_ratio_pct)
+        and vol_ratio_pct < min_vol
+        and vol_ratio_pct < spike
+    ):
         return None
 
     try:
@@ -481,6 +478,28 @@ def _resolve_volume_ratio_pct(ctx: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def cascade_volume_reject_reason(
+    df,
+    params: Dict[str, Any],
+    *,
+    live_cascade: bool = True,
+) -> Optional[str]:
+    """
+    Same volume floor as scan + hard veto, evaluated before 1m arm.
+
+    Uses max(confirmed, live) when the cascade is live so a forming spike
+    can qualify; a dead confirmed tape cannot arm.
+    """
+    vol_ratio = volume_ratio_for_gate(df, live_cascade=live_cascade)
+    if is_missing_volume_ratio(vol_ratio):
+        return None
+    min_vol = float(params.get("min_volume_ratio_pct") or 0)
+    spike = float(params.get("volume_spike_pct") or min_vol)
+    if vol_ratio < min_vol and vol_ratio < spike:
+        return f"Volume {vol_ratio:.0f}% < {min_vol:.0f}% (no cascade spike)"
+    return None
+
+
 def check_cascade_hard_veto(
     signal: str,
     market_context: Optional[Dict[str, Any]],
@@ -528,7 +547,11 @@ def check_cascade_hard_veto(
     vol_ratio = _resolve_volume_ratio_pct(ctx)
     min_vol = float(min_volume_ratio_pct)
     spike = float(volume_spike_pct)
-    if vol_ratio is not None and vol_ratio < min_vol and vol_ratio < spike:
+    if (
+        not is_missing_volume_ratio(vol_ratio)
+        and vol_ratio < min_vol
+        and vol_ratio < spike
+    ):
         return f"Volume {vol_ratio:.0f}% < {min_vol:.0f}% (no cascade spike)"
 
     slope_floor = float(veto_vol_slope_min)

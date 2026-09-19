@@ -112,19 +112,10 @@ def tp_progress_pct(side: str, entry: float, tp: float, price: float) -> Optiona
 
 
 def volume_ratio_pct(df: Any, *, lookback: int = 50) -> Optional[float]:
-    """Last closed bar volume vs rolling mean (%), excluding the forming candle."""
-    if df is None or getattr(df, "empty", True) or "volume" not in getattr(df, "columns", []):
-        return None
-    if len(df) < lookback + 2:
-        return None
-    try:
-        vol = float(df["volume"].iloc[-2])
-        ma = float(df["volume"].iloc[:-2].tail(lookback).mean())
-        if ma <= 0:
-            return None
-        return vol / ma * 100.0
-    except (TypeError, ValueError, IndexError):
-        return None
+    """Last closed bar volume vs MA50 of closed bars (shared market_metrics)."""
+    from app.utils.market_metrics import confirmed_volume_ratio_pct
+
+    return confirmed_volume_ratio_pct(df, lookback=lookback)
 
 
 def count_stall_bars(df: Any, *, n: int = 3, max_range_pct: float = 0.40) -> int:

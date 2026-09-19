@@ -42,6 +42,9 @@ def test_st_score_scan_aligned_uptrend():
                 "adx_threshold": 10,
                 "min_volume_ratio_pct": 50,
                 "max_extension_atr": 50,
+                "max_rsi_long": 100,
+                "min_rsi_short": 0,
+                "min_adx_slope": -50,
             }
         }
     )
@@ -51,6 +54,44 @@ def test_st_score_scan_aligned_uptrend():
     assert out["bias"] == "LONG"
     assert out["score"] >= 50
     assert out["timeframe"] == "15m"
+
+
+def test_st_score_scan_rejects_chase_rsi():
+    s = StrategySupertrend(
+        {
+            "params": {
+                "ema_filter_period": 50,
+                "adx_threshold": 10,
+                "min_volume_ratio_pct": 10,
+                "max_extension_atr": 50,
+                "max_rsi_long": 30,
+                "min_adx_slope": -50,
+                "strong_trend_relax_enabled": False,
+            }
+        }
+    )
+    s.name = "supertrend"
+    assert s.score_scan_candidate(_ohlcv(direction="up"), symbol="ETH") is None
+
+
+def test_st_score_scan_rejects_thin_volume_even_if_rsi_not_neutral():
+    s = StrategySupertrend(
+        {
+            "params": {
+                "ema_filter_period": 50,
+                "adx_threshold": 10,
+                "min_volume_ratio_pct": 80,
+                "max_extension_atr": 50,
+                "max_rsi_long": 100,
+                "min_adx_slope": -50,
+            }
+        }
+    )
+    s.name = "supertrend"
+    df = _ohlcv(direction="up")
+    df["volume"] = 1000.0
+    df.iloc[-2, df.columns.get_loc("volume")] = 50.0
+    assert s.score_scan_candidate(df, symbol="THIN") is None
 
 
 def test_st_score_scan_rejects_chop():
@@ -81,6 +122,8 @@ def test_lt_scan_hooks_and_score_path():
                 "min_adx_slope": -5.0,
                 "min_volume_ratio_pct": 10,
                 "max_extension_atr": 50,
+                "max_rsi_long": 100,
+                "min_rsi_short": 0,
                 "scan_interval_minutes": 60,
             }
         }
@@ -144,6 +187,9 @@ def test_sticky_armed_bonus_in_scan_score():
                 "adx_threshold": 10,
                 "min_volume_ratio_pct": 50,
                 "max_extension_atr": 50,
+                "max_rsi_long": 100,
+                "min_rsi_short": 0,
+                "min_adx_slope": -50,
             }
         }
     )

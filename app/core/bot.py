@@ -1037,23 +1037,30 @@ class BotContext:
             else None
         )
         
+        from app.utils.market_metrics import confirmed_volume_ratio_pct, structural_swings
+
         # Price levels — confirmed candle (avoid live-bar wick noise for TP structure)
-        hi_idx = -2 if len(df) >= 2 else -1
-        swing_high = float(df["high"].iloc[: hi_idx + 1].rolling(20).max().iloc[-1])
-        swing_low = float(df["low"].iloc[: hi_idx + 1].rolling(20).min().iloc[-1])
-        
+        swing_high, swing_low = structural_swings(df)
+        if swing_high is None:
+            swing_high = 0.0
+        if swing_low is None:
+            swing_low = 0.0
+
         # Volume — confirmed candle only (live bar often starts at ~0 and false-vetoes)
-        if "volume" in df.columns and len(df) >= 2:
-            vol_confirmed = df["volume"].iloc[:-1]
-            avg_volume = float(vol_confirmed.rolling(50).mean().iloc[-1])
-            current_volume = float(vol_confirmed.iloc[-1])
-        elif "volume" in df.columns and len(df) >= 1:
-            avg_volume = float(df["volume"].rolling(50).mean().iloc[-1])
-            current_volume = float(df["volume"].iloc[-1])
+        computed_vol = confirmed_volume_ratio_pct(df)
+        if computed_vol is not None:
+            volume_ratio = float(computed_vol)
+            confirmed = df["volume"].iloc[:-1] if len(df) >= 2 else df["volume"]
+            try:
+                current_volume = float(confirmed.iloc[-1])
+                avg_volume = float(confirmed.rolling(50).mean().iloc[-1])
+            except Exception:
+                current_volume = 0.0
+                avg_volume = 0.0
         else:
+            volume_ratio = 100
             avg_volume = 0.0
             current_volume = 0.0
-        volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
         
         # Volatility percentile
         volatility_percentile = None
@@ -2838,8 +2845,24 @@ class BotContext:
                     ema_50 = sym_result.get("ema_50", 0)
                     volume_ratio = sym_result.get("volume_ratio", 100)
                     ema_trend = "↗" if ema_20 > ema_50 else "↘" if ema_20 < ema_50 else "→"
-                    adx_note = ">25=TREND" if adx < 25 else "TRENDING"
+                    try:
+                        adx_thr = float(
+                            self.strategy_engine._regime_adx_threshold()
+                            if hasattr(self, "strategy_engine")
+                            else 22
+                        )
+                    except Exception:
+                        adx_thr = 22.0
+                    if adx > adx_thr:
+                        adx_note = f"TRENDING >{adx_thr:.0f}"
+                    else:
+                        adx_note = f"ADX≤{adx_thr:.0f}"
                     current_price = float(sym_result.get("current_price", sym_df["close"].iloc[-2]))
+                    ema_9 = float(sym_result.get("ema_9") or 0)
+                    cascade_ema = ""
+                    if str(regime).startswith("TREND_") and ema_9:
+                        cascade_arrow = "↗" if ema_9 > ema_20 else "↘" if ema_9 < ema_20 else "→"
+                        cascade_ema = f" | EMA9/20 {cascade_arrow}"
                     analysis_metrics = {
                         "regime": regime,
                         "adx": round(adx, 1),
@@ -2849,9 +2872,9 @@ class BotContext:
                         "symbol": analysis_symbol,
                     }
                     self.add_log(
-                        f"📊 {analysis_symbol} Regime: {regime} | Price: {current_price:.4f} | "
-                        f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend} | "
-                        f"Vol: {volume_ratio:.0f}%",
+                        f"📊 {analysis_symbol} 15m Regime: {regime} | Price: {current_price:.4f} | "
+                        f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
+                        f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
                         metadata=analysis_metrics,
                     )
                     live_price = float(sym_result.get("current_price_live", sym_df["close"].iloc[-1]))
@@ -2861,7 +2884,7 @@ class BotContext:
                     live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
                     self.add_log(
                         f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
-                        f"EMA20/50 {live_ema_trend} | Vol(conf) {volume_ratio:.0f}%"
+                        f"EMA20/50 {live_ema_trend} | Vol15m(conf) {volume_ratio:.0f}%"
                     )
                     for rej in (sym_result.get("rejections") or []):
                         reason = rej.get("reason") or "no reason"
@@ -2992,13 +3015,17 @@ class BotContext:
                             df_5m=df_5m,
                         )
                         market_context = self._prepare_ai_context(df=ai_df, timeframe=sig_tf)
-                        # Engine snapshot volume is 15m — overlay only for 15m strategies
-                        if (
-                            self._normalize_timeframe(sig_tf) == "15m"
-                            and isinstance(technical_context, dict)
-                            and technical_context.get("volume_ratio") is not None
+                        # Engine snapshot is 15m — overlay volume + regime for 15m strategies
+                        # so hard veto / IA see the same tape as generate_signal + logs.
+                        if self._normalize_timeframe(sig_tf) == "15m" and isinstance(
+                            technical_context, dict
                         ):
-                            market_context["volume_ratio"] = technical_context["volume_ratio"]
+                            if technical_context.get("volume_ratio") is not None:
+                                market_context["volume_ratio"] = technical_context[
+                                    "volume_ratio"
+                                ]
+                            if technical_context.get("regime"):
+                                market_context["regime"] = technical_context["regime"]
                         market_context["mtf_sentiment"] = self._fetch_mtf_sentiment(
                             sig_symbol
                         )

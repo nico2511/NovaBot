@@ -29,6 +29,7 @@ from strategies.cascade_rider import (
     DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES,
     active_scan_interval_minutes,
     check_cascade_hard_veto,
+    cascade_volume_reject_reason,
     detect_bull_cascade,
     extension_within_limit,
     score_cascade_scan,
@@ -416,6 +417,19 @@ REJECT range climax traps:
             self.looking_for_entry = False
             return self._reject(wick_reason)
 
+        vol_reason = cascade_volume_reject_reason(df_5m, p, live_cascade=True)
+        if vol_reason:
+            self.looking_for_entry = False
+            return self._reject(vol_reason)
+
+        vol_slope = self._vol_slope_from_df(df_5m)
+        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
+            self.looking_for_entry = False
+            return self._reject(
+                f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
+                "— soft cascade, skip spark"
+            )
+
         df_1m = extra.get("1m")
         if df_1m is None or getattr(df_1m, "empty", True):
             self.looking_for_entry = True
@@ -428,14 +442,6 @@ REJECT range climax traps:
                 return self._reject("1m confirm failed — need green candle + higher high")
         else:
             entry = float(df_1m["close"].iloc[-2])
-
-        vol_slope = self._vol_slope_from_df(df_5m)
-        if vol_slope is not None and vol_slope < float(p["veto_vol_slope_min"]):
-            self.looking_for_entry = False
-            return self._reject(
-                f"Volume dying (slope {vol_slope:+.1f}% < {p['veto_vol_slope_min']:.0f}%) "
-                "— soft cascade, skip spark"
-            )
 
         prior_high = self._prior_structure_high(df_5m, p)
         cascade_close = float(cascade.get("close") or entry)
@@ -462,6 +468,14 @@ REJECT range climax traps:
         sl, tp = self._build_sl_tp(entry, df_5m, cascade, p)
         if sl is None or tp is None:
             return self._reject("Failed to calculate valid SL/TP for spark long")
+
+        geo_reason = self.geometry_reject_reason(
+            {"signal": "BUY", "price": float(entry), "sl": float(sl), "tp": float(tp)},
+            df_5m,
+        )
+        if geo_reason:
+            self.looking_for_entry = False
+            return self._reject(geo_reason)
 
         self._mark_signal_bar(now_ts)
         self.looking_for_entry = False

@@ -183,6 +183,10 @@ class StrategyEngine:
         if current_adx > threshold and adx_slope < -3:
             print(f"📉 Trend Rejected: ADX {current_adx:.1f} but Slope {adx_slope:.2f} (dropping too fast)")
 
+        extra_data = dict(extra_data or {})
+        extra_data["regime"] = regime
+        extra_data["regime_adx_threshold"] = float(threshold)
+
         # 2. WATERFALL / ROCKET DETECTION (Anti-Lag) — shared cascade helpers on 15m
         work_15m = df.copy()
         work_15m["EMA_9"] = ema_9
@@ -192,6 +196,7 @@ class StrategyEngine:
             regime = "TREND_BEAR_STRONG"
         elif detect_bull_cascade(work_15m, use_live=True)[0]:
             regime = "TREND_BULL_STRONG"
+        extra_data["regime"] = regime
 
         # Add indicators to df for strategies
         df['ADX_14'] = adx_df['ADX'] # Save specific column
@@ -346,11 +351,12 @@ class StrategyEngine:
 
                     if not skip_bb:
                         try:
-                            sma_20_val = float(df['close'].rolling(window=20).mean().iloc[-1])
-                            std_20_val = float(df['close'].rolling(window=20).std().iloc[-1])
+                            bb_idx = -2 if len(df) >= 2 else -1
+                            sma_20_val = float(df['close'].rolling(window=20).mean().iloc[bb_idx])
+                            std_20_val = float(df['close'].rolling(window=20).std().iloc[bb_idx])
                             bb_upper_val = sma_20_val + (std_20_val * 2)
                             bb_lower_val = sma_20_val - (std_20_val * 2)
-                            curr_close = float(df['close'].iloc[-1])
+                            curr_close = float(df['close'].iloc[bb_idx])
                             
                             if signal_type == "SELL":
                                 if not signal_data.get("metadata", {}).get("panic_close"):
@@ -386,8 +392,8 @@ class StrategyEngine:
 
         # === CAPTURE FULL MARKET SNAPSHOT ===
         try:
-            sma_20 = float(df['close'].rolling(window=20).mean().iloc[-1])
-            std_20 = float(df['close'].rolling(window=20).std().iloc[-1])
+            sma_20 = float(df['close'].rolling(window=20).mean().iloc[-2 if len(df) >= 2 else -1])
+            std_20 = float(df['close'].rolling(window=20).std().iloc[-2 if len(df) >= 2 else -1])
             bb_upper = sma_20 + (std_20 * 2)
             bb_lower = sma_20 - (std_20 * 2)
             bb_width = ((bb_upper - bb_lower) / sma_20) * 100 if sma_20 > 0 else 0
@@ -395,10 +401,11 @@ class StrategyEngine:
             sma_20 = bb_upper = bb_lower = bb_width = 0
         
         try:
-            avg_volume = float(df['volume'].iloc[:-1].rolling(50).mean().iloc[-1])
-            current_volume = float(df['volume'].iloc[-2])
-            volume_ratio = (current_volume / avg_volume) * 100 if avg_volume > 0 else 100
-        except:
+            from app.utils.market_metrics import confirmed_volume_ratio_pct
+
+            computed = confirmed_volume_ratio_pct(df)
+            volume_ratio = float(computed) if computed is not None else 100
+        except Exception:
             volume_ratio = 100
 
         # Scoring — optional per-strategy bonus from config (e.g. Trend LT priority)

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from app.services.indicators import ta
+from app.utils.market_metrics import confirmed_volume_ratio_pct
 from strategies.base import BaseStrategy
 
 logger = logging.getLogger(__name__)
@@ -365,16 +366,7 @@ Do NOT reject solely because:
             return None
 
     def _volume_ratio_pct(self, df) -> Optional[float]:
-        if "volume" not in df.columns:
-            return None
-        try:
-            vol_now = float(df["volume"].iloc[-2])
-            vol_ma = float(df["volume"].iloc[:-1].rolling(50).mean().iloc[-2])
-            if vol_ma > 0:
-                return (vol_now / vol_ma) * 100.0
-        except Exception:
-            return None
-        return None
+        return confirmed_volume_ratio_pct(df)
 
     def _ema_slope(self, series: pd.Series, idx: int = -2) -> float:
         try:
@@ -707,10 +699,22 @@ Do NOT reject solely because:
         if sl is None or tp is None:
             return self._reject("Failed to calculate valid range_lt SL/TP (R:R vs box width)")
 
+        side = "BUY" if self.entry_direction == "LONG" else "SELL"
+        geo_reason = self.geometry_reject_reason(
+            {
+                "signal": side,
+                "price": float(entry),
+                "sl": float(sl),
+                "tp": float(tp),
+            },
+            df_1h,
+        )
+        if geo_reason:
+            self.looking_for_entry = False
+            return self._reject(geo_reason)
+
         self.looking_for_entry = False
         self._mark_signal_bar(now_ts)
-
-        side = "BUY" if self.entry_direction == "LONG" else "SELL"
         sl_pct = abs(entry - sl) / entry * 100.0
         return {
             "signal": side,
