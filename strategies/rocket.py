@@ -23,16 +23,20 @@ from strategies.cascade_exhaustion import (
     wick_trap_reason_long,
 )
 from strategies.cascade_rider import (
+    CASCADE_ENTRY_USE_LIVE,
     DEFAULT_CASCADE_FRESH_BARS_MAX,
     DEFAULT_CASCADE_FRESH_BONUS,
     DEFAULT_MAX_EXTENSION_ATR,
     DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
     active_scan_interval_minutes,
+    bar_index,
     check_cascade_hard_veto,
     cascade_volume_reject_reason,
+    closed_bars,
     detect_bull_cascade,
     extension_within_limit,
     score_cascade_scan,
+    thesis_confirmed_rows,
 )
 
 detect_rocket = detect_bull_cascade
@@ -131,7 +135,7 @@ REJECT range climax traps:
 
     def _params_snapshot(self) -> Dict[str, Any]:
         return {
-            "min_rr": self._float_param("min_rr", 1.0),
+            "min_rr": self._float_param("min_rr", 1.5),
             "sl_atr_mult": self._float_param("sl_atr_mult", 0.5),
             "min_sl_pct": self._float_param("min_sl_pct", 0.4),
             "sl_swing_lookback": int(self.get_param("sl_swing_lookback", 8) or 8),
@@ -327,13 +331,14 @@ REJECT range climax traps:
             return None, None
 
         lookback = max(3, int(p["sl_swing_lookback"]))
+        closed = closed_bars(df_15m)
         try:
-            swing_low = float(df_15m["low"].iloc[-lookback:].min())
+            swing_low = float(closed["low"].iloc[-lookback:].min())
         except Exception:
             swing_low = entry
 
-        atr = float(df_15m["ATR_14"].iloc[-1]) if "ATR_14" in df_15m.columns else 0.0
-        ema9 = float(cascade.get("ema9") or df_15m["EMA_9"].iloc[-1])
+        atr = float(closed["ATR_14"].iloc[-1]) if "ATR_14" in closed.columns else 0.0
+        ema9 = float(cascade.get("ema9") or closed["EMA_9"].iloc[-1])
         atr_buf = atr * float(p["sl_atr_mult"]) if atr > 0 else 0.0
         sl_candidate = min(swing_low, ema9 - atr_buf)
 
@@ -377,7 +382,7 @@ REJECT range climax traps:
             return self._reject("Not enough 15m data for rocket detection")
 
         df_15m = self.add_indicators(df)
-        active, cascade = detect_rocket(df_15m, use_live=True)
+        active, cascade = detect_rocket(df_15m, use_live=CASCADE_ENTRY_USE_LIVE)
         if not active:
             self.looking_for_entry = False
             self.entry_direction = None
@@ -390,7 +395,7 @@ REJECT range climax traps:
             "LONG",
             float(p["max_extension_atr"]),
             ema_period=int(p.get("extension_ema_period", 9) or 9),
-            use_live=True,
+            use_live=CASCADE_ENTRY_USE_LIVE,
         )
         if not ext_ok:
             self.looking_for_entry = False
@@ -399,8 +404,9 @@ REJECT range climax traps:
                 f"({ext_atr:.2f}x ATR > {p['max_extension_atr']:.1f}x) — late rocket"
             )
 
+        rsi_idx = bar_index(use_live=CASCADE_ENTRY_USE_LIVE)
         try:
-            rsi_15m = float(df_15m["RSI_14"].iloc[-1])
+            rsi_15m = float(df_15m["RSI_14"].iloc[rsi_idx])
         except Exception:
             rsi_15m = 50.0
         if rsi_15m > float(p["veto_rsi_overbought"]):
@@ -411,7 +417,7 @@ REJECT range climax traps:
 
         wick_reason = wick_trap_reason_long(
             df_15m,
-            bar_index=-1,
+            bar_index=rsi_idx,
             min_wick_ratio=float(p["wick_trap_min_ratio"]),
             close_extreme_pct=float(p["wick_trap_close_extreme_pct"]),
         )
@@ -419,7 +425,9 @@ REJECT range climax traps:
             self.looking_for_entry = False
             return self._reject(wick_reason)
 
-        vol_reason = cascade_volume_reject_reason(df_15m, p, live_cascade=True)
+        vol_reason = cascade_volume_reject_reason(
+            df_15m, p, live_cascade=CASCADE_ENTRY_USE_LIVE
+        )
         if vol_reason:
             self.looking_for_entry = False
             return self._reject(vol_reason)
@@ -485,7 +493,9 @@ REJECT range climax traps:
         rr = abs(tp - entry) / abs(entry - sl)
 
         try:
-            swing_low = float(df_15m["low"].iloc[-int(p["sl_swing_lookback"]) :].min())
+            swing_low = float(
+                closed_bars(df_15m)["low"].iloc[-int(p["sl_swing_lookback"]) :].min()
+            )
         except Exception:
             swing_low = sl
 
@@ -518,7 +528,9 @@ REJECT range climax traps:
         meta = trade.get("metadata") or {}
         cascade_low = meta.get("cascade_low")
 
-        last = work.iloc[-1]
+        last, prev = thesis_confirmed_rows(work)
+        if last is None:
+            return None
         try:
             close = float(last["close"])
             ema9 = float(last["EMA_9"])
@@ -527,17 +539,16 @@ REJECT range climax traps:
         except (TypeError, ValueError):
             return None
         try:
-            adx_prev = float(work["ADX_14"].iloc[-2])
+            adx_prev = float(prev["ADX_14"])
             adx_slope = adx - adx_prev
-        except (IndexError, TypeError, ValueError):
+        except (TypeError, ValueError, KeyError):
             adx_slope = 0.0
 
         try:
-            prev = work.iloc[-2]
             prev_low = float(prev["low"])
             prev_close = float(prev["close"])
             prev_open = float(prev["open"])
-        except (IndexError, TypeError, ValueError):
+        except (TypeError, ValueError, KeyError):
             prev_low = prev_close = prev_open = close
 
         side = str(trade.get("side") or "BUY").upper()

@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.core.trade_thesis import THESIS_DEAD, evaluate_waterfall_thesis
+from app.core.trade_thesis import ACTION_CLOSE, THESIS_DEAD, evaluate_waterfall_thesis
 from strategies.waterfall import StrategyWaterfall, detect_waterfall
 
 
@@ -21,6 +21,7 @@ def _bear_cascade_15m(n=80, start=10.0):
     low[-1] = close[-1] - 0.03
     low[-2] = close[-2] - 0.02
     vol = np.full(n, 5000.0)
+    vol[-2] = 12000.0
     vol[-1] = 12000.0
     return pd.DataFrame(
         {"open": open_, "high": high, "low": low, "close": close, "volume": vol},
@@ -88,8 +89,10 @@ def test_detect_waterfall_on_synthetic():
     df = _bear_cascade_15m()
     s = StrategyWaterfall({"params": {}})
     df = s.add_indicators(df)
-    active, snap = detect_waterfall(df, use_live=True)
-    assert active is True
+    live_active, _ = detect_waterfall(df, use_live=True)
+    confirmed_active, snap = detect_waterfall(df, use_live=False)
+    assert live_active is True
+    assert confirmed_active is True
     assert snap.get("ema9", 0) > 0
 
 
@@ -231,12 +234,13 @@ def test_waterfall_rejects_extended_cascade():
     s = StrategyWaterfall({"params": {**_HAPPY_PARAMS, "max_extension_atr": 0.5}})
     df_15m = _bear_cascade_15m()
     df_15m = s.add_indicators(df_15m)
-    atr = float(df_15m["ATR_14"].iloc[-1])
-    ema9 = float(df_15m["EMA_9"].iloc[-1])
-    prev_low = float(df_15m["low"].iloc[-2])
-    df_15m.loc[df_15m.index[-1], "close"] = min(prev_low - 0.05, ema9 - 2.0 * atr)
-    df_15m.loc[df_15m.index[-1], "open"] = ema9 - 1.5 * atr
-    df_15m.loc[df_15m.index[-1], "low"] = float(df_15m["close"].iloc[-1]) - 0.01
+    atr = float(df_15m["ATR_14"].iloc[-2])
+    ema9 = float(df_15m["EMA_9"].iloc[-2])
+    prev_low = float(df_15m["low"].iloc[-3])
+    stretched = min(prev_low - 0.05, ema9 - 2.0 * atr)
+    df_15m.loc[df_15m.index[-2], "close"] = stretched
+    df_15m.loc[df_15m.index[-2], "open"] = ema9 - 1.5 * atr
+    df_15m.loc[df_15m.index[-2], "low"] = stretched - 0.01
     df_1m = _bear_1m_confirm()
     sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
     assert sig is None
@@ -263,6 +267,7 @@ def test_waterfall_thesis_dead_on_ema_reclaim():
         prev_high=10.0,
     )
     assert verdict.status == THESIS_DEAD
+    assert verdict.action == ACTION_CLOSE
 
 
 def test_waterfall_supports_trade_thesis():

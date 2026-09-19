@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.core.trade_thesis import THESIS_DEAD, evaluate_waterfall_thesis
+from app.core.trade_thesis import ACTION_CLOSE, THESIS_DEAD, evaluate_waterfall_thesis
 from strategies.ember import StrategyEmber, detect_ember
 
 
@@ -20,6 +20,7 @@ def _bear_cascade_5m(n=80, start=10.0):
     low[-1] = close[-1] - 0.03
     low[-2] = close[-2] - 0.02
     vol = np.full(n, 5000.0)
+    vol[-2] = 12000.0
     vol[-1] = 12000.0
     return pd.DataFrame(
         {"open": open_, "high": high, "low": low, "close": close, "volume": vol},
@@ -93,8 +94,10 @@ def test_detect_ember_on_synthetic():
     df = _bear_cascade_5m()
     s = StrategyEmber({"params": {}})
     df = s.add_indicators(df)
-    active, snap = detect_ember(df, use_live=True)
-    assert active is True
+    live_active, _ = detect_ember(df, use_live=True)
+    confirmed_active, snap = detect_ember(df, use_live=False)
+    assert live_active is True
+    assert confirmed_active is True
     assert snap.get("ema9", 0) > 0
 
 
@@ -256,6 +259,7 @@ def test_ember_thesis_dead_on_ema_reclaim():
         rsi_exhaustion=26.0,
     )
     assert verdict.status == THESIS_DEAD
+    assert verdict.action == ACTION_CLOSE
 
 
 def test_ember_supports_trade_thesis():

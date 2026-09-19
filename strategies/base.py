@@ -497,7 +497,9 @@ class BaseStrategy(ABC):
         verdict,
     ):
         """Post-process strategy thesis with shared overlays (near-TP / DEAD drift)."""
-        from app.core.trade_thesis import apply_dead_drift, apply_near_tp_exhaustion
+        from dataclasses import replace as _replace_verdict
+
+        from app.core.trade_thesis import ACTION_CLOSE, THESIS_DEAD, apply_near_tp_exhaustion
 
         if verdict is None:
             return None
@@ -507,11 +509,9 @@ class BaseStrategy(ABC):
             current_price=float(current_price),
             df=df,
         )
-        return apply_dead_drift(
-            verdict,
-            trade=trade,
-            current_sl=float(trade.get("sl") or 0),
-        )
+        if getattr(verdict, "status", None) == THESIS_DEAD:
+            return _replace_verdict(verdict, action=ACTION_CLOSE)
+        return verdict
 
     def _reject(self, reason: str):
         """Set a human-readable rejection reason for diagnostics and return None."""

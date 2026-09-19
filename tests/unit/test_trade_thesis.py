@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from app.core.trade_thesis import (
+    ACTION_CLOSE,
     ACTION_CLOSE_IF_PROFIT,
     ACTION_HOLD,
     ACTION_TIGHTEN_SL,
@@ -61,11 +62,11 @@ def test_long_dead_on_st_flip_closes_if_green():
         adx_slope=0.0,
     )
     assert v.status == THESIS_DEAD
-    assert v.action == ACTION_CLOSE_IF_PROFIT
+    assert v.action == ACTION_CLOSE
     assert v.pnl_pct > 0
 
 
-def test_long_dead_but_red_holds_for_sl():
+def test_long_dead_red_still_flattens():
     v = evaluate_supertrend_thesis(
         side="BUY",
         entry=100.0,
@@ -78,8 +79,7 @@ def test_long_dead_but_red_holds_for_sl():
         adx_slope=-1.5,
     )
     assert v.status == THESIS_DEAD
-    # action is CLOSE_IF_PROFIT but caller must gate on pnl<=0
-    assert v.action == ACTION_CLOSE_IF_PROFIT
+    assert v.action == ACTION_CLOSE
     assert v.pnl_pct < 0
 
 
@@ -179,7 +179,7 @@ def test_range_lt_short_dead_on_breakout_above_box():
         adx_slope=0.1,
     )
     assert v.status == THESIS_DEAD
-    assert v.action == ACTION_CLOSE_IF_PROFIT
+    assert v.action == ACTION_CLOSE
 
 
 def test_range_lt_short_valid_inside_box():
@@ -209,6 +209,7 @@ def test_range_lt_long_dead_on_breakout_below_box():
         adx_slope=-0.1,
     )
     assert v.status == THESIS_DEAD
+    assert v.action == ACTION_CLOSE
 
 
 def _stall_df(*, vol: float = 10.0, tight: bool = True) -> pd.DataFrame:

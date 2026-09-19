@@ -154,7 +154,7 @@ class StorageService:
                 "min_volume_24h": 2000000,
                 "min_open_interest": 1000000,
                 "max_tokens": 50,
-                "funding_filter_enabled": False,
+                "funding_filter_enabled": True,
                 "scan_while_in_trade": True,
                 "analyze_top_k": 5,
                 "switch_cooldown_minutes": 30,

@@ -23,7 +23,8 @@ def _range_15m_df(n=100):
     )
 
 
-def test_spark_active_on_live_5m_cascade_in_range_regime():
+def test_spark_inactive_on_5m_cascade_in_range_regime():
+    """5m riders must not bypass a 15m RANGE tape."""
     engine = StrategyEngine()
     engine.config = {
         "market_regime": {"adx_threshold": 22},
@@ -37,10 +38,10 @@ def test_spark_active_on_live_5m_cascade_in_range_regime():
         extra_data={"symbol": "ALT", "5m": df_5m, "1m": pd.DataFrame()},
     )
     assert result.get("regime") == "RANGE"
-    assert "spark" in result.get("strategies", [])
+    assert "spark" not in result.get("strategies", [])
 
 
-def test_ember_active_on_live_5m_cascade_in_range_regime():
+def test_ember_inactive_on_5m_cascade_in_range_regime():
     engine = StrategyEngine()
     engine.config = {
         "market_regime": {"adx_threshold": 22},
@@ -54,7 +55,7 @@ def test_ember_active_on_live_5m_cascade_in_range_regime():
         extra_data={"symbol": "ALT", "5m": df_5m, "1m": pd.DataFrame()},
     )
     assert result.get("regime") == "RANGE"
-    assert "ember" in result.get("strategies", [])
+    assert "ember" not in result.get("strategies", [])
 
 
 def test_spark_inactive_without_5m_cascade_in_range():
@@ -71,3 +72,21 @@ def test_spark_inactive_without_5m_cascade_in_range():
     )
     assert result.get("regime") == "RANGE"
     assert "spark" not in result.get("strategies", [])
+
+
+def test_forming_15m_cascade_does_not_set_bull_strong():
+    """Live-bar-only rocket must not rewrite the 15m regime overlay."""
+    engine = StrategyEngine()
+    engine.config = {
+        "market_regime": {"adx_threshold": 22},
+        "rocket": {"enabled": True, "type": "trend"},
+        "supertrend": {"enabled": False, "type": "trend"},
+    }
+    df = _range_15m_df()
+    # Confirmed bar (-2) is green but previous (-3) is not → no confirmed cascade.
+    # Live bar (-1) completes a live cascade (double green + HH).
+    df.loc[df.index[-2], ["open", "close", "high", "low"]] = (100.00, 100.25, 100.28, 99.99)
+    df.loc[df.index[-1], ["open", "close", "high", "low"]] = (100.25, 100.55, 100.60, 100.24)
+    result = engine.analyze(df, extra_data={"symbol": "ALT"})
+    assert result.get("regime") == "RANGE"
+    assert "rocket" not in result.get("strategies", [])

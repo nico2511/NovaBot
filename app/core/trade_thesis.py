@@ -7,13 +7,13 @@ here encode plan-specific rules (SuperTrend 15m structure, Range LT box, …).
 Verdict actions:
   VALID  → leave trailing/BE alone
   WEAK   → thesis softening; tighten SL toward break-even if green
-  DEAD   → structure broken; close only if unrealized PnL covers fees, else leave SL
+  DEAD   → plan invalid; flatten immediately (ACTION_CLOSE)
 
 NEAR_TP_EXHAUSTION overlay (via apply_near_tp_exhaustion / finalize_thesis_verdict):
   High progress toward TP + drying volume + tight-range stall → WEAK + lock partial gains.
 
-DEAD_DRIFT overlay (via apply_dead_drift / finalize_thesis_verdict):
-  Confirmed DEAD + small red PnL → progressively tighten SL toward entry (cap max loss).
+DEAD_DRIFT helper remains for tests / optional callers. Live finalize maps DEAD
+to ACTION_CLOSE and does **not** wait for a green soft-close.
 """
 from __future__ import annotations
 
@@ -28,7 +28,10 @@ THESIS_DEAD = "DEAD"
 
 ACTION_HOLD = "HOLD"
 ACTION_TIGHTEN_SL = "TIGHTEN_SL"
-ACTION_CLOSE_IF_PROFIT = "CLOSE_IF_PROFIT"
+ACTION_CLOSE = "CLOSE"
+ACTION_CLOSE_IF_PROFIT = "CLOSE_IF_PROFIT"  # legacy alias; DEAD now uses ACTION_CLOSE
+
+DEAD_FLATTEN_ACTIONS = frozenset({ACTION_CLOSE, ACTION_CLOSE_IF_PROFIT})
 
 # Soft-close only when green enough to survive round-trip fees (~HL taker).
 MIN_SOFT_CLOSE_PNL_PCT = 0.25
@@ -512,7 +515,7 @@ def evaluate_supertrend_thesis(
 
     pnl = _pnl_pct(side, entry, current_price)
     if status == THESIS_DEAD:
-        action = ACTION_CLOSE_IF_PROFIT
+        action = ACTION_CLOSE
     elif status == THESIS_WEAK and pnl > 0:
         action = ACTION_TIGHTEN_SL
     else:
@@ -609,7 +612,7 @@ def evaluate_waterfall_thesis(
 
     pnl = _pnl_pct(side, entry, current_price)
     if status == THESIS_DEAD:
-        action = ACTION_CLOSE_IF_PROFIT
+        action = ACTION_CLOSE
     elif status == THESIS_WEAK and pnl > 0:
         action = ACTION_TIGHTEN_SL
     else:
@@ -713,7 +716,7 @@ def evaluate_rocket_thesis(
         and "fade risk" in reasons[0]
     )
     if status == THESIS_DEAD:
-        action = ACTION_CLOSE_IF_PROFIT
+        action = ACTION_CLOSE
     elif status == THESIS_WEAK and pnl > 0:
         min_pnl = float(weak_tighten_min_pnl_pct or 0.0)
         if rsi_only_weak and pnl < min_pnl:
@@ -836,7 +839,7 @@ def evaluate_range_lt_thesis(
 
     pnl = _pnl_pct(side, entry, current_price)
     if status == THESIS_DEAD:
-        action = ACTION_CLOSE_IF_PROFIT
+        action = ACTION_CLOSE
     elif status == THESIS_WEAK and pnl > 0:
         action = ACTION_TIGHTEN_SL
     else:

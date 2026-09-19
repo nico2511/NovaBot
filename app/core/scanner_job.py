@@ -43,7 +43,7 @@ class ScannerJob:
             min_volume_24h=settings.get("min_volume_24h", 2_000_000),
             min_open_interest=settings.get("min_open_interest", 1_000_000),
             max_tokens=settings.get("max_tokens", 40),
-            funding_filter_enabled=settings.get("funding_filter_enabled", False),
+            funding_filter_enabled=settings.get("funding_filter_enabled", True),
             max_funding_long=settings.get("max_funding_long", 0.001),
             min_funding_short=settings.get("min_funding_short", -0.001),
         )

@@ -23,9 +23,12 @@ from strategies.cascade_exhaustion import (
     check_range_exhaustion_veto,
 )
 
-DEFAULT_MAX_EXTENSION_ATR = 3.5
-DEFAULT_SPARK_MAX_EXTENSION_ATR = 2.5
-DEFAULT_EMBER_MAX_EXTENSION_ATR = 2.5
+# Entry / regime / SL use the last *closed* bar. Scan may still arm on live.
+CASCADE_ENTRY_USE_LIVE = False
+
+DEFAULT_MAX_EXTENSION_ATR = 1.5
+DEFAULT_SPARK_MAX_EXTENSION_ATR = 1.5
+DEFAULT_EMBER_MAX_EXTENSION_ATR = 1.5
 DEFAULT_CASCADE_FRESH_BARS_MAX = 4
 DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX = 3
 DEFAULT_EMBER_CASCADE_FRESH_BARS_MAX = 3
@@ -143,6 +146,22 @@ def detect_bear_cascade(
 
 def bar_index(*, use_live: bool) -> int:
     return -1 if use_live else -2
+
+
+def closed_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """OHLCV excluding the forming candle (iloc[:-1])."""
+    if df is None or getattr(df, "empty", True):
+        return df
+    if len(df) >= 2:
+        return df.iloc[:-1]
+    return df
+
+
+def thesis_confirmed_rows(work: pd.DataFrame):
+    """Last two *closed* rows for in-trade thesis, or (None, None)."""
+    if work is None or getattr(work, "empty", True) or len(work) < 3:
+        return None, None
+    return work.iloc[-2], work.iloc[-3]
 
 
 def ensure_ema_atr_rsi(work: pd.DataFrame) -> pd.DataFrame:

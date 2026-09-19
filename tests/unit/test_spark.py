@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from app.core.trade_thesis import THESIS_DEAD, evaluate_rocket_thesis
+from app.core.trade_thesis import ACTION_CLOSE, THESIS_DEAD, evaluate_rocket_thesis
 from strategies.spark import StrategySpark, detect_spark
 
 
@@ -20,6 +20,7 @@ def _bull_cascade_5m(n=80, start=10.0):
     high[-2] = close[-2] + 0.02
     low = np.minimum(open_, close) - 0.02
     vol = np.full(n, 5000.0)
+    vol[-2] = 12000.0
     vol[-1] = 12000.0
     return pd.DataFrame(
         {"open": open_, "high": high, "low": low, "close": close, "volume": vol},
@@ -93,8 +94,10 @@ def test_detect_spark_on_synthetic():
     df = _bull_cascade_5m()
     s = StrategySpark({"params": {}})
     df = s.add_indicators(df)
-    active, snap = detect_spark(df, use_live=True)
-    assert active is True
+    live_active, _ = detect_spark(df, use_live=True)
+    confirmed_active, snap = detect_spark(df, use_live=False)
+    assert live_active is True
+    assert confirmed_active is True
     assert snap.get("ema9", 0) > 0
 
 
@@ -256,6 +259,7 @@ def test_spark_thesis_dead_on_ema_loss():
         rsi_exhaustion=74.0,
     )
     assert verdict.status == THESIS_DEAD
+    assert verdict.action == ACTION_CLOSE
 
 
 def test_spark_supports_trade_thesis():
