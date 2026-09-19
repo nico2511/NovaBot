@@ -7,7 +7,7 @@ import pandas as pd
 import time
 import uuid
 
-from hyperliquid.utils.constants import MAINNET_API_URL
+from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
 
 # Import retry decorators and WebSocket manager
 from app.utils.retry_decorator import (
@@ -24,9 +24,18 @@ class HyperliquidService:
     MARKET_SLIPPAGE = 0.015
 
     @staticmethod
+    def _execution_mode() -> str:
+        return str(getattr(config, "EXECUTION_MODE", None) or "Live").strip().lower()
+
+    @staticmethod
     def _api_base_url() -> str:
-        """REST/WS signing base. Honors HYPERLIQUID_API_URL; defaults to mainnet."""
+        """REST/WS signing base. Paper/testnet mode never signs mainnet."""
         raw = (getattr(config, "HYPERLIQUID_API_URL", None) or "").strip()
+        mode = HyperliquidService._execution_mode()
+        if mode in ("paper", "testnet"):
+            if "testnet" not in (raw or TESTNET_API_URL).lower():
+                return TESTNET_API_URL
+            return raw or TESTNET_API_URL
         return raw or MAINNET_API_URL
 
     @staticmethod
@@ -149,9 +158,15 @@ class HyperliquidService:
                 )
                 if warn:
                     self.log("🚨 " + warn + " Override HL_ALLOW_MASTER_KEY=true is set.", "ERROR")
+                base_url = self._api_base_url()
+                if self._execution_mode() in ("paper", "testnet"):
+                    self.log(
+                        f"🧪 EXECUTION_MODE={self._execution_mode()} — Exchange URL {base_url}",
+                        "WARNING",
+                    )
                 self.exchange = Exchange(
                     account,
-                    base_url=self._api_base_url(),
+                    base_url=base_url,
                     account_address=config.HL_ACCOUNT_ADDRESS,
                 )
             except RuntimeError as e:
@@ -296,6 +311,7 @@ class HyperliquidService:
                 tracked,
                 logger=LogBridge(self),
                 ws_url=self._ws_url_from_rest(self._api_base_url()),
+                user_address=getattr(config, "HL_ACCOUNT_ADDRESS", None),
             )
             self.ws_manager.start()
             self._seed_ws_prices(tracked)
@@ -871,6 +887,56 @@ class HyperliquidService:
             return None
 
     @staticmethod
+    def _parse_cloid_order_state(resp) -> str:
+        """Map Hyperliquid orderStatus payload → filled|open|canceled|rejected|unknown."""
+        if not isinstance(resp, dict):
+            return "unknown"
+        top = str(resp.get("status") or "").lower()
+        if top == "unknown":
+            return "unknown"
+        order_wrap = resp.get("order") if isinstance(resp.get("order"), dict) else resp
+        status = str(
+            (order_wrap or {}).get("status")
+            or resp.get("orderStatus")
+            or top
+            or ""
+        ).lower()
+        if "fill" in status:
+            return "filled"
+        if status in ("open", "triggered", "resting") or "open" in status:
+            return "open"
+        if "cancel" in status:
+            return "canceled"
+        if "reject" in status or "margin" in status:
+            return "rejected"
+        if top in ("ok", "order") and not status:
+            return "open"
+        return "unknown"
+
+    def _cloid_order_state(self, cloid) -> str | None:
+        """Query orderStatus by cloid. None = query failed (do not guess)."""
+        if not cloid:
+            return "unknown"
+        info = getattr(self, "info", None)
+        addr = getattr(config, "HL_ACCOUNT_ADDRESS", None)
+        if info is None or not addr or not hasattr(info, "query_order_by_cloid"):
+            return None
+        try:
+            from hyperliquid.utils.types import Cloid
+
+            raw = cloid
+            if not isinstance(raw, Cloid):
+                text = str(raw)
+                raw = Cloid.from_str(text if text.startswith("0x") else "0x" + text)
+            resp = info.query_order_by_cloid(addr, raw)
+            state = self._parse_cloid_order_state(resp)
+            self.log(f"🔎 cloid {raw} orderStatus={state}")
+            return state
+        except Exception as e:
+            self.log(f"⚠️ query_order_by_cloid failed: {e}", "WARNING")
+            return None
+
+    @staticmethod
     def _entry_slippage(symbol: str) -> float:
         from app.core.live_guards import entry_slippage_for_symbol
 
@@ -1239,6 +1305,18 @@ class HyperliquidService:
                 error_msg = str(e)
                 self.log(f"❌ Exception in execute_order (Attempt {attempt+1}): {error_msg}")
 
+                cloid_state = self._cloid_order_state(entry_cloid)
+                if cloid_state in ("filled", "open"):
+                    self.log(
+                        f"⚠️ Exception after submit but cloid is {cloid_state} — not retrying entry",
+                        "ERROR",
+                    )
+                    return {
+                        "status": "success",
+                        "message": f"cloid {cloid_state} after exception",
+                        "cloid": str(entry_cloid) if entry_cloid else None,
+                    }
+
                 existing = self._position_open_on_exchange(symbol)
                 if existing is True:
                     self.log(
@@ -1246,15 +1324,27 @@ class HyperliquidService:
                         "ERROR",
                     )
                     return {"status": "success", "message": "position exists after exception"}
-                if existing is None:
+                if existing is None and cloid_state is None:
                     self.log(
-                        "⛔ Ambiguous fill state after exception (positions API down). NOT retrying.",
+                        "⛔ Ambiguous fill state after exception (positions + cloid unreadable). NOT retrying.",
                         "ERROR",
                     )
                     return {
                         "status": "error",
                         "message": f"Ambiguous after exception: {error_msg}",
                     }
+                if existing is None:
+                    self.log(
+                        "⛔ Positions API down after exception. NOT retrying.",
+                        "ERROR",
+                    )
+                    return {
+                        "status": "error",
+                        "message": f"Ambiguous after exception: {error_msg}",
+                    }
+
+                if cloid_state in ("canceled", "rejected"):
+                    entry_cloid = self._new_cloid()
 
                 wait_time = retry_delay
                 if "429" in error_msg or "Too Many Requests" in error_msg:
@@ -1806,32 +1896,60 @@ class HyperliquidService:
 
         if last_err is not None:
             self.log(f"Error fetching trade history from Hyperliquid: {last_err}")
-            return None
+            ws_raw = self._ws_user_fills_raw(limit)
+            if not ws_raw:
+                return None
+            return self._fills_to_trade_rows(ws_raw, limit)
 
-        if not user_fills:
+        merged = list(self._ws_user_fills_raw(limit)) + list(user_fills or [])
+        if not merged:
+            return []
+        return self._fills_to_trade_rows(merged, limit)
+
+    def _ws_user_fills_raw(self, limit: int) -> list:
+        mgr = getattr(self, "ws_manager", None)
+        if mgr is None or not hasattr(mgr, "recent_user_fills"):
+            return []
+        try:
+            raw = mgr.recent_user_fills(limit=max(int(limit or 50), 50))
+            if not isinstance(raw, list):
+                return []
+            return list(raw)
+        except Exception:
             return []
 
+    @staticmethod
+    def _fills_to_trade_rows(fills: list, limit: int) -> list:
         trades = []
-        for fill in user_fills[:limit]:
+        seen = set()
+        for fill in fills or []:
+            if not isinstance(fill, dict):
+                continue
             try:
-                coin = fill.get("coin", "")
-                side = "BUY" if fill.get("side") == "B" else "SELL"
-                price = float(fill.get("px", 0))
-                size = float(fill.get("sz", 0))
-                timestamp = fill.get("time", 0)
-                oid = str(fill.get("oid", ""))
-
-                closed_pnl = fill.get("closedPnl")
-                closed_pnl = 0.0 if closed_pnl is None else float(closed_pnl)
-
-                if timestamp:
-                    timestamp_str = pd.Timestamp(timestamp, unit='ms').isoformat()
+                coin = fill.get("coin") or fill.get("symbol") or ""
+                raw_side = str(fill.get("side") or "")
+                if raw_side in ("B", "A"):
+                    side = "BUY" if raw_side == "B" else "SELL"
                 else:
-                    timestamp_str = pd.Timestamp.now().isoformat()
-
-                unique_id = f"{coin}_{timestamp}_{oid}"
+                    side = "BUY" if raw_side.upper() in ("BUY", "LONG", "B") else "SELL"
+                price = float(fill.get("px") or fill.get("entry_price") or fill.get("exit_price") or 0)
+                size = float(fill.get("sz") or fill.get("size") or 0)
+                timestamp = fill.get("time") or fill.get("timestamp") or 0
+                if isinstance(timestamp, str):
+                    timestamp = 0
+                oid = str(fill.get("oid", ""))
+                closed_pnl = fill.get("closedPnl", fill.get("pnl"))
+                closed_pnl = 0.0 if closed_pnl is None else float(closed_pnl)
+                if timestamp:
+                    timestamp_str = pd.Timestamp(timestamp, unit="ms").isoformat()
+                else:
+                    timestamp_str = fill.get("entry_time") or pd.Timestamp.now().isoformat()
+                key = (oid, str(timestamp), str(coin))
+                if key in seen:
+                    continue
+                seen.add(key)
                 trades.append({
-                    "id": unique_id,
+                    "id": f"{coin}_{timestamp}_{oid}",
                     "oid": oid,
                     "symbol": coin,
                     "side": side,
@@ -1843,17 +1961,17 @@ class HyperliquidService:
                     "entry_time": timestamp_str,
                     "exit_time": timestamp_str,
                     "timestamp": timestamp_str,
-                    "fee": float(fill.get("fee", 0)),
+                    "fee": float(fill.get("fee", 0) or 0),
                     "strategy": "Unknown",
                     "exit_reason": "Hyperliquid",
                     "source": "hyperliquid",
                     "dir": fill.get("dir", ""),
                     "leverage": 1,
                 })
-            except Exception as e:
-                self.log(f"Error parsing fill: {e}")
+                if len(trades) >= int(limit or 50):
+                    break
+            except Exception:
                 continue
-
         return trades
 
     def get_market_data(self, symbol: str):
@@ -1908,13 +2026,19 @@ class HyperliquidService:
             start_ts_ms = int(start_of_day.timestamp() * 1000)
 
             realized_pnl = 0.0
-            user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
-            if user_fills:
-                for fill in user_fills:
-                    if fill.get("time", 0) >= start_ts_ms:
-                        realized_pnl += float(fill.get("closedPnl") or 0.0)
-                    else:
-                        break
+            fills = None
+            try:
+                fills = self.info.user_fills_by_time(config.HL_ACCOUNT_ADDRESS, start_ts_ms)
+            except Exception as by_time_err:
+                self.log(f"⚠️ user_fills_by_time failed ({by_time_err}); falling back to user_fills")
+                fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
+            for fill in fills or []:
+                try:
+                    ts = int(fill.get("time") or 0)
+                except (TypeError, ValueError):
+                    ts = 0
+                if ts >= start_ts_ms:
+                    realized_pnl += float(fill.get("closedPnl") or 0.0)
 
             unrealized_pnl = sum([p.get("pnl", 0) for p in self.get_positions()])
             total = realized_pnl + unrealized_pnl

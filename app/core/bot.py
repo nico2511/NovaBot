@@ -66,6 +66,7 @@ class BotContext:
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS,
             max_notional_cap_multiplier=config.MAX_NOTIONAL_CAP_MULTIPLIER,
+            daily_stop_pct=getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0),
         )
         # GLOBAL QUOTA - Will be set from global_settings after initialization
         self.max_positions = config.DEFAULT_MAX_POSITIONS
@@ -243,6 +244,12 @@ class BotContext:
                 self.risk_manager.update_settings(
                     max_positions=int(requested_max or 2),
                     daily_stop_loss=dsl,
+                    daily_stop_pct=float(
+                        self.global_settings.get("risk_defaults", {}).get(
+                            "daily_stop_pct", getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                        )
+                        or getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                    ),
                 )
             except Exception:
                 pass
@@ -301,6 +308,13 @@ class BotContext:
                         self.risk_manager.update_settings(
                             max_positions=int(requested_max or 2),
                             daily_stop_loss=dsl,
+                            daily_stop_pct=float(
+                                self.global_settings.get("risk_defaults", {}).get(
+                                    "daily_stop_pct",
+                                    getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0),
+                                )
+                                or getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                            ),
                         )
                     except Exception:
                         pass
@@ -308,7 +322,8 @@ class BotContext:
                 logger.warning("Could not load scanner settings from disk: %s", scan_load_err)
             self.add_log(
                 f"⚙️ Max positions: {self.max_positions} | "
-                f"Daily stop: ${float(self.risk_manager.daily_stop_loss):.0f}"
+                f"Daily stop: ${float(self.risk_manager.daily_stop_loss):.0f} "
+                f"or {float(self.risk_manager.daily_stop_pct):.1f}% equity"
             )
                     
         except Exception as e:
@@ -1627,6 +1642,24 @@ class BotContext:
                     **{k: v for k, v in ctx.items() if k != "equity"},
                 )
                 return False
+
+            lev = self._resolve_trade_leverage(None if strategy == "Unknown" else strategy)
+            if not self.safe_order_manager.pre_validate_order(
+                symbol,
+                rounded_size,
+                side,
+                price=current_price,
+                leverage=lev,
+            ):
+                reason = "pre_validate_order failed (withdrawable/margin)"
+                self.add_log(f"⛔ ENTRY BLOCKED: {reason}")
+                self._log_execution_error(
+                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
+                    reason=reason,
+                    equity=equity,
+                    **{k: v for k, v in ctx.items() if k != "equity"},
+                )
+                return False
             
             # REAL EXECUTION
             real_positions = hyperliquid_service.get_positions()
@@ -2816,7 +2849,9 @@ class BotContext:
             exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=quiet)
             if exchange_pnl is None:
                 return
-            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+            if self.risk_manager.apply_exchange_daily_pnl(
+                exchange_pnl, equity=float(getattr(self, "account_value", 0) or 0)
+            ):
                 self.add_log(
                     f"⛔ Daily stop triggered from exchange PnL: ${float(exchange_pnl):.2f}"
                 )
@@ -2959,7 +2994,10 @@ class BotContext:
                             # 1. Dynamic PnL log + risk stop-mode (exchange = source of truth)
                             exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=False)
                             if exchange_pnl is not None:
-                                if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                                if self.risk_manager.apply_exchange_daily_pnl(
+                                    exchange_pnl,
+                                    equity=float(getattr(self, "account_value", 0) or 0),
+                                ):
                                     self.add_log(
                                         f"⛔ Daily stop triggered from exchange PnL: "
                                         f"${float(exchange_pnl):.2f}"

@@ -10,8 +10,8 @@
 
 | | |
 |---|---|
-| **Note globale** | **6.5 / 10** (était ~4/10 au départ de l’audit) |
-| **Niveau de risque** | **Moyen-Élevé** (était **Critique**) |
+| **Note globale** | **7.0 / 10** (était ~4/10 au départ de l’audit) |
+| **Niveau de risque** | **Moyen** (était **Critique**) |
 
 **Verdict local:** canary Isolated + clé **agent** + petit notional + tu surveilles Discord. Pas du launch-and-forget.
 
@@ -19,9 +19,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 
 ### 3 points restants (local)
 
-1. **Retry manuel / pas de query-by-cloid** — un `cloid` est maintenant posé sur l’entrée IOC, mais on ne re-query pas encore `orderStatus` après timeout. Ne pas relancer une entrée à la main.
-2. **Auth API off** — secondaire en local-only, **utile** si `0.0.0.0:3001` est joignable sur le LAN familial.
-3. **WS user fills toujours absents** — manage/exit restent en poll REST 10s.
+1. **Pas de paper ledger** — `EXECUTION_MODE=Paper` force le testnet, mais il n’y a pas de fills simulés hors HL testnet.
+2. **WS `orderUpdates` toujours absents** — userFills est branché ; les resting/trigger updates restent en poll REST.
+3. **Rate limiter local ≠ weight HL** — retry 429/5xx only, mais pas de budget weight global.
 
 ---
 
@@ -34,10 +34,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - **Impact:** si `HL_PRIVATE_KEY` est la clé du wallet principal (même adresse que `HL_ACCOUNT_ADDRESS`), une fuite `.env` / logs Coolify = **withdraw possible**. Le pattern Agent API est documenté mais **jamais imposé**.
 - **Correctif de ce PR:** `RuntimeError` au boot si clé = master, sauf `HL_ALLOW_MASTER_KEY=true`.
 
-#### [Élevé → atténué local] API de trading ouverte sans clé
-- **Localisation:** `app/core/config.py` (`API_KEY_REQUIRED` défaut `false`), `app/api/auth.py`, `app/api/main.py` (`/docs`, `/health`), `app/api/routers/trading.py` (`/trading/enable`, `/close_position`, `/force_breakeven`)
-- **Impact:** enable live, close, BE, switch symbol sans auth. `secrets.compare_digest` casse aussi si les longueurs de clé diffèrent (500 au lieu de 401).
-- **Correction:** défaut `true` dès qu’un bind public est détecté ; hasher/comparer en constant-time après pad ; désactiver `/docs` en prod.
+#### [Élevé → corrigé ici] API de trading ouverte sans clé
+- **Avant:** `API_KEY_REQUIRED` défaut false, bind `0.0.0.0`, `compare_digest` 500 si longueurs différentes, `/docs` ouvert.
+- **Correctif:** bind défaut `127.0.0.1` ; si `API_KEY_REQUIRED` unset et bind non-loopback → auth **on** ; hash SHA-256 avant `compare_digest` (401, pas 500) ; `/docs` masqué dès que auth on ou bind public.
 
 #### [Moyen] Webhooks Discord en clair via GET `/api/settings/global`
 - **Localisation:** `app/api/routers/settings.py`
@@ -82,9 +81,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Un IOC non matché n’a pas toujours `error` ; `canceled` sans `filled` est un miss. Avant: `return success` puis « position NOT confirmed after 5s » — SL/TP `normalTpsl` orphelins possibles.
 - **Correctif:** canceled sans fill = error.
 
-#### [Élevé → partiel] `cloid` posé, pas encore re-query
+#### [Élevé → corrigé ici] `cloid` + query post-timeout
 - IOC d’entrée porte un `Cloid` 16 bytes. Même cloid réutilisé après timeout ; nouveau cloid seulement après cancel/reject **confirmé**.
-- **Reste:** pas de `query_order_by_cloid` après timeout réseau (l’opérateur ne doit pas relancer l’entrée à la main).
+- Après exception : `query_order_by_cloid`. `filled`/`open` → success, **pas** de retry. Positions + cloid unreadable → pas de retry.
 
 #### [Moyen → corrigé ici] Partial fills
 - **Avant:** SL/TP du bulk = qty demandée.
@@ -124,16 +123,16 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Levier sync **uniquement** `self.active_symbol` — une 2e position sur un autre coin peut rester à l’ancien levier HL (persisté par coin).
 - **Correction:** `update_leverage` sur le coin de l’entrée, toujours ; never Cross en prod small account.
 
-#### [Moyen] Daily stop en $ absolu, reset `date.today()` local vs PnL UTC
-- `RiskManager._check_reset` = date locale ; `get_daily_pnl` = minuit UTC + `user_fills` (fenêtre récente, `break` suppose tri desc). Un fill ancien aujourd’hui peut être **omis**. Stop $15 sur $10k est cosmétique ; sur $200 c’est 7.5%.
-- **Correction:** UTC everywhere ; `user_fills_by_time` ; stop en **% equity**.
+#### [Moyen → corrigé ici] Daily stop $ + % / UTC / fills-by-time
+- Reset **UTC**. PnL jour via `user_fills_by_time` (plus de `break` sur tri supposé).
+- Seuil = **min($ stop, % equity)** dès que l’equity est connue (défaut 5%). Petit compte : $50 stop devient 5% ; gros compte : le $ configuré reste le plus serré.
 
 #### [Moyen] Funding
 - Filtre scanner optionnel (`funding_filter_enabled`, défaut **false** dans le bot, **true** dans l’example JSON — divergence). Pas de close si funding extrême une fois en position.
 - **Correction:** veto entrée si funding hourly > seuil * contre * le sens ; alerter in-trade.
 
-#### [Faible] `pre_validate_order` mort + était fail-open
-- Jamais appelé. Ce PR le passe fail-closed, mais ça ne change rien tant que `execute_entry` ne l’appelle pas. Le check `accountValue < 50` est trop naïf (bloque un compte $40, laisse passer $51 + 10×).
+#### [Faible → corrigé ici] `pre_validate_order`
+- Branché dans `execute_entry_atomically`. Fail-closed. Check **withdrawable** vs notional/lev + 10% buffer (plus le naïf `accountValue < 50`).
 
 #### Positif
 - Sizing `risk_pct` / split `max_positions` / cap `equity × multiplier` (défaut 1.0) + min HL $12.
@@ -145,18 +144,16 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 
 ### 2.4 Robustesse / résilience
 
-#### [Élevé] WS prix only (`allMids`), pas user events
-- Reconnect + backoff OK (`websocket_manager.py`). Stale 30s → REST fallback. **Aucun** channel `user` / `orderUpdates` / `userFills`.
-- Pendant une déco, le bot poll REST 10s. `_check_local_exits` peut closer au mid si le trigger exchange n’a pas encore fill — désormais refusé si snapshot stale (ce PR).
-- **Correction:** WS `userEvents` pour fills ; heartbeat métier.
+#### [Élevé → partiel] WS `allMids` + `userFills`
+- Reconnect + backoff OK. Stale 30s → REST fallback.
+- **Ce PR:** subscribe `userFills` ; cache 200 fills ; `get_trade_history` s’en sert si REST 504 (close externe plus rapide). Pas encore `orderUpdates`.
 
-#### [Moyen] Rate limiter local ≠ HL
-- 30 calls / 60s **par nom d’endpoint**. `execute_order` n’enregistre **rien**. HL est ~1200 weight/min. Le limiter n’empêche pas les 429 de `bulk_orders`.
-- Retry decorator retry **toutes** les Exception (marge insuffisante incluse) — spam + éventuel fill retardé.
-- **Correction:** retry seulement 429/5xx/timeout ; circuit breaker ; weight budget global.
+#### [Moyen → partiel] Rate limiter local ≠ HL
+- Retry decorator : **429 / 5xx / timeout only** (plus de retry « Insufficient margin »).
+- Limiter local 30/60s toujours incomplet vs weight HL. `execute_order` n’enregistre toujours rien.
 
-#### [Moyen] `get_daily_pnl` + `user_fills` tronqué
-- `user_fills` n’est pas l’historique complet du jour. `break` au premier fill `< start_of_day` suppose un tri strict.
+#### [Moyen → corrigé ici] `get_daily_pnl` pagination jour
+- `user_fills_by_time(start_of_day_utc)` ; fallback `user_fills` sans `break` sur l’ordre.
 
 #### [Faible] Healthcheck Coolify 503 si loop > 120s
 - Bien pour un freeze. Mal si un retry 32s × N pendant un 429 → restart **pendant** un close. Le close reduce-only mitige le reverse.
@@ -171,10 +168,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 
 ### 2.5 Performance & architecture
 
-#### [Élevé] `EXECUTION_MODE` n’était pas un paper mode (corrigé pour les **entrées**)
-- Défaut `"Live"`. Seul `close_active_trade` regardait `"Dry Run"`. `execute_entry_atomically` envoyait du live.
-- **Ce PR:** `_is_live_execution()` bloque les entrées. Les **exits** live restent possibles (positions réelles). Ce n’est **pas** un paper exchange : pas de fill simulé, pas de testnet auto.
-- **Correction restante:** mode `Paper` = jamais `Exchange` signé ; ou forcer testnet URL.
+#### [Élevé → corrigé ici] `EXECUTION_MODE` Paper/testnet
+- Défaut `"Live"`. Dry Run bloque les **entrées** (`_is_live_execution`). Exits live restent possibles (positions réelles).
+- **Ce PR:** `Paper` / `testnet` **force** `https://api.hyperliquid-testnet.xyz` (jamais de signature mainnet). Pas de paper ledger local.
 
 #### [Moyen] Slippage / IOC / loop 30s
 - Latence entrée = boucle + IA (45s cooldown) + REST. Inadapté au scalp 1m en stress. WS mids OK pour manage, pas pour l’entrée (prix signal bougie).
@@ -233,12 +229,12 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 | Critère | Statut | Commentaire |
 |--------------------------------|------------|-----------|
 | Gestion sécurisée des clés | **OK local** | Master key **refusée** au boot (`HL_ALLOW_MASTER_KEY` override). Agent recommandé. |
-| Idempotence des ordres | **Partiel** | No retry after fill + `cloid` sur l’IOC. Pas encore de query-by-cloid post-timeout. |
+| Idempotence des ordres | **OK local** | No retry after fill + `cloid` + `query_order_by_cloid` post-timeout. |
 | Gestion correcte des positions | **OK** | SoT exchange, close reduce-only, SL à la taille filled, orphan sans side = skip. |
 | Protection liquidation | **OK** | Guard **entrée** (`live_guards`) + confirm SL post-fill (close si nu). |
-| Reconnexion WebSocket | **OK** | Backoff, seed REST, stale 30s. Prix only, pas user fills. |
-| Gestion des rate limits | **Partiel** | 429 init + retry. Limiter local incomplet. Open-orders fail-closed. |
-| Séparation live / paper | **Partiel** | Dry Run bloque les **entrées**. Pas de paper ledger. Défaut Live. |
+| Reconnexion WebSocket | **OK** | Backoff, seed REST, stale 30s. `allMids` + `userFills`. |
+| Gestion des rate limits | **Partiel** | Retry 429/5xx only. Limiter local incomplet. Open-orders fail-closed. |
+| Séparation live / paper | **Partiel** | Dry Run bloque les **entrées**. Paper force **testnet**. Pas de ledger simulé. |
 | Logging clair des décisions | **OK** | Sizing, veto, AI trace, Discord, liq guard, slippage abort. |
 
 ---
@@ -260,15 +256,22 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Orphan sans side : **pas d’adoption BUY**.
 - Tests : `test_live_guards.py`, `test_hyperliquid_order_safety.py`, reconciler unknown-side.
 
-## 6. Encore dû (P2 local)
+**Vague 3 (P2 local)**
+- Timeout : `query_order_by_cloid` avant retry (filled/open = success).
+- Bind défaut `127.0.0.1` ; auth auto si bind LAN et `API_KEY_REQUIRED` unset ; `/docs` masqué ; compare_digest via SHA-256.
+- `pre_validate_order` branché (withdrawable vs notional/lev).
+- `EXECUTION_MODE=Paper|testnet` force l’URL testnet.
+- WS `userFills` ; history REST 504 → cache WS.
+- Daily stop UTC + `user_fills_by_time` + min($, % equity).
+- Retry decorator : 429/5xx/timeout only.
 
-1. Query `orderStatus` by cloid après timeout réseau.
-2. `API_KEY_REQUIRED=true` si le LAN voit le port 3001.
-3. Brancher pre-validate marge réelle (withdrawable).
-4. Paper = testnet URL, pas un bool oublié.
-5. WS user fills.
-6. Daily stop en % equity / UTC / `user_fills_by_time`.
-7. Retry decorator : 429/5xx only.
+## 6. Encore dû (hors P2)
+
+1. Paper ledger simulé (sans testnet HL).
+2. WS `orderUpdates`.
+3. Weight budget Hyperliquid (pas seulement retry 429).
+4. Discord webhooks rédigés sur GET settings.
+5. `update_leverage` sur le coin d’entrée, pas seulement `active_symbol`.
 
 ---
 

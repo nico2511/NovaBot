@@ -147,30 +147,63 @@ class SafeOrderManager:
         """Phase 1: Implement conflict checks (TODO)"""
         pass
 
-    def pre_validate_order(self, symbol: str, size: float, side: str) -> bool:
-        """Pre-validation before placing any order (STORY-003)"""
+    def pre_validate_order(
+        self,
+        symbol: str,
+        size: float,
+        side: str,
+        price: float = None,
+        leverage: int = None,
+    ) -> bool:
+        """Fail-closed margin check using withdrawable, not accountValue."""
         from app.utils.rate_limiter import rate_limiter
-        
+
         if not rate_limiter.can_call("order_validation"):
             self.logger.warning(f"Rate limited: skipping pre-validation for {symbol}")
             return False
         rate_limiter.record_call("order_validation")
-        
+
         try:
-            # Get current user state for margin check
-            user_state = self.hl.info.user_state(config.HL_ACCOUNT_ADDRESS) if hasattr(self.hl, 'info') else None
+            user_state = self.hl.info.user_state(config.HL_ACCOUNT_ADDRESS) if hasattr(self.hl, "info") else None
             if not user_state:
                 self.logger.error(f"❌ Pre-validation blocked {symbol}: user_state unavailable")
-                return False  # fail closed — do not size/send blindly
-                
-            # Basic margin check (simplified)
-            available_margin = float(user_state.get("marginSummary", {}).get("accountValue", 0))
-            if available_margin < 50:  # Minimum safety threshold
-                self.logger.error(f"❌ Insufficient margin for {symbol} ({available_margin:.2f})")
                 return False
-                
-            self.logger.debug(f"✅ Pre-validation passed for {symbol} ({side} {size})")
+
+            try:
+                withdrawable = float(user_state.get("withdrawable") or 0)
+            except (TypeError, ValueError):
+                withdrawable = 0.0
+            if withdrawable <= 0:
+                self.logger.error(f"❌ Pre-validation blocked {symbol}: withdrawable={withdrawable}")
+                return False
+
+            px = float(price or 0)
+            if px <= 0:
+                try:
+                    px = float(self.hl.get_current_price(symbol) or 0)
+                except Exception:
+                    px = 0.0
+            if px <= 0:
+                self.logger.error(f"❌ Pre-validation blocked {symbol}: no price")
+                return False
+
+            notional = abs(float(size or 0)) * px
+            lev = max(1, int(leverage or 1))
+            margin_needed = notional / lev
+            # 10% buffer covers fee + Isolated extra lock
+            if withdrawable + 1e-9 < margin_needed * 1.10:
+                self.logger.error(
+                    f"❌ Insufficient withdrawable for {symbol}: "
+                    f"${withdrawable:.2f} < margin ${margin_needed:.2f} "
+                    f"(notional ${notional:.2f} / {lev}x + 10%)"
+                )
+                return False
+
+            self.logger.debug(
+                f"✅ Pre-validation passed for {symbol} ({side} {size}) "
+                f"withdrawable=${withdrawable:.2f} need=${margin_needed:.2f}"
+            )
             return True
         except Exception as e:
             self.logger.error(f"❌ Pre-validation failed for {symbol}: {e} — blocking order")
-            return False  # fail closed: unknown margin is not permission to trade
+            return False

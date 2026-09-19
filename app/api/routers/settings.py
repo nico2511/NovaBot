@@ -141,7 +141,13 @@ def update_global_settings(settings: GlobalSettingsModel, bot=Depends(get_bot_co
                 dsl = float(full_settings.get("risk_defaults", {}).get("daily_stop_loss", 50.0) or 50.0)
                 bot.max_positions = mp
                 if getattr(bot, "risk_manager", None):
-                    bot.risk_manager.update_settings(max_positions=mp, daily_stop_loss=dsl)
+                    bot.risk_manager.update_settings(
+                        max_positions=mp,
+                        daily_stop_loss=dsl,
+                        daily_stop_pct=float(
+                            full_settings.get("risk_defaults", {}).get("daily_stop_pct", 5.0) or 5.0
+                        ),
+                    )
                 bot.allow_same_symbol_concurrent = bool(
                     full_settings.get("risk_defaults", {}).get(
                         "allow_same_symbol_concurrent",

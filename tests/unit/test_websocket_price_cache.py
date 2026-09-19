@@ -25,3 +25,16 @@ def test_get_current_price_seeds_cache_from_rest_without_warning_spam():
 
     assert px == 0.42
     assert svc.ws_manager.get_price("ADA") == 0.42
+
+
+def test_user_fills_snapshot_is_cached():
+    mgr = WebSocketPriceManager(["BTC"], logger=None, user_address="0xabc")
+    mgr._process_message(
+        '{"channel":"userFills","data":{"isSnapshot":true,"user":"0xabc",'
+        '"fills":[{"coin":"ETH","px":"100","sz":"1","side":"A","time":1,'
+        '"oid":9,"closedPnl":"-1.5","dir":"Close Long","fee":0}]}}'
+    )
+    fills = mgr.recent_user_fills("ETH")
+    assert len(fills) == 1
+    assert fills[0]["oid"] == 9
+    assert fills[0]["dir"] == "Close Long"

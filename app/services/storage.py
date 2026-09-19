@@ -136,6 +136,7 @@ class StorageService:
                 "max_positions": 2,
                 "allow_same_symbol_concurrent": False,
                 "daily_stop_loss": 50.0,
+                "daily_stop_pct": 5.0,
                 "bot_persona": "Conservative Scalper",
                 "risk_profile": "Capital Preservation First",
                 # UI/account field only; live trade leverage = strategy risk profile

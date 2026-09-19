@@ -293,6 +293,50 @@ def test_execute_order_mints_new_cloid_after_ioc_cancel():
     assert second["cloid"] is clo_b
 
 
+def test_paper_mode_forces_testnet_url():
+    with patch("app.services.hyperliquid_service.config") as cfg:
+        cfg.EXECUTION_MODE = "Paper"
+        cfg.HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz"
+        assert HyperliquidService._api_base_url() == "https://api.hyperliquid-testnet.xyz"
+        cfg.HYPERLIQUID_API_URL = "https://api.hyperliquid-testnet.xyz"
+        assert "testnet" in HyperliquidService._api_base_url()
+
+
+def test_parse_cloid_order_states():
+    assert HyperliquidService._parse_cloid_order_state({"status": "unknown"}) == "unknown"
+    assert (
+        HyperliquidService._parse_cloid_order_state(
+            {"status": "order", "order": {"status": "filled"}}
+        )
+        == "filled"
+    )
+    assert (
+        HyperliquidService._parse_cloid_order_state(
+            {"status": "order", "order": {"status": "canceled"}}
+        )
+        == "canceled"
+    )
+    assert (
+        HyperliquidService._parse_cloid_order_state(
+            {"status": "order", "order": {"status": "open"}}
+        )
+        == "open"
+    )
+
+
+def test_execute_order_does_not_retry_when_cloid_already_filled():
+    svc = _svc_for_execute()
+    svc._new_cloid = MagicMock(return_value="0x" + "ab" * 16)
+    svc._cloid_order_state = MagicMock(return_value="filled")
+    svc.exchange.bulk_orders.side_effect = RuntimeError("timeout")
+
+    result = HyperliquidService.execute_order(
+        svc, "BTC", True, 1.0, price=100, sl_price=99
+    )
+    assert result["status"] == "success"
+    assert svc.exchange.bulk_orders.call_count == 1
+
+
 def test_execute_order_btc_uses_0_8pct_ioc_slip():
     svc = _svc_for_execute()
     svc._new_cloid = MagicMock(return_value=None)

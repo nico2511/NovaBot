@@ -15,6 +15,7 @@ import json
 import logging
 import websockets
 from typing import Dict, Optional, List, Callable, Any
+from collections import deque
 
 class WebSocketPriceManager:
     """
@@ -34,6 +35,7 @@ class WebSocketPriceManager:
         staleness_threshold: int = 30,
         logger: Any = None,
         ws_url: Optional[str] = None,
+        user_address: Optional[str] = None,
     ):
         """
         Initialize WebSocket Price Manager.
@@ -64,6 +66,9 @@ class WebSocketPriceManager:
         
         # Hyperliquid WebSocket endpoint (derived from REST base so testnet stays consistent)
         self._ws_url = ws_url or "wss://api.hyperliquid.xyz/ws"
+        self._user_address = (user_address or "").strip()
+        self._user_fills: deque = deque(maxlen=200)
+        self._user_fills_lock = threading.Lock()
         
         self._log_info(f"📡 WebSocket Manager initialized for symbols: {', '.join(symbols)}")
 
@@ -264,6 +269,17 @@ class WebSocketPriceManager:
                 }
                 await websocket.send(json.dumps(sub_msg))
                 self._log_info("📡 Subscribed to 'allMids'.")
+
+                if self._user_address:
+                    fills_sub = {
+                        "method": "subscribe",
+                        "subscription": {
+                            "type": "userFills",
+                            "user": self._user_address,
+                        },
+                    }
+                    await websocket.send(json.dumps(fills_sub))
+                    self._log_info(f"📡 Subscribed to 'userFills' for {self._user_address[:8]}…")
                 
                 while self._running:
                     try:
@@ -306,8 +322,32 @@ class WebSocketPriceManager:
                                 self.last_update[sym] = current_time
                             except (TypeError, ValueError):
                                 continue
-                
+            elif channel == "userFills":
+                self._ingest_user_fills(data.get("data") or {})
+
         except json.JSONDecodeError:
             pass
         except Exception as e:
             self._log_error(f"Error parsing message: {e}")
+
+    def _ingest_user_fills(self, payload: dict) -> None:
+        fills = payload.get("fills")
+        if fills is None and isinstance(payload, dict) and payload.get("coin"):
+            fills = [payload]
+        if not isinstance(fills, list):
+            return
+        with self._user_fills_lock:
+            if payload.get("isSnapshot"):
+                self._user_fills.clear()
+            for fill in fills:
+                if isinstance(fill, dict):
+                    self._user_fills.appendleft(fill)
+
+    def recent_user_fills(self, symbol: str | None = None, limit: int = 50) -> list:
+        """Newest-first copy of WS user fills (raw Hyperliquid dicts)."""
+        with self._user_fills_lock:
+            rows = list(self._user_fills)
+        if symbol:
+            coin = str(symbol).upper().replace("-USD", "").replace("-USDC", "")
+            rows = [f for f in rows if str(f.get("coin") or "").upper() == coin]
+        return rows[: max(0, int(limit))]

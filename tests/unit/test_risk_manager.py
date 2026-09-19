@@ -63,7 +63,36 @@ def test_apply_exchange_daily_pnl_replaces_accumulated_value():
     assert rm.state.is_stop_mode is False
 
 
-def test_apply_exchange_daily_pnl_does_not_retrigger():
+def test_daily_stop_pct_tightens_small_account():
+    rm = RiskManager(max_positions=5, daily_stop_loss=50.0, daily_stop_pct=5.0)
+    # $200 × 5% = $10, tighter than $50
+    triggered = rm.apply_exchange_daily_pnl(-12.0, equity=200.0)
+    assert triggered is True
+    assert rm.daily_stop_threshold(200.0) == pytest.approx(10.0)
+
+
+def test_daily_stop_dollar_still_binds_large_account():
+    rm = RiskManager(max_positions=5, daily_stop_loss=50.0, daily_stop_pct=5.0)
+    # $10k × 5% = $500, dollar $50 is tighter
+    assert rm.daily_stop_threshold(10_000.0) == pytest.approx(50.0)
+    assert rm.apply_exchange_daily_pnl(-40.0, equity=10_000.0) is False
+    assert rm.apply_exchange_daily_pnl(-51.0, equity=10_000.0) is True
+
+
+def test_daily_stop_without_equity_uses_dollar_only():
+    rm = RiskManager(max_positions=5, daily_stop_loss=50.0, daily_stop_pct=5.0)
+    assert rm.daily_stop_threshold() == pytest.approx(50.0)
+
+
+def test_utc_reset_uses_utc_date(monkeypatch):
+    rm = RiskManager(daily_stop_loss=50.0)
+    rm.state.daily_pnl = -10.0
+    rm.last_reset_date = __import__("datetime").date(2020, 1, 1)
+    rm._check_reset()
+    assert rm.state.daily_pnl == 0.0
+    assert rm.last_reset_date == __import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc
+    ).date()
     rm = RiskManager(max_positions=5, daily_stop_loss=50.0)
     assert rm.apply_exchange_daily_pnl(-60.0) is True
     assert rm.apply_exchange_daily_pnl(-80.0) is False

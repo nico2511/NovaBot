@@ -6,6 +6,24 @@ from pathlib import Path
 
 load_dotenv()
 
+
+def bind_is_loopback(host: str | None) -> bool:
+    """True when the API bind cannot be reached from another machine on the LAN."""
+    h = (host or "").strip().lower().strip("[]")
+    return h in ("127.0.0.1", "localhost", "::1", "0:0:0:0:0:0:0:1")
+
+
+def resolve_api_host() -> str:
+    return (os.getenv("API_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+
+
+def resolve_api_key_required(host: str | None = None) -> bool:
+    """Honor explicit API_KEY_REQUIRED; otherwise require a key on non-loopback binds."""
+    raw = os.getenv("API_KEY_REQUIRED")
+    if raw is not None and str(raw).strip() != "":
+        return str(raw).lower() == "true"
+    return not bind_is_loopback(host if host is not None else resolve_api_host())
+
 def _load_bot_state_settings():
     """Load settings from user_settings.json if available, otherwise use .env defaults"""
     try:
@@ -94,6 +112,11 @@ class Config:
     # Risk Defaults (from bot_state.json or .env fallback)
     DEFAULT_MAX_POSITIONS: int = _state_settings.get('risk_defaults', {}).get('max_positions') or int(os.getenv("DEFAULT_MAX_POSITIONS", "2"))
     DEFAULT_DAILY_STOP_LOSS: float = _state_settings.get('risk_defaults', {}).get('daily_stop_loss') or float(os.getenv("DEFAULT_DAILY_STOP_LOSS", "50.0"))
+    # Percent of equity (5 = 5%). Combined with the $ stop: the tighter of the two wins.
+    DEFAULT_DAILY_STOP_PCT: float = float(
+        _state_settings.get("risk_defaults", {}).get("daily_stop_pct")
+        or os.getenv("DEFAULT_DAILY_STOP_PCT", "5.0")
+    )
     # Account UI ceiling for live trade leverage (clamps strategy risk-profile max_leverage)
     DEFAULT_LEVERAGE: int = int(
         _state_settings.get("risk_defaults", {}).get("default_leverage")
@@ -140,10 +163,10 @@ class Config:
     AI_CONF_THRESHOLD_LOW: int = _state_settings.get('ai_config', {}).get('conf_threshold_low') or int(os.getenv("AI_CONF_THRESHOLD_LOW", "40"))
     
     # API Security
-    # API_KEY_REQUIRED: if "true", every protected endpoint must send the key in the
-    # X-API-Key header. Defaults to "false" so local dev keeps working transparently.
+    API_HOST: str = resolve_api_host()
     API_KEY: str = os.getenv("API_KEY", "")
-    API_KEY_REQUIRED: bool = os.getenv("API_KEY_REQUIRED", "false").lower() == "true"
+    API_KEY_REQUIRED: bool = resolve_api_key_required(API_HOST)
+    EXECUTION_MODE: str = os.getenv("EXECUTION_MODE", "Live")
 
     # CORS: comma-separated origins. Use "*" only when explicitly set (dev only).
     CORS_ALLOWED_ORIGINS: list = None  # set in __post_init__

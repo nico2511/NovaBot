@@ -15,6 +15,7 @@ local development friction-free. In production (Coolify) set both:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 
@@ -53,7 +54,9 @@ def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Ke
             detail="API key not configured on server",
         )
 
-    if not x_api_key or not secrets.compare_digest(x_api_key, config.API_KEY):
+    provided = hashlib.sha256((x_api_key or "").encode("utf-8")).digest()
+    expected = hashlib.sha256((config.API_KEY or "").encode("utf-8")).digest()
+    if not secrets.compare_digest(provided, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
