@@ -65,33 +65,6 @@ def test_trade_history_returns_none_after_exhausted_504(service):
     assert service.info.user_fills.call_count == 3
 
 
-def test_trade_history_uses_ws_fills_when_rest_fails(service):
-    service.ws_manager = MagicMock()
-    service.ws_manager.recent_user_fills.return_value = [
-        {
-            "coin": "BTC",
-            "side": "A",
-            "px": "100",
-            "sz": "1",
-            "time": 1,
-            "oid": 7,
-            "closedPnl": "-0.5",
-            "fee": 0,
-            "dir": "Close Long",
-        }
-    ]
-    service.info.user_fills.side_effect = Exception((504, "timeout"))
-
-    with patch("app.services.hyperliquid_service.time.sleep"):
-        with patch("app.services.hyperliquid_service.config") as cfg:
-            cfg.HL_ACCOUNT_ADDRESS = "0xabc"
-            result = HyperliquidService.get_trade_history(service, limit=10)
-
-    assert result is not None
-    assert result[0]["symbol"] == "BTC"
-    assert result[0]["dir"] == "Close Long"
-
-
 def test_trade_history_retries_then_succeeds(service):
     service.info.user_fills.side_effect = [
         Exception((504, "timeout")),

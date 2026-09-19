@@ -17,11 +17,11 @@
 
 Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, ghost close uniquement après fill Close, WS reconnect) sont réelles. Avant ce PR, les chemins d’ordres pouvaient **doubler une position** ou **ouvrir un reverse**.
 
-### 3 points restants (local)
+### 3 points restants (local live)
 
-1. **Pas de paper ledger** — `EXECUTION_MODE=Paper` force le testnet, mais il n’y a pas de fills simulés hors HL testnet.
-2. **WS `orderUpdates` toujours absents** — userFills est branché ; les resting/trigger updates restent en poll REST.
-3. **Rate limiter local ≠ weight HL** — retry 429/5xx only, mais pas de budget weight global.
+1. **WS = prix only** (`allMids`) — manage/exit poll REST 10s. Pas de userFills (volontaire : un 2e canal fills ne doit pas confirmer un close).
+2. **Pas de paper exchange** — Dry Run bloque les **entrées**. L’URL HL c’est `HYPERLIQUID_API_URL`, pas un bool Paper.
+3. **Rate limiter local ≠ weight HL** — retry 429/5xx only, pas de budget weight.
 
 ---
 
@@ -144,9 +144,8 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 
 ### 2.4 Robustesse / résilience
 
-#### [Élevé → partiel] WS `allMids` + `userFills`
-- Reconnect + backoff OK. Stale 30s → REST fallback.
-- **Ce PR:** subscribe `userFills` ; cache 200 fills ; `get_trade_history` s’en sert si REST 504 (close externe plus rapide). Pas encore `orderUpdates`.
+#### [Élevé] WS prix only (`allMids`)
+- Reconnect + backoff OK. Stale 30s → REST fallback. **Pas** de `userFills` / `orderUpdates` (close confirmé uniquement via REST `user_fills`).
 
 #### [Moyen → partiel] Rate limiter local ≠ HL
 - Retry decorator : **429 / 5xx / timeout only** (plus de retry « Insufficient margin »).
@@ -168,9 +167,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 
 ### 2.5 Performance & architecture
 
-#### [Élevé → corrigé ici] `EXECUTION_MODE` Paper/testnet
-- Défaut `"Live"`. Dry Run bloque les **entrées** (`_is_live_execution`). Exits live restent possibles (positions réelles).
-- **Ce PR:** `Paper` / `testnet` **force** `https://api.hyperliquid-testnet.xyz` (jamais de signature mainnet). Pas de paper ledger local.
+#### [Élevé → corrigé pour les **entrées**] `EXECUTION_MODE`
+- Défaut `"Live"`. Dry Run / Paper bloquent les **entrées**. Les **exits** live restent possibles (positions réelles).
+- L’URL d’exchange = `HYPERLIQUID_API_URL` uniquement. Pas de bascule Paper→testnet automatique.
 
 #### [Moyen] Slippage / IOC / loop 30s
 - Latence entrée = boucle + IA (45s cooldown) + REST. Inadapté au scalp 1m en stress. WS mids OK pour manage, pas pour l’entrée (prix signal bougie).
@@ -232,9 +231,9 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 | Idempotence des ordres | **OK local** | No retry after fill + `cloid` + `query_order_by_cloid` post-timeout. |
 | Gestion correcte des positions | **OK** | SoT exchange, close reduce-only, SL à la taille filled, orphan sans side = skip. |
 | Protection liquidation | **OK** | Guard **entrée** (`live_guards`) + confirm SL post-fill (close si nu). |
-| Reconnexion WebSocket | **OK** | Backoff, seed REST, stale 30s. `allMids` + `userFills`. |
+| Reconnexion WebSocket | **OK** | Backoff, seed REST, stale 30s. Prix (`allMids`) only. |
 | Gestion des rate limits | **Partiel** | Retry 429/5xx only. Limiter local incomplet. Open-orders fail-closed. |
-| Séparation live / paper | **Partiel** | Dry Run bloque les **entrées**. Paper force **testnet**. Pas de ledger simulé. |
+| Séparation live / paper | **Partiel** | Dry Run bloque les **entrées**. URL = `HYPERLIQUID_API_URL`. |
 | Logging clair des décisions | **OK** | Sizing, veto, AI trace, Discord, liq guard, slippage abort. |
 
 ---
@@ -256,22 +255,21 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Orphan sans side : **pas d’adoption BUY**.
 - Tests : `test_live_guards.py`, `test_hyperliquid_order_safety.py`, reconciler unknown-side.
 
-**Vague 3 (P2 local)**
+**Vague 3 (P2 utile en live local)**
 - Timeout : `query_order_by_cloid` avant retry (filled/open = success).
 - Bind défaut `127.0.0.1` ; auth auto si bind LAN et `API_KEY_REQUIRED` unset ; `/docs` masqué ; compare_digest via SHA-256.
 - `pre_validate_order` branché (withdrawable vs notional/lev).
-- `EXECUTION_MODE=Paper|testnet` force l’URL testnet.
-- WS `userFills` ; history REST 504 → cache WS.
 - Daily stop UTC + `user_fills_by_time` + min($, % equity).
 - Retry decorator : 429/5xx/timeout only.
 
-## 6. Encore dû (hors P2)
+**Hors scope (pas un paper bot, WS = prix)**
+- Pas de Paper→testnet auto, pas de subscribe `userFills`.
 
-1. Paper ledger simulé (sans testnet HL).
-2. WS `orderUpdates`.
-3. Weight budget Hyperliquid (pas seulement retry 429).
-4. Discord webhooks rédigés sur GET settings.
-5. `update_leverage` sur le coin d’entrée, pas seulement `active_symbol`.
+## 6. Encore dû
+
+1. Weight budget Hyperliquid (pas seulement retry 429).
+2. Discord webhooks rédigés sur GET settings.
+3. `update_leverage` sur le coin d’entrée, pas seulement `active_symbol`.
 
 ---
 

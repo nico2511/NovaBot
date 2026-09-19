@@ -293,15 +293,6 @@ def test_execute_order_mints_new_cloid_after_ioc_cancel():
     assert second["cloid"] is clo_b
 
 
-def test_paper_mode_forces_testnet_url():
-    with patch("app.services.hyperliquid_service.config") as cfg:
-        cfg.EXECUTION_MODE = "Paper"
-        cfg.HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz"
-        assert HyperliquidService._api_base_url() == "https://api.hyperliquid-testnet.xyz"
-        cfg.HYPERLIQUID_API_URL = "https://api.hyperliquid-testnet.xyz"
-        assert "testnet" in HyperliquidService._api_base_url()
-
-
 def test_parse_cloid_order_states():
     assert HyperliquidService._parse_cloid_order_state({"status": "unknown"}) == "unknown"
     assert (

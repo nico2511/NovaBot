@@ -7,7 +7,7 @@ import pandas as pd
 import time
 import uuid
 
-from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
+from hyperliquid.utils.constants import MAINNET_API_URL
 
 # Import retry decorators and WebSocket manager
 from app.utils.retry_decorator import (
@@ -24,18 +24,9 @@ class HyperliquidService:
     MARKET_SLIPPAGE = 0.015
 
     @staticmethod
-    def _execution_mode() -> str:
-        return str(getattr(config, "EXECUTION_MODE", None) or "Live").strip().lower()
-
-    @staticmethod
     def _api_base_url() -> str:
-        """REST/WS signing base. Paper/testnet mode never signs mainnet."""
+        """REST/WS signing base. Honors HYPERLIQUID_API_URL; defaults to mainnet."""
         raw = (getattr(config, "HYPERLIQUID_API_URL", None) or "").strip()
-        mode = HyperliquidService._execution_mode()
-        if mode in ("paper", "testnet"):
-            if "testnet" not in (raw or TESTNET_API_URL).lower():
-                return TESTNET_API_URL
-            return raw or TESTNET_API_URL
         return raw or MAINNET_API_URL
 
     @staticmethod
@@ -158,15 +149,9 @@ class HyperliquidService:
                 )
                 if warn:
                     self.log("🚨 " + warn + " Override HL_ALLOW_MASTER_KEY=true is set.", "ERROR")
-                base_url = self._api_base_url()
-                if self._execution_mode() in ("paper", "testnet"):
-                    self.log(
-                        f"🧪 EXECUTION_MODE={self._execution_mode()} — Exchange URL {base_url}",
-                        "WARNING",
-                    )
                 self.exchange = Exchange(
                     account,
-                    base_url=base_url,
+                    base_url=self._api_base_url(),
                     account_address=config.HL_ACCOUNT_ADDRESS,
                 )
             except RuntimeError as e:
@@ -311,7 +296,6 @@ class HyperliquidService:
                 tracked,
                 logger=LogBridge(self),
                 ws_url=self._ws_url_from_rest(self._api_base_url()),
-                user_address=getattr(config, "HL_ACCOUNT_ADDRESS", None),
             )
             self.ws_manager.start()
             self._seed_ws_prices(tracked)
@@ -1896,27 +1880,11 @@ class HyperliquidService:
 
         if last_err is not None:
             self.log(f"Error fetching trade history from Hyperliquid: {last_err}")
-            ws_raw = self._ws_user_fills_raw(limit)
-            if not ws_raw:
-                return None
-            return self._fills_to_trade_rows(ws_raw, limit)
+            return None
 
-        merged = list(self._ws_user_fills_raw(limit)) + list(user_fills or [])
-        if not merged:
+        if not user_fills:
             return []
-        return self._fills_to_trade_rows(merged, limit)
-
-    def _ws_user_fills_raw(self, limit: int) -> list:
-        mgr = getattr(self, "ws_manager", None)
-        if mgr is None or not hasattr(mgr, "recent_user_fills"):
-            return []
-        try:
-            raw = mgr.recent_user_fills(limit=max(int(limit or 50), 50))
-            if not isinstance(raw, list):
-                return []
-            return list(raw)
-        except Exception:
-            return []
+        return self._fills_to_trade_rows(user_fills, limit)
 
     @staticmethod
     def _fills_to_trade_rows(fills: list, limit: int) -> list:
