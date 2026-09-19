@@ -181,7 +181,7 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Pas de backtest dans le runtime. `backtest_lab/` gitignoré. Séparation conceptuelle OK, pas de paper ledger.
 
 #### Architecture
-- `bot.py` ~4100 lignes : machine + sizing + adoption + thesis + Discord. Fragile. Les stratégies sont correctement externalisées (`strategies/`).
+- `bot.py` : loop + AI + Discord + scanner + adoption. **Entrée / sortie / SL** extraits dans `app/core/live_execution.py` (`LiveExecutionMixin`) pour tester `bulk_orders` sans la loop.
 
 ---
 
@@ -199,13 +199,13 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - `max_sl_drift = 0.12` jamais utilisé.
 - `except: pass` encore présent (entry oid parse).
 - Retry decorator `print` pas logger.
-- `BotContext` trop gros pour review de risque.
+- `BotContext` reste gros (loop/AI/scanner) ; le chemin d’ordres live est dans `live_execution.py`.
 
 ---
 
 ## 3. Scénarios de stress à tester
 
-1. **Fill + SL reject** — `bulk_orders` entry filled, trigger SL `error`. Vérifier : 1 seule position, reconciler pose SL, **pas** de 2e entrée. *(couvert unitaire via classify ; besoin d’un test d’intégration mock bulk)*
+1. **Fill + SL reject** — `bulk_orders` entry filled, trigger SL `error`. Vérifier : 1 seule position, reconciler pose SL, **pas** de 2e entrée. *(couvert : `test_fill_plus_sl_reject_does_not_retry_bulk_orders`)*
 2. **Timeout après submit** — exception réseau, positions API 429. Vérifier : pas de retry. Relire le book 10s plus tard.
 3. **Close pendant que le SL exchange fill** — race. Reduce-only doit no-op / error, pas reverse.
 4. **429 storm CloudFront 2 min** — loop health 120s, Coolify restart mid-close.
@@ -262,6 +262,10 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 - Daily stop UTC + `user_fills_by_time` + min($, % equity).
 - Retry decorator : 429/5xx/timeout only.
 
+**Vague 4 (chemin live testable)**
+- `execute_entry_atomically` / `execute_exit_atomically` / `_verify_and_enforce_sl_tp` / `_check_local_exits` extraits dans `LiveExecutionMixin` (`app/core/live_execution.py`). Loop/AI/Discord/scanner restent dans `bot.py`.
+- Test E2E : `tests/unit/test_live_execution.py` mocke `exchange.bulk_orders` (IOC + SL/TP `normalTpsl`, 1 call, pas de retry après fill+SL error, Dry Run / SL manquant / slip abort / panic-close SL nu).
+
 **Hors scope (pas un paper bot, WS = prix)**
 - Pas de Paper→testnet auto, pas de subscribe `userFills`.
 
@@ -270,6 +274,7 @@ Les couches « machine » (sizing ÷N, cap notional = equity, daily stop HL, gho
 1. Weight budget Hyperliquid (pas seulement retry 429).
 2. Discord webhooks rédigés sur GET settings.
 3. `update_leverage` sur le coin d’entrée, pas seulement `active_symbol`.
+4. `_handle_external_closure` / adoption restent dans `bot.py` (sync, pas le submit d’ordres).
 
 ---
 
