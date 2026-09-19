@@ -19,6 +19,8 @@ Each strategy selects a **risk-profile preset** from the shared library (`strate
 
 Reference: [`supertrend.py`](./supertrend.py) (15m), [`trend_lt.py`](./trend_lt.py) (1h trend), [`range_lt.py`](./range_lt.py) (1h box fade).
 
+Quant review of live plans (entry/exit/sizing/regimes): [`AUDIT.md`](./AUDIT.md). Agent skill: [`.cursor/skills/audit-novabot-strategy/SKILL.md`](../.cursor/skills/audit-novabot-strategy/SKILL.md).
+
 ---
 
 ## Risk profile presets (per strategy)
