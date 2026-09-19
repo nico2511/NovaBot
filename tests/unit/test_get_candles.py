@@ -72,3 +72,9 @@ def test_get_candles_returns_empty_after_exhausted_retries(service):
 
     assert df.empty
     assert service.info.candles_snapshot.call_count == 3
+
+
+def test_get_daily_pnl_returns_none_without_address(service, monkeypatch):
+    service.log = MagicMock()
+    monkeypatch.setattr("app.services.hyperliquid_service.config.HL_ACCOUNT_ADDRESS", "")
+    assert service.get_daily_pnl() is None

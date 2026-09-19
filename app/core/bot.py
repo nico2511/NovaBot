@@ -231,7 +231,16 @@ class BotContext:
             
             self.max_positions = requested_max
             try:
-                self.risk_manager.update_settings(max_positions=int(requested_max or 2))
+                dsl = float(
+                    self.global_settings.get("risk_defaults", {}).get(
+                        "daily_stop_loss", config.DEFAULT_DAILY_STOP_LOSS
+                    )
+                    or config.DEFAULT_DAILY_STOP_LOSS
+                )
+                self.risk_manager.update_settings(
+                    max_positions=int(requested_max or 2),
+                    daily_stop_loss=dsl,
+                )
             except Exception:
                 pass
             self.allow_same_symbol_concurrent = bool(
@@ -280,14 +289,24 @@ class BotContext:
                     )
                     self.max_positions = requested_max
                     try:
+                        dsl = float(
+                            self.global_settings.get("risk_defaults", {}).get(
+                                "daily_stop_loss", config.DEFAULT_DAILY_STOP_LOSS
+                            )
+                            or config.DEFAULT_DAILY_STOP_LOSS
+                        )
                         self.risk_manager.update_settings(
-                            max_positions=int(requested_max or 2)
+                            max_positions=int(requested_max or 2),
+                            daily_stop_loss=dsl,
                         )
                     except Exception:
                         pass
             except Exception as scan_load_err:
                 logger.warning("Could not load scanner settings from disk: %s", scan_load_err)
-            self.add_log(f"⚙️ Max positions: {self.max_positions}")
+            self.add_log(
+                f"⚙️ Max positions: {self.max_positions} | "
+                f"Daily stop: ${float(self.risk_manager.daily_stop_loss):.0f}"
+            )
                     
         except Exception as e:
             logger.error("Error loading state: %s", e)
@@ -1562,6 +1581,7 @@ class BotContext:
                 self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
                 return { "status": "ignored", "reason": reason }
 
+            self._sync_daily_risk_pnl(min_interval_sec=0)
             can_trade, risk_reason = self.risk_manager.check_can_trade()
             if not can_trade:
                 self.add_log(f"⛔ ENTRY BLOCKED by risk: {risk_reason}")
@@ -2646,6 +2666,25 @@ class BotContext:
         profile = self._resolve_risk_profile(strategy_name)
         return clamp_leverage(get_max_leverage(profile), account_cap=self._account_leverage_cap())
 
+    def _sync_daily_risk_pnl(self, min_interval_sec: int = 60) -> None:
+        """Refresh daily PnL from Hyperliquid so stop-mode reflects real drawdown."""
+        now = time.time()
+        last = float(getattr(self, "_last_daily_risk_pnl_sync", 0) or 0)
+        if min_interval_sec > 0 and now - last < min_interval_sec:
+            return
+        self._last_daily_risk_pnl_sync = now
+        try:
+            quiet = min_interval_sec > 0
+            exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=quiet)
+            if exchange_pnl is None:
+                return
+            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                self.add_log(
+                    f"⛔ Daily stop triggered from exchange PnL: ${float(exchange_pnl):.2f}"
+                )
+        except Exception as sync_err:
+            logger.debug("Daily risk PnL sync skipped: %s", sync_err)
+
     def _enforce_leverage(self, strategy_name: str | None = None):
         """Enforce leverage based on strategy risk profile (or account default)."""
         try:
@@ -2704,6 +2743,7 @@ class BotContext:
                 self.risk_manager.sync_with_hyperliquid(hyperliquid_service)
             except Exception as risk_sync_err:
                 self.add_log(f"⚠️ Risk position sync failed: {risk_sync_err}")
+            self._sync_daily_risk_pnl(min_interval_sec=0)
             try:
                 snap = ia_service.refresh_credits(reason="startup")
                 remaining = snap.get("remaining_usd")
@@ -2740,6 +2780,7 @@ class BotContext:
                 now = time.time()
                 if now - self._last_state_sync_time >= self._state_sync_interval:
                     self._sync_state(silent=True)
+                    self._sync_daily_risk_pnl(min_interval_sec=60)
                     self._last_state_sync_time = now
                 try:
                     ia_service.maybe_refresh_credits()
@@ -2777,8 +2818,14 @@ class BotContext:
                     self.add_log("🔄 Triggering Daily PnL Sync Task...")
                     def sync_pnl():
                         try:
-                            # 1. Dynamic PnL Log
-                            hyperliquid_service.get_daily_pnl()
+                            # 1. Dynamic PnL log + risk stop-mode (exchange = source of truth)
+                            exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=False)
+                            if exchange_pnl is not None:
+                                if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                                    self.add_log(
+                                        f"⛔ Daily stop triggered from exchange PnL: "
+                                        f"${float(exchange_pnl):.2f}"
+                                    )
                             
                             # 2. Daily Snapshot
                             acc = hyperliquid_service.get_account_balance()

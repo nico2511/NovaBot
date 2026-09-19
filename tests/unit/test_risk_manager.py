@@ -43,6 +43,34 @@ def test_daily_stop_loss_triggers_stop_mode():
     assert "Daily Stop Loss" in reason
 
 
+def test_apply_exchange_daily_pnl_triggers_stop_mode():
+    rm = RiskManager(max_positions=5, daily_stop_loss=50.0)
+    triggered = rm.apply_exchange_daily_pnl(-55.0)
+    assert triggered is True
+    assert rm.state.is_stop_mode is True
+    assert rm.state.daily_pnl == -55.0
+    ok, reason = rm.check_can_trade()
+    assert ok is False
+    assert "Daily Stop Loss" in reason
+
+
+def test_apply_exchange_daily_pnl_replaces_accumulated_value():
+    rm = RiskManager(max_positions=5, daily_stop_loss=100.0)
+    rm.record_trade_close(pnl=10.0)
+    assert rm.state.daily_pnl == 10.0
+    rm.apply_exchange_daily_pnl(-20.0)
+    assert rm.state.daily_pnl == -20.0
+    assert rm.state.is_stop_mode is False
+
+
+def test_apply_exchange_daily_pnl_does_not_retrigger():
+    rm = RiskManager(max_positions=5, daily_stop_loss=50.0)
+    assert rm.apply_exchange_daily_pnl(-60.0) is True
+    assert rm.apply_exchange_daily_pnl(-80.0) is False
+    assert rm.state.daily_pnl == -80.0
+    assert rm.state.is_stop_mode is True
+
+
 def test_record_trade_close_decrements_positions():
     rm = RiskManager(max_positions=3, daily_stop_loss=100.0)
     rm.record_trade_open()

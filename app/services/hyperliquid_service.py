@@ -1437,56 +1437,45 @@ class HyperliquidService:
             return {}
 
     @standard_operation
-    def get_daily_pnl(self):
+    def get_daily_pnl(self, quiet: bool = False):
         """
-        Calculate daily PnL using account value snapshot method.
-        
-        Method:
-        1. Save account value at 00:00 UTC (start of day)
-        2. Calculate PnL = Current Account Value - Start of Day Value
-        
-        This captures both realized and unrealized PnL automatically.
-        
-        Returns:
-            float: Total daily PnL in USDC
+        Daily PnL = today's realized fills + current unrealized.
+
+        Returns None when the snapshot cannot be trusted (no address / API error)
+        so callers do not overwrite risk-manager PnL with a fake 0.
         """
-        import json
-        import os
         from datetime import datetime, timezone
-        
+
         if not config.HL_ACCOUNT_ADDRESS:
-            return 0.0
-            
+            return None
+
         try:
-            # 1. Start of Day (UTC)
             now_utc = datetime.now(timezone.utc)
             start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
             start_ts_ms = int(start_of_day.timestamp() * 1000)
-            
-            # 2. Realized PnL (Today's Fills)
+
             realized_pnl = 0.0
-            trades_count = 0
             user_fills = self.info.user_fills(config.HL_ACCOUNT_ADDRESS)
             if user_fills:
                 for fill in user_fills:
                     if fill.get("time", 0) >= start_ts_ms:
                         realized_pnl += float(fill.get("closedPnl") or 0.0)
-                        trades_count += 1
                     else:
                         break
-                        
-            # 3. Unrealized PnL
+
             unrealized_pnl = sum([p.get("pnl", 0) for p in self.get_positions()])
-            
             total = realized_pnl + unrealized_pnl
-            self.log(f"💰 Daily PnL: ${total:.2f} (Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f})")
+            if not quiet:
+                self.log(
+                    f"💰 Daily PnL: ${total:.2f} "
+                    f"(Realized: ${realized_pnl:.2f}, Unrealized: ${unrealized_pnl:.2f})"
+                )
             return total
-            
+
         except Exception as e:
-            self.log(f"❌ Error calculating daily PnL: {e}")
-            import traceback
-            traceback.print_exc()
-            return 0.0
+            if not quiet:
+                self.log(f"❌ Error calculating daily PnL: {e}")
+            return None
 
 
 # Lazy initialization to prevent blocking during import
