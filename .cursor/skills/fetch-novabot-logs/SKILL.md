@@ -73,14 +73,17 @@ souvent `.env`, `data/config/user_settings.json` et parfois une config stratégi
 2. Renseigner **au minimum** :
    - `API_KEY` = même valeur que dans Coolify (variable du conteneur)
    - `NOVABOT_API_URL` = URL publique du bot (ex. `https://…`, sans slash final)
-3. **Tirer** la config prod vers le disque :
+3. **Bootstrap local** (config + scratch en une commande) :
    ```bash
-   python .cursor/skills/fetch-novabot-logs/scripts/pull_config.py --apply
+   python .cursor/skills/fetch-novabot-logs/scripts/bootstrap_local.py
    ```
-   Webhooks Discord : par défaut ils sont récupérés ; pour ne pas les écrire en local,
-   ajouter `--redact-webhooks`.
-4. Vérifier : `python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py` (doit être vide)
+   Ou manuellement :
+   - `pull_config.py --apply` → crée `user_settings.json` + aligne `strategies.json`
+   - `fetch_logs.py` (ou `--archive`) → remplit `scratch/` (snapshots API + logs locaux si présents)
+4. Vérifier : `config_diff.py` (OK ou diffs explicites ; sans `user_settings.json` il ne crash plus)
 5. Ensuite seulement, edits locaux + `sync_config.py --apply` pour repousser.
+
+LAN (ex. `http://10.10.20.79:3001`) : dans `.env` mettre `NOVABOT_API_URL=http://10.10.20.79:3001` + `API_KEY=…`.
 
 Sans `API_KEY` / URL, les scripts échouent en 401 ou connection refused — ce n’est pas un bug git.
 
@@ -106,6 +109,7 @@ If API is unreachable, report it and analyze `scratch/local/` only.
 |--------|---------|
 | `python .cursor/skills/fetch-novabot-logs/scripts/bot_report.py --fetch` | Fetch API + write `scratch/report.md` |
 | `python .cursor/skills/fetch-novabot-logs/scripts/config_diff.py` | Compare local `data/config/` vs live API |
+| `python .cursor/skills/fetch-novabot-logs/scripts/bootstrap_local.py` | pull_config + fetch_logs + config_diff |
 | `python .cursor/skills/fetch-novabot-logs/scripts/pull_config.py --apply` | Pull live config → `data/config/` (recovery) |
 | `python .cursor/skills/fetch-novabot-logs/scripts/sync_config.py --apply` | Push local config to live via API |
 

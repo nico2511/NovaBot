@@ -9,7 +9,16 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _api_client import REPO_ROOT, api_base_url, get_json, load_local_json
+from _api_client import (
+    REPO_ROOT,
+    api_base_url,
+    get_json,
+    load_local_json,
+    load_local_json_if_exists,
+)
+
+PULL_CMD = "python .cursor/skills/fetch-novabot-logs/scripts/pull_config.py --apply"
+FETCH_CMD = "python .cursor/skills/fetch-novabot-logs/scripts/fetch_logs.py"
 
 USER_WATCH_PATHS = (
     "risk_defaults.daily_stop_loss",
@@ -91,10 +100,27 @@ def main(argv: list[str] | None = None) -> int:
     print(f"API: {api_base_url()}")
     print(f"Local repo: {REPO_ROOT}\n")
 
-    local_user = load_local_json("data/config/user_settings.json")
-    local_strats = load_local_json("data/config/strategies.json")
+    local_user_raw = load_local_json_if_exists("data/config/user_settings.json")
+    skip_user = local_user_raw is None
+    if skip_user:
+        print(
+            "WARN: data/config/user_settings.json missing (gitignored).\n"
+            f"  Run: {PULL_CMD}\n"
+            f"  Then: {FETCH_CMD}\n"
+        )
+    else:
+        local_user_raw = local_user_raw or {}
 
-    local_user_flat = _flatten_user_settings(local_user)
+    try:
+        local_strats = load_local_json("data/config/strategies.json")
+    except FileNotFoundError:
+        print(
+            "ERROR: data/config/strategies.json missing.\n"
+            f"  Run: {PULL_CMD}\n"
+        )
+        return 1
+
+    local_user_flat = None if skip_user else _flatten_user_settings(local_user_raw)
     local_strat_flat = _flatten_strategies(local_strats)
 
     try:
@@ -104,8 +130,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}")
         return 1
 
-    user_diffs = diff_maps(local_user_flat, live_user_flat)
+    user_diffs = (
+        [] if local_user_flat is None else diff_maps(local_user_flat, live_user_flat)
+    )
     strat_diffs = diff_maps(local_strat_flat, live_strat_flat)
+
+    if skip_user and not strat_diffs:
+        print("strategies.json OK (user_settings not compared — file missing).")
+        return 0
 
     if not user_diffs and not strat_diffs:
         print("OK — live config matches local watch list.")

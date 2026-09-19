@@ -90,4 +90,13 @@ def put_json(path: str, body: Any, **kwargs: Any) -> tuple[Any | None, str | Non
 
 def load_local_json(rel_path: str) -> dict[str, Any]:
     path = REPO_ROOT / rel_path
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_local_json_if_exists(rel_path: str) -> dict[str, Any] | None:
+    path = REPO_ROOT / rel_path
+    if not path.is_file():
+        return None
     return json.loads(path.read_text(encoding="utf-8"))
