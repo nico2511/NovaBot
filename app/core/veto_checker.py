@@ -20,6 +20,9 @@ RSI_OVERSOLD = 30.0
 # Strong trends often sit 50–70 ADX on 15m perps; only veto true parabolic blow-offs.
 ADX_RUNAWAY = 75.0
 LOW_VOLUME_RATIO_PCT = 50.0
+# Hyperliquid funding is a decimal hourly rate: 0.0001 = 0.01%/h.
+DEFAULT_MAX_FUNDING_LONG = 0.0001
+DEFAULT_MIN_FUNDING_SHORT = -0.0001
 
 
 def check_macd_momentum_veto(signal: str, market_context: dict) -> Optional[str]:
@@ -128,6 +131,41 @@ def check_rsi_slope_veto(
     return None
 
 
+def check_funding_veto(
+    signal: str,
+    market_context: dict,
+    *,
+    max_funding_long: float = DEFAULT_MAX_FUNDING_LONG,
+    min_funding_short: float = DEFAULT_MIN_FUNDING_SHORT,
+) -> Optional[str]:
+    """
+    Block entries when hourly funding is paid by this side.
+
+    Positive funding → longs pay shorts. Missing/unparsable rate → no veto.
+    """
+    ctx = market_context or {}
+    raw = ctx.get("funding_rate", ctx.get("funding"))
+    if raw is None:
+        return None
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        return None
+
+    side = str(signal or "").upper()
+    if side in ("BUY", "LONG") and rate > float(max_funding_long):
+        return (
+            f"funding {rate * 100:.4f}%/h > {float(max_funding_long) * 100:.4f}%/h "
+            f"(longs pay)"
+        )
+    if side in ("SELL", "SHORT") and rate < float(min_funding_short):
+        return (
+            f"funding {rate * 100:.4f}%/h < {float(min_funding_short) * 100:.4f}%/h "
+            f"(shorts pay)"
+        )
+    return None
+
+
 def check_hard_veto(
     signal: str,
     market_context: dict,
@@ -137,6 +175,8 @@ def check_hard_veto(
     adx_runaway: float = ADX_RUNAWAY,
     low_volume_ratio_pct: float = LOW_VOLUME_RATIO_PCT,
     veto_macd_momentum: bool = True,
+    max_funding_long: Optional[float] = DEFAULT_MAX_FUNDING_LONG,
+    min_funding_short: Optional[float] = DEFAULT_MIN_FUNDING_SHORT,
 ) -> Optional[str]:
     """Return a veto reason string, or None if the trade can proceed.
 
@@ -199,6 +239,24 @@ def check_hard_veto(
             macd_reason = check_macd_momentum_veto(signal, market_context)
             if macd_reason:
                 return f"HARD VETO: {macd_reason} @ {price:.2f}"
+
+        if max_funding_long is not None or min_funding_short is not None:
+            fund_reason = check_funding_veto(
+                signal,
+                market_context,
+                max_funding_long=(
+                    DEFAULT_MAX_FUNDING_LONG
+                    if max_funding_long is None
+                    else float(max_funding_long)
+                ),
+                min_funding_short=(
+                    DEFAULT_MIN_FUNDING_SHORT
+                    if min_funding_short is None
+                    else float(min_funding_short)
+                ),
+            )
+            if fund_reason:
+                return f"HARD VETO: {fund_reason} @ {price:.2f}"
 
         return None
     except Exception as e:  # pragma: no cover — defensive only

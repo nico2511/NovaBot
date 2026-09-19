@@ -1694,6 +1694,7 @@ class BotContext:
                             "side": side,
                             "entry": entry_px,
                             "sl": sl,
+                            "initial_sl": sl,
                             "tp": tp,
                             "strategy": strategy,
                             "timestamp": pd.Timestamp.now().isoformat(),
@@ -2095,7 +2096,7 @@ class BotContext:
         symbol = trade.get("symbol", self.active_symbol)
 
         self.add_log(
-            f"🛡️ {decision.reason}: Progress {decision.progress_pct:.1f}% / PnL {decision.pnl_pct:.2f}%. "
+            f"🛡️ {decision.reason}: {decision.r_multiple:.2f}R / PnL {decision.pnl_pct:.2f}%. "
             f"Moving SL {sl_price:.4f}→{decision.new_sl:.4f}" + (f" | id={tid}" if tid else "")
         )
 
@@ -2105,16 +2106,10 @@ class BotContext:
                 t_ref["sl"] = decision.new_sl
                 StateManager.save_state(self)
 
-        threshold_hint = {
-            "Smart BE": "threshold 75% (or PnL > 2.0% on LONG)",
-            "Trailing 80%": "threshold 80%",
-            "Aggressive Lock 90%": "threshold 90%",
-        }.get(decision.reason, decision.reason)
-
         discord_service.send_alert(
-            f"🛡️ TRAILING — {decision.reason} ({threshold_hint}): {symbol}",
+            f"🛡️ TRAILING — {decision.reason}: {symbol}",
             (
-                f"Progress toward TP: {decision.progress_pct:.1f}%\n"
+                f"R-multiple: {decision.r_multiple:.2f}R\n"
                 f"Unrealized PnL: {decision.pnl_pct:+.2f}%\n"
                 f"Entry: {entry_price:.2f} | Price: {current_price:.2f} | TP: {tp_price:.2f}\n"
                 f"SL: {sl_price:.2f} → {decision.new_sl:.2f}"
@@ -3709,6 +3704,7 @@ class BotContext:
                     "leverage": leverage,
                     "oid": "external_position",
                     "sl": float(sl or 0),
+                    "initial_sl": float(sl or 0),
                     "tp": float(tp or 0),
                     "strategy": "Manual (Adopted)",
                     "entry_time": pd.Timestamp.now().isoformat(),

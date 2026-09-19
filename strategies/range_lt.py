@@ -2,7 +2,7 @@
 Range LT — 1h box fade (mean reversion at range extremes).
 
 Complements Trend LT: when 1h ADX is low and EMA50 is flat, fade a defined
-box (rejection at the edge, TP toward the opposite bound). SuperTrend 15m
+box (rejection at the edge, TP toward mid). SuperTrend 15m
 and Trend LT stay unchanged. Same-symbol concurrency is blocked by the
 trade book (HL nets one position per coin).
 """
@@ -14,9 +14,11 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from app.core.veto_checker import check_funding_veto
 from app.services.indicators import ta
 from app.utils.market_metrics import confirmed_volume_ratio_pct
 from strategies.base import BaseStrategy
+from strategies.closed_indicators import overlay_closed_indicators
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +29,20 @@ class StrategyRangeLT(BaseStrategy):
     - Filter: 1h ADX below ceiling, EMA50 slope flat, Donchian box with touches
     - Location: tag range high/low then close back inside (rejection, not breakout)
     - SL: beyond the box (ATR / min_sl_pct / range-fraction floor)
-    - TP: opposite bound (AI may trim toward mid; never beyond the box)
+    - TP: mid of the anchored box (AI may trim; never beyond the opposite bound)
     """
 
     AI_PERSONA = """
     CODENAME: "RANGE LT BOX FADE"
 
     ROLE:
-    You judge 1h MEAN-REVERSION inside a defined range. You fade extremes
-    back toward the opposite bound. You do NOT ride breakouts or trends.
+    You judge 1h MEAN-REVERSION inside a defined range.     You fade extremes
+    back toward the box mid. You do NOT ride breakouts or trends.
 
     PRIME DIRECTIVE:
     Approve when a real 1h box is intact (low ADX, flat EMA50, multiple
     touches), price rejected the edge (wick tag + close back inside), volume
-    is acceptable, and R:R to the opposite bound works.
+    is acceptable, and R:R to mid works.
     Do NOT apply trend-following SuperTrend/EMA200 continuation rules.
     Do NOT apply scalping SL width rules.
 
@@ -48,7 +50,7 @@ class StrategyRangeLT(BaseStrategy):
     1. FADE THE BOX ONLY. BUY near range low, SELL near range high.
     2. REJECT breakouts: a close outside the box is a failed range, not a fade.
     3. REJECT if 1h ADX is expanding into a trend, or 4h drift clearly fights the fade.
-    4. TP must stay inside the box (trim to opposite bound / mid — never a breakout TP).
+    4. TP is the box mid by default (trim breakout TPs — never a runner beyond the opposite bound).
     5. SL beyond the box is expected (~0.4%-3% on 1h perps) — not auto-reject.
     6. REJECT if volume_ratio < 50% of average (WEAK_VOLUME).
     7. When confluence is mixed, REJECT — do not rubber-stamp a mid-range chase.
@@ -64,7 +66,7 @@ APPROVE when ALL of:
 2. R:R meets the strategy min_rr (default 2.0) after any TP trim — not the looser capital-profile floor
 3. Volume ratio >= 50%
 4. No clear 4h fight vs the fade (if MTF unavailable, ignore HTF)
-5. TP stays inside the box (trim optimistic breakout TPs to the opposite bound)
+5. TP stays at/inside mid (trim optimistic TPs toward mid, never beyond the opposite bound)
 
 REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
@@ -86,6 +88,8 @@ Do NOT reject solely because:
         self._last_entry_time = None
         self._last_signal_bar = None
         self.last_veto_report = None
+        # Per-symbol anchored Donchian {SYMBOL: (high, low)} — not a rolling max.
+        self._boxes: Dict[str, Tuple[float, float]] = {}
 
     def get_ai_validation_criteria(self):
         return self.AI_VALIDATION_CRITERIA
@@ -189,6 +193,28 @@ Do NOT reject solely because:
                         f"HARD VETO (RANGE LT): Low Volume ({vol_f:.1f}% < {vol_floor:.0f}%) @ {price:.4f}"
                     )
 
+            fund_max = float(self.get_param("veto_funding_long_max", 0.0001) or 0.0001)
+            fund_min = float(self.get_param("veto_funding_short_min", -0.0001) or -0.0001)
+            fund_reason = check_funding_veto(
+                side, ctx, max_funding_long=fund_max, min_funding_short=fund_min
+            )
+            raw_fund = ctx.get("funding_rate", ctx.get("funding"))
+            if raw_fund is None:
+                self.last_veto_report.append(
+                    {"name": "FUNDING", "blocked": False, "detail": "n/a"}
+                )
+            else:
+                blocked = fund_reason is not None
+                self.last_veto_report.append(
+                    {
+                        "name": "FUNDING",
+                        "blocked": blocked,
+                        "detail": fund_reason or f"{float(raw_fund) * 100:.4f}%/h ok",
+                    }
+                )
+                if blocked:
+                    blocking.append(f"HARD VETO (RANGE LT): {fund_reason} @ {price:.4f}")
+
             if not bool(self.get_param("log_veto_report", True)):
                 self.last_veto_report = None
             return " | ".join(blocking) if blocking else None
@@ -212,7 +238,7 @@ Do NOT reject solely because:
     def score_scan_candidate(self, df, *, symbol: str, meta=None):
         """Rank a 1h OHLCV frame for range-fade context (no rejection trigger)."""
         p = self._params_snapshot()
-        setup = self._evaluate_setup(df, p, require_rejection=False)
+        setup = self._evaluate_setup(df, p, require_rejection=False, symbol=symbol)
         if setup is None:
             return None
         if setup.get("breakout"):
@@ -289,7 +315,7 @@ Do NOT reject solely because:
         }
 
     def post_ai_adjust(self, signal, ai_result, market_context=None):
-        """Cap TP at the opposite box bound — never a breakout target."""
+        """Cap TP at box mid — never a breakout / opposite-bound runner by default."""
         ctx = market_context or {}
         side = str((signal or {}).get("signal") or "").upper()
         try:
@@ -301,20 +327,26 @@ Do NOT reject solely because:
                 adj = {}
             tp = float(adj.get("tp") or (signal or {}).get("tp") or 0)
             trimmed = None
-            if side == "BUY" and entry > 0 and tp > 0 and range_high > entry and tp > range_high:
-                trimmed = range_high * (1.0 - 0.0005)
-            elif side == "SELL" and entry > 0 and tp > 0 and 0 < range_low < entry and tp < range_low:
-                trimmed = range_low * (1.0 + 0.0005)
+            if range_high > range_low > 0 and entry > 0 and tp > 0:
+                mid = (range_high + range_low) / 2.0
+                if side == "BUY":
+                    cap = min(mid, range_high * (1.0 - 0.0005))
+                    if tp > cap:
+                        trimmed = cap
+                elif side == "SELL":
+                    cap = max(mid, range_low * (1.0 + 0.0005))
+                    if tp < cap:
+                        trimmed = cap
             if trimmed is not None and trimmed > 0:
                 adj = {**adj, "tp": float(trimmed)}
                 ai_result = dict(ai_result or {})
                 ai_result["suggested_adjustments"] = adj
                 prev = ai_result.get("reasoning") or ""
                 note = (
-                    f" TP trimmed to opposite range bound ({trimmed:.6g}) "
+                    f" TP trimmed to box mid ({trimmed:.6g}) "
                     f"from mechanical/breakout target ({tp:.6g})."
                 )
-                if "opposite range bound" not in prev:
+                if "box mid" not in prev:
                     ai_result["reasoning"] = (prev + note).strip()
         except (TypeError, ValueError) as trim_err:
             logger.debug("Range LT TP trim skipped: %s", trim_err)
@@ -335,7 +367,7 @@ Do NOT reject solely because:
             "touch_atr": float(self.get_param("touch_atr", 0.35)),
             "touch_width_frac": float(self.get_param("touch_width_frac", 0.15)),
             "edge_frac": float(self.get_param("edge_frac", 0.28)),
-            "rr_ratio": float(self.get_param("min_rr", 2.0)),
+            "rr_ratio": float(self.get_param("min_rr", 1.0)),
             "sl_atr_mult": float(self.get_param("sl_atr_mult", 0.4)),
             "sl_range_frac": float(self.get_param("sl_range_frac", 0.12)),
             "min_sl_pct": float(self.get_param("min_sl_pct", 0.4)),
@@ -348,13 +380,17 @@ Do NOT reject solely because:
 
     def add_indicators(self, df, p=None):
         p = p or self._params_snapshot()
-        df = df.copy()
-        ema_len = int(p["ema_period"])
-        df["EMA_50"] = ta.ema(df["close"], length=ema_len)
-        df["ADX_14"] = ta.adx(df["high"], df["low"], df["close"])["ADX"]
-        df["ATR_14"] = ta.atr(df["high"], df["low"], df["close"], length=14)
-        df["RSI_14"] = ta.rsi(df["close"], length=14)
-        return df
+
+        def _build(src):
+            src = src.copy()
+            ema_len = int(p["ema_period"])
+            src["EMA_50"] = ta.ema(src["close"], length=ema_len)
+            src["ADX_14"] = ta.adx(src["high"], src["low"], src["close"])["ADX"]
+            src["ATR_14"] = ta.atr(src["high"], src["low"], src["close"], length=14)
+            src["RSI_14"] = ta.rsi(src["close"], length=14)
+            return src
+
+        return overlay_closed_indicators(df, _build)
 
     def _get_timestamp(self, df, iloc_idx: int):
         try:
@@ -420,8 +456,47 @@ Do NOT reject solely because:
             return f"4h EMA{p['ema_period']} falling ({slope:.5f} < {-cap:.5f}) — don't fade lows"
         return None
 
+    def _box_key(self, symbol: Optional[str]) -> str:
+        return str(symbol or "_").upper()
+
+    def _clear_box(self, symbol: Optional[str]) -> None:
+        self._boxes.pop(self._box_key(symbol), None)
+
+    def _resolve_box(
+        self,
+        *,
+        symbol: Optional[str],
+        raw_high: float,
+        raw_low: float,
+        close: float,
+        adx: float,
+        adx_slope: float,
+        ema_slope: float,
+        p: dict,
+    ) -> Optional[Tuple[float, float, bool]]:
+        """Return (high, low, anchored). None if the tape is no longer a range."""
+        still_range = (
+            adx <= float(p["adx_max"])
+            and adx_slope <= float(p["max_adx_slope"])
+            and abs(ema_slope) <= float(p["ema_slope_flat_max"])
+        )
+        key = self._box_key(symbol)
+        anchored = self._boxes.get(key)
+        if anchored is not None:
+            hi, lo = float(anchored[0]), float(anchored[1])
+            broken = close > hi or close < lo
+            if broken or not still_range:
+                self._clear_box(symbol)
+            else:
+                return hi, lo, True
+        if not still_range:
+            return None
+        if raw_high <= raw_low or raw_low <= 0:
+            return None
+        return float(raw_high), float(raw_low), False
+
     def _evaluate_setup(
-        self, df, p: dict, require_rejection: bool
+        self, df, p: dict, require_rejection: bool, *, symbol: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         lookback = int(p["lookback"])
         struct_lb = max(lookback, int(p.get("structure_lookback", lookback)))
@@ -453,28 +528,45 @@ Do NOT reject solely because:
             adx_slope = 0.0
         ema_slope = self._ema_slope(confirmed["EMA_50"], -1)
 
-        range_high = float(prior["high"].max())
-        range_low = float(prior["low"].min())
+        raw_high = float(prior["high"].max())
+        raw_low = float(prior["low"].min())
+        resolved = self._resolve_box(
+            symbol=symbol,
+            raw_high=raw_high,
+            raw_low=raw_low,
+            close=close,
+            adx=adx,
+            adx_slope=adx_slope,
+            ema_slope=ema_slope,
+            p=p,
+        )
+        if resolved is None:
+            return None
+        range_high, range_low, is_anchored = resolved
         width = range_high - range_low
         if width <= 0 or range_low <= 0:
             return None
         mid = (range_high + range_low) / 2.0
         width_pct = (width / mid) * 100.0
 
-        if adx > float(p["adx_max"]):
-            return None
-        if adx_slope > float(p["max_adx_slope"]):
-            return None
-        if abs(ema_slope) > float(p["ema_slope_flat_max"]):
-            return None
+        if not is_anchored:
+            if adx > float(p["adx_max"]):
+                return None
+            if adx_slope > float(p["max_adx_slope"]):
+                return None
+            if abs(ema_slope) > float(p["ema_slope_flat_max"]):
+                return None
         if width_pct < float(p["min_range_pct"]) or width_pct > float(p["max_range_pct"]):
-            return None
+            if not is_anchored:
+                return None
 
         band = max(float(p["touch_atr"]) * atr, width * float(p["touch_width_frac"]))
         upper_touches = int((prior["high"] >= (range_high - band)).sum())
         lower_touches = int((prior["low"] <= (range_low + band)).sum())
-        if upper_touches < int(p["min_touches"]) or lower_touches < int(p["min_touches"]):
-            return None
+        if not is_anchored:
+            if upper_touches < int(p["min_touches"]) or lower_touches < int(p["min_touches"]):
+                return None
+            self._boxes[self._box_key(symbol)] = (range_high, range_low)
 
         loc = (close - range_low) / width
         breakout = close > range_high or close < range_low
@@ -564,6 +656,7 @@ Do NOT reject solely because:
             "bias": bias,
             "volume_ratio_pct": vol_ratio_pct,
             "now_ts": self._get_timestamp(confirmed, -1),
+            "anchored": is_anchored,
         }
 
     def _build_sl_tp(
@@ -580,7 +673,7 @@ Do NOT reject solely because:
             sl = float(range_low) - buffer
             if sl >= entry:
                 sl = entry - buffer
-            tp = float(range_high) * (1.0 - 0.0005)
+            tp = (float(range_high) + float(range_low)) / 2.0
             if tp <= entry:
                 return None, None
             risk = entry - sl
@@ -588,7 +681,7 @@ Do NOT reject solely because:
             sl = float(range_high) + buffer
             if sl <= entry:
                 sl = entry + buffer
-            tp = float(range_low) * (1.0 + 0.0005)
+            tp = (float(range_high) + float(range_low)) / 2.0
             if tp >= entry:
                 return None, None
             risk = sl - entry
@@ -616,7 +709,9 @@ Do NOT reject solely because:
         if len(df_1h) < max(struct_lb + 8, int(p["ema_period"]) + 10):
             return self._reject("Not enough 1h candles for range_lt context")
 
-        setup = self._evaluate_setup(df_1h, p, require_rejection=False)
+        setup = self._evaluate_setup(
+            df_1h, p, require_rejection=False, symbol=(extra_data or {}).get("symbol")
+        )
         if setup is None:
             self.looking_for_entry = False
             self.entry_direction = None
@@ -760,7 +855,7 @@ Do NOT reject solely because:
             return None
 
         p = self._params_snapshot()
-        self.add_indicators(df, p)
+        df = self.add_indicators(df, p)
 
         last_1h = df.iloc[-2]
         close_1h = float(last_1h.get("close", 0) or 0)

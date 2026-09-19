@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import pandas as pd
 
 from app.services.indicators import ta
-from app.core.veto_checker import check_macd_momentum_veto
+from app.core.veto_checker import check_funding_veto, check_macd_momentum_veto
 from app.utils.market_metrics import (
     is_missing_volume_ratio,
     volume_ratio_for_gate,
@@ -600,5 +600,9 @@ def check_cascade_hard_veto(
         macd_reason = check_macd_momentum_veto(side, ctx)
         if macd_reason:
             return macd_reason
+
+    fund_reason = check_funding_veto(side, ctx)
+    if fund_reason:
+        return fund_reason
 
     return None

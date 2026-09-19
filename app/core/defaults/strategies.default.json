@@ -133,7 +133,7 @@
             "touch_atr": 0.35,
             "touch_width_frac": 0.15,
             "edge_frac": 0.28,
-            "min_rr": 2.0,
+            "min_rr": 1.0,
             "sl_atr_mult": 0.4,
             "sl_range_frac": 0.12,
             "min_sl_pct": 0.4,

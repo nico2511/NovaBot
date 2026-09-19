@@ -12,11 +12,13 @@ import numpy as np
 import pandas as pd
 
 from app.core.veto_checker import (
+    check_funding_veto,
     check_macd_momentum_veto,
     check_mtf_sentiment_veto,
     check_rsi_slope_veto,
 )
 from app.services.indicators import ta
+from strategies.closed_indicators import overlay_closed_indicators
 from app.utils.market_metrics import (
     confirmed_volume_ratio_pct,
     is_missing_volume_ratio,
@@ -196,6 +198,19 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
                 )
                 if slope_reason:
                     return f"HARD VETO (LT): {slope_reason} @ {price:.4f}"
+
+            fund_reason = check_funding_veto(
+                side,
+                ctx,
+                max_funding_long=float(
+                    self.get_param("veto_funding_long_max", 0.0001) or 0.0001
+                ),
+                min_funding_short=float(
+                    self.get_param("veto_funding_short_min", -0.0001) or -0.0001
+                ),
+            )
+            if fund_reason:
+                return f"HARD VETO (LT): {fund_reason} @ {price:.4f}"
 
             return None
         except Exception as e:
@@ -461,17 +476,25 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
 
     def add_indicators(self, df, p=None):
         p = p or self._params_snapshot()
-        df = df.copy()
-        df["EMA_200"] = ta.ema(df["close"], length=p["ema_filter"])
-        df["ADX_14"] = ta.adx(df["high"], df["low"], df["close"])["ADX"]
-        st_data = ta.supertrend(
-            df["high"], df["low"], df["close"], period=p["st_period"], multiplier=p["st_multiplier"]
-        )
-        df["Supertrend"] = st_data["Supertrend"]
-        df["ST_Direction"] = np.where(df["close"] >= df["Supertrend"], 1, -1)
-        df["ATR_14"] = ta.atr(df["high"], df["low"], df["close"], length=14)
-        df["RSI_14"] = ta.rsi(df["close"], length=14)
-        return df
+
+        def _build(src):
+            src = src.copy()
+            src["EMA_200"] = ta.ema(src["close"], length=p["ema_filter"])
+            src["ADX_14"] = ta.adx(src["high"], src["low"], src["close"])["ADX"]
+            st_data = ta.supertrend(
+                src["high"],
+                src["low"],
+                src["close"],
+                period=p["st_period"],
+                multiplier=p["st_multiplier"],
+            )
+            src["Supertrend"] = st_data["Supertrend"]
+            src["ST_Direction"] = np.where(src["close"] >= src["Supertrend"], 1, -1)
+            src["ATR_14"] = ta.atr(src["high"], src["low"], src["close"], length=14)
+            src["RSI_14"] = ta.rsi(src["close"], length=14)
+            return src
+
+        return overlay_closed_indicators(df, _build)
 
     def generate_signal(self, df, extra_data=None):
         """

@@ -24,7 +24,8 @@ def should_panic_close(strategy_name: str, current_df: pd.DataFrame, regime: str
         return (False, "")
 
     if "ADX_14" in current_df.columns:
-        current_adx = current_df["ADX_14"].iloc[-1]
+        adx_col = current_df["ADX_14"]
+        current_adx = float(adx_col.iloc[-2] if len(adx_col) >= 2 else adx_col.iloc[-1])
         if current_adx < 20:
             return (
                 True,
