@@ -115,3 +115,58 @@ def test_initial_sl_keeps_r_after_be_move():
     decision = compute_trailing_decision(trade, 107.6)
     assert decision is not None
     assert decision.new_sl == pytest.approx(102.5)
+
+
+def test_freeze_initial_sl_latches_once():
+    from app.core.trailing_logic import freeze_initial_sl
+
+    trade = {"sl": 0, "initial_sl": 0}
+    assert freeze_initial_sl(trade, 95.0) is True
+    assert trade["initial_sl"] == 95.0
+    assert freeze_initial_sl(trade, 90.0) is False  # already latched
+    assert trade["initial_sl"] == 95.0
+
+
+def test_adopt_seed_zero_then_freeze_arms_trailing():
+    """Sync-adopt seeds initial_sl=0; after analysis freezes ATR/exchange SL, R-ladder works."""
+    from app.core.trailing_logic import freeze_initial_sl
+
+    trade = {
+        "symbol": "ETH",
+        "side": "BUY",
+        "entry": 100.0,
+        "sl": 0,
+        "initial_sl": 0,
+        "tp": 110.0,
+    }
+    assert compute_trailing_decision(trade, 106.0) is None  # no risk base
+    atr_sl = 95.0
+    trade["sl"] = atr_sl
+    freeze_initial_sl(trade, atr_sl)
+    decision = compute_trailing_decision(trade, 105.1)
+    assert decision is not None
+    assert decision.reason == "BE 1R"
+
+
+def test_adopt_smart_be_keeps_original_risk_sl():
+    """When adopt Smart-BE tightens sl to entry, initial_sl must stay the protective stop."""
+    from app.core.trailing_logic import freeze_initial_sl
+
+    entry = 100.0
+    exchange_sl = 95.0
+    be_sl = entry * 1.002
+    trade = {
+        "symbol": "BTC",
+        "side": "BUY",
+        "entry": entry,
+        "sl": 0,
+        "initial_sl": 0,
+        "tp": 110.0,
+    }
+    trade["sl"] = be_sl
+    freeze_initial_sl(trade, exchange_sl)  # prefer pre-BE protective SL
+    assert trade["initial_sl"] == exchange_sl
+    # 1.5R from original risk=5 → price 107.5; lock 0.5R = 102.5
+    decision = compute_trailing_decision(trade, 107.6)
+    assert decision is not None
+    assert decision.new_sl == pytest.approx(102.5)

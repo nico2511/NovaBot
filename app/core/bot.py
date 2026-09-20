@@ -25,7 +25,7 @@ from app.core.live_execution import LiveExecutionMixin
 from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.core.trade_book import TradeBook
-from app.core.trailing_logic import compute_trailing_decision
+from app.core.trailing_logic import compute_trailing_decision, freeze_initial_sl
 from app.core.trade_thesis import (
     ACTION_TIGHTEN_SL,
     DEAD_FLATTEN_ACTIONS,
@@ -3469,6 +3469,10 @@ class BotContext(LiveExecutionMixin):
                         t_ref["strategy"] = strategy_name
                         t_ref["status"] = "OPEN (ADOPTED)"
                         t_ref["initial_sl_tp_set"] = True
+                        # Prefer exchange protective SL (pre-Smart-BE) so R-trailing
+                        # still has a real risk base when we just moved SL to BE.
+                        risk_sl = float(existing_sl) if existing_sl else float(sl_price or 0)
+                        freeze_initial_sl(t_ref, risk_sl)
                         if should_set_sl_tp:
                             self._verify_and_enforce_sl_tp(symbol, t_ref, bypass_cooldown=True)
                         StateManager.save_state(self)
