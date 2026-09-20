@@ -102,8 +102,19 @@ def main() -> None:
         import uvicorn
 
         port = int(os.getenv("PORT", 3001))
-        logger.info(f"🌍 Starting API Server on port {port}...")
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+        from app.core.config import config as _cfg, bind_is_loopback
+
+        host = getattr(_cfg, "API_HOST", None) or os.getenv("API_HOST") or "127.0.0.1"
+        if not bind_is_loopback(host) and not _cfg.API_KEY_REQUIRED:
+            logger.warning(
+                "🔓 API bound to %s without API_KEY_REQUIRED — LAN clients can enable/close trades. "
+                "Set API_KEY_REQUIRED=true or API_HOST=127.0.0.1.",
+                host,
+            )
+        elif not bind_is_loopback(host) and _cfg.API_KEY_REQUIRED and not _cfg.API_KEY:
+            logger.error("API_KEY_REQUIRED on public bind but API_KEY is empty — mutating routes will 503.")
+        logger.info(f"🌍 Starting API Server on {host}:{port}...")
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
     except KeyboardInterrupt:
         # Ctrl+C — normal operator shutdown, exit quietly after cleanup.

@@ -20,7 +20,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 logger = logging.getLogger(__name__)
 
 from app.core.config import config, bootstrap_active_symbol
-from app.core.risk_manager import RiskManager
+from app.core.live_guards import clamp_sl_inside_liquidation
+from app.core.live_execution import LiveExecutionMixin
 from app.core.constants import *
 from app.core.state_manager import StateManager
 from app.core.trade_book import TradeBook
@@ -47,7 +48,7 @@ from app.services.safe_order_manager import SafeOrderManager
 from app.services.position_reconciler import PositionReconciler
 from app.services.storage import storage_service
 
-class BotContext:
+class BotContext(LiveExecutionMixin):
     """Main bot context"""
     def __init__(self):
         logger.info("BotContext v1.1.0 booting (Refactored Core)")
@@ -62,6 +63,7 @@ class BotContext:
             max_positions=config.DEFAULT_MAX_POSITIONS,
             daily_stop_loss=config.DEFAULT_DAILY_STOP_LOSS,
             max_notional_cap_multiplier=config.MAX_NOTIONAL_CAP_MULTIPLIER,
+            daily_stop_pct=getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0),
         )
         # GLOBAL QUOTA - Will be set from global_settings after initialization
         self.max_positions = config.DEFAULT_MAX_POSITIONS
@@ -239,6 +241,12 @@ class BotContext:
                 self.risk_manager.update_settings(
                     max_positions=int(requested_max or 2),
                     daily_stop_loss=dsl,
+                    daily_stop_pct=float(
+                        self.global_settings.get("risk_defaults", {}).get(
+                            "daily_stop_pct", getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                        )
+                        or getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                    ),
                 )
             except Exception:
                 pass
@@ -297,6 +305,13 @@ class BotContext:
                         self.risk_manager.update_settings(
                             max_positions=int(requested_max or 2),
                             daily_stop_loss=dsl,
+                            daily_stop_pct=float(
+                                self.global_settings.get("risk_defaults", {}).get(
+                                    "daily_stop_pct",
+                                    getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0),
+                                )
+                                or getattr(config, "DEFAULT_DAILY_STOP_PCT", 5.0)
+                            ),
                         )
                     except Exception:
                         pass
@@ -304,7 +319,8 @@ class BotContext:
                 logger.warning("Could not load scanner settings from disk: %s", scan_load_err)
             self.add_log(
                 f"⚙️ Max positions: {self.max_positions} | "
-                f"Daily stop: ${float(self.risk_manager.daily_stop_loss):.0f}"
+                f"Daily stop: ${float(self.risk_manager.daily_stop_loss):.0f} "
+                f"or {float(self.risk_manager.daily_stop_pct):.1f}% equity"
             )
                     
         except Exception as e:
@@ -317,6 +333,11 @@ class BotContext:
     def _new_trade_id(self, symbol: str) -> str:
         """Create a stable internal identifier for a trade lifecycle."""
         return TradeBook.new_trade_id(symbol or "UNKNOWN")
+
+    def _is_live_execution(self) -> bool:
+        """True only for EXECUTION_MODE=Live. Dry Run / Paper must never hit the exchange."""
+        mode = str(getattr(self, "execution_mode", "Live") or "Live").strip().lower()
+        return mode == "live"
 
     @property
     def active_trades(self):
@@ -1560,355 +1581,8 @@ class BotContext:
             self.add_log(f"⚠️ Failed to record signal analysis: {e}")
 
 
-    def execute_entry_atomically(self, symbol: str, side: str, size: float, price: float = None, sl: float = None, tp: float = None, strategy: str = "Unknown", metadata: dict = None, entry_indicators: dict = None, equity: float = None):
-        """ATOMIC ENTRY FLOW (Unified v2) - Now captures entry indicators for analysis"""
-        ctx = dict(
-            symbol=symbol,
-            side=side,
-            strategy=strategy,
-            size=size,
-            price=price,
-            sl=sl,
-            tp=tp,
-            equity=equity,
-        )
-        try:
-            # 1. LIVE EXECUTION CHECK
-            if not self.trading_enabled:
-                reason = "Trading Disabled"
-                self.add_log(f"⚠️ Signal ignored ({reason}): {side} {symbol}")
-                self._log_execution_error(f"⛔ ENTRY BLOCKED: {side} {symbol}", reason=reason, **ctx)
-                return { "status": "ignored", "reason": reason }
-
-            self._sync_daily_risk_pnl(min_interval_sec=0)
-            can_trade, risk_reason = self.risk_manager.check_can_trade()
-            if not can_trade:
-                self.add_log(f"⛔ ENTRY BLOCKED by risk: {risk_reason}")
-                self._log_execution_error(
-                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
-                    reason=risk_reason,
-                    **ctx,
-                )
-                return {"status": "ignored", "reason": risk_reason}
-            
-            current_price = price if price else hyperliquid_service.get_current_price(symbol)
-            ctx["price"] = current_price
-            
-            # Pre-check rounding (same rules as Hyperliquid execute_order)
-            canonical = hyperliquid_service.get_canonical_symbol(symbol)
-            sz_decimals, _ = hyperliquid_service._get_precision(canonical)
-            if sz_decimals == 0:
-                rounded_size = int(size)
-            else:
-                rounded_size = round(size, sz_decimals)
-            if rounded_size <= 0:
-                reason = f"Quantity rounds to zero (raw={size}, sz_decimals={sz_decimals})"
-                self.add_log(f"❌ Entry Failed: {reason}")
-                self._log_execution_error(
-                    f"❌ ENTRY FAILED: {side} {symbol}",
-                    reason=reason,
-                    equity=equity,
-                    **{k: v for k, v in ctx.items() if k != "equity"},
-                )
-                return False
-            
-            # REAL EXECUTION
-            real_positions = hyperliquid_service.get_positions()
-            active_count = len([p for p in real_positions if float(p["size"]) > 0])
-            
-            if active_count >= self.max_positions:
-                reason = f"Max positions reached ({active_count}/{self.max_positions})"
-                self.add_log(f"⛔ QUOTA EXCEEDED ({active_count}/{self.max_positions}). Entry aborted.")
-                self._log_execution_error(
-                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
-                    reason=reason,
-                    equity=equity,
-                    **{k: v for k, v in ctx.items() if k != "equity"},
-                )
-                return False
-
-            ok_book, book_reason = self.can_open_trade(symbol)
-            if not ok_book:
-                reason = book_reason
-                self.add_log(f"⛔ ENTRY BLOCKED (book): {reason}")
-                self._log_execution_error(
-                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
-                    reason=reason,
-                    equity=equity,
-                    **{k: v for k, v in ctx.items() if k != "equity"},
-                )
-                return False
-
-            self.add_log(f"🔒 ATOMIC ENTRY START: {side} {symbol} ({size}) via {strategy}")
-            self.add_log(f"🧹 Cleaning pre-trade orphans on {symbol}...")
-            hyperliquid_service.cancel_all_orders(symbol)
-
-            is_buy = (side == "BUY")
-            result = hyperliquid_service.execute_order(
-                symbol=symbol, is_buy=is_buy, quantity=size, price=price, sl_price=sl, tp_price=tp
-            )
-            
-            if result.get("status") != "success":
-                reason = result.get("message", "Unknown exchange error")
-                self.add_log(f"❌ Entry Failed: {reason}")
-                self._log_execution_error(
-                    f"❌ ENTRY FAILED: {side} {symbol}",
-                    reason=reason,
-                    equity=equity,
-                    rounded_size=rounded_size,
-                    sz_decimals=sz_decimals,
-                    **{k: v for k, v in ctx.items() if k not in ("equity",)},
-                )
-                return False
-
-            self.add_log("⏳ Verifying Fill...")
-            filled = False
-            oid = "unknown"
-            
-            try:
-                raw_res = result.get("result", {})
-                statuses = raw_res.get("response", {}).get("data", {}).get("statuses", [])
-                if statuses and isinstance(statuses[0], dict):
-                     oid = statuses[0].get("oid") or statuses[0].get("filled", {}).get("oid") or oid
-            except: pass
-
-            for i in range(5):
-                time.sleep(1)
-                positions = hyperliquid_service.get_positions()
-                pos = next((p for p in positions if p["symbol"] == symbol and float(p['size']) > 0), None)
-                if pos:
-                    filled = True
-                    entry_px = float(pos['entry_price'])
-                    self.add_log(f"✅ ENTRY CONFIRMED: {symbol} Size: {pos['size']} Entry: {entry_px}")
-                    
-                    with self.trade_lock:
-                        # CRITICAL: Always sync active_symbol before setting active_trade
-                        # otherwise the setter will use the WRONG key in active_trades
-                        if self.active_symbol != symbol:
-                            self.active_symbol = symbol
-                            
-                        trade_id = self._new_trade_id(symbol)
-                        self.active_trade = {
-                            "trade_id": trade_id,
-                            "symbol": symbol,
-                            "side": side,
-                            "entry": entry_px,
-                            "sl": sl,
-                            "initial_sl": sl,
-                            "tp": tp,
-                            "strategy": strategy,
-                            "timestamp": pd.Timestamp.now().isoformat(),
-                            "size": float(pos['size']),
-                            "leverage": float(pos.get("leverage", 1.0)),
-                            "oid": oid,
-                            "pnl": 0,
-                            "max_pnl": 0,
-                            "metadata": metadata or {},
-                            "entry_indicators": entry_indicators or {}  # Market snapshot at entry
-                        }
-                        self.risk_manager.record_trade_open()
-                        StateManager.save_state(self)
-                        # Force Sync to ensure state consistency
-                        self._sync_state(silent=False)
-
-                    
-                    discord_service.send_alert(
-                        f"🚀 ENTERED {side} {symbol}",
-                        f"Strategy: {strategy}\nEntry: {entry_px}\nSize: {pos['size']}\nSL: {sl}\nTP: {tp}\nOID: {oid}",
-                        color="00FF00" if side == "BUY" else "FF0000"
-                    )
-                    break
-            
-            if not filled:
-                reason = "Order sent but position NOT confirmed after 5s"
-                self.add_log(f"⚠️ {reason}.")
-                self._log_execution_error(
-                    f"⚠️ ENTRY UNCONFIRMED: {side} {symbol}",
-                    reason=reason,
-                    oid=oid,
-                    equity=equity,
-                    **{k: v for k, v in ctx.items() if k != "equity"},
-                )
-                return False
-                
-            return True
-
-        except Exception as e:
-            self.add_log(f"❌ ATOMIC ENTRY ERROR: {e}")
-            self._log_execution_error(
-                f"❌ ENTRY CRASH: {side} {symbol}",
-                reason=str(e),
-                equity=equity,
-                **{k: v for k, v in ctx.items() if k != "equity"},
-            )
-            return False
-
-    def execute_exit_atomically(self, symbol: str, reason: str = "SIGNAL"):
-        """ATOMIC EXIT FLOW (THE KILL SWITCH)"""
-        # Verify position exists before attempting to close
-        try:
-            positions = hyperliquid_service.get_positions()
-            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
-                self.add_log(
-                    f"⛔ Cannot close {symbol}: positions API unavailable — "
-                    f"aborting market close (exchange SL/TP stay in place)"
-                )
-                return False
-            position_exists = any(p.get("symbol") == symbol and float(p.get("size", 0)) > 0 for p in positions)
-            
-            if not position_exists:
-                self.add_log(f"⚠️ Cannot close {symbol}: No open position found on exchange.")
-                # Only drop memory after a confirmed Close fill — never on a bare empty book
-                trade = None
-                with self.trade_lock:
-                    trade = self.active_trades.get(symbol)
-                if trade:
-                    self._handle_external_closure(symbol, trade, silent=True)
-                return False
-        except Exception as e:
-            self.add_log(
-                f"⛔ Failed to verify position for {symbol}: {e} — "
-                f"aborting market close (exchange SL/TP stay in place)"
-            )
-            return False
-            
-        tid = None
-        try:
-            with self.trade_lock:
-                t = self.active_trades.get(symbol)
-                tid = t.get("trade_id") if isinstance(t, dict) else None
-        except Exception:
-            tid = None
-        self.add_log(f"🔒 ATOMIC EXIT START: Closing {symbol} ({reason})" + (f" | id={tid}" if tid else ""))
-        
-        # Get position data BEFORE closing for accurate PnL calculation
-        positions_before = hyperliquid_service.get_positions()
-        if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
-            self.add_log(
-                f"⛔ ATOMIC EXIT aborted for {symbol}: positions API unavailable — "
-                f"will not market-close (exchange SL/TP remain in place)"
-                + (f" | id={tid}" if tid else "")
-            )
-            return False
-        position_data = next((p for p in positions_before if p["symbol"] == symbol), None)
-        
-        if not position_data:
-            # Flat book from a *successful* fetch — nothing to market-close
-            self.add_log(
-                f"⚠️ No open position for {symbol} on exchange — skip market close"
-                + (f" | id={tid}" if tid else "")
-            )
-            trade = None
-            with self.trade_lock:
-                trade = self.active_trades.get(symbol)
-            if trade:
-                self._handle_external_closure(symbol, trade, silent=True)
-            return False
-        
-        try:
-            result = hyperliquid_service.close_position(symbol)
-            
-            if result.get("status") == "success":
-                final_positions = hyperliquid_service.get_positions()
-                remaining = next((p for p in final_positions if p["symbol"] == symbol), None)
-                
-                if not remaining or float(remaining["size"]) == 0:
-                     self.add_log(f"✅ POSITION CLOSED: {symbol}")
-                     self.add_log(f"🧹 Cleaning post-trade orphans on {symbol}...")
-                     hyperliquid_service.cancel_all_orders(symbol)
-                     
-                     # Calculate PnL from position data (works for all positions)
-                     pnl_usdc = 0
-                     entry_price = 0
-                     exit_price = hyperliquid_service.get_current_price(symbol)
-                     size = 0
-                     side = "BUY"
-                     
-                     if position_data:
-                         # Use actual position data
-                         entry_price = position_data.get("entry_price", 0)
-                         size = position_data.get("size", 0)
-                         side = position_data.get("side", "BUY")
-                         
-                         if side == "BUY":
-                             pnl_usdc = (exit_price - entry_price) * size
-                         else:
-                             pnl_usdc = (entry_price - exit_price) * size
-                     elif self.active_trade:
-                         # Fallback to active_trade if position_data unavailable
-                         entry_price = self.active_trade.get("entry", 0)
-                         size = self.active_trade.get("size", 0)
-                         side = self.active_trade.get("side", "BUY")
-                         
-                         if side == "BUY":
-                             pnl_usdc = (exit_price - entry_price) * size
-                         else:
-                             pnl_usdc = (entry_price - exit_price) * size
-                     
-                     # Record trade
-                     with self.trade_lock:
-                         closed_trade = self.active_trades.get(symbol)
-                         self.trade_recorder.add_trade({
-                             "trade_id": closed_trade.get("trade_id") if isinstance(closed_trade, dict) else None,
-                             "trace_id": (
-                                 (closed_trade.get("metadata") or {}).get("trace_id")
-                                 if isinstance(closed_trade, dict)
-                                 else None
-                             ),
-                             "symbol": symbol,
-                             "strategy": (
-                                 closed_trade.get("strategy")
-                                 if isinstance(closed_trade, dict) and closed_trade.get("strategy")
-                                 else (self.active_trade.get("strategy", "Manual") if self.active_trade else "Manual")
-                             ),
-                             "side": side,
-                             "entry_price": entry_price,
-                             "exit_price": exit_price,
-                             "size": size,
-                             "pnl_usdc": pnl_usdc,
-                             "exit_reason": reason,
-                             "exit_time": pd.Timestamp.now().isoformat(),
-                             "entry_time": (
-                                 closed_trade.get("timestamp")
-                                 if isinstance(closed_trade, dict)
-                                 else None
-                             ),
-                             "entry_indicators": (
-                                 closed_trade.get("entry_indicators", {})
-                                 if isinstance(closed_trade, dict)
-                                 else (self.active_trade.get("entry_indicators", {}) if self.active_trade else {})
-                             ),
-                         })
-                         
-                         discord_service.send_alert(
-                             f"🏁 TRADE CLOSED: {symbol}",
-                             f"Reason: {reason}\nPnL: ${pnl_usdc:.2f}",
-                             color="FFFF00"
-                         )
-                         self.risk_manager.record_trade_close(pnl_usdc)
-
-                         # Drop local tracking now — intentional close is already recorded.
-                         # Prevents _sync_state → _handle_external_closure from double-recording.
-                         self.active_trades.pop(symbol, None)
-                         
-                         # Clear active_trade only if this was the active trade
-                         if self.active_trade and self.active_trade.get("symbol") == symbol:
-                             self.active_trade = None
-                         
-                         StateManager.save_state(self)
-                         self._sync_state(silent=False)
-
-                     return True
-                else:
-                    self.add_log(f"⚠️ Close appeared successful but position remains: {remaining['size']}")
-                    return False
-            else:
-                self.add_log(f"❌ Exit Failed: {result.get('message')}")
-                return False
-
-        except Exception as e:
-            self.add_log(f"❌ ATOMIC EXIT ERROR: {e}")
-            return False
+    # Live entry / exit / SL live in LiveExecutionMixin
+    # (app/core/live_execution.py) so bulk_orders can be tested without the loop.
 
     def _check_hard_veto(self, signal: str, market_context: dict, strategy=None):
         """HARD VETO: delegate to the active strategy plan (bot stays a machine)."""
@@ -2011,73 +1685,6 @@ class BotContext:
         allowed = {self._normalize_symbol(x) for x in wl if str(x).strip()}
         return self._normalize_symbol(symbol) in allowed
 
-    def _verify_and_enforce_sl_tp(self, symbol: str, trade_data: dict, bypass_cooldown: bool = False):
-        """Consolidated verification: Fetch Exchange Orders -> Compare -> Enforce if needed."""
-        # GUARD: Only enforce if trading is ENABLED (Real Trading)
-        if not self.trading_enabled:
-             return
-
-        # PREVENT SYSTEMATIC RECALIBRATION: Only enforce on initial adoption or explicit trailing/BE
-        if not bypass_cooldown and trade_data.get("initial_sl_tp_set", False):
-            return
-
-        # COOLDOWN: Skip verification if we just synced (prevent infinite loop)
-        if not bypass_cooldown and self._last_sltp_sync_time:
-            elapsed = (pd.Timestamp.now() - self._last_sltp_sync_time).total_seconds()
-            if elapsed < self._sltp_sync_cooldown:
-                return  # Too soon, wait for cooldown
-
-        try:
-            # Must use frontend_open_orders (via get_open_orders) — open_orders omits triggers
-            symbol_orders = hyperliquid_service.get_open_orders(symbol)
-            
-            desired_sl = float(trade_data.get("sl", 0))
-            desired_tp = float(trade_data.get("tp", 0))
-            
-            found_sl = False
-            found_tp = False
-            TOLERANCE = 0.005  # Increased from 0.001 to 0.5% to handle rounding differences
-            
-            for o in symbol_orders:
-                # FIX: For trigger orders (SL/TP), use triggerPx (actual trigger), not limitPx (aggressive fill price)
-                price = float(o.get("triggerPx") or o.get("limitPx", 0))
-                if desired_sl > 0 and abs(price - desired_sl) / desired_sl < TOLERANCE:
-                    found_sl = True
-                if desired_tp > 0 and abs(price - desired_tp) / desired_tp < TOLERANCE:
-                     found_tp = True
-            
-            needs_sync = False
-            if desired_sl > 0 and not found_sl:
-                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
-                self.add_log(
-                    f"⚠️ Audit: SL missing/mismatched on exchange (Target: {desired_sl:.4f}). Enforcing..." +
-                    (f" | id={tid}" if tid else "")
-                )
-                needs_sync = True
-            if desired_tp > 0 and not found_tp:
-                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
-                self.add_log(
-                    f"⚠️ Audit: TP missing/mismatched on exchange (Target: {desired_tp:.4f}). Enforcing..." +
-                    (f" | id={tid}" if tid else "")
-                )
-                needs_sync = True
-                
-            if needs_sync:
-                hyperliquid_service.sync_sl_tp(
-                    symbol, 
-                    trade_data.get("side") == "BUY", 
-                    float(trade_data.get("size", 0)), 
-                    desired_sl, 
-                    desired_tp
-                )
-                tid = trade_data.get("trade_id") if isinstance(trade_data, dict) else None
-                self.add_log("✅ Audit: SL/TP enforced via Sync." + (f" | id={tid}" if tid else ""))
-                self._last_sltp_sync_time = pd.Timestamp.now()  # Mark sync time for cooldown
-                
-        except Exception as e:
-            self.add_log(f"⚠️ Error in _verify_and_enforce_sl_tp: {e}")
-
-
     def _update_trailing_stops(self, trade: dict, current_price: float) -> bool:
         """Apply a trailing-stop upgrade if `compute_trailing_decision` suggests one.
 
@@ -2117,59 +1724,6 @@ class BotContext:
             color="FFA500",  # Orange
         )
         return True
-
-    def _check_local_exits(self, trade: dict, symbol: str, current_price: float):
-        """Backup local SL/TP check — exchange trigger orders remain primary.
-
-        Only market-closes when we have a valid live price AND the position is
-        still open on a successful positions fetch. API errors must never force
-        a close while exchange SL/TP are working.
-        """
-        # Never exit on a missing/stale quote — price=0 on a SHORT always hits TP.
-        if current_price is None or float(current_price) <= 0:
-            return
-
-        side = trade.get("side")
-        sl_val = float(trade.get("sl") or 0)
-        tp_val = float(trade.get("tp") or 0)
-        tid = trade.get("trade_id") if isinstance(trade, dict) else None
-        
-        exit_triggered = False
-        reason = ""
-
-        if side == "BUY":
-            if sl_val > 0 and current_price <= sl_val:
-                exit_triggered = True; reason = "STOP_LOSS"
-            elif tp_val > 0 and current_price >= tp_val:
-                exit_triggered = True; reason = "TAKE_PROFIT"
-        else:
-             if sl_val > 0 and current_price >= sl_val:
-                exit_triggered = True; reason = "STOP_LOSS"
-             elif tp_val > 0 and current_price <= tp_val:
-                exit_triggered = True; reason = "TAKE_PROFIT"
-                
-        if exit_triggered:
-            # Prefer letting exchange SL/TP fill; only backstop if position still open
-            positions = hyperliquid_service.get_positions()
-            if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
-                self.add_log(
-                    f"⚠️ Local {reason} for {symbol} ignored — positions API down; "
-                    f"exchange SL/TP remain in charge" + (f" | id={tid}" if tid else "")
-                )
-                return
-            still_open = any(
-                p.get("symbol") == symbol and float(p.get("size", 0) or 0) != 0
-                for p in (positions or [])
-            )
-            if not still_open:
-                self.add_log(
-                    f"ℹ️ Local {reason} for {symbol} but exchange already flat — syncing memory"
-                    + (f" | id={tid}" if tid else "")
-                )
-                self._handle_external_closure(symbol, trade, silent=True)
-                return
-            self.add_log(f"🎯 Local Trigger: {reason} @ {current_price}" + (f" | id={tid}" if tid else ""))
-            self.execute_exit_atomically(symbol, reason)
 
     def _manage_all_trades(self):
         """Centralized Management for ALL active trades (Concurrent)"""
@@ -2666,7 +2220,9 @@ class BotContext:
             exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=quiet)
             if exchange_pnl is None:
                 return
-            if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+            if self.risk_manager.apply_exchange_daily_pnl(
+                exchange_pnl, equity=float(getattr(self, "account_value", 0) or 0)
+            ):
                 self.add_log(
                     f"⛔ Daily stop triggered from exchange PnL: ${float(exchange_pnl):.2f}"
                 )
@@ -2809,7 +2365,10 @@ class BotContext:
                             # 1. Dynamic PnL log + risk stop-mode (exchange = source of truth)
                             exchange_pnl = hyperliquid_service.get_daily_pnl(quiet=False)
                             if exchange_pnl is not None:
-                                if self.risk_manager.apply_exchange_daily_pnl(exchange_pnl):
+                                if self.risk_manager.apply_exchange_daily_pnl(
+                                    exchange_pnl,
+                                    equity=float(getattr(self, "account_value", 0) or 0),
+                                ):
                                     self.add_log(
                                         f"⛔ Daily stop triggered from exchange PnL: "
                                         f"${float(exchange_pnl):.2f}"
@@ -3451,6 +3010,47 @@ class BotContext:
                                         sig["sl"] = adjusted_sl  # Update signal too
                             except Exception as atr_err:
                                 self.add_log(f"⚠️ ATR SL floor check failed: {atr_err}")
+
+                            # Tightening after ATR floor: SL must stay inside Isolated liq.
+                            try:
+                                if sl_price and entry_price:
+                                    lev_for_sl = self._resolve_trade_leverage(sig.get("strategy"))
+                                    clamped, liq_note = clamp_sl_inside_liquidation(
+                                        side=sig.get("signal"),
+                                        entry=float(entry_price),
+                                        sl=float(sl_price),
+                                        leverage=int(lev_for_sl or 1),
+                                    )
+                                    if clamped is None:
+                                        self.add_log(
+                                            f"⛔ ENTRY SKIPPED: liquidation guard ({liq_note})"
+                                        )
+                                        self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                        self._log_execution_error(
+                                            f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
+                                            reason=liq_note or "liquidation guard",
+                                            strategy=sig.get("strategy"),
+                                            entry=entry_price,
+                                            sl=sl_price,
+                                        )
+                                        continue
+                                    if liq_note:
+                                        self.add_log(f"🛡️ LIQUIDATION GUARD: {liq_note}")
+                                        sl_price = clamped
+                                        sig["sl"] = clamped
+                            except Exception as liq_err:
+                                self.add_log(
+                                    f"⛔ ENTRY SKIPPED: liquidation guard failed ({liq_err})"
+                                )
+                                self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+                                self._log_execution_error(
+                                    f"⛔ ENTRY SKIPPED: {sig.get('signal')} {self.active_symbol}",
+                                    reason=str(liq_err),
+                                    strategy=sig.get("strategy"),
+                                    entry=entry_price,
+                                    sl=sl_price,
+                                )
+                                continue
                         
                             # POSITION SIZING: risk_pct from strategy risk profile;
                             # leverage = profile max clamped to account default_leverage.

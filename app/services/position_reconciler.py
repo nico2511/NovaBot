@@ -167,12 +167,11 @@ class PositionReconciler:
                     if szi is not None:
                         side = "BUY" if float(szi) > 0 else "SELL"
                     else:
-                        # Last resort: assume LONG (safer for SL/TP placement)
-                        side = "BUY"
-                        logger.warning(
-                            f"⚠️ Could not determine side for orphan {symbol} — defaulting to BUY. "
-                            f"Check position manually."
+                        logger.error(
+                            f"❌ Could not determine side for orphan {symbol} — "
+                            f"skipping adoption (will not default to BUY)."
                         )
+                        continue
 
                 size = abs(raw_size)
 

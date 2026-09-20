@@ -78,3 +78,22 @@ def test_get_daily_pnl_returns_none_without_address(service, monkeypatch):
     service.log = MagicMock()
     monkeypatch.setattr("app.services.hyperliquid_service.config.HL_ACCOUNT_ADDRESS", "")
     assert service.get_daily_pnl() is None
+
+
+def test_get_daily_pnl_uses_fills_by_time(service, monkeypatch):
+    import time as time_mod
+
+    service.log = MagicMock()
+    service.get_positions = MagicMock(return_value=[{"pnl": 1.0}])
+    now_ms = int(time_mod.time() * 1000)
+    service.info.user_fills_by_time.return_value = [
+        {"time": now_ms, "closedPnl": "2.5"},
+        {"time": 1, "closedPnl": "99"},
+    ]
+    monkeypatch.setattr("app.services.hyperliquid_service.config.HL_ACCOUNT_ADDRESS", "0xabc")
+
+    total = HyperliquidService.get_daily_pnl.__wrapped__(service, quiet=True)
+
+    assert total == pytest.approx(3.5)
+    service.info.user_fills_by_time.assert_called_once()
+    service.info.user_fills.assert_not_called()

@@ -82,6 +82,9 @@ def exponential_backoff(
                         print(f"❌ {func.__name__} failed after {max_retries + 1} attempts: {e}")
                         raise
                     
+                    if not _is_retryable_error(e):
+                        raise
+
                     # Detect rate limit errors (429)
                     is_rate_limit = _is_rate_limit_error(e)
                     
@@ -156,6 +159,48 @@ def _is_rate_limit_error(exception: Exception) -> bool:
         return True
     
     return False
+
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_RETRYABLE_NEEDLES = (
+    "429",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "timed out",
+    "temporarily unavailable",
+    "connection reset",
+    "connection aborted",
+    "rate limit",
+    "cloudfront",
+    "gateway",
+    "internal server error",
+)
+
+
+def _is_retryable_error(exception: Exception) -> bool:
+    """Retry only transient transport / 429 / 5xx — never business rejects."""
+    if _is_rate_limit_error(exception):
+        return True
+    status = getattr(exception, "status_code", None)
+    try:
+        if int(status) in _RETRYABLE_STATUS:
+            return True
+    except (TypeError, ValueError):
+        pass
+    if hasattr(exception, "args") and exception.args:
+        first = exception.args[0]
+        if isinstance(first, tuple) and first:
+            try:
+                if int(first[0]) in _RETRYABLE_STATUS:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        if isinstance(first, int) and first in _RETRYABLE_STATUS:
+            return True
+    error_str = str(exception).lower()
+    return any(needle in error_str for needle in _RETRYABLE_NEEDLES)
 
 
 # Convenience decorators for common use cases

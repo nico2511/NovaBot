@@ -145,18 +145,20 @@ async def lifespan(app: FastAPI):
     logger.info("👋 API Shutdown Complete!")
 
 # Create FastAPI app
+from app.core.config import config as _app_config, bind_is_loopback
+
+_hide_docs = bool(_app_config.API_KEY_REQUIRED) or not bind_is_loopback(
+    getattr(_app_config, "API_HOST", "127.0.0.1")
+)
 app = FastAPI(
     title="NovaBot Trading API",
     version="2.0",
     description="Modular FastAPI backend for HyperLiquid trading bot",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if _hide_docs else "/docs",
+    redoc_url=None if _hide_docs else "/redoc",
+    openapi_url=None if _hide_docs else "/openapi.json",
 )
-
-# CORS middleware: origins come from the CORS_ALLOWED_ORIGINS env var (comma-separated).
-# Default targets only local frontends. Setting it to "*" keeps the old behavior but is
-# incompatible with allow_credentials=True (browsers reject that combo), so we flip
-# allow_credentials off in that case to avoid subtle frontend bugs.
-from app.core.config import config as _app_config
 
 _cors_origins = _app_config.CORS_ALLOWED_ORIGINS or ["http://localhost:3000"]
 _allow_wildcard = "*" in _cors_origins
@@ -486,4 +488,5 @@ def get_meta():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    from app.core.config import config as _run_cfg
+    uvicorn.run(app, host=getattr(_run_cfg, "API_HOST", "127.0.0.1"), port=8001)

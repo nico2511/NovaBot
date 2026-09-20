@@ -20,13 +20,16 @@ class RiskManager:
         max_positions: int = 2,
         daily_stop_loss: float = 50.0,
         max_notional_cap_multiplier: float = MAX_NOTIONAL_CAP_MULTIPLIER,
+        daily_stop_pct: float = 5.0,
     ):
         self._lock = threading.Lock()
         self.max_positions = max_positions
-        self.daily_stop_loss = daily_stop_loss  # Positive number
+        self.daily_stop_loss = daily_stop_loss  # Positive $
+        self.daily_stop_pct = float(daily_stop_pct or 0)  # 5 = 5% of equity
         self.max_notional_cap_multiplier = float(max_notional_cap_multiplier)
         self.state = RiskState()
-        self.last_reset_date = datetime.date.today()
+        self.last_reset_date = datetime.datetime.now(datetime.timezone.utc).date()
+        self._last_equity = 0.0
 
     def _max_notional(self, equity: float) -> float:
         return equity * self.max_notional_cap_multiplier
@@ -44,13 +47,23 @@ class RiskManager:
             return 1
 
     def _check_reset(self):
-        today = datetime.date.today()
+        today = datetime.datetime.now(datetime.timezone.utc).date()
         if today > self.last_reset_date:
             with self._lock:
                 self.state.daily_pnl = 0.0
                 self.state.is_stop_mode = False
                 self.state.stop_reason = ""
                 self.last_reset_date = today
+
+    def daily_stop_threshold(self, equity: float | None = None) -> float:
+        """Tighter of $ stop and % of equity. % ignored when equity is unknown."""
+        dollar = float(self.daily_stop_loss or 0)
+        eq = float(equity if equity is not None else self._last_equity or 0)
+        pct = float(self.daily_stop_pct or 0)
+        frac = pct / 100.0 if pct > 1 else pct
+        pct_stop = eq * frac if frac > 0 and eq > 0 else None
+        candidates = [x for x in (dollar, pct_stop) if x is not None and x > 0]
+        return min(candidates) if candidates else max(dollar, 0.0)
 
     def check_can_trade(self) -> (bool, str):
         self._check_reset()
@@ -77,7 +90,7 @@ class RiskManager:
             self.state.daily_pnl += pnl
             self._maybe_trigger_daily_stop()
 
-    def apply_exchange_daily_pnl(self, pnl: float) -> bool:
+    def apply_exchange_daily_pnl(self, pnl: float, equity: float | None = None) -> bool:
         """
         Replace daily PnL with the exchange snapshot (realized + unrealized).
 
@@ -88,6 +101,11 @@ class RiskManager:
         self._check_reset()
         with self._lock:
             self.state.daily_pnl = float(pnl)
+            if equity is not None:
+                try:
+                    self._last_equity = float(equity)
+                except (TypeError, ValueError):
+                    pass
             return self._maybe_trigger_daily_stop()
 
     def _maybe_trigger_daily_stop(self) -> bool:
@@ -95,11 +113,12 @@ class RiskManager:
 
         Caller must hold ``self._lock`` (except via ``apply_exchange_daily_pnl``).
         """
-        if self.state.daily_pnl <= -self.daily_stop_loss:
+        threshold = self.daily_stop_threshold()
+        if threshold > 0 and self.state.daily_pnl <= -threshold:
             if not self.state.is_stop_mode:
                 self.state.is_stop_mode = True
                 self.state.stop_reason = (
-                    f"Daily Stop Loss Hit: {self.state.daily_pnl:.2f} <= -{self.daily_stop_loss}"
+                    f"Daily Stop Loss Hit: {self.state.daily_pnl:.2f} <= -{threshold:.2f}"
                 )
                 return True
             return False
@@ -110,12 +129,15 @@ class RiskManager:
         max_positions: int = None,
         daily_stop_loss: float = None,
         max_notional_cap_multiplier: float = None,
+        daily_stop_pct: float = None,
     ):
         with self._lock:
             if max_positions is not None:
                 self.max_positions = max_positions
             if daily_stop_loss is not None:
                 self.daily_stop_loss = daily_stop_loss
+            if daily_stop_pct is not None:
+                self.daily_stop_pct = float(daily_stop_pct)
             if max_notional_cap_multiplier is not None:
                 self.max_notional_cap_multiplier = float(max_notional_cap_multiplier)
 
@@ -129,6 +151,8 @@ class RiskManager:
                 "stop_reason": self.state.stop_reason,
                 "max_positions": self.max_positions,
                 "daily_stop_loss": self.daily_stop_loss,
+                "daily_stop_pct": self.daily_stop_pct,
+                "daily_stop_threshold": self.daily_stop_threshold(),
                 "max_notional_cap_multiplier": self.max_notional_cap_multiplier,
             }
 

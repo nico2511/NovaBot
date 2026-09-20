@@ -11,6 +11,9 @@ def mock_hl_service():
     # Default mocks
     service.get_positions.return_value = []
     service.get_open_orders.return_value = []
+    service._open_orders_fetch_failed = False
+    service._positions_fetch_failed = False
+    service._positions_stale = False
     return service
 
 @pytest.fixture
@@ -22,7 +25,27 @@ def safe_order_manager(mock_hl_service):
 def position_reconciler(mock_hl_service, safe_order_manager):
     return PositionReconciler(mock_hl_service, safe_order_manager)
 
-# === SafeOrderManager Tests ===
+def test_pre_validate_uses_withdrawable_not_account_value(safe_order_manager, mock_hl_service):
+    mock_hl_service.info.user_state.return_value = {
+        "withdrawable": "20.0",
+        "marginSummary": {"accountValue": "5000.0"},
+    }
+    mock_hl_service.get_current_price.return_value = 100.0
+    with patch("app.utils.rate_limiter.rate_limiter.can_call", return_value=True), patch(
+        "app.utils.rate_limiter.rate_limiter.record_call"
+    ):
+        # 1 coin * $100 / 2x = $50 margin + 10% = $55 > $20 withdrawable
+        assert safe_order_manager.pre_validate_order("BTC", 1.0, "BUY", price=100.0, leverage=2) is False
+        # 0.1 coin * $100 / 10x = $1 margin → pass
+        assert safe_order_manager.pre_validate_order("BTC", 0.1, "BUY", price=100.0, leverage=10) is True
+
+
+def test_pre_validate_fail_closed_without_user_state(safe_order_manager, mock_hl_service):
+    mock_hl_service.info.user_state.return_value = None
+    with patch("app.utils.rate_limiter.rate_limiter.can_call", return_value=True), patch(
+        "app.utils.rate_limiter.rate_limiter.record_call"
+    ):
+        assert safe_order_manager.pre_validate_order("ETH", 1.0, "BUY", price=100.0, leverage=3) is False
 
 def test_ensure_sl_tp_calculates_correctly(safe_order_manager, mock_hl_service):
     """Test that ensure_sl_tp calculates SL/TP based on fallback rules when no SL/TP is present"""
@@ -47,17 +70,33 @@ def test_ensure_sl_tp_idempotent(safe_order_manager, mock_hl_service):
     position = {"symbol": "BTC", "entry_price": 50000.0, "side": "BUY", "size": 1.0}
     # Mock existing orders
     mock_hl_service.get_open_orders.return_value = [
-        {"coin": "BTC", "order_type": {"trigger": {"tpsl": "sl"}}},
-        {"coin": "BTC", "order_type": {"trigger": {"tpsl": "tp"}}}
+        {
+            "coin": "BTC",
+            "reduceOnly": True,
+            "triggerPx": 49000,
+            "order_type": {"trigger": {"tpsl": "sl"}},
+        },
+        {
+            "coin": "BTC",
+            "reduceOnly": True,
+            "triggerPx": 52000,
+            "order_type": {"trigger": {"tpsl": "tp"}},
+        },
     ]
     
     # Act
     safe_order_manager.ensure_sl_tp(position)
     
     # Assert
-    mock_hl_service.place_protection_orders.assert_not_called()
+    mock_hl_service._place_protection_orders.assert_not_called()
 
-# === PositionReconciler Tests ===
+def test_ensure_sl_tp_skips_when_orders_fetch_failed(safe_order_manager, mock_hl_service):
+    mock_hl_service.get_open_orders.return_value = []
+    mock_hl_service._open_orders_fetch_failed = True
+    position = {"symbol": "BTC", "entry_price": 50000.0, "side": "BUY", "size": 1.0}
+
+    assert safe_order_manager.ensure_sl_tp(position) is False
+    mock_hl_service._place_protection_orders.assert_not_called()
 
 def test_reconcile_detects_orphans(position_reconciler, mock_hl_service, safe_order_manager):
     """Test that reconcile identifies positions without SL/TP and delegates to SafeOrderManager"""
@@ -114,7 +153,7 @@ def test_reconciler_adopts_orphan_positions(position_reconciler, mock_hl_service
     # Exchange has ETH position not in local state
     mock_hl_service.get_positions.return_value = [
         {"symbol": "BTC", "size": 1.0},
-        {"symbol": "ETH", "size": 5.0, "entry_price": 3200.0}
+        {"symbol": "ETH", "size": 5.0, "entry_price": 3200.0, "side": "BUY"}
     ]
     
     # Act

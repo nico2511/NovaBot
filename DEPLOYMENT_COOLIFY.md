@@ -38,7 +38,8 @@ Dans l'onglet **Environment Variables** de Coolify, ajoutez les clés suivantes 
 | `DISCORD_WEBHOOK_URL_ALERTS` | Webhook pour les trades                 |
 | `DISCORD_WEBHOOK_URL_LOGS`   | Webhook pour les logs                   |
 | `PORT`                       | `3001`                                  |
-| `API_KEY` + `API_KEY_REQUIRED` | Auth API en production                |
+| `API_HOST`                   | `0.0.0.0` (conteneur) ; local = `127.0.0.1` |
+| `API_KEY` + `API_KEY_REQUIRED` | Auth API. Unset + bind non-loopback = on |
 
 Symbole, timeframe, scanner, risk → **`data/config/user_settings.json`** (pas dans Coolify env).
 

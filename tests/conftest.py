@@ -8,6 +8,7 @@ import shutil
 # the developer has in their local .env. Must be set BEFORE importing app.*
 # so app.core.config.Config reads the overridden env vars.
 os.environ["API_KEY_REQUIRED"] = "false"
+os.environ["API_HOST"] = "127.0.0.1"
 os.environ.setdefault("API_KEY", "test-key")
 
 import pytest
@@ -21,6 +22,7 @@ from app.services.storage import StorageService
 # Belt-and-suspenders: force the already-loaded singleton to the test defaults
 # (in case something imported config before this module).
 _app_config.API_KEY_REQUIRED = False
+_app_config.API_HOST = "127.0.0.1"
 
 @pytest.fixture
 def temp_data_dir():
