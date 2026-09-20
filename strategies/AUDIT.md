@@ -10,6 +10,22 @@ Les trois modes demandés sont dans ce document:
 2. **Capital** — review avant capital réel (section 7)
 3. **Stats** — validation statistique / backtest (section 8)
 
+## Statut post-audit (2026-09-19 / 2026-09-20)
+
+Ce document est le **snapshot d’audit** (findings + notes). Une partie du §9 est déjà livrée sur `main` :
+
+| §9 | Livré | PR |
+|----|-------|-----|
+| Config: Spark/Ember off, weekend pause 1h+cascades, funding filter ON | Oui | [#23](https://github.com/nico2511/NovaBot/pull/23) |
+| Engine: cascade confirmée, plus de bypass RANGE 5m, ADX régime = SuperTrend | Oui | #23 |
+| Cascade: `use_live=False`, `min_rr` 1.5, Balanced (pas HVH 10×), DEAD flatten, `max_extension_atr` 1.5 | Oui | #23 |
+| Range LT: box ancrée, TP mid, flatten DEAD rouge | Oui | #23 + [#24](https://github.com/nico2511/NovaBot/pull/24) |
+| ST/LT: indicateurs sur closes, veto funding, trailing en R | Oui | #24 |
+| Harness backtest causal (pas OOS 2024–2026) | Partiel | #24 (`app/core/causal_backtest.py`) |
+| Walk-forward n≥200 / réactiver HVH | Non | — |
+
+Les notes /10 et le verdict book **4.0** décrivent l’état **avant** #23/#24. Relire le code pour le risque live actuel ; ne pas traiter les tables « look-ahead déjà présent » comme encore vraies sans croiser ce statut.
+
 ---
 
 # 0. Verdict book (toutes stratégies `enabled: true`)
@@ -466,13 +482,13 @@ Tant que ces points existent, **toute courbe de perf live ou replay est suspecte
 
 # 9. Priorité d’implémentation (actionnable)
 
-1. **Config live:** `spark` + `ember` `enabled: false`. `weekend_pause.enabled: true`. Scanner `funding_filter_enabled: true`.  
-2. **Engine:** régime cascade sur barre confirmée ; retirer `_live_5m_cascade` hors TREND. `_regime_adx_threshold` ne lit plus les always_active.  
-3. **Cascade:** `use_live=False`, `min_rr` 1.5, levier profil Balanced, DEAD flatten, swing SL `iloc[:-1]`, `max_extension_atr` 1.5.  
-4. **Range LT:** flatten DEAD rouge ; box ancrée ; TP mid.  
-5. **ST/LT:** indicateurs sur closes ; veto funding ; trailing en R.  
+1. ~~**Config live:** `spark` + `ember` `enabled: false`. `weekend_pause.enabled: true`. Scanner `funding_filter_enabled: true`.~~ → **fait (#23)**  
+2. ~~**Engine:** régime cascade sur barre confirmée ; retirer `_live_5m_cascade` hors TREND. `_regime_adx_threshold` ne lit plus les always_active.~~ → **fait (#23)**  
+3. ~~**Cascade:** `use_live=False`, `min_rr` 1.5, levier profil Balanced, DEAD flatten, swing SL `iloc[:-1]`, `max_extension_atr` 1.5.~~ → **fait (#23)** (swing SL confirmé via entrée `iloc[-2]`)  
+4. ~~**Range LT:** flatten DEAD rouge ; box ancrée ; TP mid.~~ → **fait (#23 DEAD + #24 box/mid)**  
+5. ~~**ST/LT:** indicateurs sur closes ; veto funding ; trailing en R.~~ → **fait (#24)**  
 6. **Ne pas** baisser les veto « pour avoir plus de trades ».  
-7. **Backtest** causal avant de réactiver HVH.
+7. **Backtest** OOS causal (n≥200) avant de réactiver HVH — harness #24 seulement ; dump bougies manquant.
 
 ---
 
