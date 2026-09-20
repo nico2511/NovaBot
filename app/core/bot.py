@@ -23,6 +23,7 @@ from app.core.config import config, bootstrap_active_symbol
 from app.core.live_guards import clamp_sl_inside_liquidation
 from app.core.live_execution import LiveExecutionMixin
 from app.core.constants import *
+from app.core.risk_manager import RiskManager
 from app.core.state_manager import StateManager
 from app.core.trade_book import TradeBook
 from app.core.trailing_logic import compute_trailing_decision, freeze_initial_sl
