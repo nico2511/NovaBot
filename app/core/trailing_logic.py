@@ -34,6 +34,29 @@ class TrailingDecision:
     r_multiple: float = 0.0
 
 
+def freeze_initial_sl(trade: dict, risk_sl) -> bool:
+    """Latch ``initial_sl`` once from the first real protective SL.
+
+    Used on adoption: seed often has ``sl=0``, then analysis finds/places a
+    real stop. Without this, R-trailing never arms (``_initial_risk`` rejects 0).
+    Does not overwrite a positive latch (e.g. after Smart BE tightens ``sl``).
+    """
+    try:
+        risk = float(risk_sl or 0)
+    except (TypeError, ValueError):
+        return False
+    if risk <= 0:
+        return False
+    try:
+        current = float(trade.get("initial_sl") or 0)
+    except (TypeError, ValueError):
+        current = 0.0
+    if current > 0:
+        return False
+    trade["initial_sl"] = risk
+    return True
+
+
 def _initial_risk(trade: dict, entry: float, side: str) -> Optional[float]:
     raw = trade.get("initial_sl", trade.get("sl"))
     try:
