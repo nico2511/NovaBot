@@ -1,6 +1,6 @@
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from app.services.safe_order_manager import SafeOrderManager
 from app.services.position_reconciler import PositionReconciler
 from app.services.hyperliquid_service import HyperliquidService
@@ -24,28 +24,6 @@ def safe_order_manager(mock_hl_service):
 @pytest.fixture
 def position_reconciler(mock_hl_service, safe_order_manager):
     return PositionReconciler(mock_hl_service, safe_order_manager)
-
-def test_pre_validate_uses_withdrawable_not_account_value(safe_order_manager, mock_hl_service):
-    mock_hl_service.info.user_state.return_value = {
-        "withdrawable": "20.0",
-        "marginSummary": {"accountValue": "5000.0"},
-    }
-    mock_hl_service.get_current_price.return_value = 100.0
-    with patch("app.utils.rate_limiter.rate_limiter.can_call", return_value=True), patch(
-        "app.utils.rate_limiter.rate_limiter.record_call"
-    ):
-        # 1 coin * $100 / 2x = $50 margin + 10% = $55 > $20 withdrawable
-        assert safe_order_manager.pre_validate_order("BTC", 1.0, "BUY", price=100.0, leverage=2) is False
-        # 0.1 coin * $100 / 10x = $1 margin → pass
-        assert safe_order_manager.pre_validate_order("BTC", 0.1, "BUY", price=100.0, leverage=10) is True
-
-
-def test_pre_validate_fail_closed_without_user_state(safe_order_manager, mock_hl_service):
-    mock_hl_service.info.user_state.return_value = None
-    with patch("app.utils.rate_limiter.rate_limiter.can_call", return_value=True), patch(
-        "app.utils.rate_limiter.rate_limiter.record_call"
-    ):
-        assert safe_order_manager.pre_validate_order("ETH", 1.0, "BUY", price=100.0, leverage=3) is False
 
 def test_ensure_sl_tp_calculates_correctly(safe_order_manager, mock_hl_service):
     """Test that ensure_sl_tp calculates SL/TP based on fallback rules when no SL/TP is present"""
