@@ -58,7 +58,6 @@ class _FakeBot(LiveExecutionMixin):
         self.risk_manager = MagicMock()
         self.risk_manager.check_can_trade.return_value = (True, "")
         self.safe_order_manager = MagicMock()
-        self.safe_order_manager.pre_validate_order.return_value = True
         self.trade_recorder = MagicMock()
         self._last_sltp_sync_time = None
         self._sltp_sync_cooldown = 60

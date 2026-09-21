@@ -85,24 +85,6 @@ class LiveExecutionMixin:
                 )
                 return False
 
-            lev = self._resolve_trade_leverage(None if strategy == "Unknown" else strategy)
-            if not self.safe_order_manager.pre_validate_order(
-                symbol,
-                rounded_size,
-                side,
-                price=current_price,
-                leverage=lev,
-            ):
-                reason = "pre_validate_order failed (withdrawable/margin)"
-                self.add_log(f"⛔ ENTRY BLOCKED: {reason}")
-                self._log_execution_error(
-                    f"⛔ ENTRY BLOCKED: {side} {symbol}",
-                    reason=reason,
-                    equity=equity,
-                    **{k: v for k, v in ctx.items() if k != "equity"},
-                )
-                return False
-
             # REAL EXECUTION
             real_positions = hyperliquid_service.get_positions()
             if getattr(hyperliquid_service, "_positions_fetch_failed", False) is True:
