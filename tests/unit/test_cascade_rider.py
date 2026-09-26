@@ -12,6 +12,7 @@ from strategies.cascade_rider import (
     compare_detection_timeframes,
     extension_vs_ema20,
     extension_within_limit,
+    minute_entry_decision,
 )
 from strategies.rocket import detect_rocket
 from tests.unit.test_rocket import _bull_cascade_15m
@@ -53,6 +54,41 @@ def test_cascade_age_counts_green_streak():
     work = _series_with_extension(0.5)
     age = cascade_age_bars(work, "LONG", use_live=True)
     assert age >= 2
+
+
+def test_minute_entry_waits_on_red_and_rejects_chase():
+    idx = pd.date_range("2024-06-01", periods=5, freq="1min")
+    red = pd.DataFrame(
+        {
+            "open": [10, 10, 10, 10.2, 10.1],
+            "high": [10.1, 10.1, 10.1, 10.3, 10.2],
+            "low": [9.9, 9.9, 9.9, 10.0, 10.0],
+            "close": [10.05, 10.05, 10.05, 10.05, 10.15],
+            "volume": [1, 1, 1, 1, 1],
+        },
+        index=idx,
+    )
+    # iloc[-2] close 10.05 < open 10.2 → against a long
+    status, entry, reason = minute_entry_decision(
+        red, side="LONG", confirmed_close=10.0, atr=0.4, max_chase_atr=0.35, require_1m=True
+    )
+    assert status == "wait" and entry is None and reason
+
+    chased = red.copy()
+    chased.loc[chased.index[-2], "open"] = 10.0
+    chased.loc[chased.index[-2], "close"] = 10.0 + 2.0 * 0.4
+    status, entry, reason = minute_entry_decision(
+        chased, side="LONG", confirmed_close=10.0, atr=0.4, max_chase_atr=0.35, require_1m=True
+    )
+    assert status == "late" and entry is None
+    assert "late" in (reason or "").lower()
+
+    ok = chased.copy()
+    ok.loc[ok.index[-2], "close"] = 10.05
+    status, entry, _reason = minute_entry_decision(
+        ok, side="LONG", confirmed_close=10.0, atr=0.4, max_chase_atr=0.35, require_1m=True
+    )
+    assert status == "enter" and entry == 10.05
 
 
 def test_active_scan_interval_accelerates_when_armed():

@@ -65,9 +65,10 @@ class StrategyTrendLT(BaseStrategy):
     4. TP should respect local structure (trim to swing when proposed TP is optimistic).
     5. REJECT if volume_ratio < 50% of average (45% in strong trend) (WEAK_VOLUME).
     6. REJECT chase: BUY RSI > 65 or SELL RSI < 35 (72/28 when 1h ADX ≥ strong_trend_adx_min). Volume does NOT override.
-    7. If MTF 1h bias or MIXED status fights the signal, REJECT as COUNTER_TREND.
-    8. If MTF 4h clearly fights the 1h signal, REJECT as COUNTER_TREND.
-    9. When confluence is mixed, REJECT — do not rubber-stamp.
+    7. 1h confluence is already EMA200 + SuperTrend. Do NOT reject because a shorter EMA50 vs ST line is MIXED — that is the pullback.
+    8. If MTF 4h clearly fights the 1h signal, REJECT as COUNTER_TREND. Never ignore a 4h conflict.
+    9. MACD histogram may still be catching up on a reclaim. Do NOT reject solely because MACD has not crossed yet.
+    10. When 4h confluence is mixed against the trade, REJECT — do not rubber-stamp.
     """
 
     AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (TREND LT / 1h) ===
@@ -79,15 +80,18 @@ APPROVE when ALL of:
 2. R:R meets the strategy min_rr (default 2.0) after any TP trim — not the looser capital-profile floor
 3. Volume ratio >= 50% (45% in strong trend)
 4. No clear 4h fight vs signal (if MTF unavailable, ignore HTF)
-5. TP is structurally realistic vs Key Levels (trim optimistic breakout TPs)
+5. TP is the mechanical min_rr target. A 20-bar high inside that R is the pullback, not a reason to veto.
 
 REJECT when ANY of:
 - volume_ratio < 50% (WEAK_VOLUME)
 - BUY RSI > 65 or SELL RSI < 35 (OVEREXTENDED; 72/28 in strong trend). No volume override.
-- 1h MTF bias opposite to signal OR 1h status MIXED (COUNTER_TREND / NO_CONFLUENCE)
 - Clear 4h counter-trend
 - Computed R:R below strategy min_rr (BAD_RR)
 - RSI slope strongly against direction (already hard-vetoed before you see this)
+
+Do NOT reject solely because:
+- 1h EMA50 bias disagrees with SuperTrend (MIXED) — the plan already required EMA200 + ST
+- MACD histogram has not flipped yet on the reclaim bar
 
 Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
 
@@ -128,7 +132,7 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             base_vol = float(self.get_min_volume_ratio_pct() or 50.0)
             vol_floor = effective_veto_volume_pct(base_vol, strong, self.get_param)
             veto_macd = effective_veto_macd_momentum(
-                bool(self.get_param("veto_macd_momentum", True)), strong, self.get_param
+                bool(self.get_param("veto_macd_momentum", False)), strong, self.get_param
             )
 
             if rsi is not None:
@@ -162,17 +166,20 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
                 if macd_reason:
                     return f"HARD VETO (LT): {macd_reason} @ {price:.4f}"
 
+            # 4h conflict stays on even in a strong 1h trend. 1h EMA50-vs-ST
+            # "MIXED" is the pullback this plan trades; the strategy already
+            # required EMA200 + SuperTrend alignment before the veto.
             relax_mtf = strong and bool(
-                self.get_param("strong_trend_relax_mtf_veto", True)
+                self.get_param("strong_trend_relax_mtf_veto", False)
             )
             if bool(self.get_param("veto_mtf_sentiment", True)) and not relax_mtf:
                 mtf_reason = check_mtf_sentiment_veto(
                     side,
                     str(ctx.get("mtf_sentiment") or ""),
                     block_1h_bias_conflict=bool(
-                        self.get_param("veto_mtf_1h_bias_conflict", True)
+                        self.get_param("veto_mtf_1h_bias_conflict", False)
                     ),
-                    block_1h_mixed=bool(self.get_param("veto_mtf_1h_mixed", True)),
+                    block_1h_mixed=bool(self.get_param("veto_mtf_1h_mixed", False)),
                     block_4h_bias_conflict=bool(
                         self.get_param("veto_mtf_4h_bias_conflict", True)
                     ),
@@ -378,11 +385,24 @@ Do NOT reject solely because SL is wider than scalp norms on a 1h swing."""
             if not isinstance(adj, dict):
                 adj = {}
             tp = float(adj.get("tp") or (signal or {}).get("tp") or 0)
+            sl = float((signal or {}).get("sl") or 0)
+            try:
+                min_rr = float(self.get_param("min_rr", 2.0) or 2.0)
+            except (TypeError, ValueError):
+                min_rr = 2.0
+            risk = abs(entry - sl) if entry > 0 and sl > 0 else 0.0
             trimmed = None
             if side == "BUY" and entry > 0 and tp > 0 and swing_high > entry and tp > swing_high:
                 trimmed = swing_high * (1.0 - 0.0005)
             elif side == "SELL" and entry > 0 and tp > 0 and 0 < swing_low < entry and tp < swing_low:
                 trimmed = swing_low * (1.0 + 0.0005)
+            # A 20-bar swing inside min_rr is the pullback this continuation is
+            # allowed to clear. TP is already exactly min_rr, so trimming to that
+            # high always failed the geometry veto and the plan never fired.
+            if trimmed is not None and risk > 0:
+                trimmed_rr = abs(float(trimmed) - entry) / risk
+                if trimmed_rr + 1e-9 < min_rr:
+                    trimmed = None
             if trimmed is not None and trimmed > 0:
                 adj = {**adj, "tp": float(trimmed)}
                 ai_result = dict(ai_result or {})

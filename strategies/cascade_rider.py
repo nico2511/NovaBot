@@ -33,7 +33,13 @@ DEFAULT_CASCADE_FRESH_BARS_MAX = 4
 DEFAULT_SPARK_CASCADE_FRESH_BARS_MAX = 3
 DEFAULT_EMBER_CASCADE_FRESH_BARS_MAX = 3
 DEFAULT_CASCADE_FRESH_BONUS = 10.0
-DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES = 2.0
+# Idle lane: notice a just-closed 15m cascade within ~2 minutes.
+# Armed lane: re-check the 1m with-trend guard every minute while waiting.
+DEFAULT_SCAN_INTERVAL_MINUTES = 2.0
+DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES = 1.0
+# 1m may confirm the micro bar is still with the move, but must not run
+# this far past the confirmed 15m close (that was the late-chase fill).
+DEFAULT_MAX_1M_CHASE_ATR = 0.35
 DEFAULT_SPARK_SCAN_INTERVAL_ACTIVE_MINUTES = 1.5
 DEFAULT_EMBER_SCAN_INTERVAL_ACTIVE_MINUTES = 1.5
 
@@ -146,6 +152,75 @@ def detect_bear_cascade(
 
 def bar_index(*, use_live: bool) -> int:
     return -1 if use_live else -2
+
+
+def minute_entry_decision(
+    df_1m: Optional[pd.DataFrame],
+    *,
+    side: str,
+    confirmed_close: float,
+    atr: float,
+    max_chase_atr: float,
+    require_1m: bool,
+) -> Tuple[str, Optional[float], Optional[str]]:
+    """
+    Entry after a *confirmed* higher-TF cascade (``use_live=False`` stays on).
+
+    Returns ``(status, entry, reason)``:
+
+    - ``enter`` — last closed 1m is still with the cascade and has not run
+      more than ``max_chase_atr`` past the confirmed close. Entry is that
+      1m close (or the confirmed close when 1m is not required).
+    - ``wait`` — 1m missing or against the cascade. Keep the setup armed.
+    - ``late`` — 1m already extended past the cap. Disarm; do not chase.
+
+    A 1m higher-high / lower-low is **not** required. That extra break waited
+    for the next push and filled late. Both bars are closed; the forming
+    candle is never the trigger.
+    """
+    side_u = str(side or "").upper()
+    if side_u not in ("LONG", "SHORT"):
+        return "late", None, "Cascade entry side missing"
+    if not require_1m:
+        if confirmed_close <= 0:
+            return "late", None, "Confirmed cascade close missing"
+        return "enter", float(confirmed_close), None
+
+    if df_1m is None or getattr(df_1m, "empty", True) or len(df_1m) < 3:
+        return "wait", None, "Missing 1m data for cascade entry"
+
+    last = df_1m.iloc[-2]
+    try:
+        close = float(last["close"])
+        open_ = float(last["open"])
+    except (TypeError, ValueError):
+        return "wait", None, "1m confirm unreadable — waiting for a closed bar"
+
+    with_trend = close > open_ if side_u == "LONG" else close < open_
+    if not with_trend:
+        color = "green" if side_u == "LONG" else "red"
+        return (
+            "wait",
+            None,
+            f"1m confirm failed — need a {color} candle (higher-high not required)",
+        )
+
+    chase_cap = float(max_chase_atr)
+    if atr > 0 and confirmed_close > 0 and chase_cap >= 0:
+        if side_u == "LONG":
+            chase = (close - float(confirmed_close)) / float(atr)
+        else:
+            chase = (float(confirmed_close) - close) / float(atr)
+        if chase > chase_cap:
+            return (
+                "late",
+                None,
+                (
+                    f"1m chased {chase:.2f}x ATR past confirmed close "
+                    f"(>{chase_cap:.2f}x) — late cascade"
+                ),
+            )
+    return "enter", close, None
 
 
 def closed_bars(df: pd.DataFrame) -> pd.DataFrame:

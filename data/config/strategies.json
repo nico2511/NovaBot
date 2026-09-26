@@ -94,10 +94,10 @@
       "veto_rsi_overbought": 85,
       "veto_rsi_oversold": 20,
       "veto_adx_runaway": 85,
-      "veto_macd_momentum": true,
+      "veto_macd_momentum": false,
       "veto_mtf_sentiment": true,
-      "veto_mtf_1h_bias_conflict": true,
-      "veto_mtf_1h_mixed": true,
+      "veto_mtf_1h_bias_conflict": false,
+      "veto_mtf_1h_mixed": false,
       "veto_mtf_4h_bias_conflict": true,
       "veto_rsi_slope": true,
       "veto_rsi_slope_min_long": -4.0,
@@ -109,7 +109,7 @@
       "strong_trend_min_adx_slope": -1.0,
       "strong_trend_veto_volume_pct": 45,
       "strong_trend_veto_macd_momentum": false,
-      "strong_trend_relax_mtf_veto": true,
+      "strong_trend_relax_mtf_veto": false,
       "near_tp_min_progress_pct": 55,
       "near_tp_lock_fraction": 0.65,
       "profit_lock_arm_pct": 2.0,
@@ -120,7 +120,7 @@
       "EMA_200",
       "ADX_14"
     ],
-    "version": "2026-09-strong-trend-v1",
+    "version": "2026-09-lt-trigger-v1",
     "expected_freq": "Low (1h pullback + reclaim)"
   },
   "range_lt": {
@@ -136,10 +136,10 @@
       "structure_lookback": 72,
       "ceiling_expansion_bars": 6,
       "min_touches": 2,
-      "adx_max": 18,
-      "max_adx_slope": 0.4,
+      "adx_max": 23,
+      "max_adx_slope": 1.0,
       "ema_period": 50,
-      "ema_slope_flat_max": 0.0004,
+      "ema_slope_flat_max": 0.0008,
       "min_range_pct": 2.0,
       "max_range_pct": 12.0,
       "touch_atr": 0.35,
@@ -166,7 +166,7 @@
       "EMA_50",
       "ADX_14"
     ],
-    "version": "2026-08-range-lt-v1",
+    "version": "2026-09-range-box-v2",
     "expected_freq": "Low (1h box rejection fade)"
   },
   "waterfall": {
@@ -196,10 +196,11 @@
       "range_exhaustion_enabled": true,
       "allow_longs": false,
       "allow_shorts": true,
-      "scan_interval_minutes": 5,
-      "scan_interval_active_minutes": 2,
+      "scan_interval_minutes": 2,
+      "scan_interval_active_minutes": 1,
       "scan_score_use_confirmed_bar": true,
       "max_extension_atr": 1.5,
+      "max_1m_chase_atr": 0.35,
       "extension_ema_period": 9,
       "cascade_fresh_bars_max": 4,
       "cascade_fresh_bonus": 10,
@@ -214,7 +215,7 @@
       "EMA_20",
       "RSI_14"
     ],
-    "version": "2026-09-cascade-rider-v4",
+    "version": "2026-09-cascade-fresh-v5",
     "expected_freq": "Rare (bear cascade only)"
   },
   "rocket": {
@@ -246,10 +247,11 @@
       "range_exhaustion_enabled": true,
       "allow_longs": true,
       "allow_shorts": false,
-      "scan_interval_minutes": 5,
-      "scan_interval_active_minutes": 2,
+      "scan_interval_minutes": 2,
+      "scan_interval_active_minutes": 1,
       "scan_score_use_confirmed_bar": true,
       "max_extension_atr": 1.5,
+      "max_1m_chase_atr": 0.35,
       "extension_ema_period": 9,
       "cascade_fresh_bars_max": 4,
       "cascade_fresh_bonus": 10,
@@ -264,7 +266,7 @@
       "EMA_20",
       "RSI_14"
     ],
-    "version": "2026-09-cascade-rider-v4",
+    "version": "2026-09-cascade-fresh-v5",
     "expected_freq": "Rare (bull cascade only)"
   },
   "spark": {
