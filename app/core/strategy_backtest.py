@@ -1084,7 +1084,8 @@ def render_report(
         "the last row is the forming bar and entries use `iloc[-2]`."
     )
     lines.append(
-        f"- Costs: taker {taker:.5%} × 2 + slip {slip:.5%} × 2, subtracted in R via `net_r` "
+        f"- Costs: taker {taker * 10000:.2f} bp per side + slip {slip * 10000:.2f} bp per fill "
+        "(round trip), subtracted in R via `net_r` "
         "(same constants as `app/core/causal_backtest.py`). The fill price is the strategy signal price."
     )
     lines.append(
