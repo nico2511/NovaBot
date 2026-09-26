@@ -1,0 +1,1002 @@
+[
+  {
+    "coin": "AAVE",
+    "interval": "15m",
+    "bars": 5002,
+    "start": "2026-08-05T18:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "AAVE_15m.csv"
+  },
+  {
+    "coin": "AAVE",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AAVE_1h.csv"
+  },
+  {
+    "coin": "AAVE",
+    "interval": "1m",
+    "bars": 5034,
+    "start": "2026-09-23T08:56:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "AAVE_1m.csv"
+  },
+  {
+    "coin": "AAVE",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AAVE_4h.csv"
+  },
+  {
+    "coin": "AAVE",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AAVE_funding.csv"
+  },
+  {
+    "coin": "ADA",
+    "interval": "15m",
+    "bars": 5013,
+    "start": "2026-08-05T15:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "ADA_15m.csv"
+  },
+  {
+    "coin": "ADA",
+    "interval": "1h",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ADA_1h.csv"
+  },
+  {
+    "coin": "ADA",
+    "interval": "1m",
+    "bars": 5186,
+    "start": "2026-09-23T06:24:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "ADA_1m.csv"
+  },
+  {
+    "coin": "ADA",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ADA_4h.csv"
+  },
+  {
+    "coin": "ADA",
+    "interval": "funding",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ADA_funding.csv"
+  },
+  {
+    "coin": "APT",
+    "interval": "15m",
+    "bars": 5003,
+    "start": "2026-08-05T18:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "APT_15m.csv"
+  },
+  {
+    "coin": "APT",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "APT_1h.csv"
+  },
+  {
+    "coin": "APT",
+    "interval": "1m",
+    "bars": 5036,
+    "start": "2026-09-23T08:53:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "APT_1m.csv"
+  },
+  {
+    "coin": "APT",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "APT_4h.csv"
+  },
+  {
+    "coin": "APT",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "APT_funding.csv"
+  },
+  {
+    "coin": "ARB",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "ARB_15m.csv"
+  },
+  {
+    "coin": "ARB",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ARB_1h.csv"
+  },
+  {
+    "coin": "ARB",
+    "interval": "1m",
+    "bars": 5074,
+    "start": "2026-09-23T08:15:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "ARB_1m.csv"
+  },
+  {
+    "coin": "ARB",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ARB_4h.csv"
+  },
+  {
+    "coin": "ARB",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ARB_funding.csv"
+  },
+  {
+    "coin": "ATOM",
+    "interval": "15m",
+    "bars": 5007,
+    "start": "2026-08-05T17:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "ATOM_15m.csv"
+  },
+  {
+    "coin": "ATOM",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ATOM_1h.csv"
+  },
+  {
+    "coin": "ATOM",
+    "interval": "1m",
+    "bars": 5098,
+    "start": "2026-09-23T07:53:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "ATOM_1m.csv"
+  },
+  {
+    "coin": "ATOM",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ATOM_4h.csv"
+  },
+  {
+    "coin": "ATOM",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ATOM_funding.csv"
+  },
+  {
+    "coin": "AVAX",
+    "interval": "15m",
+    "bars": 5006,
+    "start": "2026-08-05T17:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "AVAX_15m.csv"
+  },
+  {
+    "coin": "AVAX",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AVAX_1h.csv"
+  },
+  {
+    "coin": "AVAX",
+    "interval": "1m",
+    "bars": 5087,
+    "start": "2026-09-23T08:03:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "AVAX_1m.csv"
+  },
+  {
+    "coin": "AVAX",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AVAX_4h.csv"
+  },
+  {
+    "coin": "AVAX",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "AVAX_funding.csv"
+  },
+  {
+    "coin": "BCH",
+    "interval": "15m",
+    "bars": 5003,
+    "start": "2026-08-05T18:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "BCH_15m.csv"
+  },
+  {
+    "coin": "BCH",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BCH_1h.csv"
+  },
+  {
+    "coin": "BCH",
+    "interval": "1m",
+    "bars": 5040,
+    "start": "2026-09-23T08:51:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "BCH_1m.csv"
+  },
+  {
+    "coin": "BCH",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BCH_4h.csv"
+  },
+  {
+    "coin": "BCH",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BCH_funding.csv"
+  },
+  {
+    "coin": "BNB",
+    "interval": "15m",
+    "bars": 5006,
+    "start": "2026-08-05T17:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "BNB_15m.csv"
+  },
+  {
+    "coin": "BNB",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BNB_1h.csv"
+  },
+  {
+    "coin": "BNB",
+    "interval": "1m",
+    "bars": 5087,
+    "start": "2026-09-23T08:05:00+00:00",
+    "end": "2026-09-26T20:51:00+00:00",
+    "file": "BNB_1m.csv"
+  },
+  {
+    "coin": "BNB",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BNB_4h.csv"
+  },
+  {
+    "coin": "BNB",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BNB_funding.csv"
+  },
+  {
+    "coin": "BTC",
+    "interval": "15m",
+    "bars": 5007,
+    "start": "2026-08-05T17:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "BTC_15m.csv"
+  },
+  {
+    "coin": "BTC",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BTC_1h.csv"
+  },
+  {
+    "coin": "BTC",
+    "interval": "1m",
+    "bars": 5099,
+    "start": "2026-09-23T07:49:00+00:00",
+    "end": "2026-09-26T20:47:00+00:00",
+    "file": "BTC_1m.csv"
+  },
+  {
+    "coin": "BTC",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BTC_4h.csv"
+  },
+  {
+    "coin": "BTC",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "BTC_funding.csv"
+  },
+  {
+    "coin": "DOGE",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "DOGE_15m.csv"
+  },
+  {
+    "coin": "DOGE",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOGE_1h.csv"
+  },
+  {
+    "coin": "DOGE",
+    "interval": "1m",
+    "bars": 5075,
+    "start": "2026-09-23T08:17:00+00:00",
+    "end": "2026-09-26T20:51:00+00:00",
+    "file": "DOGE_1m.csv"
+  },
+  {
+    "coin": "DOGE",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOGE_4h.csv"
+  },
+  {
+    "coin": "DOGE",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOGE_funding.csv"
+  },
+  {
+    "coin": "DOT",
+    "interval": "15m",
+    "bars": 5015,
+    "start": "2026-08-05T15:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "DOT_15m.csv"
+  },
+  {
+    "coin": "DOT",
+    "interval": "1h",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOT_1h.csv"
+  },
+  {
+    "coin": "DOT",
+    "interval": "1m",
+    "bars": 5228,
+    "start": "2026-09-23T05:43:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "DOT_1m.csv"
+  },
+  {
+    "coin": "DOT",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOT_4h.csv"
+  },
+  {
+    "coin": "DOT",
+    "interval": "funding",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "DOT_funding.csv"
+  },
+  {
+    "coin": "ETH",
+    "interval": "15m",
+    "bars": 5007,
+    "start": "2026-08-05T17:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "ETH_15m.csv"
+  },
+  {
+    "coin": "ETH",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ETH_1h.csv"
+  },
+  {
+    "coin": "ETH",
+    "interval": "1m",
+    "bars": 5098,
+    "start": "2026-09-23T07:51:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "ETH_1m.csv"
+  },
+  {
+    "coin": "ETH",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ETH_4h.csv"
+  },
+  {
+    "coin": "ETH",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ETH_funding.csv"
+  },
+  {
+    "coin": "HYPE",
+    "interval": "15m",
+    "bars": 5014,
+    "start": "2026-08-05T15:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "HYPE_15m.csv"
+  },
+  {
+    "coin": "HYPE",
+    "interval": "1h",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "HYPE_1h.csv"
+  },
+  {
+    "coin": "HYPE",
+    "interval": "1m",
+    "bars": 5203,
+    "start": "2026-09-23T06:09:00+00:00",
+    "end": "2026-09-26T20:51:00+00:00",
+    "file": "HYPE_1m.csv"
+  },
+  {
+    "coin": "HYPE",
+    "interval": "4h",
+    "bars": 3964,
+    "start": "2024-12-05T08:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "HYPE_4h.csv"
+  },
+  {
+    "coin": "HYPE",
+    "interval": "funding",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "HYPE_funding.csv"
+  },
+  {
+    "coin": "INJ",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "INJ_15m.csv"
+  },
+  {
+    "coin": "INJ",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "INJ_1h.csv"
+  },
+  {
+    "coin": "INJ",
+    "interval": "1m",
+    "bars": 5070,
+    "start": "2026-09-23T08:20:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "INJ_1m.csv"
+  },
+  {
+    "coin": "INJ",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "INJ_4h.csv"
+  },
+  {
+    "coin": "INJ",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "INJ_funding.csv"
+  },
+  {
+    "coin": "LINK",
+    "interval": "15m",
+    "bars": 5004,
+    "start": "2026-08-05T18:00:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "LINK_15m.csv"
+  },
+  {
+    "coin": "LINK",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LINK_1h.csv"
+  },
+  {
+    "coin": "LINK",
+    "interval": "1m",
+    "bars": 5058,
+    "start": "2026-09-23T08:32:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "LINK_1m.csv"
+  },
+  {
+    "coin": "LINK",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LINK_4h.csv"
+  },
+  {
+    "coin": "LINK",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LINK_funding.csv"
+  },
+  {
+    "coin": "LTC",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "LTC_15m.csv"
+  },
+  {
+    "coin": "LTC",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LTC_1h.csv"
+  },
+  {
+    "coin": "LTC",
+    "interval": "1m",
+    "bars": 5078,
+    "start": "2026-09-23T08:13:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "LTC_1m.csv"
+  },
+  {
+    "coin": "LTC",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LTC_4h.csv"
+  },
+  {
+    "coin": "LTC",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "LTC_funding.csv"
+  },
+  {
+    "coin": "NEAR",
+    "interval": "15m",
+    "bars": 5011,
+    "start": "2026-08-05T16:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "NEAR_15m.csv"
+  },
+  {
+    "coin": "NEAR",
+    "interval": "1h",
+    "bars": 5002,
+    "start": "2026-03-02T11:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "NEAR_1h.csv"
+  },
+  {
+    "coin": "NEAR",
+    "interval": "1m",
+    "bars": 5164,
+    "start": "2026-09-23T06:46:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "NEAR_1m.csv"
+  },
+  {
+    "coin": "NEAR",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "NEAR_4h.csv"
+  },
+  {
+    "coin": "NEAR",
+    "interval": "funding",
+    "bars": 5002,
+    "start": "2026-03-02T11:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "NEAR_funding.csv"
+  },
+  {
+    "coin": "OP",
+    "interval": "15m",
+    "bars": 5006,
+    "start": "2026-08-05T17:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "OP_15m.csv"
+  },
+  {
+    "coin": "OP",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "OP_1h.csv"
+  },
+  {
+    "coin": "OP",
+    "interval": "1m",
+    "bars": 5079,
+    "start": "2026-09-23T08:10:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "OP_1m.csv"
+  },
+  {
+    "coin": "OP",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "OP_4h.csv"
+  },
+  {
+    "coin": "OP",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "OP_funding.csv"
+  },
+  {
+    "coin": "SOL",
+    "interval": "15m",
+    "bars": 5006,
+    "start": "2026-08-05T17:30:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "SOL_15m.csv"
+  },
+  {
+    "coin": "SOL",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SOL_1h.csv"
+  },
+  {
+    "coin": "SOL",
+    "interval": "1m",
+    "bars": 5088,
+    "start": "2026-09-23T08:01:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "SOL_1m.csv"
+  },
+  {
+    "coin": "SOL",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SOL_4h.csv"
+  },
+  {
+    "coin": "SOL",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SOL_funding.csv"
+  },
+  {
+    "coin": "SUI",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "SUI_15m.csv"
+  },
+  {
+    "coin": "SUI",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SUI_1h.csv"
+  },
+  {
+    "coin": "SUI",
+    "interval": "1m",
+    "bars": 5067,
+    "start": "2026-09-23T08:22:00+00:00",
+    "end": "2026-09-26T20:48:00+00:00",
+    "file": "SUI_1m.csv"
+  },
+  {
+    "coin": "SUI",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SUI_4h.csv"
+  },
+  {
+    "coin": "SUI",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "SUI_funding.csv"
+  },
+  {
+    "coin": "TIA",
+    "interval": "15m",
+    "bars": 5013,
+    "start": "2026-08-05T15:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "TIA_15m.csv"
+  },
+  {
+    "coin": "TIA",
+    "interval": "1h",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TIA_1h.csv"
+  },
+  {
+    "coin": "TIA",
+    "interval": "1m",
+    "bars": 5193,
+    "start": "2026-09-23T06:18:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "TIA_1m.csv"
+  },
+  {
+    "coin": "TIA",
+    "interval": "4h",
+    "bars": 5001,
+    "start": "2024-06-15T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TIA_4h.csv"
+  },
+  {
+    "coin": "TIA",
+    "interval": "funding",
+    "bars": 5003,
+    "start": "2026-03-02T10:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TIA_funding.csv"
+  },
+  {
+    "coin": "TRX",
+    "interval": "15m",
+    "bars": 5001,
+    "start": "2026-08-05T18:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "TRX_15m.csv"
+  },
+  {
+    "coin": "TRX",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TRX_1h.csv"
+  },
+  {
+    "coin": "TRX",
+    "interval": "1m",
+    "bars": 5013,
+    "start": "2026-09-23T09:18:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "TRX_1m.csv"
+  },
+  {
+    "coin": "TRX",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TRX_4h.csv"
+  },
+  {
+    "coin": "TRX",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "TRX_funding.csv"
+  },
+  {
+    "coin": "UNI",
+    "interval": "15m",
+    "bars": 5001,
+    "start": "2026-08-05T18:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "UNI_15m.csv"
+  },
+  {
+    "coin": "UNI",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "UNI_1h.csv"
+  },
+  {
+    "coin": "UNI",
+    "interval": "1m",
+    "bars": 5007,
+    "start": "2026-09-23T09:23:00+00:00",
+    "end": "2026-09-26T20:49:00+00:00",
+    "file": "UNI_1m.csv"
+  },
+  {
+    "coin": "UNI",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "UNI_4h.csv"
+  },
+  {
+    "coin": "UNI",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "UNI_funding.csv"
+  },
+  {
+    "coin": "XRP",
+    "interval": "15m",
+    "bars": 5003,
+    "start": "2026-08-05T18:15:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "XRP_15m.csv"
+  },
+  {
+    "coin": "XRP",
+    "interval": "1h",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "XRP_1h.csv"
+  },
+  {
+    "coin": "XRP",
+    "interval": "1m",
+    "bars": 5042,
+    "start": "2026-09-23T08:49:00+00:00",
+    "end": "2026-09-26T20:50:00+00:00",
+    "file": "XRP_1m.csv"
+  },
+  {
+    "coin": "XRP",
+    "interval": "4h",
+    "bars": 5000,
+    "start": "2024-06-15T16:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "XRP_4h.csv"
+  },
+  {
+    "coin": "XRP",
+    "interval": "funding",
+    "bars": 5000,
+    "start": "2026-03-02T13:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "XRP_funding.csv"
+  },
+  {
+    "coin": "ZEC",
+    "interval": "15m",
+    "bars": 5005,
+    "start": "2026-08-05T17:45:00+00:00",
+    "end": "2026-09-26T20:45:00+00:00",
+    "file": "ZEC_15m.csv"
+  },
+  {
+    "coin": "ZEC",
+    "interval": "1h",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ZEC_1h.csv"
+  },
+  {
+    "coin": "ZEC",
+    "interval": "1m",
+    "bars": 5070,
+    "start": "2026-09-23T08:22:00+00:00",
+    "end": "2026-09-26T20:51:00+00:00",
+    "file": "ZEC_1m.csv"
+  },
+  {
+    "coin": "ZEC",
+    "interval": "4h",
+    "bars": 3156,
+    "start": "2025-04-19T00:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ZEC_4h.csv"
+  },
+  {
+    "coin": "ZEC",
+    "interval": "funding",
+    "bars": 5001,
+    "start": "2026-03-02T12:00:00+00:00",
+    "end": "2026-09-26T20:00:00+00:00",
+    "file": "ZEC_funding.csv"
+  }
+]

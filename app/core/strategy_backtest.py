@@ -47,6 +47,7 @@ from app.core.causal_backtest import (
 )
 from app.core.hl_ohlcv import (
     INTERVAL_MS,
+    SCANNER_WHITELIST,
     describe_span,
     ensure_symbol_cache,
     interval_td,
@@ -64,7 +65,7 @@ from app.core.weekend_pause import is_strategy_weekend_paused
 
 FOCUS = ("supertrend", "trend_lt", "range_lt", "rocket", "waterfall")
 OPTIONAL = ("spark", "ember")
-DEFAULT_SYMBOLS = ("BTC", "ETH", "SOL", "HYPE", "AVAX", "LINK", "DOGE", "SUI")
+DEFAULT_SYMBOLS = SCANNER_WHITELIST
 
 PLAN_META_KEYS = (
     "range_high",

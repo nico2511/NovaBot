@@ -36,6 +36,14 @@ INTERVAL_MS: Dict[str, int] = {
 
 OHLCV_COLUMNS = ("open", "high", "low", "close", "volume")
 
+# Example scanner whitelist (data/config/user_settings.example.json). Not the live top-K.
+SCANNER_WHITELIST = (
+    "BTC", "ETH", "SOL", "ARB", "OP", "SUI", "APT", "AVAX",
+    "LINK", "UNI", "AAVE", "ADA", "NEAR", "INJ", "TIA",
+    "DOT", "ATOM", "LTC", "BCH", "XRP",
+    "BNB", "TRX", "HYPE", "DOGE", "ZEC",
+)
+
 
 def interval_td(interval: str) -> pd.Timedelta:
     if interval not in INTERVAL_MS:
@@ -338,6 +346,7 @@ def ensure_symbol_cache(
     out_dir: Path,
     *,
     fetch: bool = True,
+    refresh: bool = False,
     days: Optional[float] = None,
     page_pause: float = 0.15,
 ) -> Dict[str, pd.DataFrame]:
@@ -346,7 +355,7 @@ def ensure_symbol_cache(
     out_dir.mkdir(parents=True, exist_ok=True)
     for interval in intervals:
         path = cache_path(out_dir, coin, interval)
-        if path.exists():
+        if path.exists() and not refresh:
             frame = load_ohlcv(path)
         elif fetch:
             print(f"[hl] fetch {coin} {interval}")
@@ -363,11 +372,14 @@ def ensure_symbol_cache(
             frame = _empty_ohlcv()
         frames[interval] = trim_recent(frame, days=days)
     fund_file = funding_path(out_dir, coin)
-    if fund_file.exists():
+    if fund_file.exists() and not refresh:
         frames["funding"] = load_funding(fund_file)
     elif fetch:
         start = None
-        for interval in intervals:
+        # 4h history is much longer than the plans under test. Fund from the
+        # earliest 1m/15m/1h bar so the file covers every replayed trade.
+        fund_intervals = [iv for iv in intervals if iv in ("1m", "5m", "15m", "1h")] or list(intervals)
+        for interval in fund_intervals:
             frame = frames.get(interval)
             if frame is not None and not frame.empty:
                 start_i = int(frame.index[0].timestamp() * 1000)
@@ -393,6 +405,36 @@ def trim_recent_funding(df: pd.DataFrame, *, days: Optional[float]) -> pd.DataFr
     return df.loc[df.index >= end - pd.Timedelta(days=float(days))]
 
 
+def write_manifest(out_dir: Path, path: Path) -> List[Dict[str, Any]]:
+    """Write a JSON index of every cached CSV: symbol, interval, bars, start, end."""
+    rows: List[Dict[str, Any]] = []
+    for csv_path in sorted(out_dir.glob("*.csv")):
+        stem = csv_path.stem
+        if stem.endswith("_funding"):
+            coin = stem[: -len("_funding")]
+            frame = load_funding(csv_path)
+            kind = "funding"
+        else:
+            coin, _, kind = stem.rpartition("_")
+            frame = load_ohlcv(csv_path)
+        if frame is None or frame.empty:
+            rows.append({"coin": coin, "interval": kind, "bars": 0, "start": None, "end": None, "file": csv_path.name})
+            continue
+        rows.append(
+            {
+                "coin": coin,
+                "interval": kind,
+                "bars": int(len(frame)),
+                "start": frame.index[0].isoformat(),
+                "end": frame.index[-1].isoformat(),
+                "file": csv_path.name,
+            }
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, indent=2))
+    return rows
+
+
 def describe_span(df: Optional[pd.DataFrame]) -> str:
     if df is None or getattr(df, "empty", True):
         return "none"
@@ -401,16 +443,21 @@ def describe_span(df: Optional[pd.DataFrame]) -> str:
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Download Hyperliquid OHLCV into CSV cache")
-    parser.add_argument("--symbols", nargs="+", default=["BTC", "ETH"])
-    parser.add_argument("--intervals", default="1h,15m,1m,4h")
+    parser.add_argument("--symbols", nargs="+", default=list(SCANNER_WHITELIST))
+    parser.add_argument("--intervals", default="1m,15m,1h,4h")
     parser.add_argument("--out", default="data/ohlcv")
+    parser.add_argument("--refresh", action="store_true", help="Re-download even when the CSV already exists")
     parser.add_argument("--days", type=float, default=0.0, help="Keep only the last N days (0 = all the API returned)")
+    parser.add_argument("--manifest", default="", help="Optional JSON path listing bars and date ranges")
     args = parser.parse_args(argv)
     intervals = [part.strip() for part in str(args.intervals).split(",") if part.strip()]
     out = Path(args.out)
     days = args.days if args.days and args.days > 0 else None
     for coin in args.symbols:
-        ensure_symbol_cache(coin.upper(), intervals, out, fetch=True, days=days)
+        ensure_symbol_cache(coin.upper(), intervals, out, fetch=True, refresh=args.refresh, days=days)
+    if args.manifest:
+        rows = write_manifest(out, Path(args.manifest))
+        print(f"[hl] manifest {args.manifest} ({len(rows)} files)")
 
 
 if __name__ == "__main__":

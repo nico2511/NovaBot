@@ -149,13 +149,16 @@ per interval, so 1m plans are a few days and 1h plans are about 200 days.
 Download that window, then replay:
 
 ```bash
-python -m app.core.hl_ohlcv --symbols BTC ETH SOL --intervals 1h,15m,1m,4h --out data/ohlcv
-python -m app.core.strategy_backtest --symbols BTC ETH SOL --cache-dir data/ohlcv
+python -m app.core.hl_ohlcv --refresh --out data/ohlcv --manifest reports/hl_ohlcv_manifest.json
+python -m app.core.strategy_backtest --no-fetch --cache-dir data/ohlcv
 ```
 
 `scripts/fetch_hl_ohlcv.py` and `scripts/backtest_strategies.py` are the same
-commands. The default symbol list is a liquid subset of the example scanner
-whitelist. Spark and Ember stay off unless you pass `--include-disabled` or
+commands. The default symbol list is the example scanner whitelist in
+`data/config/user_settings.example.json` (not the live top-K). Cache files stay
+under `data/ohlcv/` and are not committed. `--refresh` re-downloads even when a
+CSV already exists; the manifest records bar counts and exact start/end times.
+Spark and Ember stay off unless you pass `--include-disabled` or
 `--strategies spark`.
 
 The markdown report is written to `reports/strategy_backtest.md`. Read the
