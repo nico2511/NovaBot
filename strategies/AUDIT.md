@@ -21,8 +21,8 @@ Ce document est le **snapshot d’audit** (findings + notes). Une partie du §9 
 | Cascade: `use_live=False`, `min_rr` 1.5, Balanced (pas HVH 10×), DEAD flatten, `max_extension_atr` 1.5 | Oui | #23 |
 | Range LT: box ancrée, TP mid, flatten DEAD rouge | Oui | #23 + [#24](https://github.com/nico2511/NovaBot/pull/24) |
 | ST/LT: indicateurs sur closes, veto funding, trailing en R | Oui | #24 |
-| Harness backtest causal (pas OOS 2024–2026) | Runner + download HL | `app/core/strategy_backtest.py` (fenêtre = rétention `candleSnapshot`, pas 2024–2026 en 15m) |
-| Walk-forward n≥200 / réactiver HVH | Non | Premier run: `reports/strategy_backtest.md` — n ≪ 200 sur la fenêtre API |
+| Harness backtest causal (pas OOS 2024–2026) | Runner + dump HL whitelist | `reports/hl_ohlcv_whitelist_2026-09-26.tar.gz` + `reports/hl_ohlcv_manifest.json` (rétention `candleSnapshot`, pas 2024–2026 en 15m) |
+| Walk-forward n≥200 / réactiver HVH | Non | Replay whitelist 2026-09-26 : `reports/strategy_backtest.md` — n ≪ 200 |
 
 Les notes /10 et le verdict book **4.0** décrivent l’état **avant** #23/#24. Relire le code pour le risque live actuel ; ne pas traiter les tables « look-ahead déjà présent » comme encore vraies sans croiser ce statut.
 
@@ -439,7 +439,7 @@ Verdict capital: **paper le book actuel**. Live éventuellement **SuperTrend + T
 
 # 8. Version stats — backtest / validation
 
-**État actuel:** le runner causal est dans `app/core/strategy_backtest.py` (frais/slip du harness, sorties SL/TP/thesis, pas d’appel IA). Le premier passage sur l’historique public Hyperliquid est `reports/strategy_backtest.md`. L’API ne garde que ~5000 bougies par intervalle, donc ce n’est pas l’OOS 2024–2026 du design ci-dessous, et **aucun plan n’atteint n≥200**. L’edge reste **unvalidated**. Les unit tests vérifient des invariants de code, **pas** l’expectancy.
+**État actuel:** le runner causal est dans `app/core/strategy_backtest.py` (frais/slip du harness, sorties SL/TP/thesis, pas d’appel IA). Le dump réel du 26 Sep 2026 (whitelist scanner d’exemple, 25 coins, 1m/15m/1h/4h + funding) est `reports/hl_ohlcv_whitelist_2026-09-26.tar.gz` ; les dates exactes sont dans `reports/hl_ohlcv_manifest.json`. Le replay de ce dump est `reports/strategy_backtest.md` (ST 0, trend_lt 6, range_lt 39, rocket 2, waterfall 1). L’API ne garde que ~5000 bougies par intervalle, donc ce n’est pas l’OOS 2024–2026 du design ci-dessous, et **aucun plan n’atteint n≥200**. L’edge reste **unvalidated**. Les unit tests vérifient des invariants de code, **pas** l’expectancy.
 
 ### Hypothèses à tester (une phrase chacune)
 
@@ -488,7 +488,7 @@ Tant que ces points existent, **toute courbe de perf live ou replay est suspecte
 4. ~~**Range LT:** flatten DEAD rouge ; box ancrée ; TP mid.~~ → **fait (#23 DEAD + #24 box/mid)**  
 5. ~~**ST/LT:** indicateurs sur closes ; veto funding ; trailing en R.~~ → **fait (#24)**  
 6. **Ne pas** baisser les veto « pour avoir plus de trades ».  
-7. **Backtest** OOS causal (n≥200) avant de réactiver HVH — runner + download livrés ; l’échantillon API est trop court (voir `reports/strategy_backtest.md`). Ne pas réactiver HVH sur ce run.
+7. **Backtest** OOS causal (n≥200) avant de réactiver HVH — runner + dump whitelist livrés ; l’échantillon API reste trop court (1m ~3.5 j, 1h ~208 j, voir `reports/strategy_backtest.md`). Ne pas réactiver HVH sur ce run.
 
 ---
 

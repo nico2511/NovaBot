@@ -1122,7 +1122,7 @@ def render_report(
         "There is no multi-year OOS sample in this run."
     )
     lines.append("")
-    lines.append(f"Symbols (whitelist subset, not the live scanner board): {', '.join(symbols)}.")
+    lines.append(f"Symbols (example scanner whitelist, not the live top-K): {', '.join(symbols)}.")
     lines.append(f"Config file: `{config_path}`.")
     lines.append("")
     lines.append("## PR #28")
