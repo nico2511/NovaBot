@@ -138,6 +138,34 @@ Shared thesis helpers: [`app/core/trade_thesis.py`](../app/core/trade_thesis.py)
 
 ---
 
+## Causal backtest
+
+Per-strategy expectancy on confirmed bars lives in `app/core/strategy_backtest.py`
+(costs in `app/core/causal_backtest.py`). It does not call the AI, does not
+share a portfolio across strategies, and does not use the scanner top-K.
+
+Hyperliquid's public `candleSnapshot` only keeps the most recent 5000 candles
+per interval, so 1m plans are a few days and 1h plans are about 200 days.
+Download that window, then replay:
+
+```bash
+python -m app.core.hl_ohlcv --refresh --out data/ohlcv --manifest reports/hl_ohlcv_manifest.json
+python -m app.core.strategy_backtest --no-fetch --cache-dir data/ohlcv
+```
+
+`scripts/fetch_hl_ohlcv.py` and `scripts/backtest_strategies.py` are the same
+commands. The default symbol list is the example scanner whitelist in
+`data/config/user_settings.example.json` (not the live top-K). Cache files stay
+under `data/ohlcv/` and are not committed. `--refresh` re-downloads even when a
+CSV already exists; the manifest records bar counts and exact start/end times.
+Spark and Ember stay off unless you pass `--include-disabled` or
+`--strategies spark`.
+
+The markdown report is written to `reports/strategy_backtest.md`. Read the
+sample-size note before treating a mean R as an edge. Draft PR #28 changes
+Trend LT / Range LT gates; re-run after it merges. This path does not turn
+`use_live` back on.
+
 ## Anti-patterns
 
 - `if strategy_id == "supertrend":` métier logic inside `ia.py` / `bot.py` / `scanner_job.py`
