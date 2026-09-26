@@ -209,6 +209,31 @@ def test_range_lt_scan_hooks_and_score_path():
     assert out["trend"] == "RANGE"
 
 
+def test_range_lt_default_box_can_score_and_fade():
+    """A clean ~6% 1h oscillation is the plan. ADX there sits near 21, not under 18."""
+    s = StrategyRangeLT({"params": {"cooldown_minutes": 0}})
+    df = _ohlcv_range(n=180, lo=100.0, hi=106.0, period=18)
+    fires = 0
+    last_reason = None
+    for i in range(100, len(df)):
+        window = df.iloc[: i + 1].copy()
+        s._last_signal_bar = None
+        s._last_entry_time = None
+        sig = s.generate_signal(window, extra_data={"1h": window, "symbol": "ETH"})
+        if sig:
+            fires += 1
+            assert sig["signal"] in ("BUY", "SELL")
+            assert sig["sl"] != sig["price"]
+            break
+        last_reason = s.last_rejection_reason
+    assert fires == 1, last_reason
+
+
+def test_range_lt_default_params_still_reject_drift():
+    s = StrategyRangeLT({"params": {}})
+    assert s.score_scan_candidate(_ohlcv_trend(), symbol="TREND") is None
+
+
 def test_range_lt_scan_rejects_uptrend():
     s = StrategyRangeLT(
         {"params": _relaxed_params(adx_max=12, ema_slope_flat_max=0.00001, min_touches=2)}

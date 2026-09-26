@@ -26,9 +26,12 @@ from strategies.cascade_rider import (
     CASCADE_ENTRY_USE_LIVE,
     DEFAULT_CASCADE_FRESH_BARS_MAX,
     DEFAULT_CASCADE_FRESH_BONUS,
+    DEFAULT_MAX_1M_CHASE_ATR,
     DEFAULT_MAX_EXTENSION_ATR,
     DEFAULT_SCAN_INTERVAL_ACTIVE_MINUTES,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
     active_scan_interval_minutes,
+    minute_entry_decision,
     bar_index,
     check_cascade_hard_veto,
     cascade_volume_reject_reason,
@@ -78,8 +81,9 @@ class StrategyWaterfall(BaseStrategy):
     """
 
     AI_VALIDATION_CRITERIA = """=== VALIDATION CRITERIA (WATERFALL) ===
-The strategy already confirmed: 15m waterfall cascade + 1m entry trigger.
-Fast sanity check only — latency-sensitive setup.
+The strategy already confirmed: closed 15m bearish cascade. The last closed
+1m must still be red and must not have run away from that 15m close.
+A 1m lower-low is NOT required. Fast sanity check only.
 
 APPROVE when ALL of:
 1. Signal is SELL (short-only strategy)
@@ -157,6 +161,7 @@ REJECT range climax traps:
                 "wick_trap_close_extreme_pct", DEFAULT_WICK_TRAP_CLOSE_EXTREME_PCT
             ),
             "max_extension_atr": self._float_param("max_extension_atr", DEFAULT_MAX_EXTENSION_ATR),
+            "max_1m_chase_atr": self._float_param("max_1m_chase_atr", DEFAULT_MAX_1M_CHASE_ATR),
             "extension_ema_period": int(self.get_param("extension_ema_period", 9) or 9),
             "cascade_fresh_bars_max": int(self.get_param("cascade_fresh_bars_max", DEFAULT_CASCADE_FRESH_BARS_MAX) or DEFAULT_CASCADE_FRESH_BARS_MAX),
             "cascade_fresh_bonus": self._float_param("cascade_fresh_bonus", DEFAULT_CASCADE_FRESH_BONUS),
@@ -247,9 +252,9 @@ REJECT range climax traps:
         p = self._params_snapshot()
         try:
             raw = self.get_param("scan_interval_minutes", None)
-            base = max(1.0, float(raw)) if raw is not None else 5.0
+            base = max(1.0, float(raw)) if raw is not None else DEFAULT_SCAN_INTERVAL_MINUTES
         except (TypeError, ValueError):
-            base = 5.0
+            base = DEFAULT_SCAN_INTERVAL_MINUTES
         ctx = scan_context or {}
         return active_scan_interval_minutes(
             base,
@@ -357,21 +362,6 @@ REJECT range climax traps:
 
         return float(sl_candidate), float(tp)
 
-    def _confirm_1m(self, df_1m: pd.DataFrame) -> Tuple[bool, Optional[float]]:
-        if df_1m is None or getattr(df_1m, "empty", True) or len(df_1m) < 3:
-            return False, None
-        last = df_1m.iloc[-2]
-        prev = df_1m.iloc[-3]
-        try:
-            close = float(last["close"])
-            open_ = float(last["open"])
-            prev_low = float(prev["low"])
-        except (TypeError, ValueError):
-            return False, None
-        if close >= open_ or close >= prev_low:
-            return False, None
-        return True, close
-
     def generate_signal(self, df, extra_data=None):
         p = self._params_snapshot()
         extra = extra_data or {}
@@ -439,17 +429,25 @@ REJECT range climax traps:
             )
 
         df_1m = extra.get("1m")
-        if df_1m is None or getattr(df_1m, "empty", True):
+        try:
+            atr_15 = float(closed_bars(df_15m)["ATR_14"].iloc[-1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            atr_15 = 0.0
+        confirmed_close = float(cascade.get("close") or 0)
+        status, entry, minute_reason = minute_entry_decision(
+            df_1m,
+            side="SHORT",
+            confirmed_close=confirmed_close,
+            atr=atr_15,
+            max_chase_atr=float(p["max_1m_chase_atr"]),
+            require_1m=bool(p["require_1m_confirm"]),
+        )
+        if status == "wait":
             self.looking_for_entry = True
-            return self._reject("Missing 1m data for waterfall entry")
-
-        if p["require_1m_confirm"]:
-            ok_1m, entry = self._confirm_1m(df_1m)
-            if not ok_1m or entry is None:
-                self.looking_for_entry = True
-                return self._reject("1m confirm failed — need red candle + lower low")
-        else:
-            entry = float(df_1m["close"].iloc[-2])
+            return self._reject(minute_reason or "1m confirm pending")
+        if status != "enter" or entry is None:
+            self.looking_for_entry = False
+            return self._reject(minute_reason or "late waterfall — 1m chased the confirmed close")
 
         prior_low = self._prior_structure_low(df_15m, p)
         cascade_close = float(cascade.get("close") or entry)
@@ -466,9 +464,9 @@ REJECT range climax traps:
             self.looking_for_entry = False
             return self._reject(structure_reason)
 
-        now_ts = df_1m.index[-2] if len(df_1m) >= 2 else None
+        now_ts = df_15m.index[-2] if len(df_15m) >= 2 else None
         if now_ts is not None and self._same_bar_already_signaled(now_ts):
-            return self._reject("Same 1m bar already signaled")
+            return self._reject("Same confirmed 15m bar already signaled")
 
         if not self._cooldown_ok(now_ts, int(p["cooldown_minutes"])):
             return self._reject(f"Fill cooldown {p['cooldown_minutes']}m not elapsed")
@@ -505,8 +503,9 @@ REJECT range climax traps:
             "cascade_ema9": float(cascade.get("ema9") or 0),
             "cascade_high": float(swing_high),
             "comment": (
-                f"Waterfall: 15m cascade (price < EMA9 < EMA20, double red, LL). "
-                f"1m entry {entry:.6g}, SL {sl_pct:.2f}% above swing, R:R {rr:.2f}"
+                f"Waterfall: confirmed 15m cascade (price < EMA9 < EMA20, double red, LL). "
+                f"Entry {entry:.6g} (1m with-trend, no extra LL), "
+                f"SL {sl_pct:.2f}% above swing, R:R {rr:.2f}"
             ),
         }
 

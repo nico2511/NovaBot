@@ -146,7 +146,8 @@ def test_rocket_rejects_prior_resistance_without_spike():
         }
     )
     df_15m = _bull_cascade_15m()
-    tip = float(df_15m["close"].iloc[-1])
+    # Confirmed close, not the forming bar — 1m must stay inside the chase cap.
+    tip = float(df_15m["close"].iloc[-2])
     df_1m = _bull_1m_confirm(anchor=tip)
     entry = float(df_1m["close"].iloc[-2])
     # Prior swing high exactly at the 1m entry — classic double-top
@@ -251,10 +252,41 @@ def test_rocket_rejects_extended_cascade():
     assert "extended" in (s.last_rejection_reason or "").lower()
 
 
+def test_rocket_enters_without_1m_higher_high():
+    """With-trend 1m is enough. Waiting for a new high was the late fill."""
+    s = StrategyRocket({"params": dict(_HAPPY_PARAMS)})
+    df_15m = _bull_cascade_15m()
+    df_1m = _bull_1m_confirm()
+    prev_high = float(df_1m["high"].iloc[-3])
+    df_1m.loc[df_1m.index[-2], "high"] = prev_high - 0.01
+    df_1m.loc[df_1m.index[-2], "close"] = prev_high - 0.02
+    df_1m.loc[df_1m.index[-2], "open"] = prev_high - 0.06
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is not None, s.last_rejection_reason
+    assert sig["signal"] == "BUY"
+
+
+def test_rocket_rejects_1m_chase_past_confirmed_close():
+    s = StrategyRocket({"params": {**_HAPPY_PARAMS, "max_1m_chase_atr": 0.35}})
+    df_15m = _bull_cascade_15m()
+    work = s.add_indicators(df_15m)
+    confirmed = float(df_15m["close"].iloc[-2])
+    atr = float(work["ATR_14"].iloc[-2])
+    df_1m = _bull_1m_confirm()
+    chased = confirmed + 2.0 * atr
+    df_1m.loc[df_1m.index[-2], "open"] = chased - 0.05
+    df_1m.loc[df_1m.index[-2], "close"] = chased
+    df_1m.loc[df_1m.index[-2], "high"] = chased + 0.02
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.looking_for_entry is False
+    assert "late" in (s.last_rejection_reason or "").lower()
+
+
 def test_rocket_accelerated_scan_interval_when_armed():
     s = StrategyRocket({"params": {}})
-    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 2.0
-    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 5.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 1.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 2.0
 
 
 def test_rocket_thesis_dead_on_ema_loss():

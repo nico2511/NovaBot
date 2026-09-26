@@ -124,6 +124,7 @@ class WaterfallParams(_StrictParams):
     scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
     scan_score_use_confirmed_bar: Optional[bool] = None
     max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    max_1m_chase_atr: Optional[float] = Field(None, ge=0, le=5)
     extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
     cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
@@ -152,6 +153,7 @@ class RocketParams(_StrictParams):
     scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
     scan_score_use_confirmed_bar: Optional[bool] = None
     max_extension_atr: Optional[float] = Field(None, gt=0, le=20)
+    max_1m_chase_atr: Optional[float] = Field(None, ge=0, le=5)
     extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
     cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)

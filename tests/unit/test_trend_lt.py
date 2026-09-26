@@ -45,11 +45,48 @@ def test_trend_lt_hard_veto_volume():
 
 
 def test_trend_lt_hard_veto_blocks_bearish_macd():
-    s = StrategyTrendLT({"params": {}})
+    s = StrategyTrendLT({"params": {"veto_macd_momentum": True}})
     ctx = {"current_price": 100.0, "rsi": 50.0, "adx": 25.0, "volume_ratio": 80.0, "macd_hist": -0.002}
     reason = s.check_hard_veto("BUY", ctx)
     assert reason is not None
     assert "MACD" in reason
+
+
+def test_trend_lt_pullback_plan_allows_lagging_macd_and_1h_mixed():
+    """EMA200+ST already define 1h bias. EMA50 MIXED and a lagging MACD are the reclaim."""
+    s = StrategyTrendLT({"params": {}})
+    ctx = {
+        "current_price": 100.0,
+        "rsi": 52.0,
+        "rsi_slope": -1.0,
+        "adx": 24.0,
+        "volume_ratio": 80.0,
+        "macd_hist": -0.02,
+        "mtf_sentiment": (
+            "1h: bias=BEARISH ST=BULLISH (MIXED) ADX=24.0 | "
+            "4h: bias=BULLISH ST=BULLISH (ALIGNED) ADX=28.0"
+        ),
+    }
+    assert s.check_hard_veto("BUY", ctx) is None
+
+
+def test_trend_lt_still_vetoes_4h_conflict():
+    s = StrategyTrendLT({"params": {}})
+    ctx = {
+        "current_price": 100.0,
+        "rsi": 52.0,
+        "rsi_slope": 0.5,
+        "adx": 24.0,
+        "volume_ratio": 80.0,
+        "macd_hist": 0.1,
+        "mtf_sentiment": (
+            "1h: bias=BULLISH ST=BULLISH (ALIGNED) ADX=24.0 | "
+            "4h: bias=BEARISH ST=BEARISH (ALIGNED) ADX=30.0"
+        ),
+    }
+    reason = s.check_hard_veto("BUY", ctx)
+    assert reason is not None
+    assert "4h" in reason
 
 
 def test_trend_lt_rejects_short_history():
@@ -74,7 +111,8 @@ def test_trend_lt_supports_trade_thesis():
     assert s.evaluate_trade_thesis({}, 100.0, df=None) is None
 
 
-def test_trend_lt_geometry_rejects_trimmed_rr_below_min():
+def test_trend_lt_geometry_keeps_target_when_swing_is_inside_min_rr():
+    """A pullback high inside 2R is the setup, not a veto of the mechanical target."""
     s = StrategyTrendLT({"params": {"min_rr": 2.0}})
     n = 40
     close = np.full(n, 100.0)
@@ -93,8 +131,7 @@ def test_trend_lt_geometry_rejects_trimmed_rr_below_min():
         {"signal": "BUY", "price": 100.0, "sl": 97.0, "tp": 106.0},
         df,
     )
-    assert reason is not None
-    assert "min_rr" in reason
+    assert reason is None
     assert s._last_signal_bar is None
 
 

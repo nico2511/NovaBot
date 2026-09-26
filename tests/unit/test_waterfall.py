@@ -157,7 +157,8 @@ def test_waterfall_rejects_prior_support_without_spike():
         }
     )
     df_15m = _bear_cascade_15m()
-    tip = float(df_15m["close"].iloc[-1])
+    # Confirmed close, not the forming bar — 1m must stay inside the chase cap.
+    tip = float(df_15m["close"].iloc[-2])
     df_1m = _bear_1m_confirm(anchor=tip)
     entry = float(df_1m["close"].iloc[-2])
     df_15m.loc[df_15m.index[30:40], "low"] = entry
@@ -183,7 +184,7 @@ def test_waterfall_rejects_support_even_with_volume_spike():
         }
     )
     df_15m = _bear_cascade_15m()
-    tip = float(df_15m["close"].iloc[-1])
+    tip = float(df_15m["close"].iloc[-2])
     df_1m = _bear_1m_confirm(anchor=tip)
     entry = float(df_1m["close"].iloc[-2])
     shelf = entry * 1.0031
@@ -248,10 +249,40 @@ def test_waterfall_rejects_extended_cascade():
     assert "extended" in (s.last_rejection_reason or "").lower()
 
 
+def test_waterfall_enters_without_1m_lower_low():
+    s = StrategyWaterfall({"params": dict(_HAPPY_PARAMS)})
+    df_15m = _bear_cascade_15m()
+    df_1m = _bear_1m_confirm()
+    prev_low = float(df_1m["low"].iloc[-3])
+    df_1m.loc[df_1m.index[-2], "low"] = prev_low + 0.01
+    df_1m.loc[df_1m.index[-2], "close"] = prev_low + 0.02
+    df_1m.loc[df_1m.index[-2], "open"] = prev_low + 0.06
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is not None, s.last_rejection_reason
+    assert sig["signal"] == "SELL"
+
+
+def test_waterfall_rejects_1m_chase_past_confirmed_close():
+    s = StrategyWaterfall({"params": {**_HAPPY_PARAMS, "max_1m_chase_atr": 0.35}})
+    df_15m = _bear_cascade_15m()
+    work = s.add_indicators(df_15m)
+    confirmed = float(df_15m["close"].iloc[-2])
+    atr = float(work["ATR_14"].iloc[-2])
+    df_1m = _bear_1m_confirm()
+    chased = confirmed - 2.0 * atr
+    df_1m.loc[df_1m.index[-2], "open"] = chased + 0.05
+    df_1m.loc[df_1m.index[-2], "close"] = chased
+    df_1m.loc[df_1m.index[-2], "low"] = chased - 0.02
+    sig = s.generate_signal(df_15m, extra_data={"1m": df_1m})
+    assert sig is None
+    assert s.looking_for_entry is False
+    assert "late" in (s.last_rejection_reason or "").lower()
+
+
 def test_waterfall_accelerated_scan_interval_when_armed():
     s = StrategyWaterfall({"params": {}})
-    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 2.0
-    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 5.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": True}) == 1.0
+    assert s.get_scan_interval_minutes(scan_context={"sticky_armed": False}) == 2.0
 
 
 def test_waterfall_thesis_dead_on_ema_reclaim():
