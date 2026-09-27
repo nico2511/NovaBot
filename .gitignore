@@ -42,6 +42,7 @@ Thumbs.db
 
 /scripts/*
 !/scripts/backtest_strategies.py
+!/scripts/backtest_cascade_thresholds.py
 !/scripts/fetch_hl_ohlcv.py
 !/scripts/fetch_proxy_ohlcv.py
 scratch/

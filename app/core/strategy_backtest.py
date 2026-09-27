@@ -615,6 +615,7 @@ def _close_trade(
         exit_tf=str(position["exit_tf"]),
         chase_atr=position.get("chase_atr"),
         entry_delay_min=position.get("entry_delay_min"),
+        entry_lane=position.get("entry_lane"),
     )
 
 
@@ -982,6 +983,7 @@ def replay_symbol(
             "last_open": None,
             "chase_atr": _chase_at(frames.get("15m"), t, side, price),
             "entry_delay_min": _entry_delay_min(frames.get("15m"), t),
+            "entry_lane": sig.get("entry_lane"),
         }
 
     for raw_t in decisions:
@@ -1416,6 +1418,7 @@ def trades_frame(trades: Sequence[ClosedTrade]) -> pd.DataFrame:
                 "exit_tf": trade.exit_tf,
                 "chase_atr": trade.chase_atr,
                 "entry_delay_min": trade.entry_delay_min,
+                "entry_lane": trade.entry_lane,
             }
         )
     return pd.DataFrame(rows)

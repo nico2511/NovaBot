@@ -33,8 +33,12 @@ from strategies.cascade_rider import (
     check_cascade_hard_veto,
     cascade_volume_reject_reason,
     closed_bars,
+    confirm_1m_trigger,
     detect_bull_cascade,
+    ensure_cascade_emas,
     extension_within_limit,
+    late_fill_reason,
+    resolve_cascade_lane,
     score_cascade_scan,
     thesis_confirmed_rows,
 )
@@ -166,7 +170,22 @@ REJECT range climax traps:
             "scan_score_use_confirmed_bar": bool(
                 self.get_param("scan_score_use_confirmed_bar", True)
             ),
+            # 0 disables the cap. Baseline stays off; variant B uses ~0.35.
+            "max_1m_chase_atr": self._float_param("max_1m_chase_atr", 0.0),
+            "reject_bb_extreme_at_fill": self._bool_param("reject_bb_extreme_at_fill", False),
+            "reject_fill_extension": self._bool_param("reject_fill_extension", False),
+            "require_1m_new_extreme": self._bool_param("require_1m_new_extreme", True),
+            "early_break_enabled": self._bool_param("early_break_enabled", False),
+            "early_break_lookback": int(self.get_param("early_break_lookback", 16) or 16),
         }
+
+    def _bool_param(self, key: str, default: bool) -> bool:
+        raw = self.get_param(key, default)
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        if raw is None:
+            return bool(default)
+        return bool(raw)
 
     @staticmethod
     def _vol_slope_from_df(df: pd.DataFrame) -> Optional[float]:
@@ -359,20 +378,15 @@ REJECT range climax traps:
 
         return float(sl_candidate), float(tp)
 
-    def _confirm_1m(self, df_1m: pd.DataFrame) -> Tuple[bool, Optional[float]]:
-        if df_1m is None or getattr(df_1m, "empty", True) or len(df_1m) < 3:
-            return False, None
-        last = df_1m.iloc[-2]
-        prev = df_1m.iloc[-3]
-        try:
-            close = float(last["close"])
-            open_ = float(last["open"])
-            prev_high = float(prev["high"])
-        except (TypeError, ValueError):
-            return False, None
-        if close <= open_ or close <= prev_high:
-            return False, None
-        return True, close
+    def _confirm_1m(
+        self,
+        df_1m: pd.DataFrame,
+        *,
+        require_new_extreme: bool = True,
+    ) -> Tuple[bool, Optional[float]]:
+        return confirm_1m_trigger(
+            df_1m, "LONG", require_new_extreme=require_new_extreme
+        )
 
     def generate_signal(self, df, extra_data=None):
         p = self._params_snapshot()
@@ -381,13 +395,21 @@ REJECT range climax traps:
         if df is None or getattr(df, "empty", True) or len(df) < 50:
             return self._reject("Not enough 15m data for rocket detection")
 
-        df_15m = self.add_indicators(df)
-        active, cascade = detect_rocket(df_15m, use_live=CASCADE_ENTRY_USE_LIVE)
-        if not active:
+        df_15m = ensure_cascade_emas(df)
+        lane, cascade = resolve_cascade_lane(
+            df_15m,
+            side="LONG",
+            detect_fn=detect_rocket,
+            early_break_enabled=bool(p["early_break_enabled"]),
+            early_break_lookback=int(p["early_break_lookback"]),
+            use_live=CASCADE_ENTRY_USE_LIVE,
+        )
+        if not lane:
             self.looking_for_entry = False
             self.entry_direction = None
             return self._reject("No active 15m rocket cascade")
 
+        df_15m = self.add_indicators(df_15m)
         self.entry_direction = "LONG"
 
         ext_ok, ext_atr = extension_within_limit(
@@ -446,12 +468,31 @@ REJECT range climax traps:
             return self._reject("Missing 1m data for rocket entry")
 
         if p["require_1m_confirm"]:
-            ok_1m, entry = self._confirm_1m(df_1m)
+            # Early-break already cleared the base. Do not also demand a 1m HH.
+            require_extreme = bool(p["require_1m_new_extreme"]) and lane != "early_break"
+            ok_1m, entry = self._confirm_1m(df_1m, require_new_extreme=require_extreme)
             if not ok_1m or entry is None:
                 self.looking_for_entry = True
-                return self._reject("1m confirm failed — need green candle + higher high")
+                if require_extreme:
+                    return self._reject("1m confirm failed — need green candle + higher high")
+                return self._reject("1m confirm failed — need green with-trend close")
         else:
             entry = float(df_1m["close"].iloc[-2])
+
+        late = late_fill_reason(
+            df_15m,
+            "LONG",
+            float(entry),
+            ema=float(cascade.get("ema9") or 0),
+            max_chase_atr=float(p["max_1m_chase_atr"]),
+            max_extension_atr=float(p["max_extension_atr"]),
+            reject_fill_extension=bool(p["reject_fill_extension"]),
+            reject_bb_extreme=bool(p["reject_bb_extreme_at_fill"]),
+            use_live=CASCADE_ENTRY_USE_LIVE,
+        )
+        if late:
+            self.looking_for_entry = True
+            return self._reject(late)
 
         prior_high = self._prior_structure_high(df_15m, p)
         cascade_close = float(cascade.get("close") or entry)
@@ -499,17 +540,27 @@ REJECT range climax traps:
         except Exception:
             swing_low = sl
 
+        if lane == "early_break":
+            comment = (
+                f"Rocket early-break: 15m close through base swing high "
+                f"(lookback {int(p['early_break_lookback'])}), no cascade stack. "
+                f"1m with-trend {entry:.6g}, SL {sl_pct:.2f}% below swing, R:R {rr:.2f}"
+            )
+        else:
+            comment = (
+                f"Rocket: 15m cascade (price > EMA9 > EMA20, double green, HH). "
+                f"1m entry {entry:.6g}, SL {sl_pct:.2f}% below swing, R:R {rr:.2f}"
+            )
+
         return {
             "signal": "BUY",
             "price": float(entry),
             "sl": float(sl),
             "tp": float(tp),
+            "entry_lane": lane,
             "cascade_ema9": float(cascade.get("ema9") or 0),
             "cascade_low": float(swing_low),
-            "comment": (
-                f"Rocket: 15m cascade (price > EMA9 > EMA20, double green, HH). "
-                f"1m entry {entry:.6g}, SL {sl_pct:.2f}% below swing, R:R {rr:.2f}"
-            ),
+            "comment": comment,
         }
 
     def supports_trade_thesis(self) -> bool:
