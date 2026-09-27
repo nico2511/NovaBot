@@ -21,6 +21,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import numpy as np
 import pandas as pd
 
 from app.core.causal_backtest import ClosedTrade, chronological_holdout, summarize_trades
@@ -28,12 +29,15 @@ from app.core.hl_ohlcv import SCANNER_WHITELIST, ensure_symbol_cache
 from app.core.strategy_backtest import (
     SPECS,
     build_adx_series,
+    build_decisions,
     build_regime_table,
     load_config,
     make_strategy,
     regime_threshold,
     replay_symbol,
+    warmup_bars,
 )
+from strategies.cascade_rider import detect_bear_cascade, detect_bull_cascade, ensure_cascade_emas
 
 # Same knobs on rocket and waterfall. Defaults in strategies.json stay at A.
 VARIANT_B = {
@@ -83,7 +87,9 @@ VARIANTS = (
         "overlay": VARIANT_C,
         "rule": (
             "B, plus un fill plus tôt : horloge 1m (scan armé serré à 1 min ; le scan de base passe aussi à 1 min "
-            "dans l'overlay) et bougie 1m dans le sens sans nouveau HH/LL."
+            "dans l'overlay) et bougie 1m dans le sens sans nouveau HH/LL. "
+            "Les minutes sans cascade 15m confirmée ne sont pas visitées (la lane early-break est off) ; "
+            "la sortie, elle, marche quand même toutes les bougies 1m jusqu'au prochain passage."
         ),
     },
     {
@@ -115,6 +121,38 @@ def _apply_overlay(config: Mapping[str, Any], overlay: Mapping[str, Any]) -> dic
     return out
 
 
+def cascade_active_1m_decisions(
+    frames: Mapping[str, pd.DataFrame],
+    spec,
+    strategy,
+    detect_fn,
+    *,
+    context_bars: int,
+) -> pd.DatetimeIndex:
+    """1m timestamps whose confirmed 15m bar is an active cascade.
+
+    Variant C does not arm the early-break lane, so a minute with no cascade
+    cannot fill. Exit walks still run up to the next visited timestamp.
+    """
+    df_15m = frames.get("15m")
+    full = build_decisions(frames, spec, warmup_bars(spec.name, strategy), step="1m")
+    if df_15m is None or getattr(df_15m, "empty", True) or len(full) == 0:
+        return full
+    flags = np.zeros(len(df_15m), dtype=bool)
+    start_i = 50
+    for i in range(start_i, len(df_15m)):
+        window = df_15m.iloc[max(0, i + 1 - int(context_bars)) : i + 1]
+        if len(window) < 50:
+            continue
+        active, _ = detect_fn(ensure_cascade_emas(window), use_live=False)
+        flags[i] = bool(active)
+    pos = df_15m.index.searchsorted(full, side="right") - 1
+    keep = np.zeros(len(full), dtype=bool)
+    valid = pos >= 0
+    keep[valid] = flags[pos[valid]]
+    return pd.DatetimeIndex(full[keep])
+
+
 def _replay_symbol(payload: Mapping[str, Any]) -> Dict[str, Any]:
     symbol = str(payload["symbol"])
     cache_dir = Path(payload["cache_dir"])
@@ -139,6 +177,18 @@ def _replay_symbol(payload: Mapping[str, Any]) -> Dict[str, Any]:
         for name in ("rocket", "waterfall"):
             spec = SPECS[name]
             strategy = make_strategy(name, config)
+            decisions = None
+            params = (config.get(name) or {}).get("params") or {}
+            # C steps every 1m but cannot fill without a live cascade. Skip the rest.
+            if variant["step"] == "1m" and not bool(params.get("early_break_enabled")):
+                detect_fn = detect_bull_cascade if name == "rocket" else detect_bear_cascade
+                decisions = cascade_active_1m_decisions(
+                    frames,
+                    spec,
+                    strategy,
+                    detect_fn,
+                    context_bars=int(payload["context_bars"]),
+                )
             trades, diag, span_start, span_end = replay_symbol(
                 strategy,
                 spec,
@@ -155,6 +205,7 @@ def _replay_symbol(payload: Mapping[str, Any]) -> Dict[str, Any]:
                 slip=float(payload["slip"]),
                 verbose=False,
                 decision_step=variant["step"],
+                decisions=decisions,
             )
             rows.append(
                 {
@@ -474,7 +525,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 symbol = futures[future]
                 try:
                     results.append(future.result())
-                    print(f"[thresholds] done {symbol}")
+                    print(f"[thresholds] done {symbol}", flush=True)
                 except Exception as exc:
                     errors.append(f"{symbol}: {exc}")
                     print(f"[thresholds] FAIL {symbol}: {exc}")

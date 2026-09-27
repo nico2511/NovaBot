@@ -891,6 +891,7 @@ def replay_symbol(
     verbose: bool = False,
     warmup: Optional[int] = None,
     decision_step: Optional[str] = None,
+    decisions: Optional[pd.DatetimeIndex] = None,
 ) -> Tuple[List[ClosedTrade], Dict[str, int], Optional[pd.Timestamp], Optional[pd.Timestamp]]:
     """
     Replay one strategy on one symbol.
@@ -917,7 +918,10 @@ def replay_symbol(
             frames["15m"] = df15
     warmup = warmup_bars(spec.name, strategy) if warmup is None else int(warmup)
     need = max(int(context_bars), warmup + 2)
-    decisions = build_decisions(frames, spec, warmup, step=decision_step)
+    if decisions is None:
+        decisions = build_decisions(frames, spec, warmup, step=decision_step)
+    else:
+        decisions = pd.DatetimeIndex(decisions)
     if len(decisions) == 0:
         return [], diag, None, None
     bundled = dict(frames)
