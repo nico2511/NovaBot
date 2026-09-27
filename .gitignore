@@ -40,7 +40,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-/scripts/
+/scripts/*
+!/scripts/backtest_strategies.py
+!/scripts/fetch_hl_ohlcv.py
+!/scripts/fetch_proxy_ohlcv.py
 scratch/
 stories/
 docs/
