@@ -615,6 +615,7 @@ def _close_trade(
         exit_tf=str(position["exit_tf"]),
         chase_atr=position.get("chase_atr"),
         entry_delay_min=position.get("entry_delay_min"),
+        entry_lane=position.get("entry_lane"),
     )
 
 
@@ -890,6 +891,7 @@ def replay_symbol(
     verbose: bool = False,
     warmup: Optional[int] = None,
     decision_step: Optional[str] = None,
+    decisions: Optional[pd.DatetimeIndex] = None,
 ) -> Tuple[List[ClosedTrade], Dict[str, int], Optional[pd.Timestamp], Optional[pd.Timestamp]]:
     """
     Replay one strategy on one symbol.
@@ -916,7 +918,10 @@ def replay_symbol(
             frames["15m"] = df15
     warmup = warmup_bars(spec.name, strategy) if warmup is None else int(warmup)
     need = max(int(context_bars), warmup + 2)
-    decisions = build_decisions(frames, spec, warmup, step=decision_step)
+    if decisions is None:
+        decisions = build_decisions(frames, spec, warmup, step=decision_step)
+    else:
+        decisions = pd.DatetimeIndex(decisions)
     if len(decisions) == 0:
         return [], diag, None, None
     bundled = dict(frames)
@@ -982,6 +987,7 @@ def replay_symbol(
             "last_open": None,
             "chase_atr": _chase_at(frames.get("15m"), t, side, price),
             "entry_delay_min": _entry_delay_min(frames.get("15m"), t),
+            "entry_lane": sig.get("entry_lane"),
         }
 
     for raw_t in decisions:
@@ -1416,6 +1422,7 @@ def trades_frame(trades: Sequence[ClosedTrade]) -> pd.DataFrame:
                 "exit_tf": trade.exit_tf,
                 "chase_atr": trade.chase_atr,
                 "entry_delay_min": trade.entry_delay_min,
+                "entry_lane": trade.entry_lane,
             }
         )
     return pd.DataFrame(rows)

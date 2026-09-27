@@ -238,6 +238,7 @@ class ClosedTrade:
     exit_tf: str
     chase_atr: Optional[float] = None
     entry_delay_min: Optional[float] = None
+    entry_lane: Optional[str] = None
 
 
 @dataclass(frozen=True)

@@ -148,6 +148,24 @@ def bar_index(*, use_live: bool) -> int:
     return -1 if use_live else -2
 
 
+def ensure_cascade_emas(df: pd.DataFrame) -> pd.DataFrame:
+    """EMA9/EMA20 only, so an inactive bar can reject before ATR/RSI/ADX.
+
+    The full ``add_indicators`` path still runs once a lane is active.
+    EMA values match that path (same ``ta.ema``).
+    """
+    if df is None or getattr(df, "empty", True):
+        return df
+    if "EMA_9" in df.columns and "EMA_20" in df.columns:
+        return df
+    work = df.copy()
+    if "EMA_9" not in work.columns:
+        work["EMA_9"] = ta.ema(work["close"], length=9)
+    if "EMA_20" not in work.columns:
+        work["EMA_20"] = ta.ema(work["close"], length=20)
+    return work
+
+
 def closed_bars(df: pd.DataFrame) -> pd.DataFrame:
     """OHLCV excluding the forming candle (iloc[:-1])."""
     if df is None or getattr(df, "empty", True):
@@ -242,6 +260,265 @@ def extension_within_limit(
     if ext is None:
         return True, None
     return ext <= float(max_extension_atr), ext
+
+
+def _direction_is_long(side: str) -> Optional[bool]:
+    label = str(side or "").upper()
+    if label in ("LONG", "BUY"):
+        return True
+    if label in ("SHORT", "SELL"):
+        return False
+    return None
+
+
+def chase_atr_past_close(
+    side: str,
+    entry: float,
+    reference_close: float,
+    atr: float,
+) -> Optional[float]:
+    """
+    Distance of a fill past a reference close, in ATR, in the trade direction.
+
+    Positive means the fill chased beyond that close. Negative means a better
+    price (a pullback). A cap must reject only the positive side.
+    """
+    long = _direction_is_long(side)
+    if long is None:
+        return None
+    try:
+        entry_f = float(entry)
+        ref = float(reference_close)
+        atr_f = float(atr)
+    except (TypeError, ValueError):
+        return None
+    if atr_f <= 0 or entry_f <= 0 or ref <= 0:
+        return None
+    if long:
+        return (entry_f - ref) / atr_f
+    return (ref - entry_f) / atr_f
+
+
+def confirmed_bollinger(
+    df: pd.DataFrame,
+    *,
+    length: int = 20,
+    n_std: float = 2.0,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Upper and lower bands from closed bars. The forming bar is excluded."""
+    if df is None or getattr(df, "empty", True) or "close" not in getattr(df, "columns", []):
+        return None, None
+    closed = df.iloc[:-1] if len(df) >= 2 else df
+    if len(closed) < int(length):
+        return None, None
+    close = pd.to_numeric(closed["close"], errors="coerce")
+    mid = close.rolling(int(length)).mean().iloc[-1]
+    std = close.rolling(int(length)).std().iloc[-1]
+    if pd.isna(mid) or pd.isna(std):
+        return None, None
+    upper = float(mid) + float(n_std) * float(std)
+    lower = float(mid) - float(n_std) * float(std)
+    return upper, lower
+
+
+def late_fill_reason(
+    df_15m: pd.DataFrame,
+    side: str,
+    entry: float,
+    *,
+    ema: float,
+    max_chase_atr: float,
+    max_extension_atr: float,
+    reject_fill_extension: bool,
+    reject_bb_extreme: bool,
+    use_live: bool = False,
+) -> Optional[str]:
+    """
+    Skip a late 1m fill. Does not invent an earlier entry.
+
+    ``max_chase_atr`` <= 0 disables the chase cap. The cap compares the fill
+    to the confirmed cascade-timeframe close (rocket/waterfall: 15m).
+    ``reject_fill_extension`` reapplies ``max_extension_atr`` to the fill
+    versus the anchor EMA, not only to that close.
+    ``reject_bb_extreme`` blocks a long above the upper band and a short
+    below the lower band (20, 2).
+    """
+    long = _direction_is_long(side)
+    if long is None or df_15m is None or getattr(df_15m, "empty", True):
+        return None
+    idx = bar_index(use_live=use_live)
+    try:
+        reference_close = float(df_15m["close"].iloc[idx])
+        atr = float(df_15m["ATR_14"].iloc[idx]) if "ATR_14" in df_15m.columns else 0.0
+    except (IndexError, TypeError, ValueError, KeyError):
+        reference_close = 0.0
+        atr = 0.0
+
+    try:
+        cap = float(max_chase_atr)
+    except (TypeError, ValueError):
+        cap = 0.0
+    if cap > 0 and atr > 0:
+        chase = chase_atr_past_close(side, entry, reference_close, atr)
+        if chase is not None and chase > cap:
+            return (
+                f"1m chase {chase:.2f} ATR > {cap:.2f} past confirmed close "
+                "— late fill"
+            )
+
+    if reject_fill_extension and atr > 0:
+        try:
+            ema_f = float(ema)
+            entry_f = float(entry)
+        except (TypeError, ValueError):
+            ema_f = 0.0
+            entry_f = 0.0
+        if ema_f > 0 and entry_f > 0:
+            ext = (entry_f - ema_f) / atr if long else (ema_f - entry_f) / atr
+            if ext > float(max_extension_atr):
+                return (
+                    f"Fill extended {ext:.2f}x ATR from EMA "
+                    f"> {float(max_extension_atr):.1f}x — late fill"
+                )
+
+    if reject_bb_extreme:
+        upper, lower = confirmed_bollinger(df_15m)
+        try:
+            entry_f = float(entry)
+        except (TypeError, ValueError):
+            entry_f = 0.0
+        if long and upper is not None and entry_f > upper:
+            return f"Fill above upper BB ({entry_f:.6g} > {upper:.6g}) — extreme long"
+        if not long and lower is not None and entry_f < lower:
+            return f"Fill below lower BB ({entry_f:.6g} < {lower:.6g}) — extreme short"
+    return None
+
+
+def confirm_1m_trigger(
+    df_1m: pd.DataFrame,
+    side: str,
+    *,
+    require_new_extreme: bool = True,
+) -> Tuple[bool, Optional[float]]:
+    """
+    Confirmed 1m trigger on ``iloc[-2]``.
+
+    With-trend: green close for a long, red close for a short.
+    ``require_new_extreme`` also requires that close to beat the previous
+    confirmed bar's high (long) or low (short). Variant C turns this off so
+    the fill does not wait for a fresh HH/LL.
+    """
+    long = _direction_is_long(side)
+    if long is None:
+        return False, None
+    if df_1m is None or getattr(df_1m, "empty", True) or len(df_1m) < 3:
+        return False, None
+    last = df_1m.iloc[-2]
+    prev = df_1m.iloc[-3]
+    try:
+        close = float(last["close"])
+        open_ = float(last["open"])
+        extreme = float(prev["high"] if long else prev["low"])
+    except (TypeError, ValueError, KeyError):
+        return False, None
+    if long:
+        if close <= open_:
+            return False, None
+        if require_new_extreme and close <= extreme:
+            return False, None
+        return True, close
+    if close >= open_:
+        return False, None
+    if require_new_extreme and close >= extreme:
+        return False, None
+    return True, close
+
+
+def detect_early_base_break(
+    df: pd.DataFrame,
+    side: str,
+    *,
+    lookback: int = 16,
+    use_live: bool = False,
+) -> Tuple[bool, Dict[str, float]]:
+    """
+    Early-break lane: with-trend close through the prior base swing.
+
+    Not a cascade. There is no EMA9/EMA20 stack, no second same-color
+    candle, and no higher-high / lower-low versus the previous bar.
+    The break of the base is the structure event.
+
+    Signal bar: last closed bar (``iloc[-2]`` when ``use_live`` is false).
+    Base: the ``lookback`` closed bars strictly before that signal bar.
+    Long: close > base high, green, close > EMA9.
+    Short: close < base low, red, close < EMA9.
+
+    Callers still apply extension, chase, Bollinger, volume, RSI, and the
+    older swing clear-through. This lane is only considered when the cascade
+    detector itself is off.
+    """
+    empty: Dict[str, float] = {}
+    long = _direction_is_long(side)
+    if long is None or df is None or getattr(df, "empty", True):
+        return False, empty
+    look = max(4, int(lookback))
+    if len(df) < look + 3 or "EMA_9" not in df.columns:
+        return False, empty
+    idx = bar_index(use_live=use_live)
+    sig_i = len(df) + idx if idx < 0 else idx
+    base_start = sig_i - look
+    if base_start < 0 or sig_i >= len(df):
+        return False, empty
+    try:
+        row = df.iloc[sig_i]
+        close = float(row["close"])
+        open_ = float(row["open"])
+        ema9 = float(row["EMA_9"])
+        base = df.iloc[base_start:sig_i]
+        base_high = float(base["high"].max())
+        base_low = float(base["low"].min())
+    except (TypeError, ValueError, KeyError, IndexError):
+        return False, empty
+    if long:
+        ok = close > base_high and close > open_ and close > ema9
+    else:
+        ok = close < base_low and close < open_ and close < ema9
+    if not ok:
+        return False, empty
+    return True, {
+        "close": close,
+        "ema9": ema9,
+        "base_high": base_high,
+        "base_low": base_low,
+        "lane": "early_break",
+    }
+
+
+def resolve_cascade_lane(
+    df: pd.DataFrame,
+    *,
+    side: str,
+    detect_fn: Callable,
+    early_break_enabled: bool,
+    early_break_lookback: int,
+    use_live: bool,
+) -> Tuple[str, Dict[str, float]]:
+    """Cascade first. Early-break only when the cascade detector is off."""
+    active, snap = detect_fn(df, use_live=use_live)
+    if active:
+        out = dict(snap)
+        out["lane"] = "cascade"
+        return "cascade", out
+    if early_break_enabled:
+        ok, early = detect_early_base_break(
+            df,
+            side,
+            lookback=int(early_break_lookback),
+            use_live=use_live,
+        )
+        if ok:
+            return "early_break", early
+    return "", {}
 
 
 def cascade_age_bars(

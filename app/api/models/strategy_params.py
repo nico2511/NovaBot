@@ -127,6 +127,13 @@ class WaterfallParams(_StrictParams):
     extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
     cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
+    # 0 disables the chase cap. Live baseline stays off.
+    max_1m_chase_atr: Optional[float] = Field(None, ge=0, le=5)
+    reject_bb_extreme_at_fill: Optional[bool] = None
+    reject_fill_extension: Optional[bool] = None
+    require_1m_new_extreme: Optional[bool] = None
+    early_break_enabled: Optional[bool] = None
+    early_break_lookback: Optional[int] = Field(None, ge=4, le=96)
 
 
 class RocketParams(_StrictParams):
@@ -155,6 +162,13 @@ class RocketParams(_StrictParams):
     extension_ema_period: Optional[int] = Field(None, ge=5, le=50)
     cascade_fresh_bars_max: Optional[int] = Field(None, ge=1, le=20)
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
+    # 0 disables the chase cap. Live baseline stays off.
+    max_1m_chase_atr: Optional[float] = Field(None, ge=0, le=5)
+    reject_bb_extreme_at_fill: Optional[bool] = None
+    reject_fill_extension: Optional[bool] = None
+    require_1m_new_extreme: Optional[bool] = None
+    early_break_enabled: Optional[bool] = None
+    early_break_lookback: Optional[int] = Field(None, ge=4, le=96)
 
 
 class SparkParams(_StrictParams):
