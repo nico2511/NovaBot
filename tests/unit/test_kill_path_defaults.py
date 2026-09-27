@@ -24,6 +24,7 @@ WEEKEND_PAUSED = {
     "waterfall",
     "spark",
     "ember",
+    "impulse_pullback",
 }
 CASCADE_KEYS = ("rocket", "waterfall", "spark", "ember")
 

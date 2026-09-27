@@ -859,6 +859,80 @@ def evaluate_range_lt_thesis(
     )
 
 
+def evaluate_impulse_pullback_thesis(
+    *,
+    side: str,
+    entry: float,
+    current_price: float,
+    close_tf: float,
+    structure_level: Optional[float],
+    rsi: float = 50.0,
+    rsi_exhaustion_long: float = 85.0,
+    rsi_exhaustion_short: float = 15.0,
+    timeframe_label: str = "15m",
+) -> ThesisVerdict:
+    """Plan health for an impulse-pullback fill.
+
+    The stop and target stay on the entry bracket. This thesis only dies when
+    the confirmed bar loses the pullback extreme (long: below the pullback low,
+    short: above the pullback high). It does not require a 15m EMA cascade.
+    """
+    side_u = (side or "").upper()
+    label = str(timeframe_label or "15m")
+    close_v = float(close_tf or 0)
+    pnl = _pnl_pct(side_u, entry, current_price)
+    reasons: list = []
+    dead = False
+    weak = False
+    level = None
+    try:
+        if structure_level is not None:
+            level = float(structure_level)
+    except (TypeError, ValueError):
+        level = None
+
+    if side_u == "BUY":
+        if level is not None and level > 0 and close_v < level:
+            dead = True
+            reasons.append(f"{label} close {close_v:.6g} lost pullback low {level:.6g}")
+        if not dead and rsi > float(rsi_exhaustion_long):
+            weak = True
+            reasons.append(f"RSI {rsi:.1f} — impulse long exhaustion")
+    elif side_u == "SELL":
+        if level is not None and level > 0 and close_v > level:
+            dead = True
+            reasons.append(f"{label} close {close_v:.6g} lost pullback high {level:.6g}")
+        if not dead and rsi < float(rsi_exhaustion_short):
+            weak = True
+            reasons.append(f"RSI {rsi:.1f} — impulse short exhaustion")
+    else:
+        dead = True
+        reasons.append("impulse pullback thesis has no side")
+
+    if dead:
+        status = THESIS_DEAD
+        action = ACTION_CLOSE
+    elif weak:
+        status = THESIS_WEAK
+        action = ACTION_TIGHTEN_SL if pnl > 0 else ACTION_HOLD
+    else:
+        status = THESIS_VALID
+        action = ACTION_HOLD
+        reasons = reasons or (f"{label} pullback structure still holds",)
+
+    return ThesisVerdict(
+        status=status,
+        action=action,
+        reasons=tuple(reasons),
+        adx=0.0,
+        adx_slope=0.0,
+        st_direction=1 if side_u == "BUY" else -1,
+        close=close_v,
+        supertrend=float(level or 0.0),
+        pnl_pct=float(pnl),
+    )
+
+
 def decision_from_verdict(verdict: ThesisVerdict) -> Dict[str, Any]:
     """Serialize for logs / Discord / trade metadata."""
     return {

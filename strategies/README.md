@@ -177,6 +177,19 @@ python -m app.core.strategy_backtest --source proxy --strategies rocket waterfal
 That report is labeled PROXY and is not interchangeable with the HL dump.
 This path does not turn `use_live` back on.
 
+`impulse_pullback` is a separate plan (1m break, first pullback, mirrored).
+It is registered with `enabled` and `active` false, so a default replay still
+skips it. Compare it with the cascade baseline on the proxy cache:
+
+```bash
+python -m app.core.proxy_ohlcv --symbols BTC ETH SOL BNB ARB OP --out data/ohlcv_proxy
+python -m app.core.strategy_backtest --source proxy --no-fetch \
+  --strategies rocket waterfall impulse_pullback \
+  --symbols BTC ETH SOL BNB ARB OP \
+  --out reports/strategy_backtest_impulse_pullback.md \
+  --trades-out reports/strategy_backtest_impulse_pullback_trades.csv
+```
+
 ## Anti-patterns
 
 - `if strategy_id == "supertrend":` métier logic inside `ia.py` / `bot.py` / `scanner_job.py`
