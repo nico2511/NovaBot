@@ -6,9 +6,9 @@ Fenêtre : cache `data/ohlcv_proxy` reconstruit le 2026-09-27, 2026-03-01 → 20
 
 Les params live (`data/config/strategies.json`) restent la baseline A. B/C/D sont des overlays de ce script. Trend LT, Range LT, SuperTrend, spark et ember ne sont pas rejoués.
 
-Symboles dans ce tableau (6) : ETH, SOL, BNB, BTC, ARB, OP.
+Symboles dans ce tableau (6) : BTC, ETH, SOL, BNB, ARB, OP.
 
-Univers ciblé, pas les 25 coins de la whitelist. Retenus : **BTC, ETH, SOL, BNB** (grosses caps) et **ARB, OP** (L2 majeurs). STRK, POL, MATIC, MANTA, BLAST ne sont pas dans la whitelist ni dans le cache proxy. Exclus de ce replay : SUI, APT, AVAX, LINK, UNI, AAVE, ADA, NEAR, INJ, TIA, DOT, ATOM, LTC, BCH, XRP, TRX, HYPE, DOGE, ZEC.
+Pas un run L2-only : ARB et OP ne sont que des exemples de L2, pas l'univers. Sous-ensemble ciblé, pas les 25 coins de la whitelist. Retenus : **BTC, ETH, SOL, BNB** (grosses caps ; BTC est dans le cache proxy) et **ARB, OP** (seuls L2 clairs présents à la fois dans la whitelist et le cache). Autres L2 regardés, absents de la whitelist et du cache : STRK, POL, MATIC, MANTA, BLAST, BASE, SCROLL, LINEA, MNT, IMX, ZK. Exclus (longue traîne, autres L1, pas des L2) : SUI, APT, AVAX, LINK, UNI, AAVE, ADA, NEAR, INJ, TIA, DOT, ATOM, LTC, BCH, XRP, TRX, HYPE, DOGE, ZEC.
 
 ## Règles
 

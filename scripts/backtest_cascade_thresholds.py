@@ -113,16 +113,26 @@ MIN_PF = 1.1
 TARGET_UNIVERSE = ("BTC", "ETH", "SOL", "BNB", "ARB", "OP")
 
 
+def _display_symbols(symbols: Sequence[str]) -> List[str]:
+    kept = [str(symbol).upper() for symbol in symbols]
+    if set(kept) <= set(TARGET_UNIVERSE):
+        return [symbol for symbol in TARGET_UNIVERSE if symbol in set(kept)]
+    return kept
+
+
 def _l2_universe_note(symbols: Sequence[str]) -> str:
     """Document which coins are in this replay and which were left out."""
     kept = [str(symbol).upper() for symbol in symbols]
-    if set(kept) == set(TARGET_UNIVERSE):
+    if set(kept) <= set(TARGET_UNIVERSE):
         return (
-            "Univers ciblé, pas les 25 coins de la whitelist. "
-            "Retenus : **BTC, ETH, SOL, BNB** (grosses caps) et **ARB, OP** (L2 majeurs). "
-            "STRK, POL, MATIC, MANTA, BLAST ne sont pas dans la whitelist ni dans le cache proxy. "
-            "Exclus de ce replay : SUI, APT, AVAX, LINK, UNI, AAVE, ADA, NEAR, INJ, TIA, DOT, ATOM, "
-            "LTC, BCH, XRP, TRX, HYPE, DOGE, ZEC."
+            "Pas un run L2-only : ARB et OP ne sont que des exemples de L2, pas l'univers. "
+            "Sous-ensemble ciblé, pas les 25 coins de la whitelist. "
+            "Retenus : **BTC, ETH, SOL, BNB** (grosses caps ; BTC est dans le cache proxy) "
+            "et **ARB, OP** (seuls L2 clairs présents à la fois dans la whitelist et le cache). "
+            "Autres L2 regardés, absents de la whitelist et du cache : "
+            "STRK, POL, MATIC, MANTA, BLAST, BASE, SCROLL, LINEA, MNT, IMX, ZK. "
+            "Exclus (longue traîne, autres L1, pas des L2) : SUI, APT, AVAX, LINK, UNI, AAVE, "
+            "ADA, NEAR, INJ, TIA, DOT, ATOM, LTC, BCH, XRP, TRX, HYPE, DOGE, ZEC."
         )
     return f"Univers passé en argument : {', '.join(kept)}. Pas les 25 coins de la whitelist."
 
@@ -358,7 +368,7 @@ def _markdown(
         "Les params live (`data/config/strategies.json`) restent la baseline A. "
         "B/C/D sont des overlays de ce script. Trend LT, Range LT, SuperTrend, spark et ember ne sont pas rejoués.",
         "",
-        f"Symboles dans ce tableau ({len(symbols)}) : {', '.join(symbols)}."
+        f"Symboles dans ce tableau ({len(symbols)}) : {', '.join(_display_symbols(symbols))}."
         + (
             f" En attente : {', '.join(pending)}."
             if partial and pending
@@ -425,7 +435,7 @@ def _markdown(
     if partial:
         lines.append(
             "**Verdict merge suspendu.** Ce tableau est PARTIEL : "
-            f"faits = {', '.join(symbols) or 'aucun'} ; "
+            f"faits = {', '.join(_display_symbols(symbols)) or 'aucun'} ; "
             f"encore en cours = {', '.join(pending) or 'aucun'}. "
             "Pas de oui/non tant que BTC, ETH, SOL, BNB, ARB et OP ne sont pas tous dans le replay."
         )
