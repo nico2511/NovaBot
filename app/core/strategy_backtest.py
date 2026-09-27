@@ -14,6 +14,7 @@ CLI::
 
     python -m app.core.strategy_backtest --symbols BTC ETH SOL
     python -m app.core.strategy_backtest --no-fetch --cache-dir data/ohlcv
+    python -m app.core.strategy_backtest --source proxy --strategies rocket waterfall
 
 Official ``candleSnapshot`` only keeps the most recent 5000 candles per
 interval. 1m-dependent plans (SuperTrend, rocket, waterfall) therefore replay
@@ -278,6 +279,70 @@ def _confirmed_key(index: pd.DatetimeIndex, t: Any, interval: str):
     if len(prior) == 0:
         return None
     return prior[-1]
+
+
+def confirmed_15m_bar(df_15m: Optional[pd.DataFrame], t: Any) -> Optional[pd.Series]:
+    """Last closed 15m bar at decision time t (the forming bar is iloc[-1])."""
+    window = slice_asof(df_15m, t)
+    if window is None or len(window) < 2:
+        return None
+    return window.iloc[-2]
+
+
+def _atr14_at(df_15m: pd.DataFrame, ts: Any) -> Optional[float]:
+    from app.services.indicators import ta
+
+    if "ATR_14" in df_15m.columns:
+        series = df_15m["ATR_14"]
+    else:
+        series = ta.atr(df_15m["high"], df_15m["low"], df_15m["close"], length=14)
+    if series is None or getattr(series, "empty", True):
+        return None
+    try:
+        value = float(series.loc[ts])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if value != value or value <= 0:
+        return None
+    return value
+
+
+def _chase_at(df_15m: Optional[pd.DataFrame], t: Any, side: str, entry: float) -> Optional[float]:
+    """
+    How far the fill is past the confirmed 15m close, in that bar's ATR.
+
+    Positive means the 1m entry ran beyond the close in the trade direction
+    (a chase). This is a measurement. It is not the abandoned PR #28 cap.
+    """
+    bar = confirmed_15m_bar(df_15m, t)
+    if bar is None or df_15m is None:
+        return None
+    atr = _atr14_at(df_15m, bar.name)
+    if atr is None:
+        return None
+    try:
+        close = float(bar["close"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if str(side).upper() == "BUY":
+        return (float(entry) - close) / atr
+    if str(side).upper() == "SELL":
+        return (close - float(entry)) / atr
+    return None
+
+
+def _entry_delay_min(df_15m: Optional[pd.DataFrame], t: Any) -> Optional[float]:
+    """Minutes after the confirmed 15m bar closed. 0 means the fill is on that close."""
+    bar = confirmed_15m_bar(df_15m, t)
+    if bar is None:
+        return None
+    close_t = pd.Timestamp(bar.name) + pd.Timedelta(minutes=15)
+    decision = pd.Timestamp(t)
+    if close_t.tzinfo is not None and decision.tzinfo is None:
+        decision = decision.tz_localize(close_t.tzinfo)
+    elif close_t.tzinfo is None and decision.tzinfo is not None:
+        close_t = close_t.tz_localize("UTC")
+    return (decision - close_t).total_seconds() / 60.0
 
 
 def lookup_regime(table: Optional[pd.DataFrame], t: Any) -> Tuple[str, str]:
@@ -548,6 +613,8 @@ def _close_trade(
         regime=str(position["regime"]),
         bars_held=int(position["bars_held"]),
         exit_tf=str(position["exit_tf"]),
+        chase_atr=position.get("chase_atr"),
+        entry_delay_min=position.get("entry_delay_min"),
     )
 
 
@@ -838,6 +905,15 @@ def replay_symbol(
     if missing:
         diag["errors"] += 1
         return [], diag, None, None
+    frames = dict(frames)
+    if spec.name in ("rocket", "waterfall", "spark", "ember"):
+        df15 = frames.get("15m")
+        if df15 is not None and not getattr(df15, "empty", True) and "ATR_14" not in getattr(df15, "columns", []):
+            from app.services.indicators import ta
+
+            df15 = df15.copy()
+            df15["ATR_14"] = ta.atr(df15["high"], df15["low"], df15["close"], length=14)
+            frames["15m"] = df15
     warmup = warmup_bars(spec.name, strategy) if warmup is None else int(warmup)
     need = max(int(context_bars), warmup + 2)
     decisions = build_decisions(frames, spec, warmup, step=decision_step)
@@ -904,6 +980,8 @@ def replay_symbol(
             "exit_tf": exit_tf,
             "exit_df": exit_df,
             "last_open": None,
+            "chase_atr": _chase_at(frames.get("15m"), t, side, price),
+            "entry_delay_min": _entry_delay_min(frames.get("15m"), t),
         }
 
     for raw_t in decisions:
@@ -1069,6 +1147,32 @@ _TABLE_HEADER = (
 )
 
 
+def _chase_lines(trades: Sequence[ClosedTrade]) -> List[str]:
+    """Distribution of 1m chase vs the confirmed 15m close. Empty when the field was not measured."""
+    chase = [float(trade.chase_atr) for trade in trades if trade.chase_atr is not None]
+    delay = [float(trade.entry_delay_min) for trade in trades if trade.entry_delay_min is not None]
+    if not chase and not delay:
+        return []
+    lines = ["", "Entry timing vs the confirmed 15m close (measured, not a filter):"]
+    if chase:
+        series = pd.Series(chase)
+        over = float((series > 0.35).mean())
+        lines.append(
+            f"- chase ATR: n={len(series)}, median {series.median():.2f}, "
+            f"p75 {series.quantile(0.75):.2f}, p90 {series.quantile(0.90):.2f}, "
+            f"max {series.max():.2f}. "
+            f"{100.0 * over:.1f}% of fills are more than 0.35 ATR past that close "
+            "(the cap drafted in abandoned PR #28; it is not applied on this run)."
+        )
+    if delay:
+        series = pd.Series(delay)
+        lines.append(
+            f"- minutes after the 15m close: n={len(series)}, median {series.median():.0f}, "
+            f"p90 {series.quantile(0.90):.0f}, max {series.max():.0f}."
+        )
+    return lines
+
+
 def render_report(
     reports: Sequence[StrategyReport],
     *,
@@ -1077,10 +1181,21 @@ def render_report(
     taker: float,
     slip: float,
     note: str = "",
+    source: str = "hyperliquid",
 ) -> str:
     lines: List[str] = []
-    lines.append("# NovaBot per-strategy causal backtest")
-    lines.append("")
+    proxy = str(source).lower() == "proxy"
+    if proxy:
+        lines.append("# PROXY causal backtest — Binance USDT-M, not Hyperliquid")
+        lines.append("")
+        lines.append(
+            "LABEL: PROXY. These prices are Binance USDT-M perpetual klines from "
+            "`data.binance.vision`. They are not the Hyperliquid dump and must not be "
+            "compared as if they were the same market."
+        )
+    else:
+        lines.append("# NovaBot per-strategy causal backtest")
+        lines.append("")
     lines.append("Params are `data/config/strategies.json` on this branch (based on `main`).")
     if note:
         lines.append(note)
@@ -1092,15 +1207,29 @@ def render_report(
         "- Confirmed bars only. At decision time t the strategy sees bars with open time ≤ t; "
         "the last row is the forming bar and entries use `iloc[-2]`."
     )
-    lines.append(
-        f"- Costs: taker {taker * 10000:.2f} bp per side + slip {slip * 10000:.2f} bp per fill "
-        "(round trip), subtracted in R via `net_r` "
-        "(same constants as `app/core/causal_backtest.py`). The fill price is the strategy signal price."
-    )
-    lines.append(
-        "- Funding: hourly Hyperliquid `fundingHistory` when the cache covers the hold, "
-        "as an extra R drag (`net_r_funding`). Positive funding is paid by longs."
-    )
+    if proxy:
+        lines.append(
+            f"- Costs: the NovaBot Hyperliquid model is applied to these proxy prices: "
+            f"taker {taker * 10000:.2f} bp per side + slip {slip * 10000:.2f} bp per fill "
+            "(round trip), subtracted in R via `net_r`. Binance's own fee schedule is not used. "
+            "The fill price is the strategy signal price. Spread beyond the 1 bp slip is not modeled."
+        )
+        lines.append(
+            "- Funding: Binance USDT-M settlement rate (`last_funding_rate`, usually every 8h), "
+            "summed over settlements inside the hold and converted to R the same way as "
+            "`funding_drag_r`. This is not the Hyperliquid hourly rate. A hold with no settlement "
+            "in the cache is uncovered and the funding drag is zero."
+        )
+    else:
+        lines.append(
+            f"- Costs: taker {taker * 10000:.2f} bp per side + slip {slip * 10000:.2f} bp per fill "
+            "(round trip), subtracted in R via `net_r` "
+            "(same constants as `app/core/causal_backtest.py`). The fill price is the strategy signal price."
+        )
+        lines.append(
+            "- Funding: hourly Hyperliquid `fundingHistory` when the cache covers the hold, "
+            "as an extra R drag (`net_r_funding`). Positive funding is paid by longs."
+        )
     lines.append(
         "- Exits: walk the finest candle interval that exists at the entry. "
         "Same-bar SL and TP counts as a stop. A gap through the stop fills at the open. "
@@ -1124,11 +1253,24 @@ def render_report(
         "Trend LT also gets a 1h/4h MTF line built like `_fetch_mtf_sentiment`. "
         "Missing funding or MTF does not veto (same fallback as live)."
     )
-    lines.append(
-        "- Official `candleSnapshot` retains only the most recent 5000 candles per interval. "
-        "That caps 1m near 3.5 days, 15m near 52 days, and 1h near 208 days. "
-        "There is no multi-year OOS sample in this run."
-    )
+    if proxy:
+        lines.append(
+            "- Source: Binance USDT-M perpetual klines, symbol map `COIN` → `COINUSDT`, "
+            "files under `data/ohlcv_proxy/`. Months 2026-03 through 2026-08 plus daily files "
+            "2026-09-01 through 2026-09-26 when the archive has them. "
+            "A coin with no 1m file is skipped and listed in `reports/proxy_ohlcv_manifest.json`."
+        )
+        lines.append(
+            "- Proxy gaps vs Hyperliquid: different mark price, different funding clock (8h vs 1h), "
+            "different spreads, and listing dates that are Binance's. A missing minute is counted "
+            "in the manifest `gaps` field. Do not read this as a Hyperliquid fill."
+        )
+    else:
+        lines.append(
+            "- Official `candleSnapshot` retains only the most recent 5000 candles per interval. "
+            "That caps 1m near 3.5 days, 15m near 52 days, and 1h near 208 days. "
+            "There is no multi-year OOS sample in this run."
+        )
     lines.append("")
     lines.append(f"Symbols (example scanner whitelist, not the live top-K): {', '.join(symbols)}.")
     lines.append(f"Config file: `{config_path}`.")
@@ -1233,6 +1375,7 @@ def render_report(
             f"direction_block={diag.get('direction_block', 0)}, invalid_bracket={diag.get('invalid_bracket', 0)}, "
             f"unresolved={diag.get('unresolved', 0)}, errors={diag.get('errors', 0)}."
         )
+        lines.extend(_chase_lines(report.trades))
         lines.append("")
     lines.append("## What this does not say")
     lines.append("")
@@ -1271,6 +1414,8 @@ def trades_frame(trades: Sequence[ClosedTrade]) -> pd.DataFrame:
                 "regime": trade.regime,
                 "bars_held": trade.bars_held,
                 "exit_tf": trade.exit_tf,
+                "chase_atr": trade.chase_atr,
+                "entry_delay_min": trade.entry_delay_min,
             }
         )
     return pd.DataFrame(rows)
@@ -1407,7 +1552,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--strategies", nargs="*", default=None)
     parser.add_argument("--include-disabled", action="store_true")
     parser.add_argument("--config", default="data/config/strategies.json")
-    parser.add_argument("--cache-dir", default="data/ohlcv")
+    parser.add_argument(
+        "--source",
+        choices=("hyperliquid", "proxy"),
+        default="hyperliquid",
+        help="proxy reads data/ohlcv_proxy (Binance USDT-M) and never calls Hyperliquid",
+    )
+    parser.add_argument("--cache-dir", default="", help="Default: data/ohlcv, or data/ohlcv_proxy when --source proxy")
     parser.add_argument("--out", default="reports/strategy_backtest.md")
     parser.add_argument("--trades-out", default="reports/strategy_backtest_trades.csv")
     parser.add_argument("--no-fetch", action="store_true")
@@ -1428,12 +1579,21 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     names = select_strategies(config, args.strategies, include_disabled=args.include_disabled)
     days = args.days if args.days and args.days > 0 else None
     symbols = [s.upper() for s in args.symbols]
+    if args.cache_dir:
+        cache_dir = Path(args.cache_dir)
+    elif args.source == "proxy":
+        cache_dir = Path("data/ohlcv_proxy")
+    else:
+        cache_dir = Path("data/ohlcv")
+    fetch = not args.no_fetch and args.source != "proxy"
+    if args.source == "proxy":
+        print(f"[bt] PROXY source, cache {cache_dir}, fetch disabled")
     reports = run_backtest(
         symbols=symbols,
         strategies=names,
         config=config,
-        cache_dir=Path(args.cache_dir),
-        fetch=not args.no_fetch,
+        cache_dir=cache_dir,
+        fetch=fetch,
         days=days,
         context_bars=args.context_bars,
         trigger_bars=args.trigger_bars,
@@ -1449,6 +1609,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         taker=args.taker,
         slip=args.slip,
         note=args.note,
+        source=args.source,
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

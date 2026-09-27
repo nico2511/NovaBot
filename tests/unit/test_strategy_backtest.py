@@ -15,7 +15,7 @@ from app.core.causal_backtest import (
     summarize_trades,
 )
 from app.core.hl_ohlcv import candles_to_frame, fetch_candles, slice_asof
-from app.core.strategy_backtest import StrategySpec, replay_symbol
+from app.core.strategy_backtest import StrategySpec, _chase_at, _entry_delay_min, replay_symbol
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ohlcv" / "hl_candles.json"
 
@@ -219,3 +219,24 @@ def test_weekend_pause_skips_entries():
 
 def test_gross_r_short_stop():
     assert gross_r("SELL", 100, 101, 102) == pytest.approx(-0.5)
+
+
+def test_chase_atr_measures_distance_past_the_confirmed_close():
+    idx = pd.date_range("2026-03-01", periods=4, freq="15min", tz="UTC")
+    df = pd.DataFrame(
+        {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1.0,
+            "ATR_14": 2.0,
+        },
+        index=idx,
+    )
+    t = idx[-1]
+    assert _chase_at(df, t, "BUY", 101.0) == pytest.approx(0.5)
+    assert _chase_at(df, t, "SELL", 99.0) == pytest.approx(0.5)
+    assert _entry_delay_min(df, t) == pytest.approx(0.0)
+    later = t + pd.Timedelta(minutes=5)
+    assert _entry_delay_min(df, later) == pytest.approx(5.0)

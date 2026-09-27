@@ -164,7 +164,18 @@ Spark and Ember stay off unless you pass `--include-disabled` or
 The markdown report is written to `reports/strategy_backtest.md`. Read the
 sample-size note before treating a mean R as an edge. A replay of the same
 frozen dump with draft PR #28 strategy code (not merged) is
-`reports/strategy_backtest_compare.md`. This path does not turn `use_live` back on.
+`reports/strategy_backtest_compare.md`.
+
+Cascade plans need 1m bars. Hyperliquid only keeps about 3.5 days of those.
+`python -m app.core.proxy_ohlcv` downloads Binance USDT-M 1m/15m (a proxy, not
+Hyperliquid) into `data/ohlcv_proxy/`. Replay rocket and waterfall with:
+
+```bash
+python -m app.core.strategy_backtest --source proxy --strategies rocket waterfall
+```
+
+That report is labeled PROXY and is not interchangeable with the HL dump.
+This path does not turn `use_live` back on.
 
 ## Anti-patterns
 

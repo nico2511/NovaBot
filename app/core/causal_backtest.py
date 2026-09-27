@@ -236,6 +236,8 @@ class ClosedTrade:
     regime: str
     bars_held: int
     exit_tf: str
+    chase_atr: Optional[float] = None
+    entry_delay_min: Optional[float] = None
 
 
 @dataclass(frozen=True)
