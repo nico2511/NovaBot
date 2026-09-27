@@ -110,6 +110,23 @@ MIN_HIT = 0.45
 MIN_PF = 1.1
 
 
+TARGET_UNIVERSE = ("BTC", "ETH", "SOL", "BNB", "ARB", "OP")
+
+
+def _l2_universe_note(symbols: Sequence[str]) -> str:
+    """Document which coins are in this replay and which were left out."""
+    kept = [str(symbol).upper() for symbol in symbols]
+    if set(kept) == set(TARGET_UNIVERSE):
+        return (
+            "Univers ciblé, pas les 25 coins de la whitelist. "
+            "Retenus : **BTC, ETH, SOL, BNB** (grosses caps) et **ARB, OP** (L2 majeurs). "
+            "STRK, POL, MATIC, MANTA, BLAST ne sont pas dans la whitelist ni dans le cache proxy. "
+            "Exclus de ce replay : SUI, APT, AVAX, LINK, UNI, AAVE, ADA, NEAR, INJ, TIA, DOT, ATOM, "
+            "LTC, BCH, XRP, TRX, HYPE, DOGE, ZEC."
+        )
+    return f"Univers passé en argument : {', '.join(kept)}. Pas les 25 coins de la whitelist."
+
+
 def _apply_overlay(config: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict:
     out = copy.deepcopy(dict(config))
     for name in ("rocket", "waterfall"):
@@ -318,17 +335,21 @@ def _markdown(
     symbols: Sequence[str],
     errors: Sequence[str],
     selected: Sequence[str],
+    partial: bool = False,
+    pending: Sequence[str] = (),
 ) -> str:
     by_key = {(row["variant"], row["strategy"]): row for row in rows}
     shown = [variant for variant in VARIANTS if variant["id"] in selected]
     lines = [
-        "# PROXY — seuils cascade rocket / waterfall",
+        "# PROXY — seuils cascade rocket / waterfall"
+        + (" — PARTIEL" if partial else ""),
         "",
-        "LABEL: PROXY. Prix Binance USDT-M (`data.binance.vision`), pas Hyperliquid. "
+        ("LABEL: PARTIEL / PROXY. " if partial else "LABEL: PROXY. ")
+        + "Prix Binance USDT-M (`data.binance.vision`), pas Hyperliquid. "
         "Ne pas lire ces fills comme des fills HL.",
         "",
-        "Fenêtre et univers : cache `data/ohlcv_proxy` reconstruit le 2026-09-27, whitelist scanner, "
-        "2026-03-01 → 2026-09-26. Le rapport proxy précédent s'arrêtait au 25 septembre "
+        "Fenêtre : cache `data/ohlcv_proxy` reconstruit le 2026-09-27, "
+        "2026-03-01 → 2026-09-26. Le rapport proxy précédent (25 coins) s'arrêtait au 25 septembre "
         "(le fichier du 26 était en 404). Ici le 26 est présent, 0 trou 1m/15m. "
         "Coûts : taker HL 4,50 bp/côté + slip 1 bp, via `net_r`. Funding Binance 8h quand le cache couvre le hold. "
         "IA non rejouée. Un signal qui passe la géométrie et `check_hard_veto` est pris. "
@@ -337,7 +358,14 @@ def _markdown(
         "Les params live (`data/config/strategies.json`) restent la baseline A. "
         "B/C/D sont des overlays de ce script. Trend LT, Range LT, SuperTrend, spark et ember ne sont pas rejoués.",
         "",
-        f"Symboles : {', '.join(symbols)}.",
+        f"Symboles dans ce tableau ({len(symbols)}) : {', '.join(symbols)}."
+        + (
+            f" En attente : {', '.join(pending)}."
+            if partial and pending
+            else ""
+        ),
+        "",
+        _l2_universe_note(list(TARGET_UNIVERSE) if set(symbols).issubset(set(TARGET_UNIVERSE)) else symbols),
         "",
         "## Règles",
         "",
@@ -394,6 +422,42 @@ def _markdown(
                 f"{_fmt_r(row['median_chase_atr'])} | {row['lanes']} |"
             )
     lines.extend(["", "## Verdict", ""])
+    if partial:
+        lines.append(
+            "**Verdict merge suspendu.** Ce tableau est PARTIEL : "
+            f"faits = {', '.join(symbols) or 'aucun'} ; "
+            f"encore en cours = {', '.join(pending) or 'aucun'}. "
+            "Pas de oui/non tant que BTC, ETH, SOL, BNB, ARB et OP ne sont pas tous dans le replay."
+        )
+        lines.append("")
+        lines.extend(["", "## Holdout (dernier tiers calendaire, pas un walk-forward)", ""])
+        for variant in shown:
+            for name in ("rocket", "waterfall"):
+                key = f"{variant['id']}:{name}"
+                lines.append(f"- {variant['id']} {name}: {holdouts.get(key, '—')}")
+        lines.extend(["", "## Diagnostics (décisions du replay)", ""])
+        for variant in shown:
+            for name in ("rocket", "waterfall"):
+                diag = diags.get(f"{variant['id']}:{name}") or {}
+                lines.append(
+                    f"- {variant['id']} {name}: decisions={diag.get('decisions', 0)}, "
+                    f"signals={diag.get('signals', 0)}, hard_veto={diag.get('hard_veto', 0)}, "
+                    f"regime_skips={diag.get('regime_skips', 0)}, errors={diag.get('errors', 0)}"
+                )
+        if errors:
+            lines.extend(["", "## Trous", ""])
+            lines.extend(f"- {err}" for err in errors)
+        lines.extend(
+            [
+                "",
+                "## Ce que ça ne dit pas",
+                "",
+                "Chiffres PARTIELS. Un hit rate sur un sous-ensemble de symboles n'est pas le verdict. "
+                "LABEL: PARTIEL / PROXY.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
     any_merge = False
     for variant in shown:
         if variant["id"] == "A":
@@ -513,26 +577,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     diags: Dict[str, Dict[str, int]] = {}
     spans: Dict[str, Dict[str, Any]] = {}
     errors: List[str] = []
-    workers = max(1, int(args.workers))
-    print(f"[thresholds] PROXY {len(symbols)} symbols, variants={selected}, workers={workers}")
-    if workers == 1:
-        results = [_replay_symbol(payload) for payload in payloads]
-    else:
-        results = []
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(_replay_symbol, payload): payload["symbol"] for payload in payloads}
-            for future in as_completed(futures):
-                symbol = futures[future]
-                try:
-                    results.append(future.result())
-                    print(f"[thresholds] done {symbol}", flush=True)
-                except Exception as exc:
-                    errors.append(f"{symbol}: {exc}")
-                    print(f"[thresholds] FAIL {symbol}: {exc}")
-    for result in results:
+    finished: List[str] = []
+    out = Path(args.out)
+    csv_path = Path(args.csv)
+    trades_path = Path(args.trades_out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    def absorb(result: Mapping[str, Any]) -> None:
         if result.get("error"):
-            errors.append(f"{result['symbol']}: {result['error']}")
-            continue
+            errors.append(f"{result.get('symbol')}: {result['error']}")
+            return
         for row in result["rows"]:
             key = (row["variant"], row["strategy"])
             grouped.setdefault(key, []).extend(row["trades"])
@@ -546,68 +600,95 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             if end is not None and (span.get("end") is None or end > span["end"]):
                 span["end"] = end
 
-    summary_rows = []
-    holdouts: Dict[str, str] = {}
-    for variant in VARIANTS:
-        if variant["id"] not in selected:
-            continue
-        for name in ("rocket", "waterfall"):
-            trades = grouped.get((variant["id"], name), [])
-            summary_rows.append(_row(variant["id"], name, trades))
-            span = spans.get(f"{variant['id']}:{name}") or {}
-            if trades and span.get("start") is not None and span.get("end") is not None:
-                earlier, later, cut = chronological_holdout(
-                    trades, span_start=span["start"], span_end=span["end"]
+    def publish(partial: bool) -> None:
+        pending = [symbol for symbol in symbols if symbol not in finished]
+        summary_rows = []
+        holdouts: Dict[str, str] = {}
+        for variant in VARIANTS:
+            if variant["id"] not in selected:
+                continue
+            for name in ("rocket", "waterfall"):
+                trades = grouped.get((variant["id"], name), [])
+                summary_rows.append(_row(variant["id"], name, trades))
+                span = spans.get(f"{variant['id']}:{name}") or {}
+                if trades and span.get("start") is not None and span.get("end") is not None:
+                    earlier, later, cut = chronological_holdout(
+                        trades, span_start=span["start"], span_end=span["end"]
+                    )
+                    holdouts[f"{variant['id']}:{name}"] = (
+                        f"cut {pd.Timestamp(cut).isoformat()} — "
+                        f"earlier n={earlier.n} hit={_fmt_pct(earlier.hit_rate)} avg={_fmt_r(earlier.avg_net_r)} "
+                        f"PF={_fmt_pf(earlier.n, earlier.profit_factor)}; "
+                        f"holdout n={later.n} hit={_fmt_pct(later.hit_rate)} avg={_fmt_r(later.avg_net_r)} "
+                        f"PF={_fmt_pf(later.n, later.profit_factor)}"
+                    )
+                else:
+                    holdouts[f"{variant['id']}:{name}"] = "pas de trades"
+        text = _markdown(
+            rows=summary_rows,
+            diags=diags,
+            holdouts=holdouts,
+            symbols=list(finished),
+            errors=errors,
+            selected=selected,
+            partial=partial,
+            pending=pending,
+        )
+        out.write_text(text)
+        pd.DataFrame(summary_rows).to_csv(csv_path, index=False)
+        trade_rows = []
+        for (variant, strategy), trades in grouped.items():
+            for trade in trades:
+                trade_rows.append(
+                    {
+                        "variant": variant,
+                        "strategy": trade.strategy,
+                        "symbol": trade.symbol,
+                        "side": trade.side,
+                        "entry_time": pd.Timestamp(trade.entry_time).isoformat(),
+                        "exit_time": pd.Timestamp(trade.exit_time).isoformat(),
+                        "entry": trade.entry,
+                        "exit": trade.exit,
+                        "net_r": trade.net_r,
+                        "gross_r": trade.gross_r,
+                        "exit_reason": trade.exit_reason,
+                        "regime": trade.regime,
+                        "chase_atr": trade.chase_atr,
+                        "entry_delay_min": trade.entry_delay_min,
+                        "entry_lane": trade.entry_lane,
+                    }
                 )
-                holdouts[f"{variant['id']}:{name}"] = (
-                    f"cut {pd.Timestamp(cut).isoformat()} — "
-                    f"earlier n={earlier.n} hit={_fmt_pct(earlier.hit_rate)} avg={_fmt_r(earlier.avg_net_r)} "
-                    f"PF={_fmt_pf(earlier.n, earlier.profit_factor)}; "
-                    f"holdout n={later.n} hit={_fmt_pct(later.hit_rate)} avg={_fmt_r(later.avg_net_r)} "
-                    f"PF={_fmt_pf(later.n, later.profit_factor)}"
-                )
-            else:
-                holdouts[f"{variant['id']}:{name}"] = "pas de trades"
+        pd.DataFrame(trade_rows).to_csv(trades_path, index=False)
+        label = "PARTIAL" if partial else "FINAL"
+        print(f"[thresholds] {label} {','.join(finished)} pending={','.join(pending)}", flush=True)
+        print(f"[thresholds] wrote {out} {csv_path} {trades_path}", flush=True)
 
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    text = _markdown(
-        rows=summary_rows,
-        diags=diags,
-        holdouts=holdouts,
-        symbols=symbols,
-        errors=errors,
-        selected=selected,
-    )
-    out.write_text(text)
-    csv_path = Path(args.csv)
-    pd.DataFrame(summary_rows).to_csv(csv_path, index=False)
-    trade_rows = []
-    for (variant, strategy), trades in grouped.items():
-        for trade in trades:
-            trade_rows.append(
-                {
-                    "variant": variant,
-                    "strategy": trade.strategy,
-                    "symbol": trade.symbol,
-                    "side": trade.side,
-                    "entry_time": pd.Timestamp(trade.entry_time).isoformat(),
-                    "exit_time": pd.Timestamp(trade.exit_time).isoformat(),
-                    "entry": trade.entry,
-                    "exit": trade.exit,
-                    "net_r": trade.net_r,
-                    "gross_r": trade.gross_r,
-                    "exit_reason": trade.exit_reason,
-                    "regime": trade.regime,
-                    "chase_atr": trade.chase_atr,
-                    "entry_delay_min": trade.entry_delay_min,
-                    "entry_lane": trade.entry_lane,
-                }
-            )
-    trades_path = Path(args.trades_out)
-    pd.DataFrame(trade_rows).to_csv(trades_path, index=False)
-    print(text)
-    print(f"[thresholds] wrote {out} {csv_path} {trades_path}")
+    def on_symbol(result: Mapping[str, Any]) -> None:
+        absorb(result)
+        symbol = str(result.get("symbol") or "?")
+        if symbol not in finished:
+            finished.append(symbol)
+        publish(partial=len(finished) < len(symbols))
+
+    workers = max(1, int(args.workers))
+    print(f"[thresholds] PROXY {len(symbols)} symbols, variants={selected}, workers={workers}", flush=True)
+    if workers == 1:
+        for payload in payloads:
+            try:
+                on_symbol(_replay_symbol(payload))
+            except Exception as exc:
+                on_symbol({"symbol": payload["symbol"], "error": str(exc), "rows": []})
+                print(f"[thresholds] FAIL {payload['symbol']}: {exc}", flush=True)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_replay_symbol, payload): payload["symbol"] for payload in payloads}
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    on_symbol(future.result())
+                except Exception as exc:
+                    on_symbol({"symbol": symbol, "error": str(exc), "rows": []})
+                    print(f"[thresholds] FAIL {symbol}: {exc}", flush=True)
 
 
 if __name__ == "__main__":
