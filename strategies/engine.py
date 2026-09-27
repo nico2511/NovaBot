@@ -8,6 +8,7 @@ from strategies.waterfall import StrategyWaterfall
 from strategies.rocket import StrategyRocket
 from strategies.spark import StrategySpark
 from strategies.ember import StrategyEmber
+from strategies.impulse_pullback import StrategyImpulsePullback
 from strategies.cascade_rider import detect_bear_cascade, detect_bull_cascade
 
 # Import robuste pour Panic Close
@@ -44,6 +45,7 @@ class StrategyEngine:
             "rocket": StrategyRocket(strats_config.get("rocket")),
             "spark": StrategySpark(strats_config.get("spark")),
             "ember": StrategyEmber(strats_config.get("ember")),
+            "impulse_pullback": StrategyImpulsePullback(strats_config.get("impulse_pullback")),
         }
 
         for key, strategy in self.strategies.items():

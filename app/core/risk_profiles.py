@@ -34,6 +34,7 @@ STRATEGY_DEFAULT_PROFILES: Dict[str, str] = {
     "supertrend": "Balanced Growth",
     "trend_lt": "Balanced Growth",
     "range_lt": "Capital Preservation First",
+    "impulse_pullback": "Balanced Growth",
 }
 
 

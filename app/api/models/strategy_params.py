@@ -213,6 +213,31 @@ class EmberParams(_StrictParams):
     cascade_fresh_bonus: Optional[float] = Field(None, ge=0, le=30)
 
 
+class ImpulsePullbackParams(_StrictParams):
+    min_rr: Optional[float] = Field(None, gt=0, le=10)
+    sl_atr_mult: Optional[float] = Field(None, gt=0, le=10)
+    min_sl_pct: Optional[float] = Field(None, gt=0, le=20)
+    swing_lookback: Optional[int] = Field(None, ge=5, le=120)
+    pullback_max_bars: Optional[int] = Field(None, ge=2, le=60)
+    min_break_atr: Optional[float] = Field(None, ge=0, le=5)
+    max_chase_atr: Optional[float] = Field(None, gt=0, le=5)
+    pullback_touch_atr: Optional[float] = Field(None, ge=0, le=5)
+    quintile_cut: Optional[float] = Field(None, gt=0.5, le=1)
+    exhaustion_min_range_atr: Optional[float] = Field(None, ge=0, le=20)
+    move_lookback_5m: Optional[int] = Field(None, ge=4, le=96)
+    move_lookback_15m: Optional[int] = Field(None, ge=4, le=96)
+    veto_rsi_long: Optional[float] = Field(None, ge=50, le=100)
+    veto_rsi_short: Optional[float] = Field(None, ge=0, le=50)
+    thesis_rsi_long: Optional[float] = Field(None, ge=50, le=100)
+    thesis_rsi_short: Optional[float] = Field(None, ge=0, le=50)
+    min_volume_ratio_pct: Optional[float] = Field(None, ge=0, le=500)
+    cooldown_minutes: Optional[int] = Field(None, ge=0, le=1440)
+    allow_longs: Optional[bool] = None
+    allow_shorts: Optional[bool] = None
+    scan_interval_minutes: Optional[float] = Field(None, ge=1, le=1440)
+    scan_interval_active_minutes: Optional[float] = Field(None, ge=1, le=60)
+
+
 STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {
     "supertrend": SupertrendParams,
     "trend_lt": TrendLtParams,
@@ -221,6 +246,7 @@ STRATEGY_PARAM_SCHEMAS: Dict[str, Type[_StrictParams]] = {
     "rocket": RocketParams,
     "spark": SparkParams,
     "ember": EmberParams,
+    "impulse_pullback": ImpulsePullbackParams,
 }
 
 

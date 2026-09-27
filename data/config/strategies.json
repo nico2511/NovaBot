@@ -9,7 +9,7 @@
     "start_hour": 6,
     "end_weekday": 0,
     "end_hour": 6,
-    "strategies": ["trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember"]
+    "strategies": ["trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember", "impulse_pullback"]
   },
   "supertrend": {
     "enabled": true,
@@ -364,5 +364,45 @@
     ],
     "version": "2026-09-ember-v2",
     "expected_freq": "Rare (5m bear cascade only)"
+  },
+  "impulse_pullback": {
+    "enabled": false,
+    "type": "always_active",
+    "risk_profile": "Balanced Growth",
+    "description": "Mirrored 1m impulse break then first pullback. Off by default; rocket/waterfall stay the live cascade baseline.",
+    "active": false,
+    "timeframe": "5m",
+    "signal_score_bonus": 100,
+    "skip_bb_anti_chase": true,
+    "params": {
+      "min_rr": 1.5,
+      "sl_atr_mult": 0.5,
+      "min_sl_pct": 0.4,
+      "swing_lookback": 20,
+      "pullback_max_bars": 15,
+      "min_break_atr": 0.02,
+      "max_chase_atr": 0.35,
+      "pullback_touch_atr": 0.2,
+      "quintile_cut": 0.8,
+      "exhaustion_min_range_atr": 1.5,
+      "move_lookback_5m": 12,
+      "move_lookback_15m": 8,
+      "veto_rsi_long": 78,
+      "veto_rsi_short": 22,
+      "thesis_rsi_long": 85,
+      "thesis_rsi_short": 15,
+      "min_volume_ratio_pct": 50,
+      "cooldown_minutes": 10,
+      "allow_longs": true,
+      "allow_shorts": true,
+      "scan_interval_minutes": 5,
+      "scan_interval_active_minutes": 1
+    },
+    "display_conditions": [
+      "EMA_9",
+      "RSI_14"
+    ],
+    "version": "2026-09-impulse-pullback-v1",
+    "expected_freq": "Off until enabled (1m break, first pullback)"
   }
 }

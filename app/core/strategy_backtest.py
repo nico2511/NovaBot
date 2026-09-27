@@ -99,11 +99,16 @@ SPECS: Dict[str, StrategySpec] = {
     "waterfall": StrategySpec("waterfall", "15m", "5m", ("15m", "1m"), True, False, False, "15m"),
     "spark": StrategySpec("spark", "5m", "3m", ("5m", "1m", "15m"), True, False, False, "5m", True),
     "ember": StrategySpec("ember", "5m", "3m", ("5m", "1m", "15m"), True, False, False, "5m", True),
+    # 1m clock: arm and first pullback are one-minute events. No 15m regime gate.
+    "impulse_pullback": StrategySpec(
+        "impulse_pullback", "15m", "1m", ("15m", "1m"), False, False, False, "15m"
+    ),
 }
 
 
 def _classes() -> Dict[str, type]:
     from strategies.ember import StrategyEmber
+    from strategies.impulse_pullback import StrategyImpulsePullback
     from strategies.range_lt import StrategyRangeLT
     from strategies.rocket import StrategyRocket
     from strategies.spark import StrategySpark
@@ -119,6 +124,7 @@ def _classes() -> Dict[str, type]:
         "waterfall": StrategyWaterfall,
         "spark": StrategySpark,
         "ember": StrategyEmber,
+        "impulse_pullback": StrategyImpulsePullback,
     }
 
 

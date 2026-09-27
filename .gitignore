@@ -44,6 +44,7 @@ Thumbs.db
 !/scripts/backtest_strategies.py
 !/scripts/fetch_hl_ohlcv.py
 !/scripts/fetch_proxy_ohlcv.py
+!/scripts/backtest_impulse_pullback.py
 scratch/
 stories/
 docs/
