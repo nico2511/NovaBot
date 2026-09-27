@@ -197,14 +197,18 @@ def build_decisions(
     frames: Mapping[str, pd.DataFrame],
     spec: StrategySpec,
     warmup: int,
+    step: Optional[str] = None,
 ) -> pd.DatetimeIndex:
     """Decision timestamps: the open of a bar, i.e. the moment the previous bar closed."""
     primary = frames.get(spec.primary)
     if primary is None or primary.empty or len(primary.index) <= warmup:
         return pd.DatetimeIndex([])
     ready = primary.index[warmup]
-    step_min = INTERVAL_MS[spec.step] // 60_000
-    if spec.step == spec.primary:
+    step_name = step or spec.step
+    if step_name not in INTERVAL_MS:
+        raise KeyError(f"unsupported decision step {step_name!r}")
+    step_min = INTERVAL_MS[step_name] // 60_000
+    if step_name == spec.primary:
         idx = primary.index[warmup:]
     else:
         source = frames.get("1m")
@@ -818,6 +822,7 @@ def replay_symbol(
     slip: float = DEFAULT_SLIP_FRAC,
     verbose: bool = False,
     warmup: Optional[int] = None,
+    decision_step: Optional[str] = None,
 ) -> Tuple[List[ClosedTrade], Dict[str, int], Optional[pd.Timestamp], Optional[pd.Timestamp]]:
     """
     Replay one strategy on one symbol.
@@ -835,7 +840,7 @@ def replay_symbol(
         return [], diag, None, None
     warmup = warmup_bars(spec.name, strategy) if warmup is None else int(warmup)
     need = max(int(context_bars), warmup + 2)
-    decisions = build_decisions(frames, spec, warmup)
+    decisions = build_decisions(frames, spec, warmup, step=decision_step)
     if len(decisions) == 0:
         return [], diag, None, None
     bundled = dict(frames)
@@ -1071,11 +1076,14 @@ def render_report(
     config_path: str,
     taker: float,
     slip: float,
+    note: str = "",
 ) -> str:
     lines: List[str] = []
     lines.append("# NovaBot per-strategy causal backtest")
     lines.append("")
     lines.append("Params are `data/config/strategies.json` on this branch (based on `main`).")
+    if note:
+        lines.append(note)
     lines.append("AI is not replayed. A signal that passes mechanical geometry and `check_hard_veto` is taken.")
     lines.append("")
     lines.append("## Method")
@@ -1317,6 +1325,7 @@ def run_backtest(
     taker: float,
     slip: float,
     verbose: bool = True,
+    cascade_step: Optional[str] = None,
 ) -> List[StrategyReport]:
     intervals = intervals_for(strategies)
     loaded: Dict[str, Dict[str, pd.DataFrame]] = {}
@@ -1378,6 +1387,7 @@ def run_backtest(
                 taker=taker,
                 slip=slip,
                 verbose=verbose,
+                decision_step=cascade_step if spec.name in ("rocket", "waterfall", "spark", "ember") else None,
             )
             report.trades.extend(trades)
             _add_diag(report.diagnostics, diag)
@@ -1406,6 +1416,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--trigger-bars", type=int, default=120)
     parser.add_argument("--taker", type=float, default=TAKER_FEE)
     parser.add_argument("--slip", type=float, default=DEFAULT_SLIP_FRAC)
+    parser.add_argument(
+        "--cascade-step",
+        default="",
+        help="Decision step for rocket/waterfall (default: the spec step, 5m on main)",
+    )
+    parser.add_argument("--note", default="", help="Extra line recorded under the report title")
     args = parser.parse_args(argv)
     config_path = Path(args.config)
     config = load_config(config_path)
@@ -1424,6 +1440,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         taker=args.taker,
         slip=args.slip,
         verbose=True,
+        cascade_step=args.cascade_step or None,
     )
     text = render_report(
         reports,
@@ -1431,6 +1448,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         config_path=str(config_path),
         taker=args.taker,
         slip=args.slip,
+        note=args.note,
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

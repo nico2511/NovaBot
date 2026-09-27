@@ -20,7 +20,7 @@ Config file: `data/config/strategies.json`.
 
 ## PR #28
 
-These numbers use **main** params. Draft PR #28 (`cursor/lt-cascade-trigger-refine-adab`) softens Trend LT / Range LT geometry and cascade 1m timing. It is not merged here. Re-run this command after that PR lands if you want the comparison; do not read this report as a test of #28.
+These numbers use **main** params. Draft PR #28 (`cursor/lt-cascade-trigger-refine-adab`, commit `1ca28c9`) is not merged. The same frozen dump replayed with that strategy code is `reports/strategy_backtest_pr28.md`. The side-by-side table is `reports/strategy_backtest_compare.md`.
 
 ## Results
 

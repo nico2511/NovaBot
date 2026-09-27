@@ -162,9 +162,9 @@ Spark and Ember stay off unless you pass `--include-disabled` or
 `--strategies spark`.
 
 The markdown report is written to `reports/strategy_backtest.md`. Read the
-sample-size note before treating a mean R as an edge. Draft PR #28 changes
-Trend LT / Range LT gates; re-run after it merges. This path does not turn
-`use_live` back on.
+sample-size note before treating a mean R as an edge. A replay of the same
+frozen dump with draft PR #28 strategy code (not merged) is
+`reports/strategy_backtest_compare.md`. This path does not turn `use_live` back on.
 
 ## Anti-patterns
 

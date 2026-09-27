@@ -439,7 +439,7 @@ Verdict capital: **paper le book actuel**. Live éventuellement **SuperTrend + T
 
 # 8. Version stats — backtest / validation
 
-**État actuel:** le runner causal est dans `app/core/strategy_backtest.py` (frais/slip du harness, sorties SL/TP/thesis, pas d’appel IA). Le dump réel du 26 Sep 2026 (whitelist scanner d’exemple, 25 coins, 1m/15m/1h/4h + funding) est `reports/hl_ohlcv_whitelist_2026-09-26.tar.gz` ; les dates exactes sont dans `reports/hl_ohlcv_manifest.json`. Le replay de ce dump est `reports/strategy_backtest.md` (ST 0, trend_lt 6, range_lt 39, rocket 2, waterfall 1). L’API ne garde que ~5000 bougies par intervalle, donc ce n’est pas l’OOS 2024–2026 du design ci-dessous, et **aucun plan n’atteint n≥200**. L’edge reste **unvalidated**. Les unit tests vérifient des invariants de code, **pas** l’expectancy.
+**État actuel:** le runner causal est dans `app/core/strategy_backtest.py` (frais/slip du harness, sorties SL/TP/thesis, pas d’appel IA). Le dump réel du 26 Sep 2026 (whitelist scanner d’exemple, 25 coins, 1m/15m/1h/4h + funding) est `reports/hl_ohlcv_whitelist_2026-09-26.tar.gz` ; les dates exactes sont dans `reports/hl_ohlcv_manifest.json`. Le replay params `main` est `reports/strategy_backtest.md` (ST 0, trend_lt 6, range_lt 39, rocket 2, waterfall 1). Le même dump avec le code de la PR #28 (non mergée, commit `1ca28c9`) est `reports/strategy_backtest_compare.md` : Range LT n=195, avg net R −0.152 (moins pire au trade, perte cumulée plus grande) ; Trend LT n=969, avg net R −0.035, PF 0.87. L’API ne garde que ~5000 bougies par intervalle, donc ce n’est pas l’OOS 2024–2026 du design ci-dessous. L’edge reste **unvalidated**. Les unit tests vérifient des invariants de code, **pas** l’expectancy.
 
 ### Hypothèses à tester (une phrase chacune)
 
@@ -488,7 +488,7 @@ Tant que ces points existent, **toute courbe de perf live ou replay est suspecte
 4. ~~**Range LT:** flatten DEAD rouge ; box ancrée ; TP mid.~~ → **fait (#23 DEAD + #24 box/mid)**  
 5. ~~**ST/LT:** indicateurs sur closes ; veto funding ; trailing en R.~~ → **fait (#24)**  
 6. **Ne pas** baisser les veto « pour avoir plus de trades ».  
-7. **Backtest** OOS causal (n≥200) avant de réactiver HVH — runner + dump whitelist livrés ; l’échantillon API reste trop court (1m ~3.5 j, 1h ~208 j, voir `reports/strategy_backtest.md`). Ne pas réactiver HVH sur ce run.
+7. **Backtest** OOS causal (n≥200) avant de réactiver HVH — runner + dump whitelist livrés ; l’échantillon API reste trop court en 1m (~3.5 j). Le rejeu #28 fait passer Trend LT au-dessus de 200 trades sur une seule fenêtre figée, avec PF 0.87 (voir `reports/strategy_backtest_compare.md`). Ne pas réactiver HVH sur ce run.
 
 ---
 
