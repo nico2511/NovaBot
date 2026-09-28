@@ -52,6 +52,8 @@ def test_strategy_json_kill_path_defaults():
             assert row["risk_profile"] == "Balanced Growth"
             assert float(row["params"]["min_rr"]) == 1.5
             assert float(row["params"]["max_extension_atr"]) == 1.5
+        assert float(cfg["rocket"]["params"]["max_1m_chase_atr"]) == 0.35
+        assert float(cfg["waterfall"]["params"]["max_1m_chase_atr"]) == 0.35
         assert cfg["spark"]["enabled"] is False
         assert cfg["ember"]["enabled"] is False
         assert cfg["rocket"]["enabled"] is True

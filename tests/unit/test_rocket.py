@@ -114,6 +114,8 @@ _HAPPY_PARAMS = {
     "struct_lookback": 500,
     "veto_vol_slope_min": -100,
     "max_extension_atr": 10,
+    # Fixtures are not chase-aligned; live default 0.35 is covered in test_cascade_chase.
+    "max_1m_chase_atr": 0,
 }
 
 
@@ -142,6 +144,7 @@ def test_rocket_rejects_prior_resistance_without_spike():
                     "breakout_clear_pct": 0.15,
                     "volume_spike_pct": 120,
                     "max_extension_atr": 10,
+                    "max_1m_chase_atr": 0,
                 }
         }
     )
