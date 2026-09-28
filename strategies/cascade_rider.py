@@ -244,6 +244,83 @@ def extension_within_limit(
     return ext <= float(max_extension_atr), ext
 
 
+def _direction_is_long(side: str) -> Optional[bool]:
+    label = str(side or "").upper()
+    if label in ("LONG", "BUY"):
+        return True
+    if label in ("SHORT", "SELL"):
+        return False
+    return None
+
+
+def chase_atr_past_close(
+    side: str,
+    entry: float,
+    reference_close: float,
+    atr: float,
+) -> Optional[float]:
+    """
+    Distance of a fill past a reference close, in ATR, in the trade direction.
+
+    Positive means the fill chased beyond that close. Negative means a better
+    price (a pullback). A cap must reject only the positive side.
+    """
+    long = _direction_is_long(side)
+    if long is None:
+        return None
+    try:
+        entry_f = float(entry)
+        ref = float(reference_close)
+        atr_f = float(atr)
+    except (TypeError, ValueError):
+        return None
+    if atr_f <= 0 or entry_f <= 0 or ref <= 0:
+        return None
+    if long:
+        return (entry_f - ref) / atr_f
+    return (ref - entry_f) / atr_f
+
+
+def late_fill_chase_reason(
+    df_15m: pd.DataFrame,
+    side: str,
+    entry: float,
+    *,
+    max_chase_atr: float,
+    use_live: bool = False,
+) -> Optional[str]:
+    """
+    Skip a 1m fill that already ran past the confirmed cascade close.
+
+    ``max_chase_atr`` <= 0 disables the cap. Does not invent an earlier entry.
+    """
+    if _direction_is_long(side) is None or df_15m is None or getattr(df_15m, "empty", True):
+        return None
+    try:
+        cap = float(max_chase_atr)
+    except (TypeError, ValueError):
+        return None
+    if cap <= 0:
+        return None
+
+    idx = bar_index(use_live=use_live)
+    try:
+        reference_close = float(df_15m["close"].iloc[idx])
+        atr = float(df_15m["ATR_14"].iloc[idx]) if "ATR_14" in df_15m.columns else 0.0
+    except (IndexError, TypeError, ValueError, KeyError):
+        return None
+    if atr <= 0:
+        return None
+
+    chase = chase_atr_past_close(side, entry, reference_close, atr)
+    if chase is not None and chase > cap:
+        return (
+            f"1m chase {chase:.2f} ATR > {cap:.2f} past confirmed close "
+            "— late fill"
+        )
+    return None
+
+
 def cascade_age_bars(
     work: pd.DataFrame,
     side: str,

@@ -35,6 +35,7 @@ from strategies.cascade_rider import (
     closed_bars,
     detect_bull_cascade,
     extension_within_limit,
+    late_fill_chase_reason,
     score_cascade_scan,
     thesis_confirmed_rows,
 )
@@ -166,6 +167,8 @@ REJECT range climax traps:
             "scan_score_use_confirmed_bar": bool(
                 self.get_param("scan_score_use_confirmed_bar", True)
             ),
+            # Reject 1m fills that already chased past the confirmed 15m close.
+            "max_1m_chase_atr": self._float_param("max_1m_chase_atr", 0.35),
         }
 
     @staticmethod
@@ -452,6 +455,17 @@ REJECT range climax traps:
                 return self._reject("1m confirm failed — need green candle + higher high")
         else:
             entry = float(df_1m["close"].iloc[-2])
+
+        late = late_fill_chase_reason(
+            df_15m,
+            "LONG",
+            float(entry),
+            max_chase_atr=float(p["max_1m_chase_atr"]),
+            use_live=CASCADE_ENTRY_USE_LIVE,
+        )
+        if late:
+            self.looking_for_entry = True
+            return self._reject(late)
 
         prior_high = self._prior_structure_high(df_15m, p)
         cascade_close = float(cascade.get("close") or entry)
