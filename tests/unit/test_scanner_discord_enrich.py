@@ -56,3 +56,62 @@ def test_enrich_scan_opp_preserves_existing_adx():
     )
     assert enriched["adx"] == 42.5
     assert enriched["current_price"] == 50.0
+
+
+def test_enrich_scan_opp_sets_timeframe_from_lane():
+    opp = {"score": 80, "bias": "LONG"}
+    enriched = ScannerJob._enrich_scan_opp(
+        opp,
+        symbol="ETH",
+        strategy_name="a3_ema_trend_4h",
+        universe_row={"mark_price": 3000.0, "volume_24h": 1e9},
+        df=_sample_ohlcv(),
+        scan_timeframe="4h",
+    )
+    assert enriched["timeframe"] == "4h"
+
+
+def test_discord_block_a3_style_hides_rsi_and_uses_proximity_label():
+    opp = {
+        "symbol": "BTC",
+        "bias": "LONG",
+        "strategy": "a3_ema_trend_4h",
+        "timeframe": "4h",
+        "score": 72,
+        "score_label": "Proximité croisement",
+        "adx": 28.3,
+        "current_price": 95000.0,
+        "volume_24h": 2_000_000_000.0,
+        "reasons": ["EMA20 vs EMA100 spread 1.00×ATR"],
+    }
+    block = ScannerJob._format_scan_opp_discord_block(1, opp)
+    assert "[a3_ema_trend_4h / 4h]" in block
+    assert "Proximité croisement: **72**" in block
+    assert "ADX 28.3" in block
+    assert "RSI" not in block
+    assert "/ ?" not in block
+
+
+def test_discord_block_default_score_label_and_optional_indicators():
+    opp = {
+        "symbol": "HYPE",
+        "bias": "SHORT",
+        "strategy": "ember",
+        "score": 85,
+        "rsi": 61.0,
+        "current_price": 83.78,
+        "volume_24h": 1_500_000_000.0,
+        "reasons": ["test"],
+    }
+    block = ScannerJob._format_scan_opp_discord_block(1, opp)
+    assert "[ember]" in block
+    assert " / " not in block.split("\n")[0]
+    assert "Score: **85**" in block
+    assert "RSI 61" in block
+    assert "ADX" not in block
+
+
+def test_scan_metric_for_display_rejects_missing_and_zero():
+    assert ScannerJob._scan_metric_for_display({}, "rsi") is None
+    assert ScannerJob._scan_metric_for_display({"rsi": 0}, "rsi") is None
+    assert ScannerJob._scan_metric_for_display({"rsi": 55.2}, "rsi") == 55.2

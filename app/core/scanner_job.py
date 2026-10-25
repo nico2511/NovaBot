@@ -326,6 +326,59 @@ class ScannerJob:
         return (now - last) >= interval_s
 
     @staticmethod
+    def _scan_metric_for_display(opp: Dict[str, Any], key: str) -> Optional[float]:
+        """Return a metric only when explicitly set and strictly positive (no fake zeros)."""
+        if key not in opp:
+            return None
+        raw = opp.get(key)
+        if raw is None:
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if value <= 0:
+            return None
+        return value
+
+    @staticmethod
+    def _format_scan_opp_discord_block(index: int, opp: Dict[str, Any]) -> str:
+        """One opportunity block for the scanner Discord alert (display only)."""
+        bias = opp.get("bias", "?")
+        trend_icon = "📈" if bias == "LONG" else "📉" if bias == "SHORT" else "➡️"
+        price_str = format_price_for_notification(opp.get("current_price", 0))
+        tags = ",".join(opp.get("strategies") or [opp.get("strategy") or "?"])
+        tf = opp.get("timeframe")
+        if tf:
+            bracket = f"[{tags} / {tf}]"
+        else:
+            bracket = f"[{tags}]"
+
+        score_label = str(opp.get("score_label") or "Score")
+        score_val = float(opp.get("score", 0))
+
+        indicator_bits: List[str] = []
+        adx = ScannerJob._scan_metric_for_display(opp, "adx")
+        if adx is not None:
+            adx_fmt = int(adx) if float(adx).is_integer() else adx
+            indicator_bits.append(f"ADX {adx_fmt}")
+        rsi = ScannerJob._scan_metric_for_display(opp, "rsi")
+        if rsi is not None:
+            rsi_fmt = int(rsi) if float(rsi).is_integer() else rsi
+            indicator_bits.append(f"RSI {rsi_fmt}")
+        indicators = f" | {' | '.join(indicator_bits)}" if indicator_bits else ""
+
+        block = (
+            f"**{index}. {opp.get('symbol')}** {trend_icon} `{bias}` {bracket}\n"
+            f"{score_label}: **{score_val:.0f}**{indicators}\n"
+            f"Price: {price_str} | Vol24h: ${float(opp.get('volume_24h', 0))/1e6:.1f}M\n"
+        )
+        for reason in (opp.get("reasons") or [])[:2]:
+            block += f"> {reason}\n"
+        block += "\n"
+        return block
+
+    @staticmethod
     def _enrich_scan_opp(
         opp: Dict[str, Any],
         *,
@@ -333,6 +386,7 @@ class ScannerJob:
         strategy_name: str,
         universe_row: Dict[str, Any],
         df: pd.DataFrame,
+        scan_timeframe: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Attach universe + scan-TF context for Discord alerts and merge boards."""
         from app.services.indicators import ta
@@ -340,6 +394,8 @@ class ScannerJob:
         row = dict(opp)
         row["strategy"] = strategy_name
         row.setdefault("symbol", symbol)
+        if scan_timeframe:
+            row.setdefault("timeframe", scan_timeframe)
 
         try:
             mark = float(universe_row.get("mark_price") or 0)
@@ -397,6 +453,7 @@ class ScannerJob:
                     strategy_name=name,
                     universe_row=data,
                     df=df,
+                    scan_timeframe=tf,
                 )
                 results.append(opp)
             if i < len(universe) - 1:
@@ -624,20 +681,6 @@ class ScannerJob:
             color = "2ecc71"
 
         for i, opp in enumerate(opps[:5]):
-            bias = opp.get("bias", "?")
-            trend_icon = "📈" if bias == "LONG" else "📉" if bias == "SHORT" else "➡️"
-            price_str = format_price_for_notification(opp.get("current_price", 0))
-            tags = ",".join(opp.get("strategies") or [opp.get("strategy") or "?"])
-            tf = opp.get("timeframe") or "?"
-            description += (
-                f"**{i+1}. {opp.get('symbol')}** {trend_icon} `{bias}` "
-                f"[{tags} / {tf}]\n"
-                f"Score: **{float(opp.get('score', 0)):.0f}** | "
-                f"ADX {opp.get('adx', 0)} | RSI {opp.get('rsi', 0)}\n"
-                f"Price: {price_str} | Vol24h: ${float(opp.get('volume_24h', 0))/1e6:.1f}M\n"
-            )
-            for reason in (opp.get("reasons") or [])[:2]:
-                description += f"> {reason}\n"
-            description += "\n"
+            description += self._format_scan_opp_discord_block(i + 1, opp)
 
         discord_service.send_alert(title, description, color=color)
