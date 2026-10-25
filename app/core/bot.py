@@ -487,6 +487,9 @@ class BotContext(LiveExecutionMixin):
             sticky = self._strategy_sticky
         for name, strat in engine.strategies.items():
             state = sticky.get((name, symbol))
+            if hasattr(strat, "restore_sticky_for_symbol"):
+                strat.restore_sticky_for_symbol(symbol, state or {})
+                continue
             # Always reset fields missing from this symbol's snapshot so a shared
             # strategy instance cannot leak last_entry / signal_bar / armed state.
             for field in self._STICKY_FIELDS:
@@ -506,7 +509,10 @@ class BotContext(LiveExecutionMixin):
         if not hasattr(self, "_strategy_sticky") or self._strategy_sticky is None:
             self._strategy_sticky = {}
         for name, strat in engine.strategies.items():
-            entry = {field: getattr(strat, field, None) for field in self._STICKY_FIELDS}
+            if hasattr(strat, "export_sticky_for_symbol"):
+                entry = strat.export_sticky_for_symbol(symbol)
+            else:
+                entry = {field: getattr(strat, field, None) for field in self._STICKY_FIELDS}
             if entry.get("looking_for_entry"):
                 reason = getattr(strat, "last_rejection_reason", None)
                 if reason:
@@ -719,11 +725,14 @@ class BotContext(LiveExecutionMixin):
         if not strategy_name or not hasattr(self, "strategy_engine"):
             return
         strat = self.strategy_engine.strategies.get(strategy_name)
+        sym = symbol or getattr(self, "active_symbol", None)
         if strat is not None and hasattr(strat, "mark_entry_fill"):
-            strat.mark_entry_fill()
+            try:
+                strat.mark_entry_fill(symbol=sym)
+            except TypeError:
+                strat.mark_entry_fill()
         elif strat is not None:
             strat._last_entry_time = pd.Timestamp.now()
-        sym = symbol or getattr(self, "active_symbol", None)
         if sym:
             self._save_strategy_sticky(sym)
 
@@ -1913,7 +1922,13 @@ class BotContext(LiveExecutionMixin):
 
         try:
             tf = strat.get_thesis_timeframe()
-            df = hyperliquid_service.get_candles(symbol, interval=tf, limit=250)
+            thesis_limit = 250
+            if hasattr(strat, "get_thesis_candle_limit"):
+                try:
+                    thesis_limit = int(strat.get_thesis_candle_limit() or thesis_limit)
+                except (TypeError, ValueError):
+                    pass
+            df = hyperliquid_service.get_candles(symbol, interval=tf, limit=thesis_limit)
             if df is None or getattr(df, "empty", True):
                 return False
 
@@ -2858,8 +2873,11 @@ class BotContext(LiveExecutionMixin):
                             self.add_log(
                                 f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)"
                             )
-                            if strat_obj is not None and hasattr(strat_obj, "_last_signal_bar"):
-                                strat_obj._last_signal_bar = None
+                            if strat_obj is not None:
+                                if hasattr(strat_obj, "clear_inflight_signal_bar"):
+                                    strat_obj.clear_inflight_signal_bar(sig_symbol)
+                                elif hasattr(strat_obj, "_last_signal_bar"):
+                                    strat_obj._last_signal_bar = None
                             if sig_symbol:
                                 self._save_strategy_sticky(sig_symbol)
                         else:
