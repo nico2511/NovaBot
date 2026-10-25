@@ -13,6 +13,49 @@ import logging
 
 logger = logging.getLogger("StorageService")
 
+# Top-level keys in strategies.json that are not tradable strategy blocks.
+_STRATEGIES_CONFIG_META_KEYS = frozenset({"meta", "market_regime", "weekend_pause"})
+
+
+def strategy_config_keys(cfg: Dict[str, Any]) -> List[str]:
+    """Return shipped strategy ids (blocks with a `type` field)."""
+    if not isinstance(cfg, dict):
+        return []
+    out: List[str] = []
+    for key, block in cfg.items():
+        if key in _STRATEGIES_CONFIG_META_KEYS:
+            continue
+        if isinstance(block, dict) and "type" in block:
+            out.append(key)
+    return sorted(out)
+
+
+def apply_enabled_active_from_defaults(
+    runtime_cfg: Dict[str, Any], default_cfg: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Copy enabled/active from defaults for each strategy block.
+    Params and other fields in runtime_cfg are preserved.
+    """
+    merged = dict(runtime_cfg)
+    for name in strategy_config_keys(default_cfg):
+        src = default_cfg.get(name)
+        if not isinstance(src, dict):
+            continue
+        dst = merged.get(name)
+        if not isinstance(dst, dict):
+            dst = {}
+        dst = dict(dst)
+        if "enabled" in src:
+            dst["enabled"] = bool(src["enabled"])
+        if "active" in src:
+            dst["active"] = bool(src["active"])
+        merged[name] = dst
+    default_meta = default_cfg.get("meta") if isinstance(default_cfg.get("meta"), dict) else {}
+    runtime_meta = merged.get("meta") if isinstance(merged.get("meta"), dict) else {}
+    merged["meta"] = {**runtime_meta, **default_meta}
+    return merged
+
 
 class StorageService:
     """Service for atomic file operations with organized data structure"""
@@ -218,6 +261,18 @@ class StorageService:
 
             old_top = set(runtime_cfg.keys())
             merged_cfg = self._merge_missing(runtime_cfg, default_cfg)
+
+            default_meta = default_cfg.get("meta") if isinstance(default_cfg.get("meta"), dict) else {}
+            runtime_meta = merged_cfg.get("meta") if isinstance(merged_cfg.get("meta"), dict) else {}
+            default_rev = str(default_meta.get("defaults_revision") or "")
+            runtime_rev = str(runtime_meta.get("defaults_revision") or "")
+            if default_rev and default_rev != runtime_rev:
+                merged_cfg = apply_enabled_active_from_defaults(merged_cfg, default_cfg)
+                logger.info(
+                    "Strategy enabled/active synced from defaults (revision %s → %s)",
+                    runtime_rev or "(none)",
+                    default_rev,
+                )
 
             # Drop obsolete strategy blocks no longer present in defaults
             # (keeps market_regime + currently shipped strategies only).

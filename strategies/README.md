@@ -92,6 +92,18 @@ Signal records include `trace_id` / `trade_id` when available.
 
 ---
 
+## Activation (désactivées par défaut depuis 2026-10)
+
+Chaque bloc stratégie dans `data/config/strategies.json` / `app/core/defaults/strategies.default.json` expose **`enabled`** et **`active`**. Par défaut, toutes les stratégies livrées sont à `false` jusqu’à validation backtest.
+
+- Réactivation manuelle : `"enabled": true, "active": true` sur la stratégie concernée (params inchangés).
+- API : toggle via le router engine ou mise à jour du JSON complet (`PUT /api/config/strategies-config`).
+- Redéploiement : si `meta.defaults_revision` dans les defaults change, le démarrage recopie uniquement `enabled`/`active` depuis les defaults (merge non destructif des params).
+
+Le scanner (`ScannerJob._active_strategies`) ignore les stratégies avec `enabled` ou `active` à `false`.
+
+---
+
 ## Checklist — add a new strategy
 
 1. **Copy** [`_template_strategy.py`](./_template_strategy.py) → `ma_strategie.py`.

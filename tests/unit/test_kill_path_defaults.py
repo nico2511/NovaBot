@@ -56,5 +56,8 @@ def test_strategy_json_kill_path_defaults():
         assert float(cfg["waterfall"]["params"]["max_1m_chase_atr"]) == 0.35
         assert cfg["spark"]["enabled"] is False
         assert cfg["ember"]["enabled"] is False
-        assert cfg["rocket"]["enabled"] is True
-        assert cfg["waterfall"]["enabled"] is True
+        assert cfg["rocket"]["enabled"] is False
+        assert cfg["waterfall"]["enabled"] is False
+        assert cfg["supertrend"]["enabled"] is False
+        assert cfg["trend_lt"]["enabled"] is False
+        assert cfg["range_lt"]["enabled"] is False
