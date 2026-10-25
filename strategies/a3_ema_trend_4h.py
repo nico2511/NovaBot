@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import pandas as pd
 
+from app.core.candle_timing import last_candle_is_forming
 from app.core.a3_ema_trend_logic import (
     A3_UNIVERSE_DEFAULT,
     atr_on_signal_bar,
@@ -52,8 +53,11 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
 
     def __init__(self, config=None):
         super().__init__(config)
-        self._suppress_reentry_after_exit = False
+        self._last_signal_bars: Dict[str, pd.Timestamp] = {}
+        self._pending_signal_bars: Dict[str, pd.Timestamp] = {}
+        self._suppress_reentry_after_exit: Dict[str, bool] = {}
         self._last_exit_cross_side: Optional[str] = None
+        self._sticky_symbol: Optional[str] = None
 
     def get_ai_validation_criteria(self):
         return self.AI_VALIDATION_CRITERIA
@@ -79,6 +83,80 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
             return f"HARD VETO (A3): {sym} not in A3 universe ({len(allowed)} coins)"
         return None
 
+    @staticmethod
+    def _normalize_symbol(symbol: Optional[str]) -> str:
+        sym = str(symbol or "").upper().replace("-USD", "").replace("-USDC", "")
+        if sym.startswith("K") and len(sym) > 2:
+            sym = sym[1:]
+        return sym
+
+    def _symbol_from(self, extra_data=None) -> str:
+        extra = extra_data or {}
+        sym = extra.get("symbol") or self._sticky_symbol
+        return self._normalize_symbol(sym)
+
+    def restore_sticky_for_symbol(self, symbol: str, state: dict) -> None:
+        sym = self._normalize_symbol(symbol)
+        self._sticky_symbol = sym or None
+        bar = state.get("_last_signal_bar") if state else None
+        if sym and bar is not None:
+            self._last_signal_bars[sym] = bar
+        elif sym and sym in self._last_signal_bars:
+            self._last_signal_bars.pop(sym, None)
+        for field in ("looking_for_entry", "entry_direction", "_last_entry_time"):
+            if state and field in state:
+                setattr(self, field, state[field])
+            elif field == "looking_for_entry":
+                setattr(self, field, False)
+            elif field == "_last_entry_time":
+                setattr(self, field, None)
+
+    def export_sticky_for_symbol(self, symbol: str) -> Dict[str, Any]:
+        sym = self._normalize_symbol(symbol)
+        self._sticky_symbol = sym or None
+        return {
+            "looking_for_entry": getattr(self, "looking_for_entry", False),
+            "entry_direction": getattr(self, "entry_direction", None),
+            "_last_entry_time": getattr(self, "_last_entry_time", None),
+            "_last_signal_bar": self._last_signal_bars.get(sym) if sym else None,
+        }
+
+    def clear_inflight_signal_bar(self, symbol: Optional[str] = None) -> None:
+        sym = self._normalize_symbol(symbol)
+        if sym:
+            self._pending_signal_bars.pop(sym, None)
+
+    def mark_entry_fill(self, ts=None, symbol: Optional[str] = None) -> None:
+        super().mark_entry_fill(ts)
+        sym = self._normalize_symbol(symbol) or self._sticky_symbol
+        if not sym:
+            return
+        pending = self._pending_signal_bars.pop(sym, None)
+        if pending is not None:
+            self._last_signal_bars[sym] = pending
+
+    def get_thesis_candle_limit(self) -> int:
+        min_warmup = int(self.get_param("min_warmup_bars", 300) or 300)
+        return max(400, min_warmup + 2)
+
+    def _same_bar_already_signaled(self, now_ts, symbol: Optional[str] = None) -> bool:
+        sym = self._normalize_symbol(symbol)
+        if not sym:
+            return super()._same_bar_already_signaled(now_ts)
+        bar = self._last_signal_bars.get(sym)
+        now_n = self._naive_ts(now_ts)
+        bar_n = self._naive_ts(bar)
+        if now_n is None or bar_n is None:
+            return False
+        return now_n == bar_n
+
+    def _mark_signal_bar(self, now_ts, symbol: Optional[str] = None) -> None:
+        sym = self._normalize_symbol(symbol)
+        if sym:
+            self._pending_signal_bars[sym] = now_ts
+            return
+        super()._mark_signal_bar(now_ts)
+
     def _df_4h(self, df, extra_data=None) -> Optional[pd.DataFrame]:
         extra = extra_data or {}
         d4 = extra.get("4h")
@@ -98,9 +176,18 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
         )
 
     def generate_signal(self, df, extra_data=None):
+        extra = extra_data or {}
+        sym = self._symbol_from(extra)
+        if sym:
+            self._sticky_symbol = sym
+
         df_4h = self._df_4h(df, extra_data)
         if df_4h is None or getattr(df_4h, "empty", True):
             return self._reject("Missing 4H OHLCV")
+
+        ok, misalign = last_candle_is_forming(df_4h, "4h")
+        if not ok:
+            return self._reject(f"4H candle tail not aligned ({misalign})")
 
         min_warmup = int(self.get_param("min_warmup_bars", 300) or 300)
         if len(df_4h) < min_warmup + 2:
@@ -111,8 +198,8 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
         if side is None:
             return self._reject("No EMA crossover on closed 4H bar")
 
-        if self._suppress_reentry_after_exit:
-            self._suppress_reentry_after_exit = False
+        if sym and self._suppress_reentry_after_exit.get(sym):
+            self._suppress_reentry_after_exit[sym] = False
             return self._reject("Flat after inverse cross — no same-bar reversal")
 
         if side == "BUY" and not bool(self.get_param("allow_longs", True)):
@@ -132,21 +219,16 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
 
         sig_idx = -2 if len(ind) >= 2 else -1
         ts = str(ind.index[sig_idx])
-        if self._same_bar_already_signaled(ts):
+        if self._same_bar_already_signaled(ts, sym):
             return self._reject("Same 4H bar already signaled")
-        self._mark_signal_bar(ts)
-
-        # Dummy far TP — exits are stop / thesis (inverse cross), not TP.
-        if side == "BUY":
-            tp = entry * 1.5
-        else:
-            tp = entry * 0.5
+        self._mark_signal_bar(ts, sym)
 
         return {
             "signal": side,
             "price": float(entry),
             "sl": float(sl),
-            "tp": float(tp),
+            "tp": None,
+            "no_exchange_tp": True,
             "comment": f"A3 EMA cross {side} @ 4H {ts}",
             "a3_peak_close": float(ind["close"].iloc[sig_idx]),
             "a3_trough_close": float(ind["close"].iloc[sig_idx]),
@@ -177,6 +259,7 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
             "score": score,
             "bias": bias,
             "symbol": sym,
+            "timeframe": "4h",
             "reasons": [f"EMA20 vs EMA100 spread {spread:.2f}×ATR"],
         }
 
@@ -206,8 +289,10 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
             pnl_pct = _pnl_pct(side_u, entry, float(current_price))
         sig_idx = -2 if len(ind) >= 2 else -1
         close_bar = float(ind["close"].iloc[sig_idx])
+        trade_sym = self._normalize_symbol(trade.get("symbol"))
         if is_long and cross == "SELL":
-            self._suppress_reentry_after_exit = True
+            if trade_sym:
+                self._suppress_reentry_after_exit[trade_sym] = True
             return ThesisVerdict(
                 status=THESIS_DEAD,
                 action=ACTION_CLOSE,
@@ -220,7 +305,8 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
                 pnl_pct=pnl_pct,
             )
         if not is_long and cross == "BUY":
-            self._suppress_reentry_after_exit = True
+            if trade_sym:
+                self._suppress_reentry_after_exit[trade_sym] = True
             return ThesisVerdict(
                 status=THESIS_DEAD,
                 action=ACTION_CLOSE,

@@ -340,7 +340,14 @@ class HyperliquidService:
             return 900
 
 
-    def get_candles(self, symbol: str, interval: str = "15m", limit: int = 200) -> pd.DataFrame:
+    def get_candles(
+        self,
+        symbol: str,
+        interval: str = "15m",
+        limit: int = 200,
+        *,
+        require_forming_tail: bool = False,
+    ) -> pd.DataFrame:
         """
         Fetch OHLCV candles from Hyperliquid with robust data handling.
         
@@ -435,7 +442,17 @@ class HyperliquidService:
             # Trim to requested limit (after buffer)
             if len(df) > limit:
                 df = df.tail(limit)
-            
+
+            if require_forming_tail and not df.empty:
+                from app.core.candle_timing import last_candle_is_forming
+
+                ok, reason = last_candle_is_forming(df, interval)
+                if not ok:
+                    self.log(
+                        f"⚠️ Candle tail misaligned for {symbol} {interval}: {reason}"
+                    )
+                    return pd.DataFrame()
+
             return df
             
         except Exception as e:

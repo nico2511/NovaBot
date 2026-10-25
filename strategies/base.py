@@ -330,8 +330,9 @@ class BaseStrategy(ABC):
         except Exception:
             return None
 
-    def mark_entry_fill(self, ts=None) -> None:
+    def mark_entry_fill(self, ts=None, symbol: Optional[str] = None) -> None:
         """Arm fill-cooldown after a confirmed entry (bot machine calls this)."""
+        del symbol  # default strategies: wall-clock fill cooldown only
         self._last_entry_time = ts if ts is not None else pd.Timestamp.now()
 
     def _cooldown_ok(self, now_ts, cooldown_minutes: int):
