@@ -282,6 +282,7 @@ logs/
 ```
 
 Guide stratégie : [`strategies/README.md`](./strategies/README.md).  
+A3 EMA-Trend 4H (papier / live) : [`strategies/A3_EMA_TREND_4H.md`](./strategies/A3_EMA_TREND_4H.md).  
 Déploiement Coolify : [`DEPLOYMENT_COOLIFY.md`](./DEPLOYMENT_COOLIFY.md).
 
 Tests : `python -m pytest`.

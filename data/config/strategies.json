@@ -374,6 +374,56 @@
     "version": "2026-09-ember-v2",
     "expected_freq": "Rare (5m bear cascade only)"
   },
+  "a3_ema_trend_4h": {
+    "enabled": false,
+    "active": false,
+    "type": "always_active",
+    "risk_profile": "Balanced Growth",
+    "description": "A3 EMA 20/100 4H crossover trend with 4×ATR stop and trailing.",
+    "timeframe": "4h",
+    "signal_score_bonus": 90,
+    "skip_bb_anti_chase": true,
+    "params": {
+      "ema_fast": 20,
+      "ema_slow": 100,
+      "atr_period": 20,
+      "atr_stop_mult": 4.0,
+      "min_warmup_bars": 300,
+      "min_rr": 0,
+      "skip_ai_validation": true,
+      "allow_longs": true,
+      "allow_shorts": true,
+      "scan_interval_minutes": 240,
+      "cooldown_minutes": 0,
+      "symbols": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "BNB",
+        "XRP",
+        "DOGE",
+        "AVAX",
+        "LINK",
+        "ARB",
+        "OP",
+        "SUI",
+        "LTC",
+        "ADA",
+        "DOT",
+        "ATOM",
+        "NEAR",
+        "APT",
+        "INJ"
+      ]
+    },
+    "display_conditions": [
+      "EMAf",
+      "EMAs",
+      "ATR20"
+    ],
+    "version": "2026-10-a3-ema-4h-v1",
+    "expected_freq": "Medium (~450 trades/yr on 18 coins @ 4H crosses)"
+  },
   "meta": {
     "defaults_revision": "2026-10-25-strategies-off",
     "activation_policy": "Au déploiement, si defaults_revision change, enabled/active sont recopiés depuis strategies.default.json (params inchangés). Réactiver une stratégie : enabled+active true dans data/config/strategies.json ou via l'API."

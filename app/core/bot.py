@@ -591,6 +591,7 @@ class BotContext(LiveExecutionMixin):
             df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
             df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
             df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
+            df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
 
             if df_15m.empty:
                 df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
@@ -600,6 +601,8 @@ class BotContext(LiveExecutionMixin):
                 df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
             if df_1h.empty:
                 df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
+            if df_4h.empty:
+                df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
 
             if df_15m.empty or df_1m.empty:
                 return {
@@ -608,7 +611,7 @@ class BotContext(LiveExecutionMixin):
                 }
 
             numeric_cols = ["open", "high", "low", "close", "volume"]
-            for df_target in [df_15m, df_5m, df_1m, df_1h]:
+            for df_target in [df_15m, df_5m, df_1m, df_1h, df_4h]:
                 if df_target is None or getattr(df_target, "empty", True):
                     continue
                 for col in numeric_cols:
@@ -627,6 +630,7 @@ class BotContext(LiveExecutionMixin):
                 "1m": df_1m,
                 "5m": df_5m,
                 "1h": df_1h,
+                "4h": df_4h,
                 "symbol": symbol,
                 "funding_rate": funding_rate_live,
             }
@@ -663,6 +667,7 @@ class BotContext(LiveExecutionMixin):
                 "df_5m": df_5m,
                 "df_1m": df_1m,
                 "df_1h": df_1h,
+                "df_4h": df_4h,
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -694,11 +699,15 @@ class BotContext(LiveExecutionMixin):
         return BotContext._normalize_timeframe(cfg.get("timeframe") or "15m")
 
     @staticmethod
-    def _ohlcv_for_timeframe(timeframe: str, df_15m, df_1h=None, df_1m=None, df_5m=None):
+    def _ohlcv_for_timeframe(
+        timeframe: str, df_15m, df_1h=None, df_1m=None, df_5m=None, df_4h=None
+    ):
         """Pick the candle frame that matches a strategy's declared timeframe."""
         tf = BotContext._normalize_timeframe(timeframe)
         if tf == "1h" and df_1h is not None and not getattr(df_1h, "empty", True):
             return df_1h
+        if tf == "4h" and df_4h is not None and not getattr(df_4h, "empty", True):
+            return df_4h
         if tf == "5m" and df_5m is not None and not getattr(df_5m, "empty", True):
             return df_5m
         if tf == "1m" and df_1m is not None and not getattr(df_1m, "empty", True):
@@ -831,6 +840,70 @@ class BotContext(LiveExecutionMixin):
         if reason:
             summary = f"{title} — {reason}"
         self.add_log(f"❌ {summary}", metadata={"discord_sent": True})
+
+    def _record_a3_paper_closed_trade(
+        self,
+        trade: dict,
+        *,
+        exit_price: float,
+        pnl_usdc: float,
+        exit_reason: str,
+    ) -> None:
+        """Append closed A3 trades to the paper observation journal (metrics API)."""
+        if str(trade.get("strategy") or "") != "a3_ema_trend_4h":
+            return
+        try:
+            from app.core.a3_paper_journal import A3PaperJournal
+
+            journal = A3PaperJournal(BASE_DIR)
+            entry = float(trade.get("entry") or trade.get("entry_price") or 0)
+            slip = None
+            ref = trade.get("paper_ref_price")
+            if ref and entry:
+                try:
+                    slip = abs(float(exit_price) - float(ref)) / float(ref) * 100.0
+                except (TypeError, ValueError):
+                    slip = None
+            journal.record_closed_trade(
+                {
+                    "symbol": trade.get("symbol"),
+                    "side": trade.get("side"),
+                    "entry": entry,
+                    "exit": float(exit_price),
+                    "pnl_usd": float(pnl_usdc),
+                    "exit_reason": exit_reason,
+                    "slippage_pct_per_side": slip,
+                    "closed_at": pd.Timestamp.now(tz="UTC").isoformat(),
+                }
+            )
+            metrics = journal.metrics()
+            if metrics.get("any_stop_triggered"):
+                self._maybe_alert_a3_paper_stop_criteria(metrics)
+        except Exception as err:
+            self.add_log(f"⚠️ A3 paper journal update failed: {err}")
+
+    def _maybe_alert_a3_paper_stop_criteria(self, metrics: dict) -> None:
+        """One-shot Discord alert when paper stop criteria are breached."""
+        try:
+            from app.core.a3_paper_journal import A3PaperJournal
+
+            journal = A3PaperJournal(BASE_DIR)
+            data = journal._load()
+            alerts = data.get("alerts_sent") or {}
+            stops = metrics.get("stop_criteria") or {}
+            for key, fired in stops.items():
+                if not fired or alerts.get(key):
+                    continue
+                discord_service.send_alert(
+                    "⚠️ A3 paper — critère d'arrêt",
+                    f"Critère: `{key}`\nMétriques: {metrics}",
+                    color="FF9900",
+                )
+                alerts[key] = pd.Timestamp.now(tz="UTC").isoformat()
+            data["alerts_sent"] = alerts
+            journal._save(data)
+        except Exception as err:
+            self.add_log(f"⚠️ A3 paper stop alert failed: {err}")
 
     # Lightweight rotation for bot_activity.log: when the file exceeds
     # _ACTIVITY_LOG_MAX_BYTES, it is rotated to .1 (keeping a single backup).
@@ -1753,8 +1826,21 @@ class BotContext(LiveExecutionMixin):
                 if strategy_name and strategy_name in self.strategy_engine.strategies:
                     strat_instance = self.strategy_engine.strategies[strategy_name]
                     
-                    # Manage trade (pass None for df to avoid heavy fetching in loop)
-                    custom_updates = strat_instance.manage_trade(trade, current_price, df=None)
+                    df_manage = None
+                    extra_manage = None
+                    if hasattr(strat_instance, "get_thesis_timeframe"):
+                        tf_manage = strat_instance.get_thesis_timeframe()
+                        if tf_manage:
+                            df_manage = hyperliquid_service.get_candles(
+                                symbol, interval=tf_manage, limit=400
+                            )
+                            extra_manage = {tf_manage: df_manage}
+                    custom_updates = strat_instance.manage_trade(
+                        trade,
+                        current_price,
+                        df=df_manage,
+                        extra_data=extra_manage,
+                    )
                     
                     if custom_updates is not None:
                         handled_by_strategy = True
@@ -1771,6 +1857,13 @@ class BotContext(LiveExecutionMixin):
                                         t_ref["tp"] = custom_updates["tp"]
                                         changed = True
                                         self.add_log(f"🤖 Strategy {strategy_name} updated TP for {symbol} to {custom_updates['tp']}")
+                                    meta_up = custom_updates.get("metadata")
+                                    if isinstance(meta_up, dict):
+                                        t_ref["metadata"] = {
+                                            **(t_ref.get("metadata") or {}),
+                                            **meta_up,
+                                        }
+                                        changed = True
                                         
                                     if changed:
                                         t_ref["initial_sl_tp_set"] = True
@@ -2125,6 +2218,12 @@ class BotContext(LiveExecutionMixin):
                 "entry_time": trade.get("timestamp"),
                 "entry_indicators": trade.get("entry_indicators", {}),
             })
+            self._record_a3_paper_closed_trade(
+                trade,
+                exit_price=exit_price,
+                pnl_usdc=pnl_usdc,
+                exit_reason=exit_reason,
+            )
             try:
                 self.risk_manager.record_trade_close(float(pnl_usdc))
             except Exception as risk_err:
@@ -2650,14 +2749,23 @@ class BotContext(LiveExecutionMixin):
                             getattr(self.strategy_engine, "config", None),
                             strat_name,
                         )
+                        df_4h_sig = None
+                        if sig_tf == "4h":
+                            df_4h_sig = hyperliquid_service.get_candles(
+                                sig_symbol or self.active_symbol,
+                                interval="4h",
+                                limit=400,
+                            )
                         ai_df = self._ohlcv_for_timeframe(
                             sig_tf,
                             df_15m,
                             df_1h=df_1h,
                             df_1m=df_1m,
                             df_5m=df_5m,
+                            df_4h=df_4h_sig,
                         )
                         market_context = self._prepare_ai_context(df=ai_df, timeframe=sig_tf)
+                        market_context["symbol"] = sig_symbol or self.active_symbol
                         market_context = self._apply_strategy_tape_overlay(
                             market_context,
                             sig_tf=sig_tf,
@@ -2736,11 +2844,17 @@ class BotContext(LiveExecutionMixin):
                         approved = False
                         val_res = None
                         strategy_persona = None
+                        skip_ai = False
+                        if strat_obj is not None:
+                            try:
+                                skip_ai = bool(strat_obj.get_param("skip_ai_validation", False))
+                            except Exception:
+                                skip_ai = False
 
                         # 45s AI skip: do not Discord-notify, do not continue past loop sleep,
                         # do not arm fill-cooldown (never set on signal). Clear same-bar so
                         # the next loop can retry AI on this candle once the gate opens.
-                        if time_since_last_call < 45:
+                        if time_since_last_call < 45 and not skip_ai:
                             self.add_log(
                                 f"⏳ AI COOLDOWN: Skipping (only {time_since_last_call:.0f}s since last)"
                             )
@@ -2788,36 +2902,60 @@ class BotContext(LiveExecutionMixin):
                                         discord_service.send_log(f"AI PAYLOAD trace={ai_trace_id}: {preview}")
                                     except Exception as discord_err:
                                         self.add_log(f"⚠️ Discord log failed (AI payload): {discord_err}")
-                            val_res = ia_service.validate_signal(
-                                sig,
-                                ai_context,
-                                strategy_persona=strategy_persona,
-                                strategy=strat_obj,
-                            )
-                            self.last_ai_call = current_time
-                            if self._ai_payload_debug_enabled():
-                                try:
-                                    raw = (val_res or {}).get("raw_output")
-                                    resp_obj = {
-                                        "ts": pd.Timestamp.now().isoformat(),
-                                        "trace_id": ai_trace_id,
-                                        "symbol": sig.get("symbol", self.active_symbol),
-                                        "strategy": sig.get("strategy"),
-                                        "raw_output": raw,
-                                        "model": (val_res or {}).get("model"),
-                                    }
-                                    self._write_ai_payload_log({"type": "ai_response", **resp_obj})
-                                    if self._ai_payload_debug_discord_enabled():
-                                        preview = self._safe_json_preview(
-                                            {"trace_id": ai_trace_id, "raw_output": raw},
-                                            max_chars=config.AI_PAYLOAD_DEBUG_MAX_CHARS,
+                            if skip_ai:
+                                val_res = {
+                                    "approved": True,
+                                    "reasoning": "skip_ai_validation (systematic plan)",
+                                    "confidence": 100,
+                                    "risk_level": "LOW",
+                                }
+                                self.add_log(
+                                    f"⏭️ AI skipped ({strat_name}): systematic validation disabled"
+                                )
+                            else:
+                                val_res = ia_service.validate_signal(
+                                    sig,
+                                    ai_context,
+                                    strategy_persona=strategy_persona,
+                                    strategy=strat_obj,
+                                )
+                                self.last_ai_call = current_time
+                                if self._ai_payload_debug_enabled():
+                                    try:
+                                        raw = (val_res or {}).get("raw_output")
+                                        resp_obj = {
+                                            "ts": pd.Timestamp.now().isoformat(),
+                                            "trace_id": ai_trace_id,
+                                            "symbol": sig.get("symbol", self.active_symbol),
+                                            "strategy": sig.get("strategy"),
+                                            "raw_output": raw,
+                                            "model": (val_res or {}).get("model"),
+                                        }
+                                        self._write_ai_payload_log({"type": "ai_response", **resp_obj})
+                                        if self._ai_payload_debug_discord_enabled():
+                                            preview = self._safe_json_preview(
+                                                {"trace_id": ai_trace_id, "raw_output": raw},
+                                                max_chars=config.AI_PAYLOAD_DEBUG_MAX_CHARS,
+                                            )
+                                            discord_service.send_log(
+                                                f"AI RESPONSE trace={ai_trace_id}: {preview}"
+                                            )
+                                    except Exception as e:
+                                        self.add_log(
+                                            f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}"
                                         )
-                                        discord_service.send_log(f"AI RESPONSE trace={ai_trace_id}: {preview}")
-                                except Exception as e:
-                                    self.add_log(f"⚠️ Failed to capture AI response (trace={ai_trace_id}): {e}")
 
-                        if time_since_last_call < 45:
+                        if time_since_last_call < 45 and not skip_ai:
                             approved = False
+                        elif skip_ai and val_res and val_res.get("approved"):
+                            approved = True
+                            self._record_signal_analysis(
+                                sig,
+                                val_res,
+                                True,
+                                indicators=ai_context,
+                                trace_id=ai_trace_id,
+                            )
                         elif not val_res:
                             approved = False
                             self.add_log("⚠️ AI Validation: empty response. Defaulting to REJECT.")
@@ -3189,6 +3327,9 @@ class BotContext(LiveExecutionMixin):
                                     "cascade_ema9",
                                     "cascade_high",
                                     "cascade_low",
+                                    "a3_peak_close",
+                                    "a3_trough_close",
+                                    "a3_atr_entry",
                                 ):
                                     if sig.get(plan_key) is not None:
                                         meta[plan_key] = sig[plan_key]
