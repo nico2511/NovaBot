@@ -1,4 +1,4 @@
-"""All shipped strategies off by default; no entry signals; revision sync on deploy."""
+"""Default strategy activation flags and defaults_revision sync on deploy."""
 from __future__ import annotations
 
 import json
@@ -21,27 +21,32 @@ CONFIG_PATHS = (
     ROOT / "app" / "core" / "defaults" / "strategies.default.json",
     ROOT / "data" / "config" / "strategies.json",
 )
-EXPECTED_REVISION = "2026-10-25-strategies-off"
+EXPECTED_REVISION = "2026-10-25-a3-on"
+ONLY_ENABLED_STRATEGY = "a3_ema_trend_4h"
 
 
 def _load_cfg(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def test_all_strategy_blocks_disabled_in_default_configs():
+def test_default_configs_only_a3_enabled():
     for path in CONFIG_PATHS:
         cfg = _load_cfg(path)
         names = strategy_config_keys(cfg)
         assert names, f"No strategy blocks in {path}"
         for name in names:
             block = cfg[name]
-            assert block.get("enabled") is False, f"{path.name}:{name}.enabled"
-            assert block.get("active") is False, f"{path.name}:{name}.active"
+            if name == ONLY_ENABLED_STRATEGY:
+                assert block.get("enabled") is True, f"{path.name}:{name}.enabled"
+                assert block.get("active") is True, f"{path.name}:{name}.active"
+            else:
+                assert block.get("enabled") is False, f"{path.name}:{name}.enabled"
+                assert block.get("active") is False, f"{path.name}:{name}.active"
         meta = cfg.get("meta") or {}
         assert meta.get("defaults_revision") == EXPECTED_REVISION
 
 
-def test_strategy_engine_emits_no_signals_with_default_config():
+def test_strategy_engine_only_a3_active_with_default_config():
     cfg = _load_cfg(ROOT / "data" / "config" / "strategies.json")
     engine = StrategyEngine(config=cfg)
     n = 260
@@ -66,7 +71,7 @@ def test_strategy_engine_emits_no_signals_with_default_config():
         "5m": df,
     }
     out = engine.analyze(df, extra_data=extra)
-    assert out.get("strategies") == []
+    assert out.get("strategies") == [ONLY_ENABLED_STRATEGY]
     assert out.get("signals") == []
 
 
@@ -74,8 +79,10 @@ def test_sync_applies_enabled_active_when_defaults_revision_changes(tmp_path):
     default_cfg = _load_cfg(ROOT / "app" / "core" / "defaults" / "strategies.default.json")
     runtime_cfg = json.loads(json.dumps(default_cfg))
     for name in strategy_config_keys(runtime_cfg):
-        runtime_cfg[name]["enabled"] = True
-        runtime_cfg[name]["active"] = True
+        runtime_cfg[name]["enabled"] = False
+        runtime_cfg[name]["active"] = False
+    runtime_cfg[ONLY_ENABLED_STRATEGY]["enabled"] = False
+    runtime_cfg[ONLY_ENABLED_STRATEGY]["active"] = False
     runtime_cfg["meta"] = {"defaults_revision": "legacy-pre-2026-10"}
 
     defaults_dir = tmp_path / "app" / "core" / "defaults"
@@ -91,8 +98,12 @@ def test_sync_applies_enabled_active_when_defaults_revision_changes(tmp_path):
     assert result["status"] in ("updated", "noop")
     synced = json.loads((ss.config_dir / "strategies.json").read_text())
     for name in strategy_config_keys(synced):
-        assert synced[name]["enabled"] is False
-        assert synced[name]["active"] is False
+        if name == ONLY_ENABLED_STRATEGY:
+            assert synced[name]["enabled"] is True
+            assert synced[name]["active"] is True
+        else:
+            assert synced[name]["enabled"] is False
+            assert synced[name]["active"] is False
     assert synced["meta"]["defaults_revision"] == EXPECTED_REVISION
     assert float(synced["rocket"]["params"]["min_rr"]) == float(
         default_cfg["rocket"]["params"]["min_rr"]
@@ -108,9 +119,18 @@ def test_apply_enabled_active_preserves_params():
             "type": "trend",
             "params": {"min_rr": 9.9, "custom_flag": True},
         },
+        ONLY_ENABLED_STRATEGY: {
+            "enabled": False,
+            "active": False,
+            "type": "always_active",
+            "params": {"custom_a3": 1},
+        },
         "meta": {"defaults_revision": "old"},
     }
     out = apply_enabled_active_from_defaults(runtime, default_cfg)
     assert out["rocket"]["enabled"] is False
     assert out["rocket"]["params"]["min_rr"] == 9.9
     assert out["rocket"]["params"]["custom_flag"] is True
+    assert out[ONLY_ENABLED_STRATEGY]["enabled"] is True
+    assert out[ONLY_ENABLED_STRATEGY]["active"] is True
+    assert out[ONLY_ENABLED_STRATEGY]["params"]["custom_a3"] == 1
