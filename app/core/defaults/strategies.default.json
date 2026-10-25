@@ -371,8 +371,8 @@
         "expected_freq": "Rare (5m bear cascade only)"
     },
     "a3_ema_trend_4h": {
-        "enabled": false,
-        "active": false,
+        "enabled": true,
+        "active": true,
         "type": "always_active",
         "risk_profile": "Balanced Growth",
         "description": "A3 EMA 20/100 4H crossover trend with 4×ATR stop and trailing.",
@@ -421,7 +421,7 @@
         "expected_freq": "Medium (~450 trades/yr on 18 coins @ 4H crosses)"
     },
     "meta": {
-        "defaults_revision": "2026-10-25-strategies-off",
+        "defaults_revision": "2026-10-25-a3-on",
         "activation_policy": "Au déploiement, si defaults_revision change, enabled/active sont recopiés depuis strategies.default.json (params inchangés). Réactiver une stratégie : enabled+active true dans data/config/strategies.json ou via l'API."
     }
 }
