@@ -8,6 +8,7 @@ from strategies.waterfall import StrategyWaterfall
 from strategies.rocket import StrategyRocket
 from strategies.spark import StrategySpark
 from strategies.ember import StrategyEmber
+from strategies.a3_ema_trend_4h import StrategyA3EmaTrend4h
 from strategies.cascade_rider import detect_bear_cascade, detect_bull_cascade
 
 # Import robuste pour Panic Close
@@ -44,6 +45,7 @@ class StrategyEngine:
             "rocket": StrategyRocket(strats_config.get("rocket")),
             "spark": StrategySpark(strats_config.get("spark")),
             "ember": StrategyEmber(strats_config.get("ember")),
+            "a3_ema_trend_4h": StrategyA3EmaTrend4h(strats_config.get("a3_ema_trend_4h")),
         }
 
         for key, strategy in self.strategies.items():
@@ -96,6 +98,9 @@ class StrategyEngine:
             "1min": "1m",
             "15m": "15m",
             "15": "15m",
+            "4h": "4h",
+            "240m": "4h",
+            "240": "4h",
         }
         return aliases.get(t, t or "15m")
 
@@ -108,6 +113,10 @@ class StrategyEngine:
             df_1h = extra.get("1h")
             if df_1h is not None and not getattr(df_1h, "empty", True):
                 return df_1h
+        if tf == "4h":
+            df_4h = extra.get("4h")
+            if df_4h is not None and not getattr(df_4h, "empty", True):
+                return df_4h
         if tf == "5m":
             df_5m = extra.get("5m")
             if df_5m is not None and not getattr(df_5m, "empty", True):

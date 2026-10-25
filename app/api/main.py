@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MainApp")
 
 # Import routers
-from app.api.routers import engine, trading, market, settings, history, scanner, journal
+from app.api.routers import engine, trading, market, settings, history, scanner, journal, a3_metrics
 
 # Settings Watcher
 from app.services.settings_watcher import SettingsWatcher
@@ -184,6 +184,7 @@ app.include_router(history.router)
 app.include_router(history.logs_router)  # Logs at /api/logs
 app.include_router(scanner.router)
 app.include_router(journal.router)
+app.include_router(a3_metrics.router)
 
 logger.info("✅ Routers registered: engine, trading, market, settings, history, logs, journal")
 
