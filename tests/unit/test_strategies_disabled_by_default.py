@@ -21,7 +21,7 @@ CONFIG_PATHS = (
     ROOT / "app" / "core" / "defaults" / "strategies.default.json",
     ROOT / "data" / "config" / "strategies.json",
 )
-EXPECTED_REVISION = "2026-10-25-a3-on"
+EXPECTED_REVISION = "2026-10-26-a3-sync-fix"
 ONLY_ENABLED_STRATEGY = "a3_ema_trend_4h"
 
 

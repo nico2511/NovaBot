@@ -425,7 +425,7 @@
     "expected_freq": "Medium (~450 trades/yr on 18 coins @ 4H crosses)"
   },
   "meta": {
-    "defaults_revision": "2026-10-25-a3-on",
+    "defaults_revision": "2026-10-26-a3-sync-fix",
     "activation_policy": "Au déploiement, si defaults_revision change, enabled/active sont recopiés depuis strategies.default.json (params inchangés). Réactiver une stratégie : enabled+active true dans data/config/strategies.json ou via l'API."
   }
 }
