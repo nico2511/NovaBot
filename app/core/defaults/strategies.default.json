@@ -2,21 +2,28 @@
     "market_regime": {
         "adx_threshold": 22
     },
-        "weekend_pause": {
+    "weekend_pause": {
         "enabled": true,
         "timezone": "Europe/Paris",
         "start_weekday": 5,
         "start_hour": 6,
         "end_weekday": 0,
         "end_hour": 6,
-        "strategies": ["trend_lt", "range_lt", "rocket", "waterfall", "spark", "ember"]
+        "strategies": [
+            "trend_lt",
+            "range_lt",
+            "rocket",
+            "waterfall",
+            "spark",
+            "ember"
+        ]
     },
     "supertrend": {
-        "enabled": true,
+        "enabled": false,
         "type": "trend",
         "risk_profile": "Balanced Growth",
         "description": "Supertrend strategy with EMA 200 filter and multi-timeframe precision.",
-        "active": true,
+        "active": false,
         "timeframe": "15m",
         "params": {
             "period": 10,
@@ -55,16 +62,20 @@
             "strong_trend_thin_liquidity_pct": 55,
             "strong_trend_veto_macd_momentum": false
         },
-        "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
+        "display_conditions": [
+            "Supertrend",
+            "EMA_200",
+            "ADX_14"
+        ],
         "version": "2026-09-strong-trend-v1",
         "expected_freq": "Medium (pullback + ST reclaim)"
     },
     "trend_lt": {
-        "enabled": true,
+        "enabled": false,
         "type": "always_active",
         "risk_profile": "Balanced Growth",
         "description": "Longer-horizon 1h EMA200 + SuperTrend pullback/reclaim swings.",
-        "active": true,
+        "active": false,
         "timeframe": "1h",
         "signal_score_bonus": 100,
         "params": {
@@ -107,16 +118,20 @@
             "strong_trend_veto_macd_momentum": false,
             "strong_trend_relax_mtf_veto": true
         },
-        "display_conditions": ["Supertrend", "EMA_200", "ADX_14"],
+        "display_conditions": [
+            "Supertrend",
+            "EMA_200",
+            "ADX_14"
+        ],
         "version": "2026-09-strong-trend-v1",
         "expected_freq": "Low (1h pullback + reclaim)"
     },
     "range_lt": {
-        "enabled": true,
+        "enabled": false,
         "type": "always_active",
         "risk_profile": "Capital Preservation First",
         "description": "1h box fade: mean-reversion at range extremes when ADX is low and EMA50 is flat.",
-        "active": true,
+        "active": false,
         "timeframe": "1h",
         "signal_score_bonus": 50,
         "params": {
@@ -148,16 +163,21 @@
             "allow_shorts": true,
             "scan_interval_minutes": 60
         },
-        "display_conditions": ["RangeHigh", "RangeLow", "EMA_50", "ADX_14"],
+        "display_conditions": [
+            "RangeHigh",
+            "RangeLow",
+            "EMA_50",
+            "ADX_14"
+        ],
         "version": "2026-08-range-lt-v1",
         "expected_freq": "Low (1h box rejection fade)"
     },
     "waterfall": {
-        "enabled": true,
+        "enabled": false,
         "type": "trend",
         "risk_profile": "Balanced Growth",
         "description": "Short-only 15m cascade rider: double red, lower lows, price < EMA9 < EMA20.",
-        "active": true,
+        "active": false,
         "timeframe": "15m",
         "signal_score_bonus": 120,
         "skip_bb_anti_chase": true,
@@ -173,7 +193,7 @@
             "veto_rsi_oversold": 28,
             "veto_vol_slope_min": -30,
             "floor_proximity_pct": 0.35,
-            "breakdown_clear_pct": 0.60,
+            "breakdown_clear_pct": 0.6,
             "struct_lookback": 96,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -193,16 +213,20 @@
             "strong_trend_min_volume_ratio_pct": 80,
             "strong_trend_veto_macd_momentum": false
         },
-        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "display_conditions": [
+            "EMA_9",
+            "EMA_20",
+            "RSI_14"
+        ],
         "version": "2026-09-cascade-rider-v4",
         "expected_freq": "Rare (bear cascade only)"
     },
     "rocket": {
-        "enabled": true,
+        "enabled": false,
         "type": "trend",
         "risk_profile": "Balanced Growth",
         "description": "Long-only 15m pump rider: double green, higher highs, price > EMA9 > EMA20.",
-        "active": true,
+        "active": false,
         "timeframe": "15m",
         "signal_score_bonus": 120,
         "skip_bb_anti_chase": true,
@@ -220,7 +244,7 @@
             "thesis_weak_tighten_min_pnl_pct": 0.35,
             "veto_vol_slope_min": -30,
             "ceiling_proximity_pct": 0.35,
-            "breakout_clear_pct": 0.60,
+            "breakout_clear_pct": 0.6,
             "struct_lookback": 96,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -240,7 +264,11 @@
             "strong_trend_min_volume_ratio_pct": 80,
             "strong_trend_veto_macd_momentum": false
         },
-        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "display_conditions": [
+            "EMA_9",
+            "EMA_20",
+            "RSI_14"
+        ],
         "version": "2026-09-cascade-rider-v4",
         "expected_freq": "Rare (bull cascade only)"
     },
@@ -249,7 +277,7 @@
         "type": "trend",
         "risk_profile": "Balanced Growth",
         "description": "Long-only 5m fast pump rider: double green, higher highs, price > EMA9 > EMA20.",
-        "active": true,
+        "active": false,
         "timeframe": "5m",
         "signal_score_bonus": 115,
         "skip_bb_anti_chase": true,
@@ -267,7 +295,7 @@
             "thesis_weak_tighten_min_pnl_pct": 0.35,
             "veto_vol_slope_min": -30,
             "ceiling_proximity_pct": 0.35,
-            "breakout_clear_pct": 0.60,
+            "breakout_clear_pct": 0.6,
             "struct_lookback": 48,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -286,7 +314,11 @@
             "strong_trend_min_volume_ratio_pct": 80,
             "strong_trend_veto_macd_momentum": false
         },
-        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "display_conditions": [
+            "EMA_9",
+            "EMA_20",
+            "RSI_14"
+        ],
         "version": "2026-09-spark-v2",
         "expected_freq": "Rare (5m bull cascade only)"
     },
@@ -295,7 +327,7 @@
         "type": "trend",
         "risk_profile": "Balanced Growth",
         "description": "Short-only 5m fast dump rider: double red, lower lows, price < EMA9 < EMA20.",
-        "active": true,
+        "active": false,
         "timeframe": "5m",
         "signal_score_bonus": 115,
         "skip_bb_anti_chase": true,
@@ -311,7 +343,7 @@
             "veto_rsi_oversold": 26,
             "veto_vol_slope_min": -30,
             "floor_proximity_pct": 0.35,
-            "breakdown_clear_pct": 0.60,
+            "breakdown_clear_pct": 0.6,
             "struct_lookback": 48,
             "struct_exclude_bars": 3,
             "range_exhaustion_enabled": true,
@@ -330,8 +362,16 @@
             "strong_trend_min_volume_ratio_pct": 80,
             "strong_trend_veto_macd_momentum": false
         },
-        "display_conditions": ["EMA_9", "EMA_20", "RSI_14"],
+        "display_conditions": [
+            "EMA_9",
+            "EMA_20",
+            "RSI_14"
+        ],
         "version": "2026-09-ember-v2",
         "expected_freq": "Rare (5m bear cascade only)"
+    },
+    "meta": {
+        "defaults_revision": "2026-10-25-strategies-off",
+        "activation_policy": "Au déploiement, si defaults_revision change, enabled/active sont recopiés depuis strategies.default.json (params inchangés). Réactiver une stratégie : enabled+active true dans data/config/strategies.json ou via l'API."
     }
 }

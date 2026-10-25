@@ -203,6 +203,24 @@ curl -H "X-API-Key: ..." "https://.../api/history/timeline?symbol=ETH&limit=100"
 
 Stratégies : SuperTrend 15m + Trend LT 1h — voir [`strategies/README.md`](strategies/README.md).
 
+### Stratégies désactivées par défaut (2026-10)
+
+Toutes les stratégies livrées (`supertrend`, `trend_lt`, `range_lt`, `rocket`, `waterfall`, `spark`, `ember`) sont **`enabled: false` et `active: false`** dans `app/core/defaults/strategies.default.json` et `data/config/strategies.json`. Aucune nouvelle entrée automatique n’est émise tant qu’une stratégie n’est pas réactivée explicitement.
+
+**Au redéploiement**, `sync_strategies_from_defaults()` (appelé au démarrage via `main.py`) recopie `enabled` / `active` depuis les defaults si `meta.defaults_revision` a changé — utile pour neutraliser un `data/config/strategies.json` persistant qui aurait encore `enabled: true`, sans écraser vos params (`min_rr`, filtres, etc.).
+
+**Réactiver une stratégie** (après validation backtest) :
+
+1. **Fichier** — éditer `data/config/user_settings.json` n’affecte pas les stratégies ; c’est `data/config/strategies.json` :
+   ```json
+   "trend_lt": { "enabled": true, "active": true, ... }
+   ```
+2. **API** — `POST /api/engine/strategies/{id}/toggle` ou `PUT /api/config/strategies-config` (voir [`strategies/README.md`](strategies/README.md)).
+
+**État persistant `data/bot_state.json`** : ne contient pas les flags `enabled` des stratégies. Il peut toutefois restaurer `trading_enabled: true` et du `strategy_sticky` (setups « armés » en mémoire) — sans stratégie activée, le moteur n’appelle pas `generate_signal` et n’ouvre pas de position. Pour repartir en observation pure : `trading_enabled: false` dans `bot_state.json` ou `operations.auto_start_trading: false` dans `user_settings.json`, puis `POST /api/trading/disable`.
+
+**Positions déjà ouvertes** : SL/TP exchange, trailing stop (`trailing_logic`), sync de réconciliation et `evaluate_trade_thesis` continuent de s’appliquer aux trades existants même si la stratégie est désactivée.
+
 ---
 
 ## Variables d'environnement
