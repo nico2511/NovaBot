@@ -259,20 +259,30 @@ class StorageService:
             if not isinstance(runtime_cfg, dict):
                 runtime_cfg = {}
 
+            # Compare revision on the *persisted* runtime file only. Do not read
+            # defaults_revision from merged_cfg: _merge_missing may copy the new
+            # revision from defaults into meta before we decide whether to apply
+            # enabled/active — that skipped apply in prod (all strategies stayed
+            # true while meta showed the new revision).
+            runtime_meta_before = (
+                runtime_cfg.get("meta") if isinstance(runtime_cfg.get("meta"), dict) else {}
+            )
+            runtime_rev_before = str(runtime_meta_before.get("defaults_revision") or "")
+
             old_top = set(runtime_cfg.keys())
             merged_cfg = self._merge_missing(runtime_cfg, default_cfg)
 
             default_meta = default_cfg.get("meta") if isinstance(default_cfg.get("meta"), dict) else {}
-            runtime_meta = merged_cfg.get("meta") if isinstance(merged_cfg.get("meta"), dict) else {}
             default_rev = str(default_meta.get("defaults_revision") or "")
-            runtime_rev = str(runtime_meta.get("defaults_revision") or "")
-            if default_rev and default_rev != runtime_rev:
+            if default_rev and default_rev != runtime_rev_before:
                 merged_cfg = apply_enabled_active_from_defaults(merged_cfg, default_cfg)
                 logger.info(
                     "Strategy enabled/active synced from defaults (revision %s → %s)",
-                    runtime_rev or "(none)",
+                    runtime_rev_before or "(none)",
                     default_rev,
                 )
+                result["applied_defaults_revision"] = default_rev
+                result["previous_defaults_revision"] = runtime_rev_before or None
 
             # Drop obsolete strategy blocks no longer present in defaults
             # (keeps market_regime + currently shipped strategies only).
