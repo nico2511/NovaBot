@@ -260,6 +260,7 @@ REJECT if the signal is not on the crossover bar or symbol is outside the A3 uni
             "bias": bias,
             "symbol": sym,
             "timeframe": "4h",
+            "score_label": "Proximité croisement",
             "reasons": [f"EMA20 vs EMA100 spread {spread:.2f}×ATR"],
         }
 
