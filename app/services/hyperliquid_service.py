@@ -1,7 +1,12 @@
 import eth_account
+import os
+import threading
+from contextlib import nullcontext
+
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import types
+from hyperliquid.utils.error import ClientError
 from app.core.config import config
 import pandas as pd
 import time
@@ -15,9 +20,34 @@ from app.utils.retry_decorator import (
     standard_operation,
     lightweight_operation,
     _is_rate_limit_error,
+    backoff_delay,
 )
 from app.utils.websocket_manager import WebSocketPriceManager
-from app.utils.rate_limiter import rate_limiter
+from app.utils.rate_limiter import (
+    rate_limiter,
+    hl_info_limiter,
+    estimate_info_weight,
+    payload_priority,
+    InfoRateLimited,
+    hl_priority,
+)
+
+
+class ThrottledInfo(Info):
+    """Info client with weighted /info throttling (Exchange unchanged)."""
+
+    def post(self, url_path, payload):  # type: ignore[override]
+        priority = payload_priority(payload)
+        weight = estimate_info_weight(payload)
+        hl_info_limiter.acquire(weight, priority)
+        try:
+            result = super().post(url_path, payload)
+            hl_info_limiter.note_success()
+            return result
+        except ClientError as exc:
+            if getattr(exc, "status_code", None) == 429 or _is_rate_limit_error(exc):
+                hl_info_limiter.note_rate_limited()
+            raise
 
 class HyperliquidService:
     # Fallback IOC offset when symbol-specific slip cannot be resolved (alts).
@@ -88,7 +118,7 @@ class HyperliquidService:
         """Create Info with a sanitized spot_meta fallback for sparse indices."""
         base_url = self._api_base_url()
         try:
-            return Info(base_url=base_url, skip_ws=True)
+            return ThrottledInfo(base_url=base_url, skip_ws=True)
         except (IndexError, KeyError) as e:
             print(
                 f"⚠️ [HyperliquidService] Info init hit spot meta index issue ({e}). "
@@ -96,12 +126,20 @@ class HyperliquidService:
             )
             from hyperliquid.api import API
 
-            raw_spot = API(base_url).post("/info", {"type": "spotMeta"})
+            payload = {"type": "spotMeta"}
+            hl_info_limiter.acquire(estimate_info_weight(payload), "normal")
+            try:
+                raw_spot = API(base_url).post("/info", payload)
+                hl_info_limiter.note_success()
+            except ClientError as exc:
+                if getattr(exc, "status_code", None) == 429 or _is_rate_limit_error(exc):
+                    hl_info_limiter.note_rate_limited()
+                raise
             clean_spot = self._sanitize_spot_meta(raw_spot)
             dropped = len(raw_spot.get("universe") or []) - len(clean_spot["universe"])
             if dropped:
                 print(f"⚠️ [HyperliquidService] Dropped {dropped} malformed spot pairs from meta")
-            return Info(base_url=base_url, skip_ws=True, spot_meta=clean_spot)
+            return ThrottledInfo(base_url=base_url, skip_ws=True, spot_meta=clean_spot)
     
     def __init__(self):
         # Initialize Info API (WebSocket will be managed separately)
@@ -168,7 +206,9 @@ class HyperliquidService:
         
         # Balance cache to prevent 429s from frontend polling
         self._balance_cache = {"time": 0, "data": None}
-        self._cache_ttl = 10 # 10 seconds TTL
+        self._cache_ttl = float(os.getenv("HL_BALANCE_CACHE_TTL", "60"))
+        self._abstraction_cache = {"time": 0, "mode": None}
+        self._balance_stale_log_at = 0.0
         
         # Positions cache to keep bot state coherent under rate limiting.
         # If get_positions() is rate-limited, returning [] can make the bot think
@@ -340,6 +380,237 @@ class HyperliquidService:
             return 900
 
 
+    @staticmethod
+    def _safe_err(exc: Exception) -> str:
+        code = getattr(exc, "status_code", None)
+        if code is None and getattr(exc, "args", None):
+            first = exc.args[0]
+            if isinstance(first, int):
+                code = first
+            elif isinstance(first, tuple) and first:
+                try:
+                    code = int(first[0])
+                except (TypeError, ValueError):
+                    code = None
+        name = type(exc).__name__
+        return f"{name}({code})" if code is not None else name
+
+    def _candle_cache_lock(self) -> threading.Lock:
+        lock = getattr(self, "_candle_cache_lock_obj", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._candle_cache_lock_obj = lock
+        return lock
+
+    def _candle_cache_map(self) -> dict:
+        cache = getattr(self, "_candle_cache", None)
+        if cache is None:
+            cache = {}
+            self._candle_cache = cache
+        return cache
+
+    @staticmethod
+    def _forming_cache_ttl(interval: str) -> float:
+        from app.core.candle_timing import _normalize_interval
+
+        iv = _normalize_interval(interval)
+        table = {"1m": 10.0, "5m": 30.0, "15m": 60.0, "1h": 120.0, "4h": 300.0}
+        if iv in table:
+            return table[iv]
+        sec = HyperliquidService._parse_interval_to_seconds_static(iv)
+        return float(min(300, max(10, sec // 15)))
+
+    @staticmethod
+    def _parse_interval_to_seconds_static(interval: str) -> int:
+        interval = interval.lower().strip()
+        if interval.endswith("m"):
+            return int(interval[:-1]) * 60
+        if interval.endswith("h"):
+            return int(interval[:-1]) * 3600
+        if interval.endswith("d"):
+            return int(interval[:-1]) * 86400
+        return 900
+
+    def _candle_entry_valid(
+        self,
+        entry: dict,
+        *,
+        interval: str,
+        limit: int,
+        require_forming_tail: bool,
+        now_mono: float,
+    ) -> bool:
+        from app.core.candle_timing import current_bar_open, _normalize_interval
+
+        iv = _normalize_interval(interval)
+        bar_open = current_bar_open(iv)
+        if entry.get("bar_open") != bar_open:
+            return False
+        df = entry.get("df")
+        if df is None or getattr(df, "empty", True):
+            return False
+        if len(df) < limit:
+            return False
+        age = now_mono - float(entry.get("fetched_at", 0))
+        ttl = self._forming_cache_ttl(iv)
+        if not entry.get("forming_ok", True):
+            ttl = min(ttl, 10.0)
+        if age >= ttl:
+            return False
+        if require_forming_tail and not entry.get("forming_ok", True):
+            return False
+        return True
+
+    def _log_dedup(self, attr: str, key: str, message: str, level: str = "WARNING") -> None:
+        store = getattr(self, attr, None)
+        if store is None:
+            store = {}
+            setattr(self, attr, store)
+        now = time.monotonic()
+        last = store.get(key, 0.0)
+        if now - last < 60.0:
+            return
+        store[key] = now
+        self.log(message, level)
+
+    def _raw_candles_to_df(self, raw_candles, limit: int) -> pd.DataFrame:
+        df = pd.DataFrame(raw_candles)
+        if df.empty:
+            return df
+        df["time"] = pd.to_datetime(df["t"], unit="ms", utc=True)
+        df.set_index("time", inplace=True)
+        for col in ["o", "h", "l", "c", "v"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        df.dropna(subset=["o", "h", "l", "c"], inplace=True)
+        df = df[~df.index.duplicated(keep="last")]
+        df.sort_index(inplace=True)
+        df.rename(
+            columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"},
+            inplace=True,
+        )
+        if len(df) > limit:
+            df = df.tail(limit)
+        return df
+
+    def _fetch_candles_network(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int,
+        *,
+        priority: str,
+        require_forming_tail: bool,
+        cache_entry: dict | None,
+    ) -> pd.DataFrame:
+        from app.core.candle_timing import (
+            current_bar_open,
+            last_candle_is_forming,
+            _normalize_interval,
+        )
+
+        interval_seconds = self._parse_interval_to_seconds(interval)
+        time_range = limit * interval_seconds * 1000
+        max_retries = 3
+        raw_candles = None
+        slept = 0.0
+        iv_norm = _normalize_interval(interval)
+        pri_ctx = hl_priority(priority) if priority == "high" else nullcontext()
+
+        with pri_ctx:
+            for attempt in range(max_retries):
+                if cache_entry and attempt > 0:
+                    break
+                end_time = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
+                buffer = 1.5 + attempt
+                start_time = end_time - int(time_range * buffer)
+                try:
+                    raw_candles = self.info.candles_snapshot(
+                        symbol, interval, start_time, end_time
+                    )
+                except InfoRateLimited:
+                    self._log_dedup(
+                        "_hl_local_limit_log",
+                        f"candles|{symbol}|{iv_norm}",
+                        f"⚠️ Hyperliquid /info locally throttled – candles {symbol} {iv_norm}",
+                    )
+                    if cache_entry:
+                        return pd.DataFrame()
+                    return pd.DataFrame()
+                except Exception as e:
+                    is_rl = _is_rate_limit_error(e)
+                    if is_rl and cache_entry:
+                        cooldown = hl_info_limiter.get_status().get("cooldown_until", 0)
+                        cd_sec = max(0, int(cooldown - time.monotonic()))
+                        self._log_dedup(
+                            "_hl_429_log",
+                            f"429|{symbol}|{iv_norm}",
+                            f"⚠️ Hyperliquid 429 (rate limit) – candles {symbol} {iv_norm}, cooldown {cd_sec}s",
+                        )
+                        return pd.DataFrame()
+                    if is_rl and attempt < max_retries - 1:
+                        delay = backoff_delay(
+                            attempt, base=1.0, cap=4.0, rate_limited=True
+                        )
+                        if slept + delay > 8.0:
+                            break
+                        time.sleep(delay)
+                        slept += delay
+                        continue
+                    if is_rl:
+                        cooldown = hl_info_limiter.get_status().get("cooldown_until", 0)
+                        cd_sec = max(0, int(cooldown - time.monotonic()))
+                        self._log_dedup(
+                            "_hl_429_log",
+                            f"429|{symbol}|{iv_norm}",
+                            f"⚠️ Hyperliquid 429 (rate limit) – candles {symbol} {iv_norm}, cooldown {cd_sec}s",
+                        )
+                        return pd.DataFrame()
+                    raise
+
+                if raw_candles:
+                    break
+
+                if attempt < max_retries - 1:
+                    delay = backoff_delay(attempt, base=1.0, cap=4.0, rate_limited=False)
+                    if slept + delay > 8.0:
+                        break
+                    self.log(
+                        f"Empty candles for {symbol} {interval}; "
+                        f"retry in {delay:.2f}s ({attempt + 1}/{max_retries}, window×{buffer})"
+                    )
+                    time.sleep(delay)
+                    slept += delay
+
+        if not raw_candles:
+            self.log(f"⚠️ No candles returned for {symbol} {interval}")
+            return pd.DataFrame()
+
+        df = self._raw_candles_to_df(raw_candles, limit)
+        if df.empty:
+            return df
+
+        forming_ok, reason = last_candle_is_forming(df, interval)
+        if require_forming_tail and not forming_ok:
+            bar_open = current_bar_open(iv_norm)
+            self._log_dedup(
+                "_misaligned_log",
+                f"{symbol}|{iv_norm}|{bar_open.isoformat()}",
+                f"⚠️ Candle tail misaligned for {symbol} {interval}: {reason}",
+            )
+            return pd.DataFrame()
+
+        entry = {
+            "df": df.copy(),
+            "bar_open": current_bar_open(iv_norm),
+            "fetched_at": time.monotonic(),
+            "forming_ok": forming_ok,
+            "hl_len": len(df),
+        }
+        with self._candle_cache_lock():
+            self._candle_cache_map()[symbol, iv_norm] = entry
+        return df
+
     def get_candles(
         self,
         symbol: str,
@@ -347,6 +618,7 @@ class HyperliquidService:
         limit: int = 200,
         *,
         require_forming_tail: bool = False,
+        priority: str = "normal",
     ) -> pd.DataFrame:
         """
         Fetch OHLCV candles from Hyperliquid with robust data handling.
@@ -364,101 +636,71 @@ class HyperliquidService:
         Returns:
             DataFrame with OHLCV data, chronologically sorted
         """
+        from app.core.candle_timing import _normalize_interval
+
         symbol = self.get_canonical_symbol(symbol)
+        iv_norm = _normalize_interval(interval)
+        cache_key = (symbol, iv_norm)
+        now_mono = time.monotonic()
+
+        with self._candle_cache_lock():
+            entry = self._candle_cache_map().get(cache_key)
+
+        if entry and len(entry.get("df", pd.DataFrame())) >= limit:
+            if self._candle_entry_valid(
+                entry,
+                interval=interval,
+                limit=limit,
+                require_forming_tail=require_forming_tail,
+                now_mono=now_mono,
+            ):
+                return entry["df"].tail(limit).copy()
+
+        stale_entry = entry
         try:
-            interval_seconds = self._parse_interval_to_seconds(interval)
-            time_range = limit * interval_seconds * 1000
-            max_retries = 3
-            retry_delay = 1
-            raw_candles = None
-            
-            for attempt in range(max_retries):
-                end_time = int(pd.Timestamp.now(tz='UTC').timestamp() * 1000)
-                # Widen window on retries (1.5x → 2.5x → 3.5x) for sparse/gap responses
-                buffer = 1.5 + attempt
-                start_time = end_time - int(time_range * buffer)
+            df = self._fetch_candles_network(
+                symbol,
+                interval,
+                limit,
+                priority=priority,
+                require_forming_tail=require_forming_tail,
+                cache_entry=stale_entry if stale_entry else None,
+            )
+            if not df.empty:
+                return df.tail(limit).copy()
 
-                try:
-                    raw_candles = self.info.candles_snapshot(symbol, interval, start_time, end_time)
-                except Exception as e:
-                    if _is_rate_limit_error(e) and attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        self.log(
-                            f"Rate limit (429) on candles {symbol} {interval}; "
-                            f"retry in {wait_time}s ({attempt + 1}/{max_retries})"
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    raise
-
-                if raw_candles:
-                    break
-
-                if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
-                    self.log(
-                        f"Empty candles for {symbol} {interval}; "
-                        f"retry in {wait_time}s ({attempt + 1}/{max_retries}, window×{buffer})"
-                    )
-                    time.sleep(wait_time)
-            
-            if not raw_candles:
-                self.log(f"⚠️ No candles returned for {symbol} {interval}")
+            if require_forming_tail:
                 return pd.DataFrame()
-            
-            # Convert to DataFrame
-            df = pd.DataFrame(raw_candles)
-            
-            if df.empty:
-                return df
-            
-            # Convert timestamp to datetime with UTC timezone
-            df['time'] = pd.to_datetime(df['t'], unit='ms', utc=True)
-            df.set_index('time', inplace=True)
-            
-            # Type coercion for OHLCV columns (handle invalid data gracefully)
-            for col in ['o', 'h', 'l', 'c', 'v']:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # Remove rows with NaN in critical columns
-            df.dropna(subset=['o', 'h', 'l', 'c'], inplace=True)
-            
-            # Remove duplicate timestamps (keep last)
-            df = df[~df.index.duplicated(keep='last')]
-            
-            # Sort chronologically (CRITICAL for indicator calculations)
-            df.sort_index(inplace=True)
-            
-            # Standardize column names
-            df.rename(columns={
-                'o': 'open',
-                'h': 'high',
-                'l': 'low',
-                'c': 'close',
-                'v': 'volume'
-            }, inplace=True)
-            
-            # Trim to requested limit (after buffer)
-            if len(df) > limit:
-                df = df.tail(limit)
 
-            if require_forming_tail and not df.empty:
-                from app.core.candle_timing import last_candle_is_forming
-
-                ok, reason = last_candle_is_forming(df, interval)
-                if not ok:
-                    self.log(
-                        f"⚠️ Candle tail misaligned for {symbol} {interval}: {reason}"
+            if stale_entry and stale_entry.get("df") is not None:
+                age = now_mono - float(stale_entry.get("fetched_at", 0))
+                max_stale = max(
+                    120.0, 2.0 * self._parse_interval_to_seconds(iv_norm)
+                )
+                if age <= max_stale:
+                    self._log_dedup(
+                        "_stale_candle_log",
+                        f"stale|{symbol}|{iv_norm}",
+                        f"⚠️ Données périmées servies pour {symbol} {iv_norm} (cache)",
                     )
-                    return pd.DataFrame()
+                    return stale_entry["df"].tail(limit).copy()
+            return pd.DataFrame()
 
-            return df
-            
         except Exception as e:
-            self.log(f"Error fetching candles for {symbol} {interval}: {e}")
-            import traceback
-            traceback.print_exc()
+            if _is_rate_limit_error(e):
+                cooldown = hl_info_limiter.get_status().get("cooldown_until", 0)
+                cd_sec = max(0, int(cooldown - time.monotonic()))
+                self._log_dedup(
+                    "_hl_429_log",
+                    f"429|{symbol}|{iv_norm}",
+                    f"⚠️ Hyperliquid 429 (rate limit) – candles {symbol} {iv_norm}, cooldown {cd_sec}s",
+                )
+                if not require_forming_tail and stale_entry and stale_entry.get("df") is not None:
+                    return stale_entry["df"].tail(limit).copy()
+                return pd.DataFrame()
+            self.log(
+                f"Error fetching candles for {symbol} {interval}: {self._safe_err(e)}"
+            )
             return pd.DataFrame()
 
 
@@ -1495,13 +1737,21 @@ class HyperliquidService:
 
     def _get_account_abstraction_mode(self, address: str) -> str:
         """Hyperliquid account mode: unifiedAccount, portfolioMargin, default, etc."""
+        now = time.time()
+        cached = getattr(self, "_abstraction_cache", None) or {"time": 0, "mode": None}
+        if cached.get("mode") and now - float(cached.get("time", 0)) < 3600:
+            return cached["mode"]
         try:
             mode = self.info.post("/info", {"type": "userAbstraction", "user": address})
             if isinstance(mode, str):
-                return mode.strip().strip('"')
-            return str(mode) if mode is not None else "unknown"
+                resolved = mode.strip().strip('"')
+            else:
+                resolved = str(mode) if mode is not None else "unknown"
+            if resolved and resolved != "unknown":
+                self._abstraction_cache = {"time": now, "mode": resolved}
+            return resolved
         except Exception as e:
-            self.log(f"⚠️ userAbstraction query failed: {e}")
+            self.log(f"⚠️ userAbstraction query failed: {self._safe_err(e)}")
             return "unknown"
 
     @staticmethod
@@ -1532,11 +1782,21 @@ class HyperliquidService:
         now = time.time()
         if not force_refresh and self._balance_cache["data"] and (now - self._balance_cache["time"] < self._cache_ttl):
             return self._balance_cache["data"]
+
+        status = hl_info_limiter.get_status()
+        if (
+            not force_refresh
+            and self._balance_cache["data"]
+            and status.get("cooldown_until", 0) > time.monotonic()
+        ):
+            return self._balance_cache["data"]
         
+        pri_ctx = hl_priority("high") if force_refresh else nullcontext()
         try:
             address = config.HL_ACCOUNT_ADDRESS
-            user_state = self.info.user_state(address)
-            spot_state = self.info.spot_user_state(address)
+            with pri_ctx:
+                user_state = self.info.user_state(address)
+                spot_state = self.info.spot_user_state(address)
             abstraction_mode = self._get_account_abstraction_mode(address)
 
             margin_summary = user_state.get("marginSummary", {}) or {}
@@ -1583,10 +1843,14 @@ class HyperliquidService:
             return result
             
         except Exception as e:
-            self.log(f"Error fetching account balance: {e}")
+            self.log(f"Error fetching account balance: {self._safe_err(e)}")
             # If API fails, try to return stale cache if available
             if self._balance_cache["data"]:
-                self.log("⚠️ Returning stale balance cache due to API error")
+                self._log_dedup(
+                    "_balance_stale_log",
+                    "balance_stale",
+                    "⚠️ Returning stale balance cache due to API error",
+                )
                 return self._balance_cache["data"]
                 
             return {

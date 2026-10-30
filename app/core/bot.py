@@ -37,6 +37,7 @@ from app.core.trade_thesis import (
     should_apply_be_tighten,
 )
 from app.services.hyperliquid_service import hyperliquid_service
+from app.utils.rate_limiter import hl_priority
 from app.services.discord_service import discord_service
 from app.core.trade_recorder import TradeRecorder
 from strategies.engine import StrategyEngine
@@ -593,27 +594,44 @@ class BotContext(LiveExecutionMixin):
         """
         self._restore_strategy_sticky(symbol)
         try:
-            df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
-            df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
-            df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
-            df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
-            df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
+            only = self._strategies_for_analysis(symbol)
+            tf_ctx = (
+                {"only_strategies": list(only)} if only is not None else None
+            )
+            tfs = self.strategy_engine.required_timeframes(tf_ctx)
+            tf_limits = {
+                "15m": 300,
+                "5m": 300,
+                "1m": 100,
+                "1h": 300,
+                "4h": 400,
+            }
+            df_15m = pd.DataFrame()
+            df_5m = pd.DataFrame()
+            df_1m = pd.DataFrame()
+            df_1h = pd.DataFrame()
+            df_4h = pd.DataFrame()
+            for tf in tfs:
+                limit = tf_limits.get(tf, 300)
+                frame = hyperliquid_service.get_candles(symbol, interval=tf, limit=limit)
+                if tf == "15m":
+                    df_15m = frame
+                elif tf == "5m":
+                    df_5m = frame
+                elif tf == "1m":
+                    df_1m = frame
+                elif tf == "1h":
+                    df_1h = frame
+                elif tf == "4h":
+                    df_4h = frame
 
-            if df_15m.empty:
-                df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
-            if df_5m.empty:
-                df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
-            if df_1m.empty:
-                df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
-            if df_1h.empty:
-                df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
-            if df_4h.empty:
-                df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
-
-            if df_15m.empty or df_1m.empty:
+            if df_15m.empty or ("1m" in tfs and df_1m.empty) or ("4h" in tfs and df_4h.empty):
                 return {
                     "ok": False,
-                    "error": f"No data for {symbol}: 15m={len(df_15m)} 1m={len(df_1m)}",
+                    "error": (
+                        f"No data for {symbol}: 15m={len(df_15m)} "
+                        f"1m={len(df_1m)} 4h={len(df_4h)}"
+                    ),
                 }
 
             numeric_cols = ["open", "high", "low", "close", "volume"]
@@ -640,7 +658,6 @@ class BotContext(LiveExecutionMixin):
                 "symbol": symbol,
                 "funding_rate": funding_rate_live,
             }
-            only = self._strategies_for_analysis(symbol)
             if only is not None:
                 extra_data["only_strategies"] = list(only)
 
@@ -649,19 +666,27 @@ class BotContext(LiveExecutionMixin):
                 extra_data=extra_data,
             )
 
+            def _ctx_round(val, digits=2):
+                try:
+                    if val is None or val == "UNKNOWN":
+                        return val
+                    return round(float(val), digits)
+                except (TypeError, ValueError):
+                    return val
+
             technical_context = {
                 "regime": result.get("regime"),
                 "regime_adx": result.get("regime_adx"),
-                "adx": round(result.get("adx", 0), 2),
-                "adx_slope": round(result.get("adx_slope", 0), 2),
-                "rsi": round(result.get("rsi", 0), 2),
-                "ema_9": round(result.get("ema_9", 0), 4),
-                "ema_20": round(result.get("ema_20", 0), 4),
-                "ema_50": round(result.get("ema_50", 0), 4),
-                "bb_upper": round(result.get("bb_upper", 0), 4),
-                "bb_lower": round(result.get("bb_lower", 0), 4),
-                "bb_width": round(result.get("bb_width", 0), 2),
-                "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                "adx": _ctx_round(result.get("adx", 0), 2),
+                "adx_slope": _ctx_round(result.get("adx_slope", 0), 2),
+                "rsi": _ctx_round(result.get("rsi", 0), 2),
+                "ema_9": _ctx_round(result.get("ema_9", 0), 4),
+                "ema_20": _ctx_round(result.get("ema_20", 0), 4),
+                "ema_50": _ctx_round(result.get("ema_50", 0), 4),
+                "bb_upper": _ctx_round(result.get("bb_upper", 0), 4),
+                "bb_lower": _ctx_round(result.get("bb_lower", 0), 4),
+                "bb_width": _ctx_round(result.get("bb_width", 0), 2),
+                "volume_ratio": _ctx_round(result.get("volume_ratio", 100), 1),
                 "current_price": result.get("current_price"),
             }
 
@@ -813,13 +838,19 @@ class BotContext(LiveExecutionMixin):
             return
 
         level = None
-        upper = message.upper()
-        if any(marker in message for marker in ("❌", "🔥")) or any(
-            token in upper for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
-        ):
-            level = "ERROR"
-        elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
+        lower = message.lower()
+        if "429" in lower or "rate limit" in lower or "hyperliquid 429" in lower:
             level = "WARNING"
+        upper = message.upper()
+        if level is None:
+            if any(marker in message for marker in ("❌", "🔥")) or any(
+                token in upper
+                for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
+            ):
+                if not message.startswith("⚠️") and "error fetching" not in lower:
+                    level = "ERROR"
+            elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
+                level = "WARNING"
 
         if not level:
             return
@@ -1840,9 +1871,10 @@ class BotContext(LiveExecutionMixin):
                     if hasattr(strat_instance, "get_thesis_timeframe"):
                         tf_manage = strat_instance.get_thesis_timeframe()
                         if tf_manage:
-                            df_manage = hyperliquid_service.get_candles(
-                                symbol, interval=tf_manage, limit=400
-                            )
+                            with hl_priority("high"):
+                                df_manage = hyperliquid_service.get_candles(
+                                    symbol, interval=tf_manage, limit=400, priority="high"
+                                )
                             extra_manage = {tf_manage: df_manage}
                     custom_updates = strat_instance.manage_trade(
                         trade,
@@ -1928,7 +1960,10 @@ class BotContext(LiveExecutionMixin):
                     thesis_limit = int(strat.get_thesis_candle_limit() or thesis_limit)
                 except (TypeError, ValueError):
                     pass
-            df = hyperliquid_service.get_candles(symbol, interval=tf, limit=thesis_limit)
+            with hl_priority("high"):
+                df = hyperliquid_service.get_candles(
+                    symbol, interval=tf, limit=thesis_limit, priority="high"
+                )
             if df is None or getattr(df, "empty", True):
                 return False
 
@@ -2628,12 +2663,13 @@ class BotContext(LiveExecutionMixin):
                         "current_price": current_price,
                         "symbol": analysis_symbol,
                     }
-                    self.add_log(
-                        f"📊 {analysis_symbol} 15m Regime: {regime}{adx_regime_tag} | Price: {current_price:.4f} | "
-                        f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
-                        f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
-                        metadata=analysis_metrics,
-                    )
+                    if not sym_result.get("regime_skipped"):
+                        self.add_log(
+                            f"📊 {analysis_symbol} 15m Regime: {regime}{adx_regime_tag} | Price: {current_price:.4f} | "
+                            f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
+                            f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
+                            metadata=analysis_metrics,
+                        )
                     live_price = float(sym_result.get("current_price_live", sym_df["close"].iloc[-1]))
                     live_rsi = float(sym_result.get("rsi_live", rsi))
                     live_ema20 = float(sym_result.get("ema_20_live", ema_20))
