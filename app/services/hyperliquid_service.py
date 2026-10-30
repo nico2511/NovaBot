@@ -455,9 +455,10 @@ class HyperliquidService:
         df = entry.get("df")
         if df is None or getattr(df, "empty", True):
             return False
-        hl_len = int(entry.get("hl_len", len(df)))
-        needed = min(limit, hl_len)
-        if len(df) < needed:
+        if limit > len(df):
+            if not entry.get("partial_ok"):
+                return False
+        elif len(df) < limit:
             return False
         age = now_mono - float(entry.get("fetched_at", 0))
         ttl = self._forming_cache_ttl(iv)
@@ -613,20 +614,60 @@ class HyperliquidService:
             return pd.DataFrame()
 
         cache_key = (symbol, iv_norm)
+        self._store_candle_cache_entry(
+            cache_key,
+            df,
+            interval=interval,
+            forming_ok=forming_ok,
+            limit=limit,
+        )
+        return df
+
+    def _cache_covers_limit(self, entry: dict, limit: int) -> bool:
+        df = entry.get("df")
+        if df is None or getattr(df, "empty", True):
+            return False
+        if len(df) >= limit:
+            return True
+        return bool(entry.get("partial_ok"))
+
+    def _store_candle_cache_entry(
+        self,
+        cache_key: tuple,
+        df: pd.DataFrame,
+        *,
+        interval: str,
+        forming_ok: bool,
+        limit: int,
+    ) -> None:
+        from app.core.candle_timing import current_bar_open, _normalize_interval
+
+        iv_norm = _normalize_interval(interval)
+        bar_open = current_bar_open(iv_norm)
+        partial_ok = len(df) < limit
         entry = {
             "df": df.copy(),
-            "bar_open": current_bar_open(iv_norm),
+            "bar_open": bar_open,
             "fetched_at": time.monotonic(),
             "forming_ok": forming_ok,
-            "hl_len": len(df),
+            "partial_ok": partial_ok,
         }
         with self._candle_cache_lock():
             existing = self._candle_cache_map().get(cache_key)
-            if existing and len(existing.get("df", pd.DataFrame())) > len(entry["df"]):
-                entry["df"] = existing["df"].copy()
-                entry["hl_len"] = len(entry["df"])
+            if existing is None or existing.get("bar_open") != bar_open:
+                self._candle_cache_map()[cache_key] = entry
+                return
+            old_df = existing.get("df")
+            if old_df is None or getattr(old_df, "empty", True):
+                self._candle_cache_map()[cache_key] = entry
+                return
+            merged = pd.concat([old_df, df])
+            merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+            keep = max(len(old_df), len(df), limit)
+            entry["df"] = merged.tail(keep).copy()
+            entry["partial_ok"] = bool(existing.get("partial_ok")) or partial_ok
+            entry["forming_ok"] = forming_ok
             self._candle_cache_map()[cache_key] = entry
-        return df
 
     def get_candles(
         self,
@@ -663,17 +704,22 @@ class HyperliquidService:
         with self._candle_cache_lock():
             entry = self._candle_cache_map().get(cache_key)
 
-        if entry:
-            df_cached = entry.get("df", pd.DataFrame())
-            hl_len = int(entry.get("hl_len", len(df_cached)))
-            if len(df_cached) >= limit and self._candle_entry_valid(
+        df_cached_len = len(entry.get("df", pd.DataFrame())) if entry else 0
+        force_tail_refresh = limit == 1 and df_cached_len > 1
+
+        if (
+            not force_tail_refresh
+            and entry
+            and self._cache_covers_limit(entry, limit)
+            and self._candle_entry_valid(
                 entry,
                 interval=interval,
                 limit=limit,
                 require_forming_tail=require_forming_tail,
                 now_mono=now_mono,
-            ):
-                return entry["df"].tail(limit).copy()
+            )
+        ):
+            return entry["df"].tail(limit).copy()
 
         stale_entry = entry
         try:
@@ -2131,7 +2177,7 @@ class HyperliquidService:
             return px
 
         try:
-            df = self.get_candles(symbol, "1m", 1)
+            df = self.get_candles(symbol, "1m", 1, priority="high")
             if not df.empty:
                 px = float(df['close'].iloc[-1])
                 if px > 0:

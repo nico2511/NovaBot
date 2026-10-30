@@ -57,6 +57,34 @@ def test_force_refresh_failure_does_not_return_stale_cache(monkeypatch):
     assert svc.info.user_state.call_count >= 1
 
 
+def test_user_abstraction_called_under_high_on_force_refresh(monkeypatch):
+    svc = object.__new__(HyperliquidService)
+    svc.log = MagicMock()
+    svc._cache_ttl = 60.0
+    svc._balance_cache = {"time": 0, "data": None}
+    svc._abstraction_cache = {"time": 0, "mode": None}
+    calls = []
+
+    class InfoStub:
+        def user_state(self, _a):
+            return {
+                "marginSummary": {"accountValue": "10", "totalMarginUsed": "1"},
+                "withdrawable": "5",
+            }
+
+        def spot_user_state(self, _a):
+            return {"balances": []}
+
+        def post(self, _path, payload):
+            calls.append(payload)
+            return "unifiedAccount"
+
+    svc.info = InfoStub()
+    monkeypatch.setattr("app.services.hyperliquid_service.config.HL_ACCOUNT_ADDRESS", "0xabc")
+    HyperliquidService.get_account_balance.__wrapped__(svc, force_refresh=True)
+    assert any(c.get("type") == "userAbstraction" for c in calls)
+
+
 def test_abstraction_cache_reused_one_hour(monkeypatch):
     svc = object.__new__(HyperliquidService)
     svc.log = MagicMock()

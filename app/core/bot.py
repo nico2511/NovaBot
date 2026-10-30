@@ -1753,6 +1753,40 @@ class BotContext(LiveExecutionMixin):
                 state["_last_entry_time"] = None
                 sticky[key] = state
 
+    def _entry_balance_preflight(self, sig: dict, sig_symbol: str) -> dict | None:
+        """Fresh balance before AI/entry. None ⇒ skip (cooldown cleared, 10s pause applied)."""
+        acc = hyperliquid_service.get_account_balance(force_refresh=True)
+        if acc.get("status") != "success":
+            err_msg = acc.get("message", "unknown error")
+            self.add_log(
+                f"⚠️ Balance refresh failed — entry skipped this cycle: {err_msg}"
+            )
+            self._log_execution_error(
+                f"⚠️ BALANCE API ERROR: {self.active_symbol}",
+                reason=err_msg,
+                symbol=self.active_symbol,
+                side=sig.get("signal"),
+                strategy=sig.get("strategy"),
+            )
+            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+            time.sleep(10)
+            return None
+        if float(acc.get("total_equity", 0) or 0) <= 0:
+            self._log_execution_error(
+                f"⚠️ ZERO EQUITY: {self.active_symbol}",
+                reason=(
+                    "Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS "
+                    "and wallet funding"
+                ),
+                symbol=self.active_symbol,
+                side=sig.get("signal"),
+                strategy=sig.get("strategy"),
+            )
+            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+            time.sleep(10)
+            return None
+        return acc
+
     def _attach_trade_id_to_signal_analysis(self, trace_id: str, trade_id: str, symbol: str = None) -> None:
         """Patch the latest matching AI decision with trade_id (no duplicate row)."""
         if not trace_id or not trade_id:
@@ -2909,6 +2943,7 @@ class BotContext(LiveExecutionMixin):
                             except Exception:
                                 skip_ai = False
 
+                        acc_for_entry = None
                         # 45s AI skip: do not Discord-notify, do not continue past loop sleep,
                         # do not arm fill-cooldown (never set on signal). Clear same-bar so
                         # the next loop can retry AI on this candle once the gate opens.
@@ -2924,6 +2959,10 @@ class BotContext(LiveExecutionMixin):
                             if sig_symbol:
                                 self._save_strategy_sticky(sig_symbol)
                         else:
+                            acc_for_entry = self._entry_balance_preflight(sig, sig_symbol)
+                            if acc_for_entry is None:
+                                continue
+
                             # Discord Pre-AI card: always show strategy-TF metrics (same as IA)
                             tech_discord = dict(ai_context or {})
                             tech_discord["strategy_timeframe"] = sig_tf
@@ -3128,20 +3167,11 @@ class BotContext(LiveExecutionMixin):
                             approved = True
                         
                         if approved:
-                            acc = hyperliquid_service.get_account_balance(force_refresh=True)
-                            if acc.get("status") != "success":
-                                err_msg = acc.get("message", "unknown error")
-                                self.add_log(
-                                    f"⚠️ Balance refresh failed — entry skipped this cycle: {err_msg}"
-                                )
-                                self._log_execution_error(
-                                    f"⚠️ BALANCE API ERROR: {self.active_symbol}",
-                                    reason=err_msg,
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                                continue
+                            acc = acc_for_entry
+                            if acc is None:
+                                acc = self._entry_balance_preflight(sig, sig_symbol)
+                                if acc is None:
+                                    continue
                             equity = float(acc.get("total_equity", 0) or 0)
                             acct_mode = acc.get("account_abstraction_mode", "unknown")
                             if acct_mode not in ("unknown", "default", "disabled", ""):
@@ -3150,15 +3180,6 @@ class BotContext(LiveExecutionMixin):
                                     f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
                                     f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
                                 )
-                            if equity <= 0:
-                                self._log_execution_error(
-                                    f"⚠️ ZERO EQUITY: {self.active_symbol}",
-                                    reason="Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS and wallet funding",
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                                continue
 
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
