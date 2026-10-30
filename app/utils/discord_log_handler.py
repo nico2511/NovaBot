@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 
 from app.services.discord_service import discord_service
-from app.utils.discord_dedup import dedup_key, should_send_discord_alert
 
 
 class DiscordAlertHandler(logging.Handler):
@@ -21,9 +20,6 @@ class DiscordAlertHandler(logging.Handler):
             msg = self.format(record)
             title = f"{record.name}"
             level = record.levelname
-            key = dedup_key("logger", f"{level}:{title}", msg)
-            if not should_send_discord_alert(key):
-                return
             discord_service.notify(level, title, msg[: self.MAX_LEN], source="logger")
         except Exception:
             self.handleError(record)

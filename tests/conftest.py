@@ -51,3 +51,19 @@ def test_client():
     """FastAPI Test Client"""
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture(autouse=True)
+def _reset_hl429_globals():
+    from app.utils.rate_limiter import hl_info_limiter
+    from app.utils import discord_dedup
+    from app.services.hyperliquid_service import hyperliquid_service
+
+    hl_info_limiter.reset()
+    discord_dedup.reset_for_tests()
+    hyperliquid_service._candle_cache = {}
+    hyperliquid_service._balance_cache = {"time": 0, "data": None}
+    hyperliquid_service._abstraction_cache = {"time": 0, "mode": None}
+    yield
+    hl_info_limiter.reset()
+    discord_dedup.reset_for_tests()

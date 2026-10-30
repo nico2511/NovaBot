@@ -27,6 +27,9 @@ from app.core.weekend_pause import (
     log_weekend_pause_once,
 )
 
+REGIME_FREE_STRATEGIES = {"a3_ema_trend_4h": {"4h"}}
+
+
 class StrategyEngine:
     def __init__(self, risk_manager=None, config=None):
         self.risk_manager = risk_manager
@@ -104,6 +107,43 @@ class StrategyEngine:
         }
         return aliases.get(t, t or "15m")
 
+    def _active_enabled_strategy_names(self, extra_data=None) -> set[str]:
+        names: set[str] = set()
+        weekend_paused = get_weekend_paused_strategies(self.config)
+        for name, params in (self.config or {}).items():
+            if not isinstance(params, dict):
+                continue
+            if not params.get("enabled"):
+                continue
+            if name not in self.strategies:
+                continue
+            if is_strategy_weekend_paused(name, self.config):
+                continue
+            names.add(name)
+
+        only = None
+        if extra_data and extra_data.get("only_strategies") is not None:
+            only = {str(n) for n in extra_data.get("only_strategies") or []}
+            names = {n for n in names if n in only}
+        return names
+
+    def regime_required(self, extra_data=None) -> bool:
+        names = self._active_enabled_strategy_names(extra_data)
+        if not names:
+            return True
+        for name in names:
+            if name not in REGIME_FREE_STRATEGIES:
+                return True
+        return False
+
+    def required_timeframes(self, extra_data=None) -> set[str]:
+        if self.regime_required(extra_data):
+            return {"15m", "5m", "1m", "1h", "4h"}
+        tfs = {"15m"}
+        for name in self._active_enabled_strategy_names(extra_data):
+            tfs |= set(REGIME_FREE_STRATEGIES.get(name, set()))
+        return tfs
+
     @classmethod
     def _ohlcv_for_strategy_timeframe(cls, strat_config, primary_df, extra_data=None):
         """Pick the OHLCV frame that matches a strategy's declared timeframe."""
@@ -127,6 +167,220 @@ class StrategyEngine:
                 return df_1m
         return primary_df
 
+    def _analyze_regime_skipped(self, df: pd.DataFrame, extra_data: dict):
+        """Run strategy selection/signals without 15m ADX/RSI/EMA/cascade work."""
+        regime = "UNKNOWN"
+        regime_adx = "UNKNOWN"
+        extra_data["regime_adx"] = regime_adx
+        extra_data["regime"] = regime
+        extra_data["regime_adx_threshold"] = float(self._regime_adx_threshold())
+
+        active_strategies = []
+        weekend_paused = get_weekend_paused_strategies(self.config)
+        if weekend_paused:
+            log_weekend_pause_once(print, self.config, weekend_paused)
+
+        for name, params in self.config.items():
+            if not isinstance(params, dict):
+                continue
+            if not params.get("enabled"):
+                continue
+            strat_type = params.get("type", "")
+            if name not in self.strategies:
+                continue
+            if is_strategy_weekend_paused(name, self.config):
+                continue
+            if strat_type in ("always_active", "sniper"):
+                active_strategies.append(self.strategies[name])
+                continue
+            if strat_type == "trend":
+                continue
+
+        only = None
+        if extra_data.get("only_strategies") is not None:
+            only = {str(n) for n in extra_data.get("only_strategies") or []}
+            active_strategies = [
+                s for s in active_strategies if getattr(s, "name", None) in only
+            ]
+
+        if active_strategies:
+            strat_names = ", ".join([s.name for s in active_strategies])
+            print(f"[BOT] 🎯 Stratégies actives > {strat_names}")
+
+        signals = []
+        rejections = []
+        for strat in active_strategies:
+            if hasattr(strat, "last_rejection_reason"):
+                strat.last_rejection_reason = None
+            try:
+                should_panic, _panic_reason = should_panic_close(strat.name, df, regime=regime)
+                if should_panic:
+                    continue
+            except Exception as e:
+                print(f"⚠️ Panic check error: {e}")
+            try:
+                sig = strat.generate_signal(df, extra_data=extra_data)
+            except Exception as e:
+                print(f"⚠️ Strategy {strat.name} crashed during signal generation: {e}")
+                continue
+            if sig:
+                params = strat.config.get("params", {})
+                is_manual = params.get("execution_type") == "manual" or params.get(
+                    "requires_confirmation"
+                )
+                symbol = extra_data.get("symbol")
+                strat_cfg = (self.config or {}).get(strat.name) or getattr(strat, "config", None) or {}
+                ts_df = self._ohlcv_for_strategy_timeframe(strat_cfg, df, extra_data)
+                confirmed_idx = -2 if len(ts_df) >= 2 else -1
+                if isinstance(sig, dict):
+                    signal_data = sig
+                    signal_data["strategy"] = strat.name
+                    signal_data["symbol"] = symbol or sig.get("symbol", "UNKNOWN")
+                    signal_data["price"] = float(
+                        sig.get("price", ts_df["close"].iloc[confirmed_idx])
+                    )
+                    signal_data["timestamp"] = str(ts_df.index[confirmed_idx])
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    for key in ["sl", "tp", "confidence", "score"]:
+                        if key in signal_data and signal_data[key] is not None:
+                            try:
+                                signal_data[key] = float(signal_data[key])
+                            except Exception:
+                                pass
+                else:
+                    signal_data = {
+                        "strategy": strat.name,
+                        "signal": sig,
+                        "symbol": symbol or "UNKNOWN",
+                        "price": float(ts_df["close"].iloc[confirmed_idx]),
+                        "timestamp": str(ts_df.index[confirmed_idx]),
+                    }
+                signal_type = signal_data.get("signal", "").upper()
+                allow_longs = params.get("allow_longs", True)
+                allow_shorts = params.get("allow_shorts", True)
+                direction_allowed = True
+                rejection_reason = ""
+                if signal_type == "BUY" and not allow_longs:
+                    direction_allowed = False
+                    rejection_reason = "Longs disabled"
+                elif signal_type == "SELL" and not allow_shorts:
+                    if not signal_data.get("metadata", {}).get("panic_close"):
+                        direction_allowed = False
+                        rejection_reason = "Shorts disabled"
+                if direction_allowed:
+                    skip_bb = (
+                        params.get("test_mode", False)
+                        or bool(params.get("skip_bb_anti_chase"))
+                        or bool((strat.config or {}).get("skip_bb_anti_chase"))
+                        or str((strat.config or {}).get("timeframe") or "").lower()
+                        in ("1h", "4h", "1d")
+                    )
+                    if not skip_bb:
+                        try:
+                            bb_idx = -2 if len(df) >= 2 else -1
+                            sma_20_val = float(df["close"].rolling(window=20).mean().iloc[bb_idx])
+                            std_20_val = float(df["close"].rolling(window=20).std().iloc[bb_idx])
+                            bb_upper_val = sma_20_val + (std_20_val * 2)
+                            bb_lower_val = sma_20_val - (std_20_val * 2)
+                            curr_close = float(df["close"].iloc[bb_idx])
+                            if signal_type == "SELL":
+                                if not signal_data.get("metadata", {}).get("panic_close"):
+                                    if curr_close <= (bb_lower_val * 1.01):
+                                        direction_allowed = False
+                                        rejection_reason = (
+                                            "Price too close to lower Bollinger band (support)"
+                                        )
+                            elif signal_type == "BUY":
+                                if curr_close >= (bb_upper_val * 0.99):
+                                    direction_allowed = False
+                                    rejection_reason = (
+                                        "Price too close to upper Bollinger band (resistance)"
+                                    )
+                        except Exception:
+                            pass
+                if direction_allowed:
+                    if is_manual:
+                        signal_data["manual_approval"] = True
+                    signals.append(signal_data)
+                else:
+                    print(
+                        f"[BOT] 🚫 Signal rejected ({strat.name}/{signal_type}): "
+                        f"{rejection_reason or 'Filtered by global guard'}"
+                    )
+            else:
+                reason = getattr(strat, "last_rejection_reason", None)
+                if reason:
+                    try:
+                        candle_ref = str(df.index[-2])
+                    except Exception:
+                        candle_ref = "n/a"
+                    sig_key = f"{candle_ref}|{reason}"
+                    if self._last_rejection_log.get(strat.name) != sig_key:
+                        self._last_rejection_log[strat.name] = sig_key
+                        print(f"[BOT] ⛔ No signal ({strat.name}): {reason}")
+                        rejections.append({"strategy": strat.name, "reason": reason})
+
+        try:
+            bb_idx = -2 if len(df) >= 2 else -1
+            sma_20 = float(df["close"].rolling(window=20).mean().iloc[bb_idx])
+            std_20 = float(df["close"].rolling(window=20).std().iloc[bb_idx])
+            bb_upper = sma_20 + (std_20 * 2)
+            bb_lower = sma_20 - (std_20 * 2)
+            bb_width = ((bb_upper - bb_lower) / sma_20) * 100 if sma_20 > 0 else 0
+        except Exception:
+            sma_20 = bb_upper = bb_lower = bb_width = 0
+
+        try:
+            from app.utils.market_metrics import confirmed_volume_ratio_pct
+
+            computed = confirmed_volume_ratio_pct(df)
+            volume_ratio = float(computed) if computed is not None else 100
+        except Exception:
+            volume_ratio = 100
+
+        for signal in signals:
+            score = 50
+            if signal.get("confidence"):
+                score += int(signal.get("confidence", 0))
+            sname = signal.get("strategy")
+            try:
+                bonus = int(
+                    ((self.config or {}).get(sname) or {}).get("signal_score_bonus", 0) or 0
+                )
+            except (TypeError, ValueError):
+                bonus = 0
+            score += bonus
+            signal["score"] = score
+        signals.sort(key=lambda s: s.get("score", 0), reverse=True)
+
+        price_idx = -2 if len(df) >= 2 else -1
+        return {
+            "regime": regime,
+            "regime_adx": regime_adx,
+            "regime_skipped": True,
+            "adx": 0.0,
+            "adx_slope": 0.0,
+            "rsi": 0.0,
+            "ema_9": 0.0,
+            "ema_20": 0.0,
+            "ema_50": 0.0,
+            "sma_20": float(sma_20),
+            "bb_upper": float(bb_upper),
+            "bb_lower": float(bb_lower),
+            "bb_width": float(bb_width),
+            "volume_ratio": float(volume_ratio),
+            "current_price": float(df["close"].iloc[price_idx]),
+            "current_price_live": float(df["close"].iloc[-1]),
+            "rsi_live": 0.0,
+            "ema_9_live": 0.0,
+            "ema_20_live": 0.0,
+            "ema_50_live": 0.0,
+            "strategies": [s.name for s in active_strategies],
+            "signals": signals,
+            "rejections": rejections,
+        }
+
     def analyze(self, df: pd.DataFrame, extra_data=None):
         """
         Analyze market data and generate signals.
@@ -138,6 +392,10 @@ class StrategyEngine:
         # 1. Determine Regime (ADX)
         if len(df) < 50:
             return {"action": "WAIT", "reason": "Not enough data"}
+
+        extra_data = dict(extra_data or {})
+        if not self.regime_required(extra_data):
+            return self._analyze_regime_skipped(df, extra_data)
 
         # Use confirmed bars only — live OHLC must not repaint ADX/RSI/EMA at iloc[-2].
         closed = df.iloc[:-1] if len(df) >= 2 else df
@@ -172,7 +430,6 @@ class StrategyEngine:
         if current_adx > threshold and adx_slope < -3:
             print(f"📉 Trend Rejected: ADX {current_adx:.1f} but Slope {adx_slope:.2f} (dropping too fast)")
 
-        extra_data = dict(extra_data or {})
         extra_data["regime_adx"] = regime_adx
         extra_data["regime"] = regime
         extra_data["regime_adx_threshold"] = float(threshold)

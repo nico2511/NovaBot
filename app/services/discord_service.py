@@ -2,7 +2,9 @@ from discord_webhook import DiscordWebhook, DiscordEmbed
 from app.core.config import config
 import threading
 
-from app.utils.discord_dedup import dedup_key, should_send_discord_alert
+from datetime import datetime, timezone
+
+from app.utils.discord_dedup import should_send_alert
 
 _LEVEL_COLORS = {
     "CRITICAL": "FF0000",
@@ -46,13 +48,17 @@ class DiscordService:
         if not self.alert_url or not body:
             return False
         level_upper = (level or "ERROR").upper()
-        key = dedup_key(source, f"{level_upper}:{title}", body)
-        if not should_send_discord_alert(key):
+        send, _key, suppressed, since = should_send_alert(source, level_upper, title, body)
+        if not send:
             return False
         color = _LEVEL_COLORS.get(level_upper, "FFA500")
         prefix = {"ERROR": "❌", "CRITICAL": "🔥", "WARNING": "⚠️", "WARN": "⚠️"}.get(level_upper, "⚠️")
         embed_title = f"{prefix} [{level_upper}] {title}"
-        self.send_alert(embed_title, body[:1900], color=color)
+        description = body[:1900]
+        if suppressed > 0:
+            hhmm = datetime.fromtimestamp(since, tz=timezone.utc).strftime("%H:%M")
+            description += f"\n(+{suppressed} similaires supprimées depuis {hhmm} UTC)"
+        self.send_alert(embed_title, description, color=color)
         return True
 
     def send_execution_error(self, title: str, **fields):

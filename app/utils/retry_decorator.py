@@ -15,6 +15,24 @@ from functools import wraps
 from typing import Callable, Any, Tuple, Type
 
 
+def backoff_delay(
+    attempt: int,
+    base: float = 1.0,
+    cap: float = 32.0,
+    *,
+    rate_limited: bool = False,
+    jitter: bool = True,
+    exponential_base: float = 2.0,
+) -> float:
+    """Pure exponential backoff delay with optional jitter (±25%)."""
+    delay = min(base * (exponential_base ** attempt), cap)
+    if rate_limited:
+        delay *= 2.0
+    if jitter:
+        delay *= 0.75 + random.random() * 0.5
+    return delay
+
+
 def exponential_backoff(
     max_retries: int = 5,
     base_delay: float = 1.0,
@@ -88,17 +106,15 @@ def exponential_backoff(
                     # Detect rate limit errors (429)
                     is_rate_limit = _is_rate_limit_error(e)
                     
-                    # Calculate delay with exponential backoff
-                    delay = min(base_delay * (exponential_base ** attempt), max_delay)
-                    
-                    # Add jitter (±25% randomness) to prevent thundering herd
-                    if jitter:
-                        jitter_factor = 0.75 + random.random() * 0.5  # Range: 0.75 to 1.25
-                        delay = delay * jitter_factor
-                    
-                    # Double delay for rate limit errors
+                    delay = backoff_delay(
+                        attempt,
+                        base=base_delay,
+                        cap=max_delay,
+                        rate_limited=is_rate_limit,
+                        jitter=jitter,
+                        exponential_base=exponential_base,
+                    )
                     if is_rate_limit:
-                        delay *= 2.0
                         print(
                             f"⚠️ RATE LIMIT (429) detected in {func.__name__}, "
                             f"waiting {delay:.2f}s before retry {attempt + 2}/{max_retries + 1}"

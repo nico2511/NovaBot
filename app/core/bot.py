@@ -37,6 +37,8 @@ from app.core.trade_thesis import (
     should_apply_be_tighten,
 )
 from app.services.hyperliquid_service import hyperliquid_service
+from app.utils.rate_limiter import hl_priority
+from app.utils.hl_log_patterns import is_hl_rate_limit_text
 from app.services.discord_service import discord_service
 from app.core.trade_recorder import TradeRecorder
 from strategies.engine import StrategyEngine
@@ -593,27 +595,44 @@ class BotContext(LiveExecutionMixin):
         """
         self._restore_strategy_sticky(symbol)
         try:
-            df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
-            df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
-            df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
-            df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
-            df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
+            only = self._strategies_for_analysis(symbol)
+            tf_ctx = (
+                {"only_strategies": list(only)} if only is not None else None
+            )
+            tfs = self.strategy_engine.required_timeframes(tf_ctx)
+            tf_limits = {
+                "15m": 300,
+                "5m": 300,
+                "1m": 100,
+                "1h": 300,
+                "4h": 400,
+            }
+            df_15m = pd.DataFrame()
+            df_5m = pd.DataFrame()
+            df_1m = pd.DataFrame()
+            df_1h = pd.DataFrame()
+            df_4h = pd.DataFrame()
+            for tf in tfs:
+                limit = tf_limits.get(tf, 300)
+                frame = hyperliquid_service.get_candles(symbol, interval=tf, limit=limit)
+                if tf == "15m":
+                    df_15m = frame
+                elif tf == "5m":
+                    df_5m = frame
+                elif tf == "1m":
+                    df_1m = frame
+                elif tf == "1h":
+                    df_1h = frame
+                elif tf == "4h":
+                    df_4h = frame
 
-            if df_15m.empty:
-                df_15m = hyperliquid_service.get_candles(symbol, interval="15m", limit=300)
-            if df_5m.empty:
-                df_5m = hyperliquid_service.get_candles(symbol, interval="5m", limit=300)
-            if df_1m.empty:
-                df_1m = hyperliquid_service.get_candles(symbol, interval="1m", limit=100)
-            if df_1h.empty:
-                df_1h = hyperliquid_service.get_candles(symbol, interval="1h", limit=300)
-            if df_4h.empty:
-                df_4h = hyperliquid_service.get_candles(symbol, interval="4h", limit=400)
-
-            if df_15m.empty or df_1m.empty:
+            if df_15m.empty or ("1m" in tfs and df_1m.empty) or ("4h" in tfs and df_4h.empty):
                 return {
                     "ok": False,
-                    "error": f"No data for {symbol}: 15m={len(df_15m)} 1m={len(df_1m)}",
+                    "error": (
+                        f"No data for {symbol}: 15m={len(df_15m)} "
+                        f"1m={len(df_1m)} 4h={len(df_4h)}"
+                    ),
                 }
 
             numeric_cols = ["open", "high", "low", "close", "volume"]
@@ -640,7 +659,6 @@ class BotContext(LiveExecutionMixin):
                 "symbol": symbol,
                 "funding_rate": funding_rate_live,
             }
-            only = self._strategies_for_analysis(symbol)
             if only is not None:
                 extra_data["only_strategies"] = list(only)
 
@@ -649,19 +667,27 @@ class BotContext(LiveExecutionMixin):
                 extra_data=extra_data,
             )
 
+            def _ctx_round(val, digits=2):
+                try:
+                    if val is None or val == "UNKNOWN":
+                        return val
+                    return round(float(val), digits)
+                except (TypeError, ValueError):
+                    return val
+
             technical_context = {
                 "regime": result.get("regime"),
                 "regime_adx": result.get("regime_adx"),
-                "adx": round(result.get("adx", 0), 2),
-                "adx_slope": round(result.get("adx_slope", 0), 2),
-                "rsi": round(result.get("rsi", 0), 2),
-                "ema_9": round(result.get("ema_9", 0), 4),
-                "ema_20": round(result.get("ema_20", 0), 4),
-                "ema_50": round(result.get("ema_50", 0), 4),
-                "bb_upper": round(result.get("bb_upper", 0), 4),
-                "bb_lower": round(result.get("bb_lower", 0), 4),
-                "bb_width": round(result.get("bb_width", 0), 2),
-                "volume_ratio": round(result.get("volume_ratio", 100), 1),
+                "adx": _ctx_round(result.get("adx", 0), 2),
+                "adx_slope": _ctx_round(result.get("adx_slope", 0), 2),
+                "rsi": _ctx_round(result.get("rsi", 0), 2),
+                "ema_9": _ctx_round(result.get("ema_9", 0), 4),
+                "ema_20": _ctx_round(result.get("ema_20", 0), 4),
+                "ema_50": _ctx_round(result.get("ema_50", 0), 4),
+                "bb_upper": _ctx_round(result.get("bb_upper", 0), 4),
+                "bb_lower": _ctx_round(result.get("bb_lower", 0), 4),
+                "bb_width": _ctx_round(result.get("bb_width", 0), 2),
+                "volume_ratio": _ctx_round(result.get("volume_ratio", 100), 1),
                 "current_price": result.get("current_price"),
             }
 
@@ -813,11 +839,15 @@ class BotContext(LiveExecutionMixin):
             return
 
         level = None
+        lower = message.lower()
         upper = message.upper()
-        if any(marker in message for marker in ("❌", "🔥")) or any(
-            token in upper for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
+        if is_hl_rate_limit_text(message):
+            level = "WARNING"
+        elif any(marker in message for marker in ("❌", "🔥")) or any(
+            token in upper
+            for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
         ):
-            level = "ERROR"
+            level = "WARNING" if message.startswith("⚠️") else "ERROR"
         elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
             level = "WARNING"
 
@@ -1723,6 +1753,40 @@ class BotContext(LiveExecutionMixin):
                 state["_last_entry_time"] = None
                 sticky[key] = state
 
+    def _entry_balance_preflight(self, sig: dict, sig_symbol: str) -> dict | None:
+        """Fresh balance before AI/entry. None ⇒ skip (cooldown cleared, 10s pause applied)."""
+        acc = hyperliquid_service.get_account_balance(force_refresh=True)
+        if acc.get("status") != "success":
+            err_msg = acc.get("message", "unknown error")
+            self.add_log(
+                f"⚠️ Balance refresh failed — entry skipped this cycle: {err_msg}"
+            )
+            self._log_execution_error(
+                f"⚠️ BALANCE API ERROR: {self.active_symbol}",
+                reason=err_msg,
+                symbol=self.active_symbol,
+                side=sig.get("signal"),
+                strategy=sig.get("strategy"),
+            )
+            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+            time.sleep(10)
+            return None
+        if float(acc.get("total_equity", 0) or 0) <= 0:
+            self._log_execution_error(
+                f"⚠️ ZERO EQUITY: {self.active_symbol}",
+                reason=(
+                    "Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS "
+                    "and wallet funding"
+                ),
+                symbol=self.active_symbol,
+                side=sig.get("signal"),
+                strategy=sig.get("strategy"),
+            )
+            self._clear_strategy_entry_cooldown(sig.get("strategy"), sig_symbol)
+            time.sleep(10)
+            return None
+        return acc
+
     def _attach_trade_id_to_signal_analysis(self, trace_id: str, trade_id: str, symbol: str = None) -> None:
         """Patch the latest matching AI decision with trade_id (no duplicate row)."""
         if not trace_id or not trade_id:
@@ -1840,9 +1904,10 @@ class BotContext(LiveExecutionMixin):
                     if hasattr(strat_instance, "get_thesis_timeframe"):
                         tf_manage = strat_instance.get_thesis_timeframe()
                         if tf_manage:
-                            df_manage = hyperliquid_service.get_candles(
-                                symbol, interval=tf_manage, limit=400
-                            )
+                            with hl_priority("high"):
+                                df_manage = hyperliquid_service.get_candles(
+                                    symbol, interval=tf_manage, limit=400, priority="high"
+                                )
                             extra_manage = {tf_manage: df_manage}
                     custom_updates = strat_instance.manage_trade(
                         trade,
@@ -1928,7 +1993,10 @@ class BotContext(LiveExecutionMixin):
                     thesis_limit = int(strat.get_thesis_candle_limit() or thesis_limit)
                 except (TypeError, ValueError):
                     pass
-            df = hyperliquid_service.get_candles(symbol, interval=tf, limit=thesis_limit)
+            with hl_priority("high"):
+                df = hyperliquid_service.get_candles(
+                    symbol, interval=tf, limit=thesis_limit, priority="high"
+                )
             if df is None or getattr(df, "empty", True):
                 return False
 
@@ -2628,21 +2696,30 @@ class BotContext(LiveExecutionMixin):
                         "current_price": current_price,
                         "symbol": analysis_symbol,
                     }
-                    self.add_log(
-                        f"📊 {analysis_symbol} 15m Regime: {regime}{adx_regime_tag} | Price: {current_price:.4f} | "
-                        f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
-                        f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
-                        metadata=analysis_metrics,
-                    )
+                    if not sym_result.get("regime_skipped"):
+                        self.add_log(
+                            f"📊 {analysis_symbol} 15m Regime: {regime}{adx_regime_tag} | Price: {current_price:.4f} | "
+                            f"ADX: {adx:.1f} ({adx_note}) | RSI: {rsi:.1f} | EMA20/50: {ema_trend}"
+                            f"{cascade_ema} | Vol15m: {volume_ratio:.0f}%",
+                            metadata=analysis_metrics,
+                        )
                     live_price = float(sym_result.get("current_price_live", sym_df["close"].iloc[-1]))
-                    live_rsi = float(sym_result.get("rsi_live", rsi))
-                    live_ema20 = float(sym_result.get("ema_20_live", ema_20))
-                    live_ema50 = float(sym_result.get("ema_50_live", ema_50))
-                    live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
-                    self.add_log(
-                        f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
-                        f"EMA20/50 {live_ema_trend} | Vol15m(conf) {volume_ratio:.0f}%"
-                    )
+                    if sym_result.get("regime_skipped"):
+                        self.add_log(
+                            f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | "
+                            f"RSI n/a | EMA20/50 n/a | Vol15m(conf) {volume_ratio:.0f}%"
+                        )
+                    else:
+                        live_rsi = float(sym_result.get("rsi_live", rsi))
+                        live_ema20 = float(sym_result.get("ema_20_live", ema_20))
+                        live_ema50 = float(sym_result.get("ema_50_live", ema_50))
+                        live_ema_trend = (
+                            "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
+                        )
+                        self.add_log(
+                            f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
+                            f"EMA20/50 {live_ema_trend} | Vol15m(conf) {volume_ratio:.0f}%"
+                        )
                     for rej in (sym_result.get("rejections") or []):
                         reason = rej.get("reason") or "no reason"
                         strat_name = rej.get("strategy") or "strategy"
@@ -2866,6 +2943,7 @@ class BotContext(LiveExecutionMixin):
                             except Exception:
                                 skip_ai = False
 
+                        acc_for_entry = None
                         # 45s AI skip: do not Discord-notify, do not continue past loop sleep,
                         # do not arm fill-cooldown (never set on signal). Clear same-bar so
                         # the next loop can retry AI on this candle once the gate opens.
@@ -2881,6 +2959,10 @@ class BotContext(LiveExecutionMixin):
                             if sig_symbol:
                                 self._save_strategy_sticky(sig_symbol)
                         else:
+                            acc_for_entry = self._entry_balance_preflight(sig, sig_symbol)
+                            if acc_for_entry is None:
+                                continue
+
                             # Discord Pre-AI card: always show strategy-TF metrics (same as IA)
                             tech_discord = dict(ai_context or {})
                             tech_discord["strategy_timeframe"] = sig_tf
@@ -3085,49 +3167,20 @@ class BotContext(LiveExecutionMixin):
                             approved = True
                         
                         if approved:
-                            acc = hyperliquid_service.get_account_balance(force_refresh=True)
-                            if acc.get("status") == "success":
-                                equity = float(acc.get("total_equity", 0) or 0)
-                                acct_mode = acc.get("account_abstraction_mode", "unknown")
-                                if acct_mode not in ("unknown", "default", "disabled", ""):
-                                    self.add_log(
-                                        f"💰 Hyperliquid account mode: {acct_mode} | "
-                                        f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
-                                        f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
-                                    )
-                            else:
-                                equity = 0.0
-                                err_msg = acc.get("message", "unknown error")
-                                self.add_log(f"⚠️ Balance API unavailable: {err_msg}")
-                                self._log_execution_error(
-                                    f"⚠️ BALANCE API ERROR: {self.active_symbol}",
-                                    reason=err_msg,
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                            if equity <= 0 and getattr(self, "account_value", 0) > 0:
-                                equity = float(self.account_value)
+                            acc = acc_for_entry
+                            if acc is None:
+                                acc = self._entry_balance_preflight(sig, sig_symbol)
+                                if acc is None:
+                                    continue
+                            equity = float(acc.get("total_equity", 0) or 0)
+                            acct_mode = acc.get("account_abstraction_mode", "unknown")
+                            if acct_mode not in ("unknown", "default", "disabled", ""):
                                 self.add_log(
-                                    f"⚠️ Using cached account value ${equity:.2f} (live balance was $0)"
+                                    f"💰 Hyperliquid account mode: {acct_mode} | "
+                                    f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
+                                    f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
                                 )
-                                self._log_execution_error(
-                                    f"⚠️ EQUITY FALLBACK: {self.active_symbol}",
-                                    reason="Live balance API returned $0; using cached account_value",
-                                    equity=equity,
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                            elif acc.get("status") == "success" and equity <= 0:
-                                self._log_execution_error(
-                                    f"⚠️ ZERO EQUITY: {self.active_symbol}",
-                                    reason="Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS and wallet funding",
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                        
+
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
 
