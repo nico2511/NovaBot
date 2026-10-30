@@ -677,6 +677,7 @@ class HyperliquidService:
         *,
         require_forming_tail: bool = False,
         priority: str = "normal",
+        allow_stale: bool = True,
     ) -> pd.DataFrame:
         """
         Fetch OHLCV candles from Hyperliquid with robust data handling.
@@ -734,7 +735,7 @@ class HyperliquidService:
             if not df.empty:
                 return df.tail(limit).copy()
 
-            if require_forming_tail:
+            if require_forming_tail or not allow_stale:
                 return pd.DataFrame()
 
             if stale_entry and stale_entry.get("df") is not None:
@@ -760,7 +761,12 @@ class HyperliquidService:
                     f"429|{symbol}|{iv_norm}",
                     f"⚠️ Hyperliquid 429 (rate limit) – candles {symbol} {iv_norm}, cooldown {cd_sec}s",
                 )
-                if not require_forming_tail and stale_entry and stale_entry.get("df") is not None:
+                if (
+                    allow_stale
+                    and not require_forming_tail
+                    and stale_entry
+                    and stale_entry.get("df") is not None
+                ):
                     return stale_entry["df"].tail(limit).copy()
                 return pd.DataFrame()
             self.log(
@@ -2177,7 +2183,14 @@ class HyperliquidService:
             return px
 
         try:
-            df = self.get_candles(symbol, "1m", 1, priority="high")
+            df = self.get_candles(
+                symbol,
+                "1m",
+                1,
+                priority="high",
+                require_forming_tail=True,
+                allow_stale=False,
+            )
             if not df.empty:
                 px = float(df['close'].iloc[-1])
                 if px > 0:
