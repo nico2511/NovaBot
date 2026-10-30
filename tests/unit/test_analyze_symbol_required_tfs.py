@@ -51,3 +51,39 @@ def test_analyze_symbol_fetches_only_required_timeframes():
     assert out["ok"] is True
     called = {c.kwargs.get("interval") or c.args[1] for c in hl.get_candles.call_args_list}
     assert called <= {"15m", "4h"}
+
+
+def test_analyze_symbol_ok_false_when_4h_empty():
+    bot = object.__new__(BotContext)
+    bot.strategy_engine = MagicMock()
+    bot.strategy_engine.required_timeframes.return_value = {"15m", "4h"}
+    bot._restore_strategy_sticky = MagicMock()
+    bot._save_strategy_sticky = MagicMock()
+    bot._strategies_for_analysis = MagicMock(return_value=None)
+    bot.latest_data_map = {}
+
+    df = pd.DataFrame(
+        {
+            "open": [1.0],
+            "high": [1.1],
+            "low": [0.9],
+            "close": [1.0],
+            "volume": [10],
+        },
+        index=pd.date_range("2024-01-01", periods=1, freq="15min", tz="UTC"),
+    )
+    hl = MagicMock()
+
+    def _candles(symbol, interval="15m", limit=200, **kwargs):
+        if interval == "4h":
+            return pd.DataFrame()
+        return df
+
+    hl.get_candles.side_effect = _candles
+    hl.get_funding_rate.return_value = 0.0
+
+    with patch("app.core.bot.hyperliquid_service", hl):
+        out = bot._analyze_symbol_market("ETH")
+
+    assert out["ok"] is False
+    assert hl.get_candles.call_count == 2

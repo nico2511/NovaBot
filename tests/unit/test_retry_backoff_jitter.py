@@ -12,11 +12,18 @@ from app.services.hyperliquid_service import HyperliquidService
 
 def test_backoff_delay_jitter_within_bounds(monkeypatch):
     monkeypatch.setattr("app.utils.retry_decorator.random.random", lambda: 0.0)
-    d = backoff_delay(0, base=1.0, cap=4.0, rate_limited=True, jitter=True)
-    assert 1.5 <= d <= 2.5
+    d = backoff_delay(0, base=1.0, cap=4.0, rate_limited=False, jitter=True)
+    assert 0.75 <= d <= 1.25
     monkeypatch.setattr("app.utils.retry_decorator.random.random", lambda: 1.0)
     d2 = backoff_delay(1, base=1.0, cap=4.0, rate_limited=False, jitter=True)
     assert 1.875 <= d2 <= 3.125
+
+
+def test_backoff_rate_limited_flag_doubles_for_decorator_only(monkeypatch):
+    monkeypatch.setattr("app.utils.retry_decorator.random.random", lambda: 0.5)
+    plain = backoff_delay(0, base=1.0, cap=4.0, rate_limited=False, jitter=False)
+    doubled = backoff_delay(0, base=1.0, cap=4.0, rate_limited=True, jitter=False)
+    assert doubled == pytest.approx(plain * 2.0)
 
 
 def test_get_candles_429_total_sleep_under_8s():

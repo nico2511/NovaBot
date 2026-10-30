@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
 import time
 from typing import Tuple
+
+from app.utils.hl_log_patterns import is_hl_rate_limit_text
+
+logger = logging.getLogger(__name__)
 
 _DEDUP_SECONDS = 45
 _recent: dict[str, float] = {}
@@ -15,7 +20,18 @@ _lock = threading.Lock()
 _suppressed_counts: dict[str, int] = {}
 _suppressed_since: dict[str, float] = {}
 
-_DISCORD_ERROR_DEDUP_MINUTES = float(os.getenv("DISCORD_ERROR_DEDUP_MINUTES", "15"))
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r — using default %s", name, raw, default)
+        return default
+
+
+_DISCORD_ERROR_DEDUP_MINUTES = _env_float("DISCORD_ERROR_DEDUP_MINUTES", 15.0)
 _ERROR_WINDOW_S = int(_DISCORD_ERROR_DEDUP_MINUTES * 60)
 
 _KNOWN_SYMBOLS: set[str] | None = None
@@ -92,11 +108,7 @@ def _strip_long_parens(text: str) -> str:
 def normalize_alert_key(source: str, level: str, title: str, body: str) -> str:
     text = f"{title}\n{body}"
     lower_probe = text.lower()
-    if (
-        "429" in lower_probe
-        or "rate limit" in lower_probe
-        or "too many requests" in lower_probe
-    ):
+    if is_hl_rate_limit_text(text):
         return f"{source}|hl_rate_limit"
 
     for sym in sorted(_load_known_symbols(), key=len, reverse=True):

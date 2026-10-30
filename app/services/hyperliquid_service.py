@@ -1,7 +1,10 @@
 import eth_account
+import logging
 import os
 import threading
 from contextlib import nullcontext
+
+logger = logging.getLogger(__name__)
 
 from hyperliquid.info import Info
 from hyperliquid.exchange import Exchange
@@ -30,6 +33,8 @@ from app.utils.rate_limiter import (
     payload_priority,
     InfoRateLimited,
     hl_priority,
+    maybe_log_info_limiter_status,
+    _env_float,
 )
 
 
@@ -43,6 +48,7 @@ class ThrottledInfo(Info):
         try:
             result = super().post(url_path, payload)
             hl_info_limiter.note_success()
+            maybe_log_info_limiter_status(lambda msg: logger.info(msg))
             return result
         except ClientError as exc:
             if getattr(exc, "status_code", None) == 429 or _is_rate_limit_error(exc):
@@ -206,7 +212,7 @@ class HyperliquidService:
         
         # Balance cache to prevent 429s from frontend polling
         self._balance_cache = {"time": 0, "data": None}
-        self._cache_ttl = float(os.getenv("HL_BALANCE_CACHE_TTL", "60"))
+        self._cache_ttl = _env_float("HL_BALANCE_CACHE_TTL", 60.0)
         self._abstraction_cache = {"time": 0, "mode": None}
         self._balance_stale_log_at = 0.0
         
@@ -449,7 +455,9 @@ class HyperliquidService:
         df = entry.get("df")
         if df is None or getattr(df, "empty", True):
             return False
-        if len(df) < limit:
+        hl_len = int(entry.get("hl_len", len(df)))
+        needed = min(limit, hl_len)
+        if len(df) < needed:
             return False
         age = now_mono - float(entry.get("fetched_at", 0))
         ttl = self._forming_cache_ttl(iv)
@@ -513,13 +521,18 @@ class HyperliquidService:
         time_range = limit * interval_seconds * 1000
         max_retries = 3
         raw_candles = None
-        slept = 0.0
+        block_deadline = time.monotonic() + 8.0
         iv_norm = _normalize_interval(interval)
         pri_ctx = hl_priority(priority) if priority == "high" else nullcontext()
+
+        def _time_left() -> float:
+            return block_deadline - time.monotonic()
 
         with pri_ctx:
             for attempt in range(max_retries):
                 if cache_entry and attempt > 0:
+                    break
+                if _time_left() <= 0:
                     break
                 end_time = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
                 buffer = 1.5 + attempt
@@ -534,8 +547,6 @@ class HyperliquidService:
                         f"candles|{symbol}|{iv_norm}",
                         f"⚠️ Hyperliquid /info locally throttled – candles {symbol} {iv_norm}",
                     )
-                    if cache_entry:
-                        return pd.DataFrame()
                     return pd.DataFrame()
                 except Exception as e:
                     is_rl = _is_rate_limit_error(e)
@@ -549,13 +560,15 @@ class HyperliquidService:
                         )
                         return pd.DataFrame()
                     if is_rl and attempt < max_retries - 1:
+                        cd_until = hl_info_limiter.get_status().get("cooldown_until", 0)
+                        if cd_until > time.monotonic():
+                            break
                         delay = backoff_delay(
-                            attempt, base=1.0, cap=4.0, rate_limited=True
+                            attempt, base=1.0, cap=4.0, rate_limited=False
                         )
-                        if slept + delay > 8.0:
+                        if delay > _time_left():
                             break
                         time.sleep(delay)
-                        slept += delay
                         continue
                     if is_rl:
                         cooldown = hl_info_limiter.get_status().get("cooldown_until", 0)
@@ -573,14 +586,13 @@ class HyperliquidService:
 
                 if attempt < max_retries - 1:
                     delay = backoff_delay(attempt, base=1.0, cap=4.0, rate_limited=False)
-                    if slept + delay > 8.0:
+                    if delay > _time_left():
                         break
                     self.log(
                         f"Empty candles for {symbol} {interval}; "
                         f"retry in {delay:.2f}s ({attempt + 1}/{max_retries}, window×{buffer})"
                     )
                     time.sleep(delay)
-                    slept += delay
 
         if not raw_candles:
             self.log(f"⚠️ No candles returned for {symbol} {interval}")
@@ -600,6 +612,7 @@ class HyperliquidService:
             )
             return pd.DataFrame()
 
+        cache_key = (symbol, iv_norm)
         entry = {
             "df": df.copy(),
             "bar_open": current_bar_open(iv_norm),
@@ -608,7 +621,11 @@ class HyperliquidService:
             "hl_len": len(df),
         }
         with self._candle_cache_lock():
-            self._candle_cache_map()[symbol, iv_norm] = entry
+            existing = self._candle_cache_map().get(cache_key)
+            if existing and len(existing.get("df", pd.DataFrame())) > len(entry["df"]):
+                entry["df"] = existing["df"].copy()
+                entry["hl_len"] = len(entry["df"])
+            self._candle_cache_map()[cache_key] = entry
         return df
 
     def get_candles(
@@ -646,8 +663,10 @@ class HyperliquidService:
         with self._candle_cache_lock():
             entry = self._candle_cache_map().get(cache_key)
 
-        if entry and len(entry.get("df", pd.DataFrame())) >= limit:
-            if self._candle_entry_valid(
+        if entry:
+            df_cached = entry.get("df", pd.DataFrame())
+            hl_len = int(entry.get("hl_len", len(df_cached)))
+            if len(df_cached) >= limit and self._candle_entry_valid(
                 entry,
                 interval=interval,
                 limit=limit,
@@ -877,7 +896,7 @@ class HyperliquidService:
             self._open_orders_fetch_failed = False
             return self._filter_open_orders(orders, symbol)
         except Exception as e:
-            self.log(f"⚠️ Failed to fetch open orders: {e}")
+            self.log(f"⚠️ Failed to fetch open orders: {self._safe_err(e)}")
             return self._stale_open_orders_fallback(f"error: {e}", symbol)
 
     def _filter_open_orders(self, orders: list, symbol: str = None) -> list:
@@ -1735,14 +1754,17 @@ class HyperliquidService:
             self.log(f"❌ Failed to update leverage: {e}")
             return {"status": "error", "message": str(e)}
 
-    def _get_account_abstraction_mode(self, address: str) -> str:
+    def _get_account_abstraction_mode(self, address: str, *, use_high: bool = False) -> str:
         """Hyperliquid account mode: unifiedAccount, portfolioMargin, default, etc."""
         now = time.time()
         cached = getattr(self, "_abstraction_cache", None) or {"time": 0, "mode": None}
         if cached.get("mode") and now - float(cached.get("time", 0)) < 3600:
             return cached["mode"]
+        last_mode = cached.get("mode")
         try:
-            mode = self.info.post("/info", {"type": "userAbstraction", "user": address})
+            pri = hl_priority("high") if use_high else nullcontext()
+            with pri:
+                mode = self.info.post("/info", {"type": "userAbstraction", "user": address})
             if isinstance(mode, str):
                 resolved = mode.strip().strip('"')
             else:
@@ -1752,6 +1774,8 @@ class HyperliquidService:
             return resolved
         except Exception as e:
             self.log(f"⚠️ userAbstraction query failed: {self._safe_err(e)}")
+            if last_mode:
+                return last_mode
             return "unknown"
 
     @staticmethod
@@ -1797,7 +1821,9 @@ class HyperliquidService:
             with pri_ctx:
                 user_state = self.info.user_state(address)
                 spot_state = self.info.spot_user_state(address)
-            abstraction_mode = self._get_account_abstraction_mode(address)
+                abstraction_mode = self._get_account_abstraction_mode(
+                    address, use_high=force_refresh
+                )
 
             margin_summary = user_state.get("marginSummary", {}) or {}
             perp_account_value = float(margin_summary.get("accountValue", 0) or 0)
@@ -1844,7 +1870,15 @@ class HyperliquidService:
             
         except Exception as e:
             self.log(f"Error fetching account balance: {self._safe_err(e)}")
-            # If API fails, try to return stale cache if available
+            err = {
+                "status": "error",
+                "message": self._safe_err(e),
+                "total_equity": 0,
+                "available_balance": 0,
+                "margin_used": 0,
+            }
+            if force_refresh:
+                return err
             if self._balance_cache["data"]:
                 self._log_dedup(
                     "_balance_stale_log",
@@ -1852,14 +1886,7 @@ class HyperliquidService:
                     "⚠️ Returning stale balance cache due to API error",
                 )
                 return self._balance_cache["data"]
-                
-            return {
-                "status": "error",
-                "message": str(e),
-                "total_equity": 0,
-                "available_balance": 0,
-                "margin_used": 0
-            }
+            return err
     
     def get_account_value(self):
         """Get total account value in USDC."""
@@ -1952,7 +1979,7 @@ class HyperliquidService:
             self._positions_stale = False
             return positions
         except Exception as e:
-            self.log(f"Error fetching positions: {e}")
+            self.log(f"Error fetching positions: {self._safe_err(e)}")
             return self._stale_positions_fallback(f"error: {e}")
 
     @lightweight_operation

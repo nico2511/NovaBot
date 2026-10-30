@@ -2,23 +2,32 @@ from __future__ import annotations
 
 import time
 
+from unittest.mock import MagicMock
+
+from app.services.discord_service import DiscordService
 from app.utils import discord_dedup
 from app.utils.discord_dedup import normalize_alert_key, should_send_alert
 
 
-def test_normalize_collapses_symbols_and_tf():
-    k1 = normalize_alert_key("bot", "ERROR", "x", "Error fetching candles for ETH 15m")
-    k2 = normalize_alert_key("bot", "ERROR", "x", "Error fetching candles for BTC 4h")
-    assert k1 == k2 or "hl_rate_limit" in k1
+def test_normalize_collapses_real_429_not_prices():
+    k1 = normalize_alert_key(
+        "bot", "WARNING", "x", "⚠️ Hyperliquid 429 (rate limit) – candles ETH 15m"
+    )
+    k2 = normalize_alert_key(
+        "bot", "WARNING", "x", "⚠️ Hyperliquid 429 (rate limit) – candles BTC 4h"
+    )
+    assert k1.endswith("hl_rate_limit")
+    assert k1 == k2
+    assert not normalize_alert_key("bot", "ERROR", "x", "FAILED ETH @ 3429.5").endswith(
+        "hl_rate_limit"
+    )
 
 
-def test_rate_limit_key():
-    k = normalize_alert_key("bot", "WARNING", "t", "Hyperliquid 429 rate limit SOL 1m")
-    assert k.endswith("hl_rate_limit")
-
-
-def test_suppressed_counter_and_window():
+def test_hundred_429_alerts_one_send_then_plus_99():
     discord_dedup.reset_for_tests()
+    svc = DiscordService()
+    svc.alert_url = "http://example.invalid/webhook"
+    svc.send_alert = MagicMock()
     base = time.time()
     t = {"now": base}
     import app.utils.discord_dedup as dd
@@ -26,16 +35,22 @@ def test_suppressed_counter_and_window():
     orig = time.time
     dd.time.time = lambda: t["now"]
     try:
-        for i in range(5):
-            should_send_alert("bot", "ERROR", "t", f"429 fail {i}")
-        send, _k, sup, _since = should_send_alert("bot", "ERROR", "t", "429 fail again")
-        assert send is False
+        for i in range(100):
+            svc.notify("WARNING", "NovaBot", f"Hyperliquid 429 rate limit sym{i}", source="bot")
+        assert svc.send_alert.call_count == 1
         t["now"] = base + 16 * 60
-        send2, _k2, sup2, _since2 = should_send_alert("bot", "ERROR", "t", "429 fail new")
-        assert send2 is True
-        assert sup2 >= 4
+        svc.notify("WARNING", "NovaBot", "Hyperliquid 429 rate limit again", source="bot")
+        body = svc.send_alert.call_args[0][1]
+        assert "+99 similaires" in body
     finally:
         dd.time.time = orig
+
+
+def test_critical_keeps_45s_exact_key():
+    discord_dedup.reset_for_tests()
+    send1, _, _, _ = should_send_alert("app", "CRITICAL", "t", "disk full")
+    send2, _, _, _ = should_send_alert("app", "CRITICAL", "t", "disk full")
+    assert send1 and not send2
 
 
 def test_execution_keeps_short_window():

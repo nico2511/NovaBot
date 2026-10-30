@@ -38,6 +38,7 @@ from app.core.trade_thesis import (
 )
 from app.services.hyperliquid_service import hyperliquid_service
 from app.utils.rate_limiter import hl_priority
+from app.utils.hl_log_patterns import is_hl_rate_limit_text
 from app.services.discord_service import discord_service
 from app.core.trade_recorder import TradeRecorder
 from strategies.engine import StrategyEngine
@@ -839,18 +840,16 @@ class BotContext(LiveExecutionMixin):
 
         level = None
         lower = message.lower()
-        if "429" in lower or "rate limit" in lower or "hyperliquid 429" in lower:
-            level = "WARNING"
         upper = message.upper()
-        if level is None:
-            if any(marker in message for marker in ("❌", "🔥")) or any(
-                token in upper
-                for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
-            ):
-                if not message.startswith("⚠️") and "error fetching" not in lower:
-                    level = "ERROR"
-            elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
-                level = "WARNING"
+        if is_hl_rate_limit_text(message):
+            level = "WARNING"
+        elif any(marker in message for marker in ("❌", "🔥")) or any(
+            token in upper
+            for token in ("ERROR", "FAILED", "EXCEPTION", "TRACEBACK", "CRASH")
+        ):
+            level = "WARNING" if message.startswith("⚠️") else "ERROR"
+        elif message.startswith("⚠️") or "⚠️" in message[:4] or "WARNING" in upper:
+            level = "WARNING"
 
         if not level:
             return
@@ -2671,14 +2670,22 @@ class BotContext(LiveExecutionMixin):
                             metadata=analysis_metrics,
                         )
                     live_price = float(sym_result.get("current_price_live", sym_df["close"].iloc[-1]))
-                    live_rsi = float(sym_result.get("rsi_live", rsi))
-                    live_ema20 = float(sym_result.get("ema_20_live", ema_20))
-                    live_ema50 = float(sym_result.get("ema_50_live", ema_50))
-                    live_ema_trend = "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
-                    self.add_log(
-                        f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
-                        f"EMA20/50 {live_ema_trend} | Vol15m(conf) {volume_ratio:.0f}%"
-                    )
+                    if sym_result.get("regime_skipped"):
+                        self.add_log(
+                            f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | "
+                            f"RSI n/a | EMA20/50 n/a | Vol15m(conf) {volume_ratio:.0f}%"
+                        )
+                    else:
+                        live_rsi = float(sym_result.get("rsi_live", rsi))
+                        live_ema20 = float(sym_result.get("ema_20_live", ema_20))
+                        live_ema50 = float(sym_result.get("ema_50_live", ema_50))
+                        live_ema_trend = (
+                            "↗" if live_ema20 > live_ema50 else "↘" if live_ema20 < live_ema50 else "→"
+                        )
+                        self.add_log(
+                            f"🟡 {analysis_symbol} Live: Price {live_price:.4f} | RSI {live_rsi:.1f} | "
+                            f"EMA20/50 {live_ema_trend} | Vol15m(conf) {volume_ratio:.0f}%"
+                        )
                     for rej in (sym_result.get("rejections") or []):
                         reason = rej.get("reason") or "no reason"
                         strat_name = rej.get("strategy") or "strategy"
@@ -3122,19 +3129,11 @@ class BotContext(LiveExecutionMixin):
                         
                         if approved:
                             acc = hyperliquid_service.get_account_balance(force_refresh=True)
-                            if acc.get("status") == "success":
-                                equity = float(acc.get("total_equity", 0) or 0)
-                                acct_mode = acc.get("account_abstraction_mode", "unknown")
-                                if acct_mode not in ("unknown", "default", "disabled", ""):
-                                    self.add_log(
-                                        f"💰 Hyperliquid account mode: {acct_mode} | "
-                                        f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
-                                        f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
-                                    )
-                            else:
-                                equity = 0.0
+                            if acc.get("status") != "success":
                                 err_msg = acc.get("message", "unknown error")
-                                self.add_log(f"⚠️ Balance API unavailable: {err_msg}")
+                                self.add_log(
+                                    f"⚠️ Balance refresh failed — entry skipped this cycle: {err_msg}"
+                                )
                                 self._log_execution_error(
                                     f"⚠️ BALANCE API ERROR: {self.active_symbol}",
                                     reason=err_msg,
@@ -3142,20 +3141,16 @@ class BotContext(LiveExecutionMixin):
                                     side=sig.get("signal"),
                                     strategy=sig.get("strategy"),
                                 )
-                            if equity <= 0 and getattr(self, "account_value", 0) > 0:
-                                equity = float(self.account_value)
+                                continue
+                            equity = float(acc.get("total_equity", 0) or 0)
+                            acct_mode = acc.get("account_abstraction_mode", "unknown")
+                            if acct_mode not in ("unknown", "default", "disabled", ""):
                                 self.add_log(
-                                    f"⚠️ Using cached account value ${equity:.2f} (live balance was $0)"
+                                    f"💰 Hyperliquid account mode: {acct_mode} | "
+                                    f"perp=${float(acc.get('perp_account_value', 0) or 0):.2f} "
+                                    f"spot_usdc=${float(acc.get('spot_usdc_total', 0) or 0):.2f}"
                                 )
-                                self._log_execution_error(
-                                    f"⚠️ EQUITY FALLBACK: {self.active_symbol}",
-                                    reason="Live balance API returned $0; using cached account_value",
-                                    equity=equity,
-                                    symbol=self.active_symbol,
-                                    side=sig.get("signal"),
-                                    strategy=sig.get("strategy"),
-                                )
-                            elif acc.get("status") == "success" and equity <= 0:
+                            if equity <= 0:
                                 self._log_execution_error(
                                     f"⚠️ ZERO EQUITY: {self.active_symbol}",
                                     reason="Hyperliquid accountValue is $0 — check HL_ACCOUNT_ADDRESS and wallet funding",
@@ -3163,7 +3158,8 @@ class BotContext(LiveExecutionMixin):
                                     side=sig.get("signal"),
                                     strategy=sig.get("strategy"),
                                 )
-                        
+                                continue
+
                             sl_price = sig.get("sl")
                             entry_price = sig.get("price")
 
